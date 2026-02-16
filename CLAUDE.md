@@ -55,6 +55,12 @@ python3 infra/scripts/test_world_model.py
 python3 infra/scripts/test_human_task.py
 ```
 
+Wallet integration tests (requires running services):
+```bash
+python3 infra/scripts/test_wallet_integration.py        # F.1: Wallet service direct
+python3 infra/scripts/test_wallet_dashboard_e2e.py      # F.3: Wallet <-> Dashboard cross-service
+```
+
 Perception service tests in `services/perception/`:
 ```bash
 python3 services/perception/test_activity.py
@@ -81,7 +87,7 @@ python3 services/perception/test_yolo_detect.py
 | Dashboard Backend API | 8000 | soms-backend |
 | Mock LLM | 8001 | soms-mock-llm |
 | Voice Service | 8002 | soms-voice |
-| Wallet Service | 8003 | soms-wallet |
+| Wallet Service | (internal only) | soms-wallet |
 | Wallet App (PWA) | 8004 | soms-wallet-app |
 | PostgreSQL | 5432 | soms-postgres |
 | VOICEVOX Engine | 50021 | soms-voicevox |
@@ -109,6 +115,9 @@ office/{zone}/activity/{monitor_id}
 mcp/{agent_id}/request/{method}
 mcp/{agent_id}/response/{request_id}
 
+# Task completion report (published by backend)
+office/{zone}/task_report/{task_id}
+
 # Heartbeat (60s interval)
 {topic_prefix}/heartbeat
 ```
@@ -121,7 +130,9 @@ Brain subscribes to `office/#`, `hydro/#`, `aqua/#` and `mcp/+/response/#`.
 - **Brain → Dashboard**: REST API (`POST/GET/PUT /tasks`)
 - **Brain → Voice**: REST API (`POST /api/voice/announce`, `POST /api/voice/synthesize`)
 - **Perception → MQTT**: Publishes detection results to broker
+- **Backend → MQTT**: Publishes task completion reports to `office/{zone}/task_report/{task_id}` (authenticated)
 - **Brain ← MQTT**: Subscribes to sensor telemetry and perception events, triggers cognitive cycles on state changes
+- **MQTT Authentication**: All MQTT clients use username/password auth (`MQTT_USER`/`MQTT_PASS`, default: `soms`/`soms_dev_mqtt`)
 
 ### Brain Service Internals (`services/brain/src/`)
 
@@ -156,6 +167,8 @@ Brain subscribes to `office/#`, `hydro/#`, `aqua/#` and `mcp/+/response/#`.
 - Monitor config in `config/monitors.yaml` includes YOLO model paths, camera-zone mappings, and discovery settings
 
 ### nginx Routing (`services/dashboard/frontend/nginx.conf`)
+
+All upstreams use Docker DNS lazy resolution (`resolver 127.0.0.11` + `set $var`) so nginx starts even when upstream services are unavailable (returns 502 on request instead of crashing).
 
 | Path | Upstream |
 |------|----------|
@@ -247,6 +260,7 @@ Key variables in `.env` (see `env.example`):
 - `LLM_API_URL` — `http://mock-llm:8000/v1` (dev) or `http://ollama:11434/v1` (Docker内部) or `http://host.docker.internal:11434/v1` (ホストOllama)
 - `LLM_MODEL` — Model name for Ollama (e.g. `qwen2.5:14b`)
 - `MQTT_BROKER` / `MQTT_PORT` — Broker address (default: `mosquitto:1883`)
+- `MQTT_USER` / `MQTT_PASS` — MQTT credentials (default: `soms` / `soms_dev_mqtt`)
 - `DATABASE_URL` — `postgresql+asyncpg://user:pass@postgres:5432/soms` (Docker) or `sqlite+aiosqlite:///./soms.db` (fallback)
 - `POSTGRES_USER` / `POSTGRES_PASSWORD` — PostgreSQL credentials (default: `soms` / `soms_dev_password`)
 - `RTSP_URL` — Camera feed URL (dev: `rtsp://virtual-camera:8554/live`)

@@ -1,14 +1,14 @@
 # SOMS 作業状態ドキュメント — マルチワーカー引き継ぎ用
 
-**更新日時**: 2026-02-16 (Session L 更新)
+**更新日時**: 2026-02-16 (Session M 更新)
 **ブランチ**: main
-**HEAD**: `1feaa32` (docs: update Phase 1.5 session notes — all tests passed)
+**HEAD**: `0ac3969` (fix: use lazy DNS resolution in nginx for all upstreams)
 
-**Session L の成果**:
-- Phase 1.5 完全実装: デバイス出資モデル & 比例配分リワード (`53a6157`)
-- Event Store: 非同期バッファ書込み + 時間単位集計 (`2fbb556`)
-- E2E テストスイート: 52 テスト全 PASS (`efde3da`)
-- Brain 統合テスト: WalletBridge + 比例配分 + utility 重み付け 全 PASS
+**Session M の成果**:
+- Wallet ↔ Dashboard E2E テスト (F.3): 20/20 pass (`c4c37cc`)
+- Backend MQTT publish 認証修正 (`c4c37cc`)
+- nginx リスタートループ修正: 遅延DNS解決パターンに統一 (`0ac3969`)
+- CLAUDE.md ドキュメント乖離 6件修正
 
 ---
 
@@ -22,6 +22,7 @@
 | J | 全 CRITICAL/HIGH ISSUES 解消, healthcheck 追加, フロントエンド修正 | `c689908` |
 | K | QR リワードフロー, wallet-app デプロイ, Brain 堅牢化, MQTT 認証 | `8dabbe2` |
 | L | Phase 1.5 出資モデル, Event Store, Brain WalletBridge 統合 | `53a6157`, `2fbb556` |
+| M | Wallet↔Dashboard E2E テスト, MQTT auth 修正, nginx DNS修正, ドキュメント更新 | `c4c37cc`, `0ac3969` |
 
 ---
 
@@ -348,9 +349,12 @@ ISSUES.md の 32件は全件解決済み。以下は新規タスク候補:
 
 | タスク | 優先度 | 備考 |
 |--------|--------|------|
+| C.2: バッテリー監視ダッシュボード | 中 | SwarmHub 状態の可視化 |
+| C.3: フロントエンドエラーバウンダリ | 低 | 依存なし |
+| C.4: 認証レイヤー (nginx / API 基本認証) | 中 | C.1 完了済み |
+| C.5: Event Store ダッシュボード表示 | 中 | B.2 完了済み、hourly_aggregates をグラフ表示 |
+| E.1: 受諾音声ストック化 | 低 | 1-2秒レイテンシ解消 |
 | Model B 外部決済連携 (Stripe 等) | 中 | Phase 1.5 スキーマ対応済み、API 実装のみ |
-| Wallet App に出資 UI 追加 | 中 | PWA から shares 購入/返却/ポートフォリオ閲覧 |
-| Brain → Wallet utility_score 定期同期 | 低 | WalletBridge で heartbeat 時に送信中。専用同期は不要かも |
-| Event Store ダッシュボード可視化 | 低 | hourly_aggregates をグラフ表示 |
 | Eda/Ha メッシュネットワーク実装 | 中 | 設計ドキュメント完了 (`docs/08_edge_mesh_network`) |
-| users.py ルーター本実装 | 低 | 現在スタブのみ |
+| wallet-app 未コミット変更 (tailwindcss vite) | 低 | 要確認: 意図的な作業中か |
+| `hems/` ディレクトリ (untracked) | 低 | 要確認: 新プロジェクトか一時ファイルか |
