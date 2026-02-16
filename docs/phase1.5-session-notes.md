@@ -1,6 +1,6 @@
 # Phase 1.5 — デバイス出資モデル & 比例配分リワード: セッションノート
 
-## ステータス: Wallet テスト完了・Brain マージ待ち
+## ステータス: 全テスト完了 ✓
 
 **コミット**: `53a6157` (pushed to `origin/main`)
 **日付**: 2026-02-16
@@ -83,7 +83,21 @@
 | 12. Close Funding (reclaim + buy禁止) | PASS |
 | 13. Pool Model B (create → contribute → funded → activate → shares割当) | PASS |
 
-### 未実施テスト (Brain マージ後)
+### Brain 統合テスト: 全 PASSED (2026-02-16)
+
+| テスト | 結果 |
+|--------|------|
+| Brain 起動 (Event Store + WalletBridge + decay loop) | PASS |
+| MQTT heartbeat → WalletBridge → Wallet 転送 | PASS (metrics 更新確認) |
+| 比例配分 (95:5 → 62:3 = 65 total) | PASS |
+| WalletBridge 300s スロットル | PASS (2回目未転送) |
+| DeviceRegistry record_zone_action (+0.3/+0.5) | PASS |
+| DeviceRegistry utility clamp (max 2.0) | PASS |
+| DeviceRegistry decay (7d grace → 30d → 0.5) | PASS |
+| to_dict utility_score 含む | PASS |
+| XP contribution_weight (8 パターン, 0.5~4.0) | PASS |
+
+### テスト手順参考
 
 ### 1. スキーマ検証 ✅ (wallet コンテナ起動成功で確認済み)
 
@@ -184,9 +198,6 @@ docker logs -f soms-brain
 
 ---
 
-## 再開手順
+## 完了
 
-1. 他ワーカーの Event Store コミットを確認
-2. `brain/main.py` と `docker-compose.yml` のマージ (上記「マージ時の注意点」参照)
-3. Wallet E2E テスト実行 (Wallet 側は衝突なし、即テスト可能)
-4. Brain ビルド + 統合テスト
+Phase 1.5 実装・テスト全完了。Event Store ワーカーとのマージも問題なし。
