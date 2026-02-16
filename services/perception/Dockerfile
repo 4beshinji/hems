@@ -1,4 +1,4 @@
-FROM rocm/pytorch:latest
+FROM rocm/pytorch:rocm6.4.4_ubuntu22.04_py3.10_pytorch_release_2.7.1
 
 # Maintain directory structure for config path resolution:
 #   main.py uses: Path(__file__).parent.parent / "config" / "monitors.yaml"
