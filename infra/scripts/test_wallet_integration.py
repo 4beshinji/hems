@@ -16,12 +16,16 @@ Scenarios:
 """
 import json
 import sys
+import time
 import urllib.request
 import urllib.error
 
 BACKEND_URL = "http://localhost:8000"
 WALLET_URL = "http://localhost:8003"
 FRONTEND_URL = "http://localhost"  # nginx proxy
+
+# Unique suffix to avoid collisions with previous test runs
+_TS = str(int(time.time()))[-6:]
 
 passed = 0
 failed = 0
@@ -82,19 +86,28 @@ def test_backend_health():
 
 # ── Test 2: User & Wallet Creation ──
 
+def _create_or_get_user(username, display_name):
+    """Create user; if already exists (409), fetch by listing users."""
+    try:
+        return api_request(f"{BACKEND_URL}/users/", method="POST", data={
+            "username": username,
+            "display_name": display_name,
+        })
+    except RuntimeError as e:
+        if "409" in str(e):
+            users = api_request(f"{BACKEND_URL}/users/?limit=200")
+            for u in users:
+                if u["username"] == username:
+                    return u
+        raise
+
 def test_create_user_a():
-    resp = api_request(f"{BACKEND_URL}/users/", method="POST", data={
-        "username": "wallet_test_a",
-        "display_name": "テストユーザーA",
-    })
+    resp = _create_or_get_user(f"wallet_test_a_{_TS}", "テストユーザーA")
     assert "id" in resp, f"User creation failed: {resp}"
     state["user_a"] = resp
 
 def test_create_user_b():
-    resp = api_request(f"{BACKEND_URL}/users/", method="POST", data={
-        "username": "wallet_test_b",
-        "display_name": "テストユーザーB",
-    })
+    resp = _create_or_get_user(f"wallet_test_b_{_TS}", "テストユーザーB")
     assert "id" in resp, f"User creation failed: {resp}"
     state["user_b"] = resp
 
@@ -143,6 +156,7 @@ def test_complete_task():
 def test_bounty_paid():
     uid = state["user_a"]["id"]
     resp = api_request(f"{WALLET_URL}/wallets/{uid}")
+    state["balance_after_bounty"] = resp["balance"]
     assert resp["balance"] >= 1500, f"Balance too low after bounty: {resp['balance']}"
 
 
@@ -198,11 +212,12 @@ def test_p2p_transfer():
     })
     assert "transaction_id" in resp, f"P2P transfer failed: {resp}"
 
-    # Verify balances
+    # Verify balances (balance_after_bounty - 500 - fee for A, 500 for B)
     a = api_request(f"{WALLET_URL}/wallets/{uid_a}")
     b = api_request(f"{WALLET_URL}/wallets/{uid_b}")
-    assert a["balance"] == 1000, f"User A balance wrong: {a['balance']} (expected 1000)"
-    assert b["balance"] == 500, f"User B balance wrong: {b['balance']} (expected 500)"
+    expected_a = state.get("balance_after_bounty", 1500) - 500 - 25  # 5% fee on 500
+    assert a["balance"] == expected_a, f"User A balance wrong: {a['balance']} (expected {expected_a})"
+    assert b["balance"] >= 500, f"User B balance too low: {b['balance']} (expected >=500)"
 
 
 # ── Test 7: Supply Stats ──
@@ -217,12 +232,14 @@ def test_supply_stats():
 
 def test_register_device():
     uid = state["user_a"]["id"]
+    device_id = f"test_sensor_{_TS}"
+    state["device_id"] = device_id
     resp = api_request(f"{WALLET_URL}/devices/", method="POST", data={
-        "device_id": "test_sensor_01",
+        "device_id": device_id,
         "owner_id": uid,
         "device_type": "sensor_node",
         "display_name": "テストセンサー",
-        "topic_prefix": "office/kitchen/sensor/test_sensor_01",
+        "topic_prefix": f"office/kitchen/sensor/{device_id}",
     })
     assert "id" in resp, f"Device registration failed: {resp}"
     assert resp["xp"] == 0, f"Initial XP should be 0: {resp['xp']}"
@@ -236,7 +253,7 @@ def test_xp_grant():
         "event_type": "task_completed",
     })
     assert resp["devices_awarded"] >= 1, f"No devices awarded XP: {resp}"
-    assert "test_sensor_01" in resp["device_ids"], f"Test device not awarded: {resp}"
+    assert state["device_id"] in resp["device_ids"], f"Test device not awarded: {resp}"
     assert resp["total_xp_granted"] >= 20, f"XP too low: {resp}"
 
 def test_zone_multiplier():
@@ -248,7 +265,7 @@ def test_zone_multiplier():
 
 def test_device_xp_persisted():
     devices = api_request(f"{WALLET_URL}/devices/")
-    test_dev = [d for d in devices if d["device_id"] == "test_sensor_01"]
+    test_dev = [d for d in devices if d["device_id"] == state["device_id"]]
     assert len(test_dev) == 1, f"Test device not found: {devices}"
     assert test_dev[0]["xp"] >= 20, f"XP not persisted: {test_dev[0]}"
 

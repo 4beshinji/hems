@@ -170,6 +170,8 @@ services:
     build: ../services/wallet
     container_name: soms-wallet
     restart: always
+    ports:
+      - "8003:8000"
     depends_on:
       postgres:
         condition: service_healthy
