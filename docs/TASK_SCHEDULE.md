@@ -119,6 +119,15 @@ WS-A: Git整理 ──────┼──── WS-C: Dashboard/Backend ──
 
 ---
 
+### WS-A1: Wallet App 出資 UI
+
+| ID | タスク | 依存 | 工数目安 | 優先度 | 状態 |
+|----|--------|------|---------|--------|------|
+| A1.1 | Wallet App 出資 UI (Invest + DeviceDetail ページ) | Phase 1.5 | 3h | P2 | ✅完了 (`0f5b1f4`) |
+| A1.2 | Tailwind CSS v4 ビルド修正 (@tailwindcss/vite) | A1.1 | 0.5h | P1 | ✅完了 |
+
+---
+
 ### WS-G: Phase 1 準備
 
 | ID | タスク | 依存 | 工数目安 | 優先度 | 状態 |

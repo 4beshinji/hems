@@ -1,14 +1,14 @@
 # SOMS 作業状態ドキュメント — マルチワーカー引き継ぎ用
 
-**更新日時**: 2026-02-16 (Session M 更新)
+**更新日時**: 2026-02-16 (Session N 更新)
 **ブランチ**: main
-**HEAD**: `0ac3969` (fix: use lazy DNS resolution in nginx for all upstreams)
+**HEAD**: `0f5b1f4` (feat: add investment UI to wallet-app PWA)
 
-**Session M の成果**:
-- Wallet ↔ Dashboard E2E テスト (F.3): 20/20 pass (`c4c37cc`)
-- Backend MQTT publish 認証修正 (`c4c37cc`)
-- nginx リスタートループ修正: 遅延DNS解決パターンに統一 (`0ac3969`)
-- CLAUDE.md ドキュメント乖離 6件修正
+**Session N の成果**:
+- Wallet App 出資 UI 追加: Invest ページ (3タブ: Portfolio/Devices/Pools) + DeviceDetail ページ
+- Tailwind CSS v4 ビルド修正: `@tailwindcss/vite` プラグイン追加 (ユーティリティクラス未生成問題を解決)
+- BottomNav に 5番目「Invest」タブ追加, App.tsx にルート追加
+- API クライアント `stakes.ts`: 6 エンドポイント (getDevices, getDeviceFunding, buyShares, returnShares, getPortfolio, getPools)
 
 ---
 
@@ -23,6 +23,7 @@
 | K | QR リワードフロー, wallet-app デプロイ, Brain 堅牢化, MQTT 認証 | `8dabbe2` |
 | L | Phase 1.5 出資モデル, Event Store, Brain WalletBridge 統合 | `53a6157`, `2fbb556` |
 | M | Wallet↔Dashboard E2E テスト, MQTT auth 修正, nginx DNS修正, ドキュメント更新 | `c4c37cc`, `0ac3969` |
+| N | Wallet App 出資 UI (Invest/DeviceDetail ページ), Tailwind v4 ビルド修正 | `0f5b1f4` |
 
 ---
 
@@ -311,7 +312,7 @@ wallet    ← brain (WalletBridge REST)
 | Dashboard Backend | 9 .py | ~605 | 95% (users.py スタブ) |
 | Dashboard Frontend | ~11 .tsx/.ts | ~823 | 完成 |
 | Wallet (クレジット経済) | ~15 .py | 2,476 | 完成 (Phase 1.5 追加) |
-| Wallet App (PWA) | ~10 .tsx/.ts | ~500 | 完成 (Session K) |
+| Wallet App (PWA) | ~15 .tsx/.ts | ~1,100 | 完成 (Session N: 出資UI追加) |
 | Edge Firmware (Python) | 33 .py | ~2,562 | 完成 |
 | Edge Firmware (C++) | 4 .cpp/.h | ~817 | 完成 |
 | Infra/テスト | ~18 .py | ~3,500 | 完成 |
@@ -356,5 +357,4 @@ ISSUES.md の 32件は全件解決済み。以下は新規タスク候補:
 | E.1: 受諾音声ストック化 | 低 | 1-2秒レイテンシ解消 |
 | Model B 外部決済連携 (Stripe 等) | 中 | Phase 1.5 スキーマ対応済み、API 実装のみ |
 | Eda/Ha メッシュネットワーク実装 | 中 | 設計ドキュメント完了 (`docs/08_edge_mesh_network`) |
-| wallet-app 未コミット変更 (tailwindcss vite) | 低 | 要確認: 意図的な作業中か |
 | `hems/` ディレクトリ (untracked) | 低 | 要確認: 新プロジェクトか一時ファイルか |
