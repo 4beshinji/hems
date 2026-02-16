@@ -188,6 +188,25 @@ services:
       retries: 3
       start_period: 15s
 
+  # --- Wallet App (Mobile PWA) ---
+  wallet-app:
+    build: ../services/wallet-app
+    container_name: soms-wallet-app
+    restart: always
+    ports:
+      - "8004:80"
+    depends_on:
+      wallet:
+        condition: service_healthy
+    networks:
+      - soms-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:80/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # --- Local LLM Engine (Ollama) ---
   ollama:
     image: ollama/ollama:rocm
@@ -229,6 +248,9 @@ services:
       start_period: 10s
 
   # --- Perception Node ---
+  # Uses host networking for direct access to RTSP cameras and GPU devices
+  # on the local network. Cannot use soms-net bridge (no `networks:` key).
+  # MQTT_BROKER must be set to 'localhost' (not 'mosquitto') accordingly.
   perception:
     build: ../services/perception
     container_name: soms-perception

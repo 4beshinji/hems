@@ -11,22 +11,32 @@ from .sensor_fusion import SensorFusion
 logger = logging.getLogger(__name__)
 
 
+MAX_EVENTS_PER_ZONE = 100
+
+
 class WorldModel:
     """
     Maintains the unified state of all zones in the office.
     Integrates sensor data, occupancy information, and device states.
     """
-    
+
     def __init__(self):
         self.zones: Dict[str, ZoneState] = {}
         self.sensor_fusion = SensorFusion()
-        
+
         # Cache for LLM context (optimization)
         self._llm_context_cache: Optional[str] = None
         self._cache_timestamp: float = 0
-        
+
         # Sensor readings buffer for fusion
         self._sensor_readings: Dict[str, List] = {}
+
+    @staticmethod
+    def _add_event(zone: ZoneState, event: Event):
+        """Append an event to a zone, trimming oldest entries if over limit."""
+        zone.events.append(event)
+        if len(zone.events) > MAX_EVENTS_PER_ZONE:
+            zone.events = zone.events[-MAX_EVENTS_PER_ZONE:]
     
     def update_from_mqtt(self, topic: str, payload: dict):
         """
@@ -154,7 +164,7 @@ class WorldModel:
                     severity="info",
                     data={"device_id": device_id, "state": "open" if door_open else "closed"}
                 )
-                zone.events.append(event)
+                self._add_event(zone, event)
             zone._prev_door_state = door_open
 
         # Update timestamp
@@ -233,7 +243,7 @@ class WorldModel:
                 "completion_note": payload.get("completion_note", ""),
             }
         )
-        zone.events.append(event)
+        self._add_event(zone, event)
         logger.info("Task report received: task_id=%s status=%s",
                      payload.get("task_id"), payload.get("report_status"))
 
@@ -254,7 +264,7 @@ class WorldModel:
                     severity="info",
                     data={"count": zone.occupancy.person_count}
                 )
-                zone.events.append(event)
+                self._add_event(zone, event)
                 zone.occupancy.last_entry_time = current_time
             elif zone.occupancy.person_count < zone._prev_occupancy:
                 event = Event(
@@ -263,7 +273,7 @@ class WorldModel:
                     severity="info",
                     data={"count": zone.occupancy.person_count}
                 )
-                zone.events.append(event)
+                self._add_event(zone, event)
                 if zone.occupancy.person_count == 0:
                     zone.occupancy.last_exit_time = current_time
             
@@ -284,7 +294,7 @@ class WorldModel:
                     severity="warning",
                     data={"value": zone.environment.co2}
                 )
-                zone.events.append(event)
+                self._add_event(zone, event)
         
         # Temperature spike
         if zone.environment.temperature and zone._prev_temperature:
@@ -296,7 +306,7 @@ class WorldModel:
                     severity="warning",
                     data={"value": zone.environment.temperature, "change": temp_change}
                 )
-                zone.events.append(event)
+                self._add_event(zone, event)
         
         zone._prev_temperature = zone.environment.temperature
 
@@ -319,7 +329,7 @@ class WorldModel:
                         "person_count": zone.occupancy.person_count,
                     }
                 )
-                zone.events.append(event)
+                self._add_event(zone, event)
 
         # Sensor tamper: rapid environment change (use saved previous values)
         for channel, prev_val, threshold in [
@@ -354,7 +364,7 @@ class WorldModel:
                                     "value": current_val,
                                 }
                             )
-                            zone.events.append(event)
+                            self._add_event(zone, event)
 
             if current_val is not None:
                 if channel == "humidity":

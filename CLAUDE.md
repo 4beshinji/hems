@@ -29,7 +29,7 @@ docker logs -f soms-brain
 docker logs -f soms-perception
 ```
 
-Service names in docker-compose: `mosquitto`, `brain`, `postgres`, `backend`, `frontend`, `voicevox`, `voice-service`, `wallet`, `ollama`, `mock-llm`, `perception`
+Service names in docker-compose: `mosquitto`, `brain`, `postgres`, `backend`, `frontend`, `voicevox`, `voice-service`, `wallet`, `wallet-app`, `ollama`, `mock-llm`, `perception`
 
 ### Frontend Development
 
@@ -82,6 +82,7 @@ python3 services/perception/test_yolo_detect.py
 | Mock LLM | 8001 | soms-mock-llm |
 | Voice Service | 8002 | soms-voice |
 | Wallet Service | 8003 | soms-wallet |
+| Wallet App (PWA) | 8004 | soms-wallet-app |
 | PostgreSQL | 5432 | soms-postgres |
 | VOICEVOX Engine | 50021 | soms-voicevox |
 | Ollama (LLM) | 11434 | soms-ollama |

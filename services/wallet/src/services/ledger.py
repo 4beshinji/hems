@@ -79,7 +79,7 @@ async def transfer(
             select(LedgerEntry).filter(LedgerEntry.reference_id == reference_id).limit(1)
         )
         if existing.scalars().first():
-            raise ValueError(f"Duplicate reference_id: {reference_id}")
+            raise ValueError("Already claimed")
 
     # Lock wallets in id order to prevent deadlocks; auto-create if missing
     user_ids = sorted([from_user_id, to_user_id])

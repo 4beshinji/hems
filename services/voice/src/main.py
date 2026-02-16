@@ -54,8 +54,41 @@ app = FastAPI(
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
+    """Basic health check endpoint."""
     return {"service": "SOMS Voice Service", "status": "running"}
+
+
+@app.get("/health")
+async def health():
+    """Detailed health check: VOICEVOX + LLM connectivity."""
+    import aiohttp
+
+    checks = {}
+
+    # VOICEVOX check
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as s:
+            async with s.get(f"{voice_client.base_url}/speakers") as resp:
+                checks["voicevox"] = "ok" if resp.status == 200 else f"status={resp.status}"
+    except Exception as e:
+        checks["voicevox"] = f"error: {e}"
+
+    # LLM check
+    try:
+        llm_url = speech_gen.llm_api_url.rstrip("/")
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as s:
+            async with s.get(f"{llm_url}/models") as resp:
+                checks["llm"] = "ok" if resp.status == 200 else f"status={resp.status}"
+    except Exception as e:
+        checks["llm"] = f"error: {e}"
+
+    all_ok = all(v == "ok" for v in checks.values())
+    status_code = 200 if all_ok else 503
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content={"status": "healthy" if all_ok else "degraded", "checks": checks},
+        status_code=status_code,
+    )
 
 @app.post("/api/voice/synthesize", response_model=VoiceResponse)
 async def synthesize_text(request: SynthesizeRequest):

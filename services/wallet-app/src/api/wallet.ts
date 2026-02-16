@@ -7,7 +7,7 @@
  * See docs/parallel-dev/API_CONTRACTS.md §2 for full contract details.
  */
 
-const BASE = '/api/wallet';
+const BASE = import.meta.env.VITE_WALLET_API_URL || '/api/wallet';
 
 export interface Wallet {
   id: number;

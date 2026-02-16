@@ -25,6 +25,7 @@ function SetupScreen({ onSubmit }: { onSubmit: (id: number) => void }) {
         </div>
         <input
           type="number"
+          inputMode="numeric"
           min="1"
           value={input}
           onChange={e => setInput(e.target.value)}

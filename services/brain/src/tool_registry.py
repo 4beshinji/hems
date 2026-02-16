@@ -118,6 +118,23 @@ TOOLS = [
                 "properties": {}
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_device_status",
+            "description": "デバイスネットワークの状態を取得する。オフライン、低バッテリー、通信エラーなどの問題を確認できる。デバイスコマンド送信前に状態確認として使用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "zone_id": {
+                        "type": "string",
+                        "description": "ゾーンID（省略時: 全ゾーン）"
+                    }
+                },
+                "required": []
+            }
+        }
     }
 ]
 

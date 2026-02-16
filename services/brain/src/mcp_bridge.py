@@ -11,7 +11,7 @@ class MCPBridge:
         self.tools: Dict[str, Dict[str, Any]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
 
-    async def call_tool(self, agent_id: str, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def call_tool(self, agent_id: str, tool_name: str, arguments: Dict[str, Any], timeout: float = None) -> Dict[str, Any]:
         request_id = str(uuid.uuid4())
         topic = f"mcp/{agent_id}/request/call_tool"
 
@@ -29,17 +29,18 @@ class MCPBridge:
         self._loop = asyncio.get_running_loop()
         future = self._loop.create_future()
         self.pending_requests[request_id] = future
-        
+
         # Publish request
         self.mqtt_client.publish(topic, json.dumps(payload))
-        
+
+        effective_timeout = timeout or 10.0
         try:
             # Wait for response with timeout
-            response = await asyncio.wait_for(future, timeout=10.0)
+            response = await asyncio.wait_for(future, timeout=effective_timeout)
             return response
         except asyncio.TimeoutError:
             del self.pending_requests[request_id]
-            raise TimeoutError(f"Tool execution timed out: {tool_name} on {agent_id}")
+            raise TimeoutError(f"Tool execution timed out ({effective_timeout}s): {tool_name} on {agent_id}")
 
     def handle_response(self, topic: str, payload: Dict[str, Any]):
         # Expected topic: mcp/{agent_id}/response/{request_id}

@@ -9,13 +9,14 @@ from loguru import logger
 
 
 class ToolExecutor:
-    def __init__(self, sanitizer, mcp_bridge, dashboard_client, world_model, task_queue, session: aiohttp.ClientSession = None):
+    def __init__(self, sanitizer, mcp_bridge, dashboard_client, world_model, task_queue, session: aiohttp.ClientSession = None, device_registry=None):
         self.sanitizer = sanitizer
         self.mcp = mcp_bridge
         self.dashboard = dashboard_client
         self.world_model = world_model
         self.task_queue = task_queue
         self._session = session
+        self.device_registry = device_registry
         self.voice_url = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self.dashboard_api_url = os.getenv("DASHBOARD_API_URL", "http://backend:8000")
 
@@ -43,6 +44,8 @@ class ToolExecutor:
                 return await self._handle_get_zone_status(arguments)
             elif tool_name == "get_active_tasks":
                 return await self._handle_get_active_tasks()
+            elif tool_name == "get_device_status":
+                return await self._handle_get_device_status(arguments)
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -138,7 +141,7 @@ class ToolExecutor:
         }
 
     async def _handle_device_command(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Send command to edge device via MCPBridge."""
+        """Send command to edge device via MCPBridge with adaptive timeout."""
         agent_id = args.get("agent_id", "")
         tool_name = args.get("tool_name", "")
 
@@ -150,7 +153,21 @@ class ToolExecutor:
             except (json.JSONDecodeError, TypeError):
                 inner_args = {}
 
-        result = await self.mcp.call_tool(agent_id, tool_name, inner_args)
+        # Adaptive timeout from DeviceRegistry
+        timeout = None
+        if self.device_registry:
+            timeout = self.device_registry.get_timeout_for_device(agent_id)
+
+        result = await self.mcp.call_tool(agent_id, tool_name, inner_args, timeout=timeout)
+
+        # Handle queued responses (command queued for sleeping device)
+        if isinstance(result, dict) and result.get("status") == "queued":
+            target = result.get("target", agent_id)
+            return {
+                "success": True,
+                "result": f"コマンドをキューに追加: {target}/{tool_name} (デバイスの次回ウェイク時に配送)",
+            }
+
         return {
             "success": True,
             "result": f"デバイスコマンド実行完了: {agent_id}/{tool_name} -> {json.dumps(result, ensure_ascii=False)}",
@@ -209,3 +226,12 @@ class ToolExecutor:
             "success": True,
             "result": f"アクティブなタスク ({len(tasks)}件):\n" + "\n".join(summaries),
         }
+
+    async def _handle_get_device_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get device network status from DeviceRegistry."""
+        if not self.device_registry:
+            return {"success": False, "error": "DeviceRegistry が初期化されていません"}
+
+        zone_id = args.get("zone_id")
+        tree = self.device_registry.get_device_tree(zone_id=zone_id)
+        return {"success": True, "result": tree}

@@ -32,6 +32,46 @@ MSG_TIME_SYNC     = 0x82
 MSG_ACK           = 0xFE
 MSG_WAKE          = 0xFF
 
+# ── Eda/Ha mesh message types (0x10–0x18) ──
+
+MSG_RELAY          = 0x10
+MSG_ROUTE_DISCOVER = 0x11
+MSG_ROUTE_ANNOUNCE = 0x12
+MSG_QUEUE_STATUS   = 0x13
+MSG_POWER_REPORT   = 0x14
+MSG_REGISTER_V2    = 0x15
+MSG_SYNC_REQUEST   = 0x16
+MSG_SYNC_RESPONSE  = 0x17
+MSG_BUFFERED_BATCH = 0x18
+
+# ── Device types ──
+
+DEV_NAMAEDA = 0x10
+DEV_KAREDA  = 0x20
+DEV_HA      = 0x30
+DEV_REMOTE  = 0x40
+
+DEV_TYPE_NAMES = {
+    DEV_NAMAEDA: "namaeda",
+    DEV_KAREDA:  "kareda",
+    DEV_HA:      "ha",
+    DEV_REMOTE:  "remote",
+}
+
+# ── Power modes ──
+
+POWER_ALWAYS_ON   = 0x00
+POWER_LIGHT_SLEEP = 0x01
+POWER_DEEP_SLEEP  = 0x02
+POWER_ULTRA_LOW   = 0x03
+
+POWER_MODE_NAMES = {
+    POWER_ALWAYS_ON:   "ALWAYS_ON",
+    POWER_LIGHT_SLEEP: "LIGHT_SLEEP",
+    POWER_DEEP_SLEEP:  "DEEP_SLEEP",
+    POWER_ULTRA_LOW:   "ULTRA_LOW",
+}
+
 # ── Channel types (sensor data) ─────────────────────────────
 
 CH_TEMPERATURE    = 0x01
@@ -245,3 +285,139 @@ def encode_time_sync(epoch_seconds):
 def decode_time_sync(payload):
     """Returns int epoch_seconds."""
     return struct.unpack("<I", payload[:4])[0]
+
+
+# ── Eda/Ha mesh payload helpers ─────────────────────────────
+
+def encode_relay(dest_leaf_id, inner_frame):
+    """MSG_RELAY payload: dest_leaf_id(1B) + inner_frame_len(2B) + inner_frame."""
+    return struct.pack("<BH", dest_leaf_id, len(inner_frame)) + inner_frame
+
+
+def decode_relay(payload):
+    """Returns dict { dest_leaf_id, inner_frame: bytes }."""
+    dest, frame_len = struct.unpack_from("<BH", payload, 0)
+    inner = payload[3:3 + frame_len]
+    return {"dest_leaf_id": dest, "inner_frame": inner}
+
+
+def encode_register_v2(hw_type, dev_type, power_mode, capabilities, battery_pct=0xFF):
+    """
+    MSG_REGISTER_V2 payload:
+    hw_type(1B) + dev_type(1B) + power_mode(1B) + battery_pct(1B) + cap_count(1B) + caps(NB)
+    battery_pct: 0-100, or 0xFF if unknown.
+    """
+    buf = struct.pack("BBBBB", hw_type, dev_type, power_mode, battery_pct, len(capabilities))
+    for cap in capabilities:
+        buf += struct.pack("B", cap)
+    return buf
+
+
+def decode_register_v2(payload):
+    """Returns dict { hw_type, dev_type, power_mode, battery_pct, capabilities }."""
+    hw, dev, pwr, batt, n = struct.unpack_from("BBBBB", payload, 0)
+    caps = []
+    for i in range(n):
+        c = payload[5 + i]
+        caps.append(CAPABILITY_NAMES.get(c, f"unknown_0x{c:02x}"))
+    return {
+        "hw_type": HW_NAMES.get(hw, f"unknown_0x{hw:02x}"),
+        "dev_type": DEV_TYPE_NAMES.get(dev, f"unknown_0x{dev:02x}"),
+        "power_mode": POWER_MODE_NAMES.get(pwr, f"unknown_0x{pwr:02x}"),
+        "battery_pct": None if batt == 0xFF else batt,
+        "capabilities": caps,
+    }
+
+
+def encode_route_announce(device_id, dev_type, hops, child_count):
+    """
+    MSG_ROUTE_ANNOUNCE payload:
+    device_id(1B) + dev_type(1B) + hops(1B) + child_count(1B)
+    """
+    return struct.pack("BBBB", device_id, dev_type, hops, child_count)
+
+
+def decode_route_announce(payload):
+    """Returns dict { device_id, dev_type, hops, child_count }."""
+    did, dev, hops, children = struct.unpack_from("BBBB", payload, 0)
+    return {
+        "device_id": did,
+        "dev_type": DEV_TYPE_NAMES.get(dev, f"unknown_0x{dev:02x}"),
+        "hops": hops,
+        "child_count": children,
+    }
+
+
+def encode_route_discover(ttl=3, origin_id=0):
+    """MSG_ROUTE_DISCOVER payload: ttl(1B) + origin_id(1B)."""
+    return struct.pack("BB", ttl, origin_id)
+
+
+def decode_route_discover(payload):
+    """Returns dict { ttl, origin_id }."""
+    ttl, origin = struct.unpack_from("BB", payload, 0)
+    return {"ttl": ttl, "origin_id": origin}
+
+
+def encode_queue_status(queued_count, target_ids):
+    """
+    MSG_QUEUE_STATUS payload:
+    queued_count(1B) + target_count(1B) + target_ids(NB)
+    """
+    buf = struct.pack("BB", queued_count, len(target_ids))
+    for tid in target_ids:
+        buf += struct.pack("B", tid)
+    return buf
+
+
+def decode_queue_status(payload):
+    """Returns dict { queued_count, targets: [int] }."""
+    qcount, tcount = struct.unpack_from("BB", payload, 0)
+    targets = []
+    for i in range(tcount):
+        targets.append(payload[2 + i])
+    return {"queued_count": qcount, "targets": targets}
+
+
+def encode_power_report(power_mode, battery_pct, next_wake_sec=0):
+    """
+    MSG_POWER_REPORT payload:
+    power_mode(1B) + battery_pct(1B) + next_wake_sec(4B, little-endian)
+    next_wake_sec: seconds until next wake, 0 = no scheduled wake.
+    """
+    return struct.pack("<BBI", power_mode, battery_pct, next_wake_sec)
+
+
+def decode_power_report(payload):
+    """Returns dict { power_mode, battery_pct, next_wake_sec }."""
+    pwr, batt, wake = struct.unpack_from("<BBI", payload, 0)
+    return {
+        "power_mode": POWER_MODE_NAMES.get(pwr, f"unknown_0x{pwr:02x}"),
+        "battery_pct": None if batt == 0xFF else batt,
+        "next_wake_sec": wake,
+    }
+
+
+def encode_buffered_batch(entries):
+    """
+    MSG_BUFFERED_BATCH payload:
+    entry_count(1B) + entries[leaf_id(1B) + msg_type(1B) + payload_len(1B) + payload(NB)]
+    """
+    buf = struct.pack("B", len(entries))
+    for leaf_id, msg_type, payload in entries:
+        buf += struct.pack("BBB", leaf_id, msg_type, len(payload)) + payload
+    return buf
+
+
+def decode_buffered_batch(payload):
+    """Returns list of (leaf_id, msg_type, payload_bytes)."""
+    count = payload[0]
+    entries = []
+    offset = 1
+    for _ in range(count):
+        leaf_id, msg_type, plen = struct.unpack_from("BBB", payload, offset)
+        offset += 3
+        p = payload[offset:offset + plen]
+        offset += plen
+        entries.append((leaf_id, msg_type, p))
+    return entries

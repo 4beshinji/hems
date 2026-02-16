@@ -16,6 +16,7 @@ from dashboard_client import DashboardClient
 from tool_executor import ToolExecutor
 from tool_registry import get_tools
 from system_prompt import build_system_message
+from device_registry import DeviceRegistry
 
 load_dotenv()
 
@@ -39,6 +40,8 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return f"title={args.get('title', '')}"
     elif tool_name == "get_zone_status":
         return f"zone={args.get('zone_id', '')}"
+    elif tool_name == "get_device_status":
+        return f"zone={args.get('zone_id', 'all')}"
     return str(args)[:50]
 
 
@@ -50,6 +53,7 @@ class Brain:
         self.mcp = MCPBridge(self.client)
         self.sanitizer = Sanitizer()
         self.world_model = WorldModel()
+        self.device_registry = DeviceRegistry()
 
         # Initialized in run() with shared session
         self.llm = None
@@ -91,6 +95,14 @@ class Brain:
         """Process MQTT message on the asyncio thread (thread-safe)."""
         self.world_model.update_from_mqtt(topic, payload)
 
+        # Forward heartbeat messages to DeviceRegistry
+        if "/heartbeat" in topic:
+            parts = topic.split("/")
+            # Extract device_id from topic (e.g., office/main/sensor/env_01/heartbeat)
+            if len(parts) >= 4:
+                device_id = parts[3]
+                self.device_registry.update_from_heartbeat(device_id, payload)
+
         # Check if new events were generated -> trigger cycle
         current_event_counts = {
             zid: len(z.events) for zid, z in self.world_model.zones.items()
@@ -101,6 +113,9 @@ class Brain:
 
     async def cognitive_cycle(self):
         """ReAct cognitive cycle: Think → Act → Observe → repeat."""
+        cycle_start = time.time()
+        total_tool_calls = 0
+
         # Process task queue
         if self.task_queue:
             await self.task_queue.process_queue()
@@ -109,6 +124,11 @@ class Brain:
         llm_context = self.world_model.get_llm_context()
         if not llm_context:
             return
+
+        # Inject device network status
+        device_summary = self.device_registry.get_status_summary()
+        if device_summary:
+            llm_context += f"\n\n### デバイスネットワーク状態\n{device_summary}"
 
         # Collect recent events (last 5 minutes)
         now = time.time()
@@ -177,6 +197,7 @@ class Brain:
         consecutive_errors = 0
 
         # ReAct loop
+        iteration = 0
         for iteration in range(1, REACT_MAX_ITERATIONS + 1):
             logger.info(f"ReAct iteration {iteration}/{REACT_MAX_ITERATIONS}")
 
@@ -192,7 +213,7 @@ class Brain:
                     logger.info(f"LLM (no action): {response.content[:200]}")
                 break
 
-            # Layer 3: Filter tool calls (duplicates, speak limit)
+            # Layer 3: Filter tool calls (duplicates, speak limit, task dedup)
             filtered_tool_calls = []
             for tc in response.tool_calls:
                 name = tc["function"]["name"]
@@ -210,6 +231,30 @@ class Brain:
                         logger.warning(f"Skipping speak: max {MAX_SPEAK_PER_CYCLE}/cycle reached")
                         continue
                     speak_count += 1
+
+                # Guard 4: Skip create_task if similar title exists in active tasks
+                # or was recently attempted (prevents retry loop after rate limit)
+                if name == "create_task":
+                    proposed_title = args.get("title", "")
+                    # Check against active tasks
+                    if active_tasks and any(
+                        proposed_title.lower() in t.get("title", "").lower()
+                        or t.get("title", "").lower() in proposed_title.lower()
+                        for t in active_tasks if proposed_title and t.get("title")
+                    ):
+                        logger.warning(f"Skipping create_task: similar active task exists for '{proposed_title}'")
+                        continue
+                    # Check against recent action history (last 30 min)
+                    recent_creates = [
+                        a for a in self._action_history
+                        if a["tool"] == "create_task" and a["time"] > now - 1800
+                    ]
+                    if any(
+                        proposed_title.lower() in a.get("summary", "").lower()
+                        for a in recent_creates if proposed_title
+                    ):
+                        logger.warning(f"Skipping create_task: '{proposed_title}' was already attempted recently")
+                        continue
 
                 filtered_tool_calls.append(tc)
                 tool_call_history.append(call_key)
@@ -234,6 +279,7 @@ class Brain:
             messages.append(assistant_msg)
 
             # Execute each tool call
+            total_tool_calls += len(filtered_tool_calls)
             cycle_aborted = False
             for tc in filtered_tool_calls:
                 tool_name = tc["function"]["name"]
@@ -282,7 +328,10 @@ class Brain:
         cutoff_2h = time.time() - 7200
         self._action_history = [a for a in self._action_history if a["time"] > cutoff_2h]
 
-        logger.info("Cycle complete.")
+        elapsed = time.time() - cycle_start
+        logger.info(
+            f"Cycle complete: iterations={iteration}, tool_calls={total_tool_calls}, elapsed={elapsed:.1f}s"
+        )
 
     async def run(self):
         self._loop = asyncio.get_running_loop()
@@ -312,6 +361,7 @@ class Brain:
                 world_model=self.world_model,
                 task_queue=self.task_queue,
                 session=session,
+                device_registry=self.device_registry,
             )
             logger.info("All components initialized with shared HTTP session")
 

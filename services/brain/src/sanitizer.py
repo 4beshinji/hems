@@ -32,7 +32,7 @@ class Sanitizer:
             return self._validate_device_command(args)
         elif tool_name == "speak":
             return self._validate_speak(args)
-        elif tool_name in ("get_zone_status", "get_active_tasks"):
+        elif tool_name in ("get_zone_status", "get_active_tasks", "get_device_status"):
             return True, "Query tools are always allowed"
         else:
             logger.warning(f"REJECTED: Unknown tool {tool_name}")

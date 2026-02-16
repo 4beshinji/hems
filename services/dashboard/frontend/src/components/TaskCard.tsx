@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { MapPin, Coins, Zap, Circle, AlertCircle, AlertTriangle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { MapPin, Coins, Zap, Circle, AlertCircle, AlertTriangle, QrCode, X } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import Card from './ui/Card';
 import Badge from './ui/Badge';
 import Button from './ui/Button';
@@ -73,6 +74,7 @@ export default function TaskCard({ task, isAccepted, onAccept, onComplete, onIgn
     const [showReport, setShowReport] = useState(false);
     const [reportStatus, setReportStatus] = useState('');
     const [reportNote, setReportNote] = useState('');
+    const [showQR, setShowQR] = useState(false);
 
     return (
         <Card elevation={2} padding="medium" hoverable>
@@ -215,13 +217,67 @@ export default function TaskCard({ task, isAccepted, onAccept, onComplete, onIgn
                 )}
 
                 {task.is_completed && (
-                    <div className="pt-2">
+                    <div className="pt-2 flex items-center gap-2">
                         <Badge variant="success" size="medium">
                             ✓ 完了済み
                         </Badge>
+                        {task.bounty_gold > 0 && (
+                            <Button
+                                variant="secondary"
+                                size="small"
+                                onClick={() => setShowQR(true)}
+                                className="flex items-center gap-1"
+                            >
+                                <QrCode size={14} />
+                                QR で報酬を受け取る
+                            </Button>
+                        )}
                     </div>
                 )}
             </div>
+
+            {/* QR Reward Modal */}
+            <AnimatePresence>
+                {showQR && (
+                    <motion.div
+                        className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setShowQR(false)}
+                    >
+                        <motion.div
+                            className="relative bg-white p-8 rounded-2xl text-center max-w-sm mx-4"
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.8, opacity: 0 }}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <button
+                                onClick={() => setShowQR(false)}
+                                className="absolute top-3 right-3 text-[var(--gray-400)] hover:text-[var(--gray-600)]"
+                            >
+                                <X size={20} />
+                            </button>
+                            <QRCodeSVG
+                                value={`soms://reward?task_id=${task.id}&amount=${task.bounty_gold}`}
+                                size={280}
+                                level="M"
+                            />
+                            <p className="mt-4 text-lg font-bold text-[var(--gray-900)]">
+                                スマホで読み取ってください
+                            </p>
+                            <div className="mt-2 flex items-center justify-center gap-1 text-[var(--gold-dark)]">
+                                <Coins size={18} />
+                                <span className="text-xl font-bold">{task.bounty_gold} SOMS</span>
+                            </div>
+                            <p className="text-sm text-[var(--gray-500)] mt-2">
+                                {task.title}
+                            </p>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </Card>
     );
 }

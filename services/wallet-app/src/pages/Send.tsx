@@ -66,6 +66,7 @@ export default function Send({ userId }: SendProps) {
           <label className="block text-sm text-gray-400 mb-1">Recipient User ID</label>
           <input
             type="number"
+            inputMode="numeric"
             value={toUserId}
             onChange={e => setToUserId(e.target.value)}
             placeholder="e.g. 2"
@@ -77,6 +78,7 @@ export default function Send({ userId }: SendProps) {
           <label className="block text-sm text-gray-400 mb-1">Amount (SOMS)</label>
           <input
             type="number"
+            inputMode="decimal"
             step="0.001"
             min="0"
             value={amount}
