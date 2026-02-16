@@ -6,6 +6,8 @@ import Home from './pages/Home';
 import Scan from './pages/Scan';
 import Send from './pages/Send';
 import History from './pages/History';
+import Invest from './pages/Invest';
+import DeviceDetail from './pages/DeviceDetail';
 
 function SetupScreen({ onSubmit }: { onSubmit: (id: number) => void }) {
   const [input, setInput] = useState('');
@@ -63,6 +65,8 @@ export default function App() {
         <Route path="/scan" element={<Scan userId={userId} />} />
         <Route path="/send" element={<Send userId={userId} />} />
         <Route path="/history" element={<History userId={userId} />} />
+        <Route path="/invest" element={<Invest userId={userId} />} />
+        <Route path="/invest/device/:deviceId" element={<DeviceDetail userId={userId} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <BottomNav />
