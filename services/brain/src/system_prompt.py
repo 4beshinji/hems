@@ -1,10 +1,15 @@
 """
 System prompt builder for HEMS Brain with character injection.
 """
+from dataclasses import fields as dc_fields, asdict
 
 
-def build_system_message(character: dict = None) -> dict:
-    """Build system message with safety rules + character personality."""
+def build_system_message(character=None) -> dict:
+    """Build system message with safety rules + character personality.
+
+    Args:
+        character: CharacterConfig dataclass or None.
+    """
 
     # Base safety rules (NOT overridable by character)
     base = """あなたは自宅環境を管理するAIアシスタント「HEMS Brain」です。
@@ -32,65 +37,71 @@ def build_system_message(character: dict = None) -> dict:
 
     # Character injection
     if character:
-        identity = character.get("identity", {})
-        personality = character.get("personality", {})
-        speaking = character.get("speaking_style", {})
+        identity = getattr(character, "identity", None)
+        personality = getattr(character, "personality", None)
+        speaking = getattr(character, "speaking_style", None)
 
         char_section = "\n\n## キャラクター設定"
 
-        name = identity.get("name")
-        if name:
-            char_section += f"\n- 名前: {name}"
-            reading = identity.get("name_reading")
-            if reading:
-                char_section += f"（{reading}）"
+        if identity:
+            name = getattr(identity, "name", None)
+            if name:
+                char_section += f"\n- 名前: {name}"
+                reading = getattr(identity, "name_reading", None)
+                if reading:
+                    char_section += f"（{reading}）"
 
-        first_person = identity.get("first_person")
-        if first_person:
-            char_section += f"\n- 一人称: {first_person}"
+            first_person = getattr(identity, "first_person", None)
+            if first_person:
+                char_section += f"\n- 一人称: {first_person}"
 
-        second_person = identity.get("second_person")
-        if second_person:
-            char_section += f"\n- 二人称: {second_person}"
+            second_person = getattr(identity, "second_person", None)
+            if second_person:
+                char_section += f"\n- 二人称: {second_person}"
 
-        archetype = personality.get("archetype")
-        if archetype:
-            char_section += f"\n- 性格: {archetype}"
+        if personality:
+            archetype = getattr(personality, "archetype", None)
+            if archetype:
+                char_section += f"\n- 性格: {archetype}"
 
-        traits = personality.get("traits", [])
-        if traits:
-            char_section += f"\n- 特徴: {', '.join(traits)}"
+            traits = getattr(personality, "traits", [])
+            if traits:
+                char_section += f"\n- 特徴: {', '.join(traits)}"
 
-        notes = personality.get("behavioral_notes")
-        if notes:
-            char_section += f"\n- 行動指針:\n{notes}"
+            notes = getattr(personality, "behavioral_notes", None)
+            if notes:
+                char_section += f"\n- 行動指針:\n{notes}"
 
-        formality = personality.get("formality")
-        if formality is not None:
-            levels = {0: "ため口", 1: "カジュアル敬語", 2: "標準敬語", 3: "丁寧語", 4: "最敬語"}
-            char_section += f"\n- 敬語レベル: {levels.get(formality, '標準')}"
+            formality = getattr(personality, "formality", None)
+            if formality is not None:
+                levels = {0: "ため口", 1: "カジュアル敬語", 2: "標準敬語", 3: "丁寧語", 4: "最敬語"}
+                char_section += f"\n- 敬語レベル: {levels.get(formality, '標準')}"
 
-        endings = speaking.get("endings", {})
-        if endings:
-            char_section += "\n- 文末パターン:"
-            for tone, patterns in endings.items():
-                if patterns:
-                    char_section += f"\n  - {tone}: {', '.join(patterns[:3])}"
+        if speaking:
+            endings = getattr(speaking, "endings", None)
+            if endings:
+                char_section += "\n- 文末パターン:"
+                for f in dc_fields(endings):
+                    patterns = getattr(endings, f.name, [])
+                    if patterns:
+                        char_section += f"\n  - {f.name}: {', '.join(patterns[:3])}"
 
-        vocab = speaking.get("vocabulary", {})
-        avoid = vocab.get("avoid", [])
-        if avoid:
-            char_section += f"\n- 禁止語彙: {', '.join(avoid)}"
+            vocab = getattr(speaking, "vocabulary", None)
+            if vocab:
+                avoid = getattr(vocab, "avoid", [])
+                if avoid:
+                    char_section += f"\n- 禁止語彙: {', '.join(avoid)}"
 
-        catchphrase = vocab.get("catchphrase")
-        if catchphrase:
-            char_section += f"\n- 決め台詞: {catchphrase}"
+                catchphrase = getattr(vocab, "catchphrase", None)
+                if catchphrase:
+                    char_section += f"\n- 決め台詞: {catchphrase}"
 
         # Check for full override (advanced users only)
-        templates = character.get("prompt_templates", {})
-        override = templates.get("system_prompt_override")
-        if override:
-            return {"role": "system", "content": override}
+        templates = getattr(character, "prompt_templates", None)
+        if templates:
+            override = getattr(templates, "system_prompt_override", None)
+            if override:
+                return {"role": "system", "content": override}
 
         base += char_section
 

@@ -28,12 +28,26 @@ logger = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 
-# The config root is resolved relative to the project root.
-# In Docker, this is typically /app/config or bind-mounted.
-# Locally, we walk up from this file to find the project root.
+# The config root is resolved from CONFIG_DIR env var (Docker) or
+# by walking up from this file to the project root (local dev).
 _THIS_DIR = Path(__file__).resolve().parent
-_PROJECT_ROOT = _THIS_DIR.parents[3]  # services/brain/src -> project root
-_CONFIG_DIR = _PROJECT_ROOT / "config"
+
+def _find_config_dir() -> Path:
+    """Find the config directory, preferring CONFIG_DIR env var."""
+    env_dir = os.environ.get("CONFIG_DIR")
+    if env_dir:
+        return Path(env_dir)
+    # Docker: config is bind-mounted at /config
+    if Path("/config/characters").is_dir():
+        return Path("/config")
+    # Local dev: walk up from services/brain/src/ to project root
+    for parent in _THIS_DIR.parents:
+        candidate = parent / "config" / "characters"
+        if candidate.is_dir():
+            return parent / "config"
+    return _THIS_DIR / "config"
+
+_CONFIG_DIR = _find_config_dir()
 _CHARACTERS_DIR = _CONFIG_DIR / "characters"
 
 
