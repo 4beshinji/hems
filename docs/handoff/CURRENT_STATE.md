@@ -1,227 +1,356 @@
 # SOMS 作業状態ドキュメント — マルチワーカー引き継ぎ用
 
-**更新日時**: 2026-02-13 (Session I 更新)
+**更新日時**: 2026-02-16 (Session L 更新)
 **ブランチ**: main
-**HEAD**: `c0467ac` (docs: add parallel development worker guide and API contracts)
+**HEAD**: `1feaa32` (docs: update Phase 1.5 session notes — all tests passed)
 
-**Session I の成果**:
-- タスク完了レポート機能 (`e07602e`): report_status + completion_note + MQTT broadcast + Brain 受信
-- 並行開発基盤: WORKER_GUIDE.md, API_CONTRACTS.md, DISPATCH.md
-- 4 本の lane ブランチ稼働中 → 詳細は `docs/parallel-dev/DISPATCH.md`
+**Session L の成果**:
+- Phase 1.5 完全実装: デバイス出資モデル & 比例配分リワード (`53a6157`)
+- Event Store: 非同期バッファ書込み + 時間単位集計 (`2fbb556`)
+- E2E テストスイート: 52 テスト全 PASS (`efde3da`)
+- Brain 統合テスト: WalletBridge + 比例配分 + utility 重み付け 全 PASS
 
 ---
 
-## 0. 並行開発ディスパッチ
+## 0. セッション履歴
 
-**全ワーカー必読**: `docs/parallel-dev/DISPATCH.md`
+| セッション | 主な成果 | 代表コミット |
+|-----------|---------|-------------|
+| G | Brain 7層改善 (スレッド安全性, ReAct ガード, Sanitizer 強化) | `091f360` |
+| H | ウォレット分離設計, ISSUES 対応 (M-4,M-6,M-8~M-11) | `246ffc6`, `5abaa10` |
+| I | タスク完了レポート機能, 並行開発基盤 (WORKER_GUIDE, API_CONTRACTS) | `e07602e`, `c0467ac` |
+| J | 全 CRITICAL/HIGH ISSUES 解消, healthcheck 追加, フロントエンド修正 | `c689908` |
+| K | QR リワードフロー, wallet-app デプロイ, Brain 堅牢化, MQTT 認証 | `8dabbe2` |
+| L | Phase 1.5 出資モデル, Event Store, Brain WalletBridge 統合 | `53a6157`, `2fbb556` |
 
-| ブランチ | 状態 |
+---
+
+## 1. ISSUES.md — 全32件の解決状態
+
+### 全件解決済み (32/32 = 100%)
+
+| 重要度 | 件数 | 解決済みID |
+|--------|------|-----------|
+| CRITICAL (4) | 4/4 | C-1, C-2, C-3, C-4 |
+| HIGH (8) | 8/8 | H-1~H-8 (H-5: Sanitizer timing 修正済み, H-6: WalletBadge 削除済み, H-7/H-8: Session J 修正) |
+| MEDIUM (12) | 12/12 | M-1~M-12 (M-1: PG 127.0.0.1 制限, M-2: MQTT 認証有効化, M-5: Perception networks 除去) |
+| LOW (8) | 8/8 | L-1~L-8 (L-1: Perception tag 固定, L-2: build-essential 除去, L-7: healthcheck 全12サービス) |
+
+**注**: ISSUES.md ファイル自体は 2026-02-13 時点の記載のまま。内容は全件対応完了。
+
+---
+
+## 2. Phase 1.5 — デバイス出資モデル & 比例配分リワード
+
+### 経済モデル概要
+
+```
+オーナー → デバイス登録 (100 shares) → 出資募集 open → N shares 公開
+投資家 → shares 購入 (SOMS がオーナーへ) → インフラ報酬が shares 比率で自動配分
+退出時 → shares 返却 → システムが share_price で買戻し (流動性保証)
+```
+
+### 2 つの出資モデル
+
+| モデル | 対象 | フロー |
+|--------|------|--------|
+| **Model A: SOMS 出資** | 既存ユーザー | SOMS で直接 shares 購入 → 即時報酬配分開始 |
+| **Model B: 現金プール** | カジュアル支援者 | 現金出資 → 管理者がプール運用 → 目標達成でデバイス購入 → shares 自動割当 |
+
+### 新規テーブル (wallet スキーマ)
+
+| テーブル | 用途 |
 |---------|------|
-| `lane/L4-error-boundary-and-users` | 作業中 (stash あり) |
-| `lane/L3-voice-model-and-fixes` | 要リセット |
-| `lane/L7-infra-cleanup` | 未着手 |
+| `device_stakes` | デバイス持分 (user_id × device_id, shares, unique constraint) |
+| `funding_pools` | プール出資 (title, goal_jpy, raised_jpy, status lifecycle) |
+| `pool_contributions` | プール出資記録 (user_id, amount_jpy, shares_allocated) |
 
-未解決 ISSUES のレーン割当: H-5→L6, H-6→L4, M-5→L7, M-7→L3, L-1~L-8→L7
+### Device テーブル追加カラム
+
+```
+total_shares, available_shares, share_price, funding_open   — 出資モデル
+power_mode, hops_to_mqtt, battery_pct                        — デバイスメトリクス
+utility_score                                                — XP 重み付け (0.5~2.0)
+```
+
+### 新規 API エンドポイント (Wallet サービス)
+
+**Model A: SOMS 出資 (6本)**
+
+| Method | Path | 機能 |
+|--------|------|------|
+| POST | `/devices/{id}/funding/open` | 出資募集開始 |
+| POST | `/devices/{id}/funding/close` | 出資募集停止 |
+| POST | `/devices/{id}/stakes/buy` | shares 購入 |
+| POST | `/devices/{id}/stakes/return` | shares 返却 (システム買戻し) |
+| GET | `/devices/{id}/stakes` | 全 stakeholder 一覧 |
+| GET | `/users/{id}/portfolio` | ユーザーの出資ポートフォリオ |
+
+**Model B: プール出資 (6本)**
+
+| Method | Path | 機能 |
+|--------|------|------|
+| POST | `/admin/pools` | プール作成 |
+| GET | `/admin/pools` | プール一覧 (admin) |
+| GET | `/admin/pools/{id}` | プール詳細 |
+| POST | `/admin/pools/{id}/contribute` | 出資記録 |
+| POST | `/admin/pools/{id}/activate` | デバイスリンク + shares 割当 |
+| GET | `/pools` | 公開プール一覧 |
+
+**追加エンドポイント**
+
+| Method | Path | 機能 |
+|--------|------|------|
+| POST | `/devices/{id}/utility-score` | utility_score 更新 (clamp 0.5~2.0) |
+
+### XP 貢献度重み付け (2層)
+
+```
+total_weight = hardware_weight × utility_score
+
+hardware_weight (静的, 1.0~2.0):
+  Base 1.0 + バッテリー駆動 +0.5 + hops×0.2 (max +0.6)
+
+utility_score (動的, 0.5~2.0):
+  Base 1.0 + decision使用 +0.3 + task作成 +0.5
+  7日間未使用 → 減衰開始, 30日で 0.5 到達
+```
+
+### テスト結果
+
+| テストスイート | 結果 | スクリプト |
+|--------------|------|-----------|
+| Wallet E2E (52テスト) | ALL PASSED | `infra/scripts/test_phase1_5.py` |
+| Brain 統合 (9テスト) | ALL PASSED | 手動実行 (docker exec) |
+
+テスト詳細: `docs/phase1.5-session-notes.md`
 
 ---
 
-## 1. Session H — ウォレット分離設計
+## 3. Event Store (Brain サービス)
 
-**方針**: ダッシュボード (キオスク) とウォレット (スマホアプリ) を完全分離。
-**成果物**: `docs/architecture/wallet-separation.md`
+### 概要
 
----
+Brain の MQTT イベントを PostgreSQL に永続化。非同期バッファ書込み + 時間単位集計。
 
-## 2. Session G — Brain 7 層改善
+### ファイル構成 (`services/brain/src/event_store/`)
 
-### 実施した2つのフェーズ
+| ファイル | 役割 |
+|---------|------|
+| `models.py` | SQLAlchemy テーブル定義 (raw_events, hourly_aggregates) |
+| `database.py` | async engine + session factory |
+| `writer.py` | `EventWriter` — 非同期バッファ (10秒 or 100件でフラッシュ) |
+| `aggregator.py` | `HourlyAggregator` — 毎時集計 (count, avg, min, max) |
 
-#### フェーズ1: Brain ロジック7層改善 (全完了・コミット済み)
+### Brain main.py への統合
 
-| Layer | 内容 | 主要コミット |
-|-------|------|-------------|
-| L1: スレッド安全性 | paho-mqtt thread → asyncio への `call_soon_threadsafe` ディスパッチ | `091f360` |
-| L2: 共有HTTPセッション | `aiohttp.ClientSession` を Brain.run() で一元管理、全コンポーネントに注入 | `091f360` |
-| L3: ReActループガード | 重複ツール呼出検出、speak上限 (1回/cycle)、連続エラー中断 | `091f360` |
-| L4: サイクルレート制限 | `MIN_CYCLE_INTERVAL=25s` でサイクル間隔崩壊を防止 | `091f360` |
-| L5: アクション履歴 | 直近30分のツール実行履歴をLLMコンテキストに注入 (speak重複防止) | `091f360` |
-| L6: Sanitizer強化 | ゾーン別speakクールダウン (5分)、デバイス許可リスト | `091f360` |
-| L7: 死コード除去 | hydro/aqua MQTT購読削除、湿度閾値60%統一 | `091f360` |
-
-#### フェーズ2: ISSUES.md 残存問題の対応
-
-| Issue ID | 内容 | 状態 | コミット |
-|----------|------|------|---------|
-| M-4 | Voice Service LLM呼出にタイムアウト(30s)追加 | 完了 | `246ffc6` |
-| M-6 | Voice requirements.txt をpydantic/aiohttp他サービスと統一 | 完了 | `246ffc6` |
-| M-8 | 未使用 `soms_db_data` ボリューム削除 | 完了 | `5abaa10` |
-| M-9 | Wallet ポート公開 (8003:8000) 削除 | 完了 | `5abaa10` |
-| M-10 | frontend `.dockerignore` 新規作成 | 完了 | `5abaa10` |
-| M-11 | edge-mock compose にネットワーク定義追加 | 完了 | `5abaa10` |
+- `_process_mqtt_message()`: sensor データを `EventWriter.add()` でバッファ
+- `cognitive_cycle()`: decision を記録
+- `run()`: event_store 初期化 + HourlyAggregator タスク起動
 
 ---
 
-## 2. ISSUES.md 全32件の解決状態
+## 4. WalletBridge (Brain → Wallet)
 
-### 解決済み (25件 / 78%)
+### 概要
 
-| 重要度 | 解決済みID |
-|--------|-----------|
-| CRITICAL | C-1, C-2, C-3, C-4 (全4件) |
-| HIGH | H-1, H-2, H-3, H-4, H-7, H-8 (6/8件) |
-| MEDIUM | M-1, M-2, M-3, M-4, M-6, M-8, M-9, M-10, M-11, M-12 (10/12件) |
+MQTT heartbeat を Wallet REST API に中継。メッシュ葉デバイス (REST 不可) の報酬確保。
 
-### 未解決 (7件)
+| 項目 | 値 |
+|------|-----|
+| ファイル | `services/brain/src/wallet_bridge.py` |
+| 転送間隔 | 300秒 / デバイス (スロットル) |
+| ペイロード | power_mode, battery_pct, hops_to_mqtt, utility_score |
+| 子デバイス | `forward_children()` で再帰的に転送 |
 
-| ID | 重要度 | 内容 | 場所 | 備考 |
-|----|--------|------|------|------|
-| **H-5** | HIGH | Sanitizer のレート制限タイミング不正 — バリデーション失敗タスクもカウントされる | `services/brain/src/sanitizer.py:56-65` | `record_task_created()` を成功後に移動すべき |
-| **H-6** | HIGH (部分) | WalletBadge.tsx レンダーフェーズでの setState | `services/dashboard/frontend/src/components/WalletBadge.tsx:14-16` | React 18+ では動作するが非推奨パターン |
-| **M-5** | MEDIUM | Perception の `network_mode: host` と `networks:` の競合 | `infra/docker-compose.yml:168` | host モードでは networks は無視される。定義を削除すべき |
-| **M-7** | MEDIUM | Voice Service の Task モデルが簡素すぎる | `services/voice/src/models.py:4-11` | Dashboard の Task スキーマとの乖離 |
-| **L-1〜L-8** | LOW | 8件未対応 | 各所 | Dockerfile タグ固定、不要パッケージ、ヘルスチェック等 |
+### Brain main.py 統合ポイント
+
+- `__init__`: `self.wallet_bridge = None`
+- `run()`: `WalletBridge(session, device_registry)` 初期化 + `_utility_decay_loop()` タスク起動
+- `_process_mqtt_message()`: heartbeat 検出時に `forward_heartbeat()` + `forward_children()` 呼出
+- `cognitive_cycle()` 末尾: アクション結果から zone 抽出 → `record_zone_action()`
 
 ---
 
-## 3. ファイル変更マップ (Session G)
+## 5. ファイル変更マップ (Session L)
 
-### Brain サービス (`services/brain/src/`)
+### Wallet サービス (`services/wallet/src/`) — 2,476行
+
+| ファイル | 行数 | 変更内容 |
+|---------|------|---------|
+| `models.py` | ~300 | Device 11カラム追加 + DeviceStake + FundingPool + PoolContribution |
+| `schemas.py` | ~250 | 15+ 新 Pydantic スキーマ + DeviceResponse 拡張 |
+| `services/stake_service.py` | ~180 | **NEW** — open/close/buy/return/distribute_reward |
+| `services/pool_service.py` | ~130 | **NEW** — create/contribute/activate (shares 一括割当) |
+| `services/xp_scorer.py` | ~100 | compute_contribution_weight + grant_xp_to_zone_weighted |
+| `routers/stakes.py` | ~130 | **NEW** — Model A 6EP + portfolio |
+| `routers/pools.py` | ~130 | **NEW** — Model B admin 5EP + public 1EP |
+| `routers/devices.py` | ~150 | heartbeat 比例配分 + metrics 更新 + utility-score EP |
+| `main.py` | ~100 | relay_node/remote_node seed + 4 router 追加 |
+
+### Brain サービス (`services/brain/src/`) — 3,717行
 
 | ファイル | 変更内容 |
 |---------|---------|
-| `main.py` | L1-L5, L7: スレッド安全、共有セッション、ReActガード、レート制限、アクション履歴、hydro/aqua削除 |
-| `llm_client.py` | L2: session注入 (コンストラクタに `session` パラメータ追加) |
-| `dashboard_client.py` | L2: session注入 + `_get_session()` フォールバック (テストスクリプト互換) |
-| `tool_executor.py` | L2: session注入 (`_handle_speak` のephemeral session除去) |
-| `task_reminder.py` | L2: session注入 (3メソッドのephemeral session除去) |
-| `sanitizer.py` | L6: speak_history dict追加、ゾーン別クールダウン、デバイス許可リスト |
-| `world_model/world_model.py` | L7: 湿度アラート閾値 70% → 60% |
+| `device_registry.py` | utility_score + _last_used + record_zone_action + decay_utility_scores |
+| `wallet_bridge.py` | **NEW** — MQTT→Wallet heartbeat 中継 (300s スロットル) |
+| `main.py` | WalletBridge 統合 + Event Store 統合 + utility 記録 + decay loop |
+| `event_store/` | **NEW** — 4ファイル (models, database, writer, aggregator) |
 
-### Voice サービス (`services/voice/`)
+### インフラ
 
 | ファイル | 変更内容 |
 |---------|---------|
-| `src/speech_generator.py` | M-4: `_call_llm()` に `aiohttp.ClientTimeout(total=30)` 追加 |
-| `requirements.txt` | M-6: pydantic 2.10.0→2.5.2, aiohttp 3.11.0→3.9.1, fastapi/uvicorn も統一 |
-
-### インフラ (`infra/`)
-
-| ファイル | 変更内容 |
-|---------|---------|
-| `docker-compose.yml` | M-8: soms_db_data削除, M-9: wallet ports削除 |
-| `docker-compose.edge-mock.yml` | M-11: networks定義追加 (external: infra_soms-net) |
-
-### フロントエンド
-
-| ファイル | 変更内容 |
-|---------|---------|
-| `services/dashboard/frontend/.dockerignore` | M-10: 新規作成 |
+| `infra/docker-compose.yml` | brain に WALLET_SERVICE_URL + DATABASE_URL 追加 |
+| `infra/scripts/test_phase1_5.py` | **NEW** — E2E テストスイート (52テスト) |
 
 ---
 
-## 4. アーキテクチャ上の重要な変更点
+## 6. アーキテクチャ上の重要な変更点
 
-### Brain の共有セッションパターン
+### Brain の統合パターン (Session L 後)
 
 ```
 Brain.run()
  └─ async with aiohttp.ClientSession() as session:
-      ├─ LLMClient(session=session)
-      ├─ DashboardClient(session=session)
-      ├─ TaskReminder(session=session)
-      └─ ToolExecutor(session=session)
+      ├─ LLMClient(session)
+      ├─ DashboardClient(session)
+      ├─ TaskReminder(session)
+      ├─ ToolExecutor(session)
+      ├─ WalletBridge(session, device_registry)  ← NEW
+      ├─ EventWriter(engine)                     ← NEW
+      ├─ HourlyAggregator(engine)                ← NEW
+      └─ _utility_decay_loop()                   ← NEW (3600s interval)
 ```
 
-全コンポーネントが単一の `ClientSession` を共有し、コネクションプーリングを活用。
-テストスクリプト (`test_dedup_and_alerts.py` 等) は `DashboardClient()` を session なしで使用可能 (`_get_session()` フォールバック)。
-
-### ReAct ループの新しいガード
+### Wallet 報酬配分の変更
 
 ```
-cognitive_cycle():
-  tool_call_history = []    # (name, args_hash) のリスト
-  speak_count = 0           # サイクル内 speak 回数
-  consecutive_errors = 0    # 連続エラー
-
-  for i in range(REACT_MAX_ITERATIONS):
-    -> 重複ツール呼出スキップ
-    -> speak上限 (MAX_SPEAK_PER_CYCLE=1)
-    -> 連続エラーでサイクル中断 (MAX_CONSECUTIVE_ERRORS=1)
+Before: heartbeat → 100% to owner
+After:  heartbeat → distribute_reward()
+         ├─ stakes なし → 100% to owner (後方互換)
+         └─ stakes あり → 各 stakeholder へ比例配分 (端数はオーナーへ)
 ```
 
-### Sanitizer の新しい制御
+### トランザクション種別 (追加)
+
+| Type | 用途 | reference_id パターン |
+|------|------|----------------------|
+| `STAKE_PURCHASE` | shares 購入代金 (投資家→オーナー) | `stake:buy:{device}:{user}:{epoch}` |
+| `STAKE_REFUND` | shares 返却払戻 (システム→投資家) | `stake:return:{device}:{user}:{epoch}` |
+| `INFRA_REWARD` | インフラ報酬 (比例配分) | `infra:{device}:{epoch}:{user}` |
+
+---
+
+## 7. Docker サービス状態
+
+### ポートマップ (最新)
+
+| ポート | サービス | コンテナ名 | 備考 |
+|--------|---------|-----------|------|
+| 80 | frontend (nginx) | soms-frontend | SPA + API リバースプロキシ |
+| 1883/9001 | MQTT | soms-mqtt | Edge デバイス接続用 |
+| 127.0.0.1:5432 | PostgreSQL | soms-postgres | localhost のみ |
+| 8000 | backend | soms-backend | Dashboard REST API |
+| 8001 | mock-llm | soms-mock-llm | 開発用 LLM |
+| 8002 | voice-service | soms-voice | TTS |
+| 8004 | wallet-app | soms-wallet-app | PWA (Mobile) |
+| 11434 | ollama | soms-ollama | GPU LLM |
+| 50021 | voicevox | soms-voicevox | VOICEVOX エンジン |
+| — | wallet | soms-wallet | ポート非公開 (nginx 経由のみ) |
+| — | brain | soms-brain | ポート非公開 (MQTT + REST 内部) |
+
+### サービス間依存
 
 ```
-speak:   ゾーン単位 5分クールダウン (_speak_history)
-device:  swarm_hub* は常に許可、それ以外は allowed_devices チェック
-task:    record_task_created() で事後記録 (※ H-5: タイミング修正が必要)
+mosquitto ← brain (MQTT + WalletBridge)
+         ← wallet (MQTT subscribe)
+         ← perception (MQTT publish)
+
+postgres  ← brain (Event Store)
+         ← backend (Dashboard DB)
+         ← wallet (Ledger DB)
+
+wallet    ← brain (WalletBridge REST)
+         ← wallet-app (PWA frontend)
+         ← frontend/nginx (reverse proxy)
 ```
 
 ---
 
-## 5. 並行作業に関する注意点
+## 8. 並行作業に関する注意点
 
 ### 変更が競合しやすい領域
 
 | ファイル | 理由 |
 |---------|------|
-| `services/brain/src/main.py` | 最も多くの改変が集中。cognitive_cycle, run, on_message 全てに変更あり |
-| `infra/docker-compose.yml` | サービス追加・設定変更が頻繁 |
-| `services/dashboard/frontend/src/App.tsx` | UI統合の集約点 |
+| `services/brain/src/main.py` | 最多改変集中 (Event Store + WalletBridge + cognitive_cycle + decay loop) |
+| `infra/docker-compose.yml` | サービス追加・環境変数変更が頻繁 |
+| `services/wallet/src/models.py` | テーブル・カラム追加が集中 |
 
 ### 並行開発で安全な領域
 
 | 領域 | 理由 |
 |------|------|
 | `edge/` | ファームウェアは他サービスと独立 |
-| `services/perception/` | Brain とは MQTT のみで接続。コード依存なし |
-| `services/wallet/` | nginx 経由のREST APIのみ。他サービスのコードに依存なし |
+| `services/perception/` | Brain とは MQTT のみで接続 |
+| `services/voice/` | REST API のみ、独立性高い |
 | `docs/` | ドキュメントは並行編集可能 |
-| `infra/virtual_edge/` | エミュレータは独立 |
-
-### 現在の Docker ポートマップ
-
-| ポート | サービス | 備考 |
-|--------|---------|------|
-| 80 | frontend (nginx) | 全API のエントリポイント |
-| 1883/9001 | MQTT | Edge デバイス接続用 |
-| 5432 | PostgreSQL | 127.0.0.1 のみ |
-| 8000 | backend | 開発用直接アクセス |
-| 8001 | mock-llm | 開発用 |
-| 8002 | voice-service | 開発用 |
-| 11434 | ollama | GPU LLM |
-| 50021 | voicevox | TTS エンジン |
+| `services/wallet-app/` | PWA フロントエンド、Wallet REST のみ依存 |
 
 ---
 
-## 6. 残作業の優先度と推奨担当分け
+## 9. 全体サマリー (コードベース規模)
 
-### 即時対応 (独立して着手可能)
-
-| タスク | 推奨担当 | 依存 |
-|--------|---------|------|
-| H-5: Sanitizer レート制限修正 | Worker A (Brain 担当) | なし |
-| H-6: WalletBadge setState 修正 | Worker B (Frontend 担当) | なし |
-| M-5: Perception network_mode 整理 | Worker C (Infra 担当) | なし |
-| M-7: Voice Task モデル拡張 | Worker D (Voice 担当) | なし |
-| L-1〜L-8: 低優先度クリーンアップ | 任意 | なし |
-
-### HANDOFF.md の更新
-
-現在の `HANDOFF.md` (プロジェクトルート) は Session F 時点の情報で古い。
-このドキュメント (`docs/handoff/CURRENT_STATE.md`) が最新状態を反映している。
+| カテゴリ | ファイル数 | 行数 | 状態 |
+|----------|-----------|------|------|
+| Brain (LLM決定エンジン) | ~22 .py | 3,717 | 完成 (Event Store + WalletBridge 統合済み) |
+| Voice (音声合成) | 5 .py | ~864 | 完成 |
+| Perception (画像認識) | ~20 .py | ~1,687 | 完成 |
+| Dashboard Backend | 9 .py | ~605 | 95% (users.py スタブ) |
+| Dashboard Frontend | ~11 .tsx/.ts | ~823 | 完成 |
+| Wallet (クレジット経済) | ~15 .py | 2,476 | 完成 (Phase 1.5 追加) |
+| Wallet App (PWA) | ~10 .tsx/.ts | ~500 | 完成 (Session K) |
+| Edge Firmware (Python) | 33 .py | ~2,562 | 完成 |
+| Edge Firmware (C++) | 4 .cpp/.h | ~817 | 完成 |
+| Infra/テスト | ~18 .py | ~3,500 | 完成 |
+| **合計** | **~150+** | **~17,500+** | |
 
 ---
 
-## 7. 環境情報
+## 10. 環境情報
 
-| 項目 | 値 |
-|------|-----|
-| OS | Linux 6.17.0-14-generic |
-| CPU | AMD Ryzen 7 9800X3D |
-| dGPU | RX 9700 (RDNA4, card1/renderD128) |
-| iGPU | Raphael (card2/renderD129, ディスプレイ専用) |
-| Docker グループ | sin ユーザー所属済み (sudo不要) |
-| LLM | ollama qwen2.5:14b @ localhost:11434 |
-| TTS | VOICEVOX speaker 47 |
-| .env LLM_API_URL | `http://host.docker.internal:11434/v1` |
+セッション開始時に以下を確認すること:
+
+```bash
+# OS / カーネル
+uname -r
+
+# CPU / GPU
+lscpu | head -15
+lspci | grep -i vga
+
+# Docker アクセス
+docker info --format '{{.ServerVersion}}' 2>/dev/null || echo "Docker not accessible (check group membership)"
+
+# 稼働中コンテナ
+docker ps --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null
+
+# .env 設定 (LLM_API_URL, LLM_MODEL 等)
+cat infra/.env 2>/dev/null || echo ".env not found"
+```
+
+---
+
+## 11. 残作業 / 次セッションの候補
+
+ISSUES.md の 32件は全件解決済み。以下は新規タスク候補:
+
+| タスク | 優先度 | 備考 |
+|--------|--------|------|
+| Model B 外部決済連携 (Stripe 等) | 中 | Phase 1.5 スキーマ対応済み、API 実装のみ |
+| Wallet App に出資 UI 追加 | 中 | PWA から shares 購入/返却/ポートフォリオ閲覧 |
+| Brain → Wallet utility_score 定期同期 | 低 | WalletBridge で heartbeat 時に送信中。専用同期は不要かも |
+| Event Store ダッシュボード可視化 | 低 | hourly_aggregates をグラフ表示 |
+| Eda/Ha メッシュネットワーク実装 | 中 | 設計ドキュメント完了 (`docs/08_edge_mesh_network`) |
+| users.py ルーター本実装 | 低 | 現在スタブのみ |
