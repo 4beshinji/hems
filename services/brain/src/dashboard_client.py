@@ -1,0 +1,122 @@
+"""
+REST client for HEMS Dashboard Backend.
+"""
+import os
+from loguru import logger
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
+VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
+
+
+class DashboardClient:
+    def __init__(self, session=None):
+        self.session = session
+        self.backend_url = BACKEND_URL
+        self.voice_url = VOICE_SERVICE_URL
+
+    async def create_task(self, task_data: dict) -> dict | None:
+        """Create a task on the dashboard backend."""
+        # Generate voice announcement first
+        voice_data = await self._generate_voice(task_data)
+
+        payload = {
+            "title": task_data.get("title", ""),
+            "description": task_data.get("description", ""),
+            "location": task_data.get("location", ""),
+            "xp_reward": task_data.get("xp_reward", 100),
+            "urgency": task_data.get("urgency", 2),
+            "zone": task_data.get("zone", ""),
+            "task_type": task_data.get("task_type", []),
+            "estimated_duration": task_data.get("estimated_duration", 10),
+        }
+
+        if voice_data:
+            payload["announcement_audio_url"] = voice_data.get("announcement_audio_url")
+            payload["announcement_text"] = voice_data.get("announcement_text")
+            payload["completion_audio_url"] = voice_data.get("completion_audio_url")
+            payload["completion_text"] = voice_data.get("completion_text")
+
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/tasks/", json=payload, timeout=10
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                else:
+                    text = await resp.text()
+                    logger.warning(f"Create task failed: {resp.status} {text[:200]}")
+        except Exception as e:
+            logger.error(f"Create task error: {e}")
+        return None
+
+    async def _generate_voice(self, task_data: dict) -> dict | None:
+        """Request voice announcement + completion from voice service."""
+        voice_payload = {
+            "task": {
+                "title": task_data.get("title", ""),
+                "description": task_data.get("description", ""),
+                "location": task_data.get("location", ""),
+                "xp_reward": task_data.get("xp_reward", 100),
+                "urgency": task_data.get("urgency", 2),
+                "zone": task_data.get("zone", ""),
+                "task_type": task_data.get("task_type", []),
+                "estimated_duration": task_data.get("estimated_duration", 10),
+            }
+        }
+        try:
+            async with self.session.post(
+                f"{self.voice_url}/api/voice/announce_with_completion",
+                json=voice_payload, timeout=30
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return {
+                        "announcement_audio_url": data.get("announcement_audio_url"),
+                        "announcement_text": data.get("announcement_text"),
+                        "completion_audio_url": data.get("completion_audio_url"),
+                        "completion_text": data.get("completion_text"),
+                    }
+        except Exception as e:
+            logger.warning(f"Voice generation failed: {e}")
+        return None
+
+    async def speak(self, message: str, zone: str, tone: str = "neutral") -> dict | None:
+        """Send speak command through voice service + record event."""
+        try:
+            # Synthesize speech
+            async with self.session.post(
+                f"{self.voice_url}/api/voice/synthesize",
+                json={"text": message, "tone": tone},
+                timeout=15,
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                voice_data = await resp.json()
+
+            # Record voice event
+            await self.session.post(
+                f"{self.backend_url}/voice-events/",
+                json={
+                    "message": message,
+                    "audio_url": voice_data.get("audio_url", ""),
+                    "zone": zone,
+                    "tone": tone,
+                },
+                timeout=5,
+            )
+            return voice_data
+        except Exception as e:
+            logger.error(f"Speak error: {e}")
+            return None
+
+    async def get_active_tasks(self) -> list:
+        """Get active (non-completed) tasks from backend."""
+        try:
+            async with self.session.get(
+                f"{self.backend_url}/tasks/", timeout=5
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+        except Exception as e:
+            logger.warning(f"Get active tasks error: {e}")
+        return []

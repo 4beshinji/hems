@@ -1,0 +1,269 @@
+services:
+  # --- Central Bus ---
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: hems-mqtt
+    restart: always
+    ports:
+      - "${MQTT_BIND_ADDR:-127.0.0.1}:1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - hems_mqtt_data:/mosquitto/data
+      - hems_mqtt_log:/mosquitto/log
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u ${MQTT_USER:-hems} -P ${MQTT_PASS:-hems_dev_mqtt} -t '$$SYS/broker/version' -C 1 -W 5 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # --- Brain (LLM + Rule-based dual mode) ---
+  brain:
+    build: ../services/brain
+    container_name: hems-brain
+    restart: always
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-hems}
+      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LLM_API_URL=${LLM_API_URL:-http://mock-llm:8000/v1}
+      - LLM_MODEL=${LLM_MODEL:-mock}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DASHBOARD_URL=http://backend:8000
+      - VOICE_SERVICE_URL=http://voice-service:8000
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/hems.db}
+      - GPU_TYPE=${GPU_TYPE:-none}
+      - GPU_HIGH_LOAD_THRESHOLD=${GPU_HIGH_LOAD_THRESHOLD:-80}
+      - CHARACTER=${CHARACTER:-}
+      - CHARACTER_FILE=${CHARACTER_FILE:-}
+      - TZ=${TZ:-Asia/Tokyo}
+      - ROOMS=${ROOMS:-living_room}
+    volumes:
+      - ../services/brain/src:/app
+      - ../config:/config:ro
+      - hems_brain_data:/app/data
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('mosquitto',1883),5); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # --- Backend (API + Points + DataMart) ---
+  backend:
+    build: ../services/backend
+    container_name: hems-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/hems.db}
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-hems}
+      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/backend:/app
+      - hems_backend_data:/app/data
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # --- Frontend (React SPA + nginx) ---
+  frontend:
+    build: ../services/frontend
+    container_name: hems-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:80/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # --- Voice Service (Plugin-based TTS) ---
+  voice-service:
+    build: ../services/voice
+    container_name: hems-voice
+    restart: always
+    ports:
+      - "8002:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TTS_PROVIDER=${TTS_PROVIDER:-espeak}
+      - VOICEVOX_URL=${VOICEVOX_URL:-http://voicevox:50021}
+      - VOISONA_URL=${VOISONA_URL:-}
+      - VOISONA_USERNAME=${VOISONA_USERNAME:-}
+      - VOISONA_PASSWORD=${VOISONA_PASSWORD:-}
+      - STYLE_BERT_VITS2_URL=${STYLE_BERT_VITS2_URL:-}
+      - LLM_API_URL=${LLM_API_URL:-http://mock-llm:8000/v1}
+      - LLM_MODEL=${LLM_MODEL:-mock}
+      - CHARACTER=${CHARACTER:-}
+      - CHARACTER_FILE=${CHARACTER_FILE:-}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/voice/src:/app
+      - ../config:/config:ro
+      - hems_audio_data:/app/audio
+      - ${VOISONA_SHARED_DIR:-/tmp/hems-tts}:/tmp/hems-tts
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # --- Mock LLM (Development) ---
+  mock-llm:
+    build: ./mock_llm
+    container_name: hems-mock-llm
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ========== Optional Services (profiles) ==========
+
+  # --- VOICEVOX Engine ---
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest
+    container_name: hems-voicevox
+    restart: always
+    profiles: ["voicevox"]
+    ports:
+      - "50021:50021"
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/50021' 2>/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # --- Ollama (Local LLM) ---
+  ollama:
+    image: ollama/ollama:rocm
+    container_name: hems-ollama
+    restart: always
+    profiles: ["ollama"]
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri/card1:/dev/dri/card1
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-12.0.1}
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/11434' 2>/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # --- PostgreSQL (optional, replaces SQLite) ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: hems-postgres
+    restart: always
+    profiles: ["postgres"]
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-hems}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-hems_dev_password}
+      - POSTGRES_DB=hems
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - hems_pg_data:/var/lib/postgresql/data
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hems} -d hems"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Perception (Camera monitoring) ---
+  perception:
+    build: ../services/perception
+    container_name: hems-perception
+    restart: always
+    profiles: ["perception"]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    network_mode: host
+    devices:
+      - /dev/video0:/dev/video0
+    environment:
+      - MQTT_BROKER=localhost
+      - MQTT_PORT=1883
+      - MQTT_USER=${MQTT_USER:-hems}
+      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-12.0.1}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',1883),5); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  hems_mqtt_data:
+  hems_mqtt_log:
+  hems_backend_data:
+  hems_brain_data:
+  hems_audio_data:
+  hems_pg_data:
+  ollama_models:
+
+networks:
+  hems-net:
+    driver: bridge

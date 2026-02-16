@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+aiohttp
+loguru
+pydub
+pyyaml
+edge-tts

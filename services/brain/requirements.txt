@@ -1,0 +1,9 @@
+paho-mqtt>=2.0
+aiohttp
+loguru
+python-dotenv
+sqlalchemy>=2.0
+aiosqlite
+asyncpg
+anthropic
+pyyaml

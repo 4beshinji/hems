@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+sqlalchemy>=2.0
+aiosqlite
+asyncpg
+paho-mqtt>=2.0
+pydantic>=2.0
