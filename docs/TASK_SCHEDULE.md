@@ -115,7 +115,7 @@ WS-A: Git整理 ──────┼──── WS-C: Dashboard/Backend ──
 |----|--------|------|---------|--------|------|
 | F.1 | 🔴 Wallet サービス統合テスト (PostgreSQL) | A.1 | 4h | P1 | ✅完了 (18/19 pass, nginx proxy除く) |
 | F.2 | XP scorer 統合テスト | F.1 | 2h | P2 | ✅完了 (F.1テスト内Test 8で検証済み) |
-| F.3 | Wallet ↔ Dashboard E2E テスト | F.1, C.1 | 3h | P2 | 未着手 |
+| F.3 | Wallet ↔ Dashboard E2E テスト | F.1, C.1 | 3h | P2 | ✅完了 (20/20 pass, MQTT auth修正含む) |
 
 ---
 
@@ -300,7 +300,7 @@ CITY_SCALE_VISION.md の Phase 0 完了条件に対応:
 | D.2 | BLE トランスポート | 8h | なし |
 | D.3 | Wake Chain 検証 | 4h | D.1 |
 | F.2 | XP scorer テスト | 2h | F.1 |
-| F.3 | Wallet E2E テスト | 3h | F.1, C.1 |
+| F.3 | Wallet E2E テスト | 3h | F.1, C.1 | ✅完了 |
 
 **P2 合計**: ~34h
 
