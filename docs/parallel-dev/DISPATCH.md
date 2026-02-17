@@ -248,8 +248,8 @@ virtual-edge:
 ### 新規 (Session K)
 | ID | 重要度 | 内容 | 担当 |
 |----|--------|------|------|
-| **H-10** | **CRITICAL** | Virtual Edge MQTT 認証失敗 — センサーデータ送信不可 | L7 |
-| **H-11** | **HIGH** | QR 報酬フロー未接続 — ダッシュボード QR 未表示 + アプリ UX 未完成 | L4 + L9 |
+| ~~H-10~~ | ~~CRITICAL~~ | ✅ 解決済み (Session M以前に修正マージ済み。docker-compose.edge-mock.yml に MQTT_USER/MQTT_PASS 追加 + main.py に username_pw_set() 実装済み。2026-02-17 起動テストで `result code Success` 確認) | L7 |
+| ~~H-11~~ | ~~HIGH~~ | ✅ 解決済み (Session M でコード実装完了済み。フロントエンド再ビルドで `qrcode.react` バンドル + `soms-frontend`/`soms-wallet-app` コンテナ起動確認。TaskCard QR ボタン・モーダル表示、Wallet App Scan ページ稼働) | L4 + L9 |
 | L-9 | LOW | Brain が rate limit 後も同じタスク作成を試行し続ける | L6 |
 
 ---
