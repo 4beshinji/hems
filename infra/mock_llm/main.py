@@ -85,7 +85,7 @@ async def chat_completions(request: Request):
                     "description": "室温が高くなっています。エアコンの電源を入れて室温を下げてください。",
                     "xp_reward": 100,
                     "urgency": 3,
-                    "task_types": "environment,urgent",
+                    "task_type": ["environment", "urgent"],
                 })
             ]
         )
@@ -102,7 +102,7 @@ async def chat_completions(request: Request):
                     "description": "CO2濃度が基準値を超えています。窓を開けて換気してください。",
                     "xp_reward": 80,
                     "urgency": 2,
-                    "task_types": "environment",
+                    "task_type": ["environment"],
                 })
             ]
         )
@@ -119,7 +119,7 @@ async def chat_completions(request: Request):
                     "description": "室内が乾燥しています。加湿器を稼働させてください。",
                     "xp_reward": 80,
                     "urgency": 2,
-                    "task_types": "environment",
+                    "task_type": ["environment"],
                 })
             ]
         )

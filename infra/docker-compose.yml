@@ -40,7 +40,7 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - DASHBOARD_URL=http://backend:8000
+      - BACKEND_URL=http://backend:8000
       - VOICE_SERVICE_URL=http://voice-service:8000
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/hems.db}
       - GPU_TYPE=${GPU_TYPE:-none}
@@ -230,30 +230,11 @@ services:
       retries: 5
       start_period: 10s
 
-  # --- Perception (Camera monitoring) ---
-  perception:
-    build: ../services/perception
-    container_name: hems-perception
-    restart: always
-    profiles: ["perception"]
-    depends_on:
-      mosquitto:
-        condition: service_healthy
-    network_mode: host
-    devices:
-      - /dev/video0:/dev/video0
-    environment:
-      - MQTT_BROKER=localhost
-      - MQTT_PORT=1883
-      - MQTT_USER=${MQTT_USER:-hems}
-      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
-      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-12.0.1}
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',1883),5); s.close()"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+  # --- Perception (Camera monitoring) — Phase 4, not yet implemented ---
+  # perception:
+  #   build: ../services/perception
+  #   container_name: hems-perception
+  #   profiles: ["perception"]
 
 volumes:
   hems_mqtt_data:
