@@ -104,7 +104,7 @@ cp env.example .env
 docker compose -f infra/docker-compose.yml up -d --build
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed setup. See [CITY_SCALE_VISION.md](docs/CITY_SCALE_VISION.md) for urban-scale architecture.
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed setup. See [CITY_SCALE_VISION.md](docs/CITY_SCALE_VISION.md) for urban-scale architecture.
 
 ## Directory Structure
 
@@ -128,8 +128,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed setup. See [CITY_SCALE_VISION.md
 │   ├── test-edge/     PlatformIO C++ firmware (camera/sensor nodes)
 │   └── tools/         Diagnostic scripts
 ├── config/            Perception monitors YAML config
-├── CLAUDE.md          Developer reference (architecture, APIs, conventions)
-└── DEPLOYMENT.md      Deployment guide (Japanese)
+└── CLAUDE.md          Developer reference (architecture, APIs, conventions)
 ```
 
 ## Tech Stack

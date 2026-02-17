@@ -61,3 +61,6 @@ Thumbs.db
 /infra/mosquitto/data/
 /infra/mosquitto/log/
 *.pt
+*.db
+scan_*.txt
+verified_*.txt

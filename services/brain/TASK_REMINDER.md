@@ -122,7 +122,7 @@ REMINDER_CHECK_INTERVAL_SECONDS=300
 
 ```bash
 # リマインダーシステムのテスト
-python3 test_reminder_system.py
+python3 infra/scripts/test_reminder_system.py
 
 # 実際の動作確認
 # 1. サービスを起動
