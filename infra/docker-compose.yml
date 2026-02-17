@@ -5,7 +5,7 @@ services:
     container_name: hems-mqtt
     restart: always
     ports:
-      - "${MQTT_BIND_ADDR:-127.0.0.1}:1883:1883"
+      - "${MQTT_BIND_ADDR:-127.0.0.1}:${HEMS_PORT_MQTT:-1893}:1883"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./mosquitto/passwd:/mosquitto/config/passwd:ro
@@ -68,7 +68,7 @@ services:
     container_name: hems-backend
     restart: always
     ports:
-      - "8000:8000"
+      - "${HEMS_PORT_BACKEND:-8010}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -96,7 +96,7 @@ services:
     container_name: hems-frontend
     restart: always
     ports:
-      - "80:80"
+      - "${HEMS_PORT_FRONTEND:-8080}:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -115,7 +115,7 @@ services:
     container_name: hems-voice
     restart: always
     ports:
-      - "8002:8000"
+      - "${HEMS_PORT_VOICE:-8012}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -153,7 +153,7 @@ services:
     container_name: hems-mock-llm
     restart: unless-stopped
     ports:
-      - "8001:8000"
+      - "${HEMS_PORT_MOCK_LLM:-8011}:8000"
     networks:
       - hems-net
     healthcheck:
@@ -172,7 +172,7 @@ services:
     restart: always
     profiles: ["voicevox"]
     ports:
-      - "50021:50021"
+      - "${HEMS_PORT_VOICEVOX:-50031}:50021"
     networks:
       - hems-net
     healthcheck:
@@ -193,7 +193,7 @@ services:
       - /dev/dri/card1:/dev/dri/card1
       - /dev/dri/renderD128:/dev/dri/renderD128
     ports:
-      - "11434:11434"
+      - "${HEMS_PORT_OLLAMA:-11444}:11434"
     volumes:
       - ollama_models:/root/.ollama
     environment:
@@ -218,7 +218,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-hems_dev_password}
       - POSTGRES_DB=hems
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${HEMS_PORT_POSTGRES:-5442}:5432"
     volumes:
       - hems_pg_data:/var/lib/postgresql/data
     networks:

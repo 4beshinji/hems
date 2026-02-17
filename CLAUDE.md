@@ -48,16 +48,18 @@ npm run build    # tsc -b && vite build
 
 ### Service Ports
 
-| Service | Port | Container |
-|---------|------|-----------|
-| Frontend (nginx) | 80 | hems-frontend |
-| Backend API | 8000 | hems-backend |
-| Mock LLM | 8001 | hems-mock-llm |
-| Voice Service | 8002 | hems-voice |
-| VOICEVOX | 50021 | hems-voicevox |
-| Ollama | 11434 | hems-ollama |
-| PostgreSQL | 5432 | hems-postgres |
-| MQTT | 1883 | hems-mqtt |
+Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from SOMS to allow coexistence.
+
+| Service | Default Port | Env Var | Container |
+|---------|-------------|---------|-----------|
+| Frontend (nginx) | 8080 | `HEMS_PORT_FRONTEND` | hems-frontend |
+| Backend API | 8010 | `HEMS_PORT_BACKEND` | hems-backend |
+| Mock LLM | 8011 | `HEMS_PORT_MOCK_LLM` | hems-mock-llm |
+| Voice Service | 8012 | `HEMS_PORT_VOICE` | hems-voice |
+| VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
+| Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
+| PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
+| MQTT | 1893 | `HEMS_PORT_MQTT` | hems-mqtt |
 
 ### MQTT Topic Structure
 
