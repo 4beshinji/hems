@@ -120,3 +120,41 @@ class DashboardClient:
         except Exception as e:
             logger.warning(f"Get active tasks error: {e}")
         return []
+
+    async def push_zone_snapshot(self, world_model) -> None:
+        """Push current zone sensor data to backend for frontend consumption."""
+        zones = []
+        for zone_id, zone in world_model.zones.items():
+            env = zone.environment
+            zones.append({
+                "zone_id": zone_id,
+                "environment": {
+                    "temperature": env.temperature,
+                    "humidity": env.humidity,
+                    "co2": env.co2,
+                    "pressure": env.pressure,
+                    "light": env.light,
+                    "voc": env.voc,
+                    "last_update": env.last_update,
+                },
+                "occupancy": {
+                    "count": zone.occupancy.count if zone.occupancy else 0,
+                    "last_update": zone.occupancy.last_update if zone.occupancy else None,
+                },
+                "events": [
+                    {"type": e.event_type, "description": e.description,
+                     "severity": e.severity, "timestamp": e.timestamp}
+                    for e in zone.events[-5:]
+                ],
+            })
+        if not zones:
+            return
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/zones/snapshot",
+                json={"zones": zones}, timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Zone snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Zone snapshot push error: {e}")

@@ -40,9 +40,27 @@ interface VoiceEvent {
   tone: string
 }
 
+export interface EnvironmentData {
+  temperature?: number | null
+  humidity?: number | null
+  co2?: number | null
+  pressure?: number | null
+  light?: number | null
+  voc?: number | null
+  last_update?: number | null
+}
+
+export interface ZoneData {
+  zone_id: string
+  environment: EnvironmentData
+  occupancy: { count: number; last_update?: number | null }
+  events: { type: string; description: string; severity: number; timestamp: number }[]
+}
+
 export default function App() {
   const [tasks, setTasks] = useState<TaskData[]>([])
   const [stats, setStats] = useState<StatsData | null>(null)
+  const [zones, setZones] = useState<ZoneData[]>([])
   const [audioEnabled, setAudioEnabled] = useState(false)
   const { enqueue, isEnabled } = useAudioQueue(audioEnabled)
   const [playedVoiceIds, setPlayedVoiceIds] = useState<Set<number>>(new Set())
@@ -59,6 +77,13 @@ export default function App() {
     try {
       const resp = await fetch(`${API_BASE}/tasks/stats`)
       if (resp.ok) setStats(await resp.json())
+    } catch {}
+  }, [])
+
+  const fetchZones = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/zones/`)
+      if (resp.ok) setZones(await resp.json())
     } catch {}
   }, [])
 
@@ -92,13 +117,15 @@ export default function App() {
   useEffect(() => {
     fetchTasks()
     fetchStats()
+    fetchZones()
     const interval = setInterval(() => {
       fetchTasks()
       fetchStats()
+      fetchZones()
       fetchVoiceEvents()
     }, 5000)
     return () => clearInterval(interval)
-  }, [fetchTasks, fetchStats, fetchVoiceEvents])
+  }, [fetchTasks, fetchStats, fetchZones, fetchVoiceEvents])
 
   const activeTasks = tasks.filter(t => !t.is_completed)
 
@@ -129,7 +156,7 @@ export default function App() {
         </div>
       </header>
 
-      <StatusPanel />
+      <StatusPanel zones={zones} />
 
       <section className="mt-8">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">

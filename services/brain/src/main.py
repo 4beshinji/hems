@@ -139,6 +139,7 @@ class Brain:
                     "summary": _summarize_action(action["tool"], action["args"]),
                     "success": result.get("success", True),
                 })
+            await self.dashboard.push_zone_snapshot(self.world_model)
             return
 
         llm_context = self.world_model.get_llm_context()
@@ -254,6 +255,9 @@ class Brain:
 
         # Prune old history
         self._action_history = [a for a in self._action_history if a["time"] > time.time() - 7200]
+
+        # Push zone sensor snapshot to backend for frontend
+        await self.dashboard.push_zone_snapshot(self.world_model)
 
         logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
 

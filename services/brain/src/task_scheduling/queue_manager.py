@@ -4,6 +4,7 @@ Simplified from SOMS for single-user home use.
 """
 from loguru import logger
 from .priority import QueuedTask
+from .decision import should_dispatch
 
 
 class TaskQueueManager:
@@ -39,12 +40,16 @@ class TaskQueueManager:
 
             queued.sort(key=lambda x: -x[0])
 
-            # Dispatch top task
-            top = queued[0][1]
-            logger.info(f"Dispatching task {top.task_id}: {top.title}")
-
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-                await session.put(f"{self.dashboard.backend_url}/tasks/{top.task_id}/dispatch")
+            # Dispatch top task if conditions are met
+            for _score, qt in queued:
+                task_dict = {"urgency": qt.urgency, "zone": qt.zone}
+                if not should_dispatch(task_dict, self.world_model):
+                    logger.debug(f"Skipping task {qt.task_id}: dispatch conditions not met")
+                    continue
+                logger.info(f"Dispatching task {qt.task_id}: {qt.title}")
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+                    await session.put(f"{self.dashboard.backend_url}/tasks/{qt.task_id}/dispatch")
+                break  # One dispatch per cycle
 
         except Exception as e:
             logger.warning(f"Queue processing error: {e}")

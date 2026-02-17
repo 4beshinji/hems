@@ -134,3 +134,31 @@ class PointLog(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# --- Zone / Sensor ---
+
+class EnvironmentData(BaseModel):
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    co2: Optional[float] = None
+    pressure: Optional[float] = None
+    light: Optional[float] = None
+    voc: Optional[float] = None
+    last_update: Optional[float] = None
+
+
+class OccupancyData(BaseModel):
+    count: int = 0
+    last_update: Optional[float] = None
+
+
+class ZoneSnapshot(BaseModel):
+    zone_id: str
+    environment: EnvironmentData = EnvironmentData()
+    occupancy: OccupancyData = OccupancyData()
+    events: List[dict] = []
+
+
+class ZonesUpdate(BaseModel):
+    zones: List[ZoneSnapshot]
