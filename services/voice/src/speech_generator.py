@@ -241,7 +241,7 @@ class SpeechGenerator:
                     {"role": "user", "content": prompt}
                 ],
                 "max_tokens": 100,
-                "temperature": 0.8
+                "temperature": 0.3
             }
             
             # Ensure URL ends with /chat/completions if not already
