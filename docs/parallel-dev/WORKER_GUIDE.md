@@ -259,12 +259,6 @@ Adding new route prefixes: coordinate with L4 (nginx.conf owner).
 | `docs/SYSTEM_OVERVIEW.md` | High-level architecture |
 | `CLAUDE.md` | Build commands, architecture reference, conventions |
 
-### Known Issues (from CURRENT_STATE.md)
+### Known Issues
 
-| ID | Severity | Summary | Relevant Lane |
-|----|----------|---------|---------------|
-| H-5 | HIGH | Sanitizer rate limit timing — failed tasks counted | L6 |
-| H-6 | HIGH | WalletBadge.tsx render-phase setState | L4 |
-| M-5 | MEDIUM | Perception `network_mode:host` vs `networks:` conflict | L7 |
-| M-7 | MEDIUM | Voice Task model too simple | L3 |
-| L-1~L-8 | LOW | Dockerfile tag pinning, unused packages, healthchecks | L7 |
+ISSUES.md 全32件解決済み。DISPATCH.md の Issue トラッカーを参照。
