@@ -214,6 +214,7 @@ services:
   # --- Local LLM Engine (Ollama) ---
   ollama:
     image: ollama/ollama:rocm
+    pull_policy: if_not_present
     container_name: soms-ollama
     restart: always
     devices:
