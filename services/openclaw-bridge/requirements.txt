@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+websockets
+paho-mqtt>=2.0
+loguru
+python-dotenv
+aioimaplib
+aiohttp

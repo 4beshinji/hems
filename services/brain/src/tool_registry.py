@@ -1,11 +1,12 @@
 """
 OpenAI function-calling tool definitions for HEMS Brain.
-4 tools: create_task, send_device_command, get_zone_status, speak
+Base: create_task, send_device_command, get_zone_status, speak
+OpenClaw: get_pc_status, run_pc_command, control_browser, send_pc_notification
 """
 
 
-def get_tools() -> list:
-    return [
+def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False) -> list:
+    tools = [
         {
             "type": "function",
             "function": {
@@ -79,6 +80,116 @@ def get_tools() -> list:
                         },
                     },
                     "required": ["message", "zone"],
+                },
+            },
+        },
+    ]
+
+    if openclaw_enabled:
+        tools.extend(_get_pc_tools())
+
+    if services_enabled:
+        tools.extend(_get_service_tools())
+
+    return tools
+
+
+def _get_service_tools() -> list:
+    """Service monitor tools — only included when services are being tracked."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_service_status",
+                "description": "外部サービスの状態を取得する（Gmail未読数、GitHub通知など）。サービス名を省略すると全サービスを返す。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "service_name": {
+                            "type": "string",
+                            "description": "サービス名（例: gmail, github）。省略で全サービス取得",
+                        },
+                    },
+                },
+            },
+        },
+    ]
+
+
+def _get_pc_tools() -> list:
+    """PC tools — only included when OpenClaw bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_pc_status",
+                "description": "PCのシステムメトリクス（CPU、メモリ、GPU、ディスク）を取得する。PC状態の確認に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "include_processes": {
+                            "type": "boolean",
+                            "description": "プロセスリストを含めるか",
+                            "default": False,
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_pc_command",
+                "description": "ホストPCでシェルコマンドを実行する。ファイル操作、状態確認、アプリ起動等に使用。危険なコマンドは禁止。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "description": "実行するシェルコマンド"},
+                        "cwd": {"type": "string", "description": "作業ディレクトリ（省略可）"},
+                        "timeout": {"type": "number", "description": "タイムアウト秒数", "default": 30},
+                    },
+                    "required": ["command"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "control_browser",
+                "description": "ブラウザを操作する。URL遷移、JavaScript実行、現在のURL/タイトル取得が可能。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["navigate", "eval", "get_url", "get_title"],
+                            "description": "ブラウザ操作の種類",
+                        },
+                        "url": {"type": "string", "description": "遷移先URL（navigate時）"},
+                        "javascript": {"type": "string", "description": "実行するJS（eval時）"},
+                    },
+                    "required": ["action"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "send_pc_notification",
+                "description": "デスクトップ通知を送信する。PCでの作業中に音声以外で通知したい場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "通知タイトル"},
+                        "body": {"type": "string", "description": "通知本文"},
+                        "priority": {
+                            "type": "string",
+                            "enum": ["active", "passive", "time-sensitive"],
+                            "description": "通知優先度",
+                            "default": "active",
+                        },
+                    },
+                    "required": ["title", "body"],
                 },
             },
         },

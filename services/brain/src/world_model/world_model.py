@@ -4,7 +4,11 @@ Forked from SOMS with HEMS personal topic support.
 """
 import time
 import logging
-from .data_classes import ZoneState, EnvironmentData, OccupancyData, Event
+from .data_classes import (
+    ZoneState, EnvironmentData, OccupancyData, Event,
+    PCState, CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
+    ServicesState, ServiceStatusData,
+)
 from .sensor_fusion import SensorFusion
 
 logger = logging.getLogger(__name__)
@@ -16,10 +20,18 @@ TEMP_HIGH = 28
 TEMP_LOW = 16
 SEDENTARY_MINUTES = 60
 
+# PC thresholds
+PC_CPU_HIGH = 90
+PC_MEMORY_HIGH = 90
+PC_GPU_TEMP_HIGH = 85
+PC_DISK_HIGH = 90
+
 
 class WorldModel:
     def __init__(self):
         self.zones: dict[str, ZoneState] = {}
+        self.pc_state: PCState = PCState()
+        self.services_state: ServicesState = ServicesState()
         self._sensor_fusions: dict[str, SensorFusion] = {}
         self.event_writer = None  # Set by Brain if event_store is available
 
@@ -79,6 +91,14 @@ class WorldModel:
                 zone=zone_id,
                 data=payload,
             ))
+
+        # hems/pc/* topics (OpenClaw bridge)
+        elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "pc":
+            self._update_pc_state(parts[2:], payload)
+
+        # hems/services/{name}/status (Service Monitor)
+        elif parts[0] == "hems" and len(parts) >= 4 and parts[1] == "services":
+            self._update_service_state(parts[2], parts[3], payload)
 
         # hems/personal/* topics (Phase 2 — data-bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "personal":
@@ -152,6 +172,156 @@ class WorldModel:
                     data={"temperature": value},
                 ))
 
+    def _update_pc_state(self, path_parts: list[str], payload: dict):
+        """Handle hems/pc/* topics from OpenClaw bridge."""
+        if not path_parts:
+            return
+
+        category = path_parts[0]
+        pc = self.pc_state
+
+        if category == "metrics" and len(path_parts) >= 2:
+            metric = path_parts[1]
+            now = time.time()
+            if metric == "cpu":
+                prev_usage = pc.cpu.usage_percent
+                pc.cpu = CPUData(
+                    usage_percent=payload.get("usage_percent", 0),
+                    core_count=payload.get("core_count", 0),
+                    freq_mhz=payload.get("freq_mhz", 0),
+                    temp_c=payload.get("temp_c", 0),
+                    last_update=now,
+                )
+                self._check_pc_thresholds("cpu", pc.cpu.usage_percent, prev_usage)
+            elif metric == "memory":
+                prev_pct = pc.memory.percent
+                pc.memory = MemoryData(
+                    used_gb=payload.get("used_gb", 0),
+                    total_gb=payload.get("total_gb", 0),
+                    percent=payload.get("percent", 0),
+                    last_update=now,
+                )
+                self._check_pc_thresholds("memory", pc.memory.percent, prev_pct)
+            elif metric == "gpu":
+                prev_temp = pc.gpu.temp_c
+                pc.gpu = GPUData(
+                    usage_percent=payload.get("usage_percent", 0),
+                    vram_used_gb=payload.get("vram_used_gb", 0),
+                    vram_total_gb=payload.get("vram_total_gb", 0),
+                    temp_c=payload.get("temp_c", 0),
+                    last_update=now,
+                )
+                self._check_pc_thresholds("gpu_temp", pc.gpu.temp_c, prev_temp)
+            elif metric == "disk":
+                partitions = [
+                    DiskPartition(
+                        mount=p.get("mount", ""),
+                        used_gb=p.get("used_gb", 0),
+                        total_gb=p.get("total_gb", 0),
+                        percent=p.get("percent", 0),
+                    )
+                    for p in payload.get("partitions", [])
+                ]
+                pc.disk = DiskData(partitions=partitions, last_update=now)
+                for p in partitions:
+                    if p.percent > PC_DISK_HIGH:
+                        pc.add_event(Event(
+                            event_type="pc_disk_high",
+                            description=f"ディスク残量警告: {p.mount} ({p.percent:.0f}%使用)",
+                            severity=1,
+                            data={"mount": p.mount, "percent": p.percent},
+                        ))
+            elif metric == "temperature":
+                if "cpu_temp_c" in payload:
+                    pc.cpu.temp_c = payload["cpu_temp_c"]
+                if "gpu_temp_c" in payload:
+                    pc.gpu.temp_c = payload["gpu_temp_c"]
+
+        elif category == "processes" and len(path_parts) >= 2 and path_parts[1] == "top":
+            pc.top_processes = [
+                ProcessInfo(
+                    pid=p.get("pid", 0),
+                    name=p.get("name", ""),
+                    cpu_percent=p.get("cpu_percent", 0),
+                    mem_mb=p.get("mem_mb", 0),
+                )
+                for p in payload.get("processes", [])
+            ]
+
+        elif category == "bridge" and len(path_parts) >= 2 and path_parts[1] == "status":
+            pc.bridge_connected = payload.get("connected", False)
+
+        elif category == "events":
+            # Threshold events from bridge (cpu_high, memory_high, gpu_hot, disk_low)
+            event_type = path_parts[1] if len(path_parts) >= 2 else "unknown"
+            pc.add_event(Event(
+                event_type=f"pc_{event_type}",
+                description=f"PC閾値イベント: {event_type}",
+                severity=1 if "hot" not in event_type else 2,
+                data=payload,
+            ))
+
+    def _check_pc_thresholds(self, metric: str, value: float, prev: float):
+        """Generate events from PC metric threshold crossings."""
+        pc = self.pc_state
+        if metric == "cpu" and value > PC_CPU_HIGH and prev <= PC_CPU_HIGH:
+            pc.add_event(Event(
+                event_type="pc_cpu_high",
+                description=f"PC CPU使用率高: {value:.0f}%",
+                severity=1,
+                data={"usage_percent": value},
+            ))
+        elif metric == "memory" and value > PC_MEMORY_HIGH and prev <= PC_MEMORY_HIGH:
+            pc.add_event(Event(
+                event_type="pc_memory_high",
+                description=f"PCメモリ使用率高: {value:.0f}%",
+                severity=1,
+                data={"percent": value},
+            ))
+        elif metric == "gpu_temp" and value > PC_GPU_TEMP_HIGH and prev <= PC_GPU_TEMP_HIGH:
+            pc.add_event(Event(
+                event_type="pc_gpu_hot",
+                description=f"GPU温度警告: {value:.0f}°C",
+                severity=2,
+                data={"temp_c": value},
+            ))
+
+    def _update_service_state(self, service_name: str, msg_type: str, payload: dict):
+        """Handle hems/services/{name}/status and hems/services/{name}/event topics."""
+        ss = self.services_state
+
+        if msg_type == "status":
+            prev = ss.services.get(service_name)
+            prev_count = prev.unread_count if prev else 0
+
+            ssd = ServiceStatusData(
+                name=payload.get("name", service_name),
+                available=payload.get("available", True),
+                unread_count=payload.get("unread_count", 0),
+                summary=payload.get("summary", ""),
+                details=payload.get("details", {}),
+                last_check=payload.get("last_check", time.time()),
+                error=payload.get("error"),
+            )
+            ss.services[service_name] = ssd
+
+            # Generate event on unread increase
+            if ssd.unread_count > prev_count:
+                ss.add_event(Event(
+                    event_type="service_unread_increase",
+                    description=ssd.summary,
+                    severity=0,
+                    data={"service": service_name, "prev": prev_count, "new": ssd.unread_count},
+                ))
+
+        elif msg_type == "event":
+            ss.add_event(Event(
+                event_type=f"service_{payload.get('type', 'unknown')}",
+                description=payload.get("summary", f"{service_name} event"),
+                severity=0,
+                data=payload,
+            ))
+
     def _update_personal(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/* topics (Phase 2 stub)."""
         # Will be expanded when data-bridge is implemented
@@ -159,10 +329,9 @@ class WorldModel:
 
     def get_llm_context(self) -> str:
         """Build text context for LLM from current world state."""
-        if not self.zones:
-            return ""
-
         lines = []
+
+        # Zone data
         for zone_id, zone in self.zones.items():
             env = zone.environment
             parts = [f"### {zone_id}"]
@@ -178,4 +347,37 @@ class WorldModel:
 
             lines.append("\n".join(parts))
 
+        # PC state (only if bridge has sent data)
+        pc = self.pc_state
+        if pc.cpu.last_update > 0 or pc.memory.last_update > 0:
+            pc_parts = ["### PC"]
+            if pc.cpu.last_update > 0:
+                pc_parts.append(f"  CPU: {pc.cpu.usage_percent:.0f}% ({pc.cpu.core_count}コア)")
+                if pc.cpu.temp_c > 0:
+                    pc_parts.append(f"  CPU温度: {pc.cpu.temp_c:.0f}°C")
+            if pc.memory.last_update > 0:
+                pc_parts.append(f"  メモリ: {pc.memory.used_gb:.1f}/{pc.memory.total_gb:.1f}GB ({pc.memory.percent:.0f}%)")
+            if pc.gpu.last_update > 0:
+                pc_parts.append(f"  GPU: {pc.gpu.usage_percent:.0f}%, VRAM {pc.gpu.vram_used_gb:.1f}/{pc.gpu.vram_total_gb:.1f}GB")
+                if pc.gpu.temp_c > 0:
+                    pc_parts.append(f"  GPU温度: {pc.gpu.temp_c:.0f}°C")
+            if pc.disk.partitions:
+                for p in pc.disk.partitions:
+                    pc_parts.append(f"  ディスク({p.mount}): {p.used_gb:.0f}/{p.total_gb:.0f}GB ({p.percent:.0f}%)")
+            if not pc.bridge_connected:
+                pc_parts.append("  ⚠ OpenClawブリッジ: 切断中")
+            lines.append("\n".join(pc_parts))
+
+        # Services state (only if any service data exists)
+        if self.services_state.services:
+            svc_parts = ["### サービス"]
+            for name, svc in self.services_state.services.items():
+                if svc.error:
+                    svc_parts.append(f"  {name}: ⚠ {svc.summary}")
+                else:
+                    svc_parts.append(f"  {name}: {svc.summary}")
+            lines.append("\n".join(svc_parts))
+
+        if not lines:
+            return ""
         return "\n\n".join(lines)

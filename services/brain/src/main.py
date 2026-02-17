@@ -31,6 +31,8 @@ load_dotenv()
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 LLM_API_URL = os.getenv("LLM_API_URL", "http://mock-llm:8000/v1")
+OPENCLAW_BRIDGE_URL = os.getenv("OPENCLAW_BRIDGE_URL", "")
+OPENCLAW_ENABLED = bool(OPENCLAW_BRIDGE_URL)
 
 REACT_MAX_ITERATIONS = 5
 CYCLE_INTERVAL = 30
@@ -47,6 +49,16 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return f"title={args.get('title', '')}"
     elif tool_name == "get_zone_status":
         return f"zone={args.get('zone_id', '')}"
+    elif tool_name == "run_pc_command":
+        return f"cmd={args.get('command', '')[:40]}"
+    elif tool_name == "control_browser":
+        return f"action={args.get('action', '')}"
+    elif tool_name == "send_pc_notification":
+        return f"title={args.get('title', '')[:30]}"
+    elif tool_name == "get_pc_status":
+        return "pc_status"
+    elif tool_name == "get_service_status":
+        return f"service={args.get('service_name', 'all')}"
     return str(args)[:50]
 
 
@@ -117,6 +129,9 @@ class Brain:
                 self.device_registry.update_from_heartbeat(parts[3], payload)
 
         current = {zid: len(z.events) for zid, z in self.world_model.zones.items()}
+        if OPENCLAW_ENABLED:
+            current["__pc__"] = len(self.world_model.pc_state.events)
+        current["__services__"] = len(self.world_model.services_state.events)
         if current != self._last_event_count:
             self._last_event_count = current
             self._cycle_triggered.set()
@@ -140,6 +155,10 @@ class Brain:
                     "success": result.get("success", True),
                 })
             await self.dashboard.push_zone_snapshot(self.world_model)
+            if OPENCLAW_ENABLED:
+                await self.dashboard.push_pc_snapshot(self.world_model)
+            if self.world_model.services_state.services:
+                await self.dashboard.push_services_snapshot(self.world_model)
             return
 
         llm_context = self.world_model.get_llm_context()
@@ -156,10 +175,21 @@ class Brain:
             for event in zone.events:
                 if now - event.timestamp < 300:
                     recent_events.append(f"[{zone_id}] {event.description}")
+        if OPENCLAW_ENABLED:
+            for event in self.world_model.pc_state.events:
+                if now - event.timestamp < 300:
+                    recent_events.append(f"[PC] {event.description}")
+        for event in self.world_model.services_state.events:
+            if now - event.timestamp < 300:
+                recent_events.append(f"[サービス] {event.description}")
 
         active_tasks = await self.dashboard.get_active_tasks()
 
-        system_msg = build_system_message(self.character)
+        services_enabled = bool(self.world_model.services_state.services)
+        system_msg = build_system_message(
+            self.character, openclaw_enabled=OPENCLAW_ENABLED,
+            services_enabled=services_enabled,
+        )
         user_content = f"## 現在の自宅状態\n{llm_context}"
         if recent_events:
             user_content += "\n\n## 直近のイベント\n" + "\n".join(recent_events)
@@ -179,7 +209,7 @@ class Brain:
                 user_content += f"- {mins_ago}分前: {a['tool']}({a.get('summary', '')})\n"
 
         messages = [system_msg, {"role": "user", "content": user_content}]
-        tools = get_tools()
+        tools = get_tools(openclaw_enabled=OPENCLAW_ENABLED, services_enabled=services_enabled)
 
         tool_call_history = []
         speak_count = 0
@@ -258,6 +288,10 @@ class Brain:
 
         # Push zone sensor snapshot to backend for frontend
         await self.dashboard.push_zone_snapshot(self.world_model)
+        if OPENCLAW_ENABLED:
+            await self.dashboard.push_pc_snapshot(self.world_model)
+        if self.world_model.services_state.services:
+            await self.dashboard.push_services_snapshot(self.world_model)
 
         logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
 
@@ -298,6 +332,10 @@ class Brain:
                 device_registry=self.device_registry,
             )
             asyncio.create_task(self.task_reminder.run_periodic_check())
+            if OPENCLAW_ENABLED:
+                logger.info(f"OpenClaw integration enabled (bridge={OPENCLAW_BRIDGE_URL})")
+            else:
+                logger.info("OpenClaw integration disabled (OPENCLAW_BRIDGE_URL not set)")
             logger.info("HEMS Brain running (ReAct mode)...")
 
             last_cycle = 0.0

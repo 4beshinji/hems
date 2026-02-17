@@ -121,6 +121,75 @@ class DashboardClient:
             logger.warning(f"Get active tasks error: {e}")
         return []
 
+    async def push_pc_snapshot(self, world_model) -> None:
+        """Push current PC metrics to backend for frontend consumption."""
+        pc = world_model.pc_state
+        if pc.cpu.last_update == 0 and pc.memory.last_update == 0:
+            return  # No PC data yet
+
+        payload = {
+            "cpu": {
+                "usage_percent": pc.cpu.usage_percent,
+                "core_count": pc.cpu.core_count,
+                "temp_c": pc.cpu.temp_c,
+            },
+            "memory": {
+                "used_gb": pc.memory.used_gb,
+                "total_gb": pc.memory.total_gb,
+                "percent": pc.memory.percent,
+            },
+            "gpu": {
+                "usage_percent": pc.gpu.usage_percent,
+                "vram_used_gb": pc.gpu.vram_used_gb,
+                "vram_total_gb": pc.gpu.vram_total_gb,
+                "temp_c": pc.gpu.temp_c,
+            },
+            "disk": [
+                {"mount": p.mount, "used_gb": p.used_gb, "total_gb": p.total_gb, "percent": p.percent}
+                for p in pc.disk.partitions
+            ],
+            "top_processes": [
+                {"pid": p.pid, "name": p.name, "cpu_percent": p.cpu_percent, "mem_mb": p.mem_mb}
+                for p in pc.top_processes[:10]
+            ],
+            "bridge_connected": pc.bridge_connected,
+        }
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/pc/snapshot",
+                json=payload, timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"PC snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"PC snapshot push error: {e}")
+
+    async def push_services_snapshot(self, world_model) -> None:
+        """Push current service statuses to backend for frontend consumption."""
+        ss = world_model.services_state
+        if not ss.services:
+            return
+
+        payload = {}
+        for name, svc in ss.services.items():
+            payload[name] = {
+                "name": svc.name,
+                "available": svc.available,
+                "unread_count": svc.unread_count,
+                "summary": svc.summary,
+                "last_check": svc.last_check,
+                "error": svc.error,
+            }
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/services/snapshot",
+                json=payload, timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Services snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Services snapshot push error: {e}")
+
     async def push_zone_snapshot(self, world_model) -> None:
         """Push current zone sensor data to backend for frontend consumption."""
         zones = []

@@ -1,8 +1,26 @@
 """
 Input validation and safety limits for HEMS Brain.
 """
+import re
 import time
 from loguru import logger
+
+# Dangerous command patterns for run_pc_command
+_DANGEROUS_PATTERNS = [
+    r"\brm\s+-\S*[rf]\S*\s",  # rm with -r or -f flags (rm -rf, rm -f, rm -r)
+    r"\bmkfs\b",
+    r"\bdd\s+.*of=/dev/",
+    r"\bshutdown\b",
+    r"\breboot\b",
+    r"\bpoweroff\b",
+    r"\binit\s+0\b",
+    r"\bsystemctl\s+(halt|poweroff|reboot)\b",
+    r">\s*/dev/sd[a-z]",
+    r"\bchmod\s+(-\S+\s+)*777\s+/",
+    r"\bchown\s+\S+\s+/",
+    r":\(\)\s*\{.*:\|:.*\};",  # fork bomb
+]
+_DANGEROUS_RE = [re.compile(p) for p in _DANGEROUS_PATTERNS]
 
 
 class Sanitizer:
@@ -20,7 +38,11 @@ class Sanitizer:
             return self._validate_create_task(arguments)
         elif tool_name == "speak":
             return self._validate_speak(arguments)
-        elif tool_name in ("send_device_command", "get_zone_status"):
+        elif tool_name == "run_pc_command":
+            return self._validate_pc_command(arguments)
+        elif tool_name in ("send_device_command", "get_zone_status",
+                           "get_pc_status", "control_browser", "send_pc_notification",
+                           "get_service_status"):
             return {"allowed": True, "reason": ""}
         else:
             return {"allowed": False, "reason": f"Unknown tool: {tool_name}"}
@@ -65,4 +87,16 @@ class Sanitizer:
             return {"allowed": False, "reason": f"Speak cooldown for zone '{zone}': {remaining}s remaining"}
 
         self._speak_cooldowns[zone] = now
+        return {"allowed": True, "reason": ""}
+
+    def _validate_pc_command(self, args: dict) -> dict:
+        command = args.get("command", "")
+        if not command:
+            return {"allowed": False, "reason": "Empty command"}
+
+        for pattern in _DANGEROUS_RE:
+            if pattern.search(command):
+                logger.warning(f"Dangerous PC command blocked: {command[:100]}")
+                return {"allowed": False, "reason": f"Dangerous command pattern detected"}
+
         return {"allowed": True, "reason": ""}

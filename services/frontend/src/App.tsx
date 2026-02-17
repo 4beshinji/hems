@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Volume2, VolumeX, Zap } from 'lucide-react'
 import TaskCard from './components/TaskCard'
 import StatusPanel from './components/StatusPanel'
+import PCStatusPanel from './components/PCStatusPanel'
+import ServiceStatusPanel from './components/ServiceStatusPanel'
 import { useAudioQueue, AudioPriority } from './audio'
 
 const API_BASE = '/api'
@@ -57,10 +59,36 @@ export interface ZoneData {
   events: { type: string; description: string; severity: number; timestamp: number }[]
 }
 
+export interface ServiceStatusItem {
+  name: string
+  available: boolean
+  unread_count: number
+  summary: string
+  last_check: number
+  error?: string | null
+}
+
+export interface ServicesData {
+  status?: string
+  [key: string]: ServiceStatusItem | string | undefined
+}
+
+export interface PCMetrics {
+  status?: string
+  cpu?: { usage_percent: number; core_count: number; temp_c: number }
+  memory?: { used_gb: number; total_gb: number; percent: number }
+  gpu?: { usage_percent: number; vram_used_gb: number; vram_total_gb: number; temp_c: number }
+  disk?: { mount: string; used_gb: number; total_gb: number; percent: number }[]
+  top_processes?: { pid: number; name: string; cpu_percent: number; mem_mb: number }[]
+  bridge_connected?: boolean
+}
+
 export default function App() {
   const [tasks, setTasks] = useState<TaskData[]>([])
   const [stats, setStats] = useState<StatsData | null>(null)
   const [zones, setZones] = useState<ZoneData[]>([])
+  const [pcMetrics, setPcMetrics] = useState<PCMetrics | null>(null)
+  const [servicesData, setServicesData] = useState<ServicesData | null>(null)
   const [audioEnabled, setAudioEnabled] = useState(false)
   const { enqueue, isEnabled } = useAudioQueue(audioEnabled)
   const [playedVoiceIds, setPlayedVoiceIds] = useState<Set<number>>(new Set())
@@ -84,6 +112,20 @@ export default function App() {
     try {
       const resp = await fetch(`${API_BASE}/zones/`)
       if (resp.ok) setZones(await resp.json())
+    } catch {}
+  }, [])
+
+  const fetchPC = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/pc/`)
+      if (resp.ok) setPcMetrics(await resp.json())
+    } catch {}
+  }, [])
+
+  const fetchServices = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/services/`)
+      if (resp.ok) setServicesData(await resp.json())
     } catch {}
   }, [])
 
@@ -118,14 +160,18 @@ export default function App() {
     fetchTasks()
     fetchStats()
     fetchZones()
+    fetchPC()
+    fetchServices()
     const interval = setInterval(() => {
       fetchTasks()
       fetchStats()
       fetchZones()
+      fetchPC()
+      fetchServices()
       fetchVoiceEvents()
     }, 5000)
     return () => clearInterval(interval)
-  }, [fetchTasks, fetchStats, fetchZones, fetchVoiceEvents])
+  }, [fetchTasks, fetchStats, fetchZones, fetchPC, fetchServices, fetchVoiceEvents])
 
   const activeTasks = tasks.filter(t => !t.is_completed)
 
@@ -157,6 +203,10 @@ export default function App() {
       </header>
 
       <StatusPanel zones={zones} />
+
+      <PCStatusPanel pc={pcMetrics} />
+
+      <ServiceStatusPanel services={servicesData} />
 
       <section className="mt-8">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">

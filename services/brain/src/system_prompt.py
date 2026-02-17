@@ -4,11 +4,14 @@ System prompt builder for HEMS Brain with character injection.
 from dataclasses import fields as dc_fields, asdict
 
 
-def build_system_message(character=None) -> dict:
+def build_system_message(character=None, openclaw_enabled: bool = False,
+                         services_enabled: bool = False) -> dict:
     """Build system message with safety rules + character personality.
 
     Args:
         character: CharacterConfig dataclass or None.
+        openclaw_enabled: Whether OpenClaw PC tools are available.
+        services_enabled: Whether service monitor tools are available.
     """
 
     # Base safety rules (NOT overridable by character)
@@ -34,6 +37,30 @@ def build_system_message(character=None) -> dict:
 - create_task: ダッシュボードにタスク作成。xp_reward: 50-500
 - get_zone_status: ゾーンの詳細状態を確認
 - send_device_command: MCPデバイスを制御"""
+
+    if openclaw_enabled:
+        base += """
+
+## PCツール（OpenClaw連携）
+- get_pc_status: CPU/メモリ/GPU/ディスク情報を取得。include_processes=trueでプロセス一覧も取得
+- run_pc_command: ホストPCでシェルコマンドを実行。ファイル確認、アプリ起動等に使用
+- control_browser: ブラウザ操作（navigate/eval/get_url/get_title）
+- send_pc_notification: デスクトップ通知を送信
+
+## PC安全ルール
+- rm -rf、mkfs、shutdown等の破壊的コマンドは禁止
+- GPU温度85度以上は緊急通知する
+- ディスク90%以上は整理タスクを作成する
+- PCメトリクスが取得できない場合はブリッジの接続状態を確認する"""
+
+    if services_enabled:
+        base += """
+
+## サービスモニター
+- get_service_status: 外部サービスの状態を取得（Gmail未読数、GitHub通知等）
+- service_nameを省略すると全サービスの状態を一覧取得
+- 未読数が増加した場合はspeakで通知を検討する
+- サービスエラーが続く場合はcreate_taskで確認タスクを作成する"""
 
     # Character injection
     if character:
