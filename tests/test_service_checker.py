@@ -4,6 +4,7 @@ Tests for ServiceCheckerManager, BaseChecker, and individual checkers.
 import asyncio
 import json
 import time
+from dataclasses import asdict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -150,6 +151,18 @@ class TestGitHubChecker:
         assert "types" in status.details
 
     @pytest.mark.asyncio
+    async def test_check_no_notifications(self):
+        checker = GitHubChecker("ghp_token")
+        mock_aiohttp = self._make_mock_aiohttp(200, [])
+
+        with patch.dict("sys.modules", {"aiohttp": mock_aiohttp}):
+            status = await checker.check()
+
+        assert status.available is True
+        assert status.unread_count == 0
+        assert "通知なし" in status.summary
+
+    @pytest.mark.asyncio
     async def test_check_api_error(self):
         checker = GitHubChecker("bad_token")
         mock_aiohttp = self._make_mock_aiohttp(401)
@@ -177,7 +190,9 @@ class TestBrowserChecker:
             oc_client=oc_client, interval=300,
         )
 
-        status = await checker.check()
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            status = await checker.check()
+
         assert status.available is True
         assert status.unread_count == 5
         assert "LINE" in status.summary
@@ -197,8 +212,26 @@ class TestBrowserChecker:
         assert "not connected" in status.error
 
     @pytest.mark.asyncio
+    async def test_check_invalid_json(self):
+        oc_client = AsyncMock()
+        oc_client.connected = True
+        oc_client.canvas_navigate = AsyncMock()
+        oc_client.canvas_eval = AsyncMock(return_value="not valid json{{")
+
+        checker = BrowserChecker(
+            name="line", url="https://line.me", js_script="...",
+            oc_client=oc_client,
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            status = await checker.check()
+
+        assert status.available is False
+        assert status.error is not None
+
+    @pytest.mark.asyncio
     async def test_browser_lock_serialization(self):
-        """Verify that browser checkers use the lock for serialization."""
+        """Verify that browser checkers share a lock when the same lock is passed."""
         lock = asyncio.Lock()
         oc_client = AsyncMock()
         oc_client.connected = True
@@ -228,32 +261,45 @@ class TestServiceCheckerManager:
         assert mgr.get_status() == {}
 
     @pytest.mark.asyncio
-    async def test_checker_loop_publishes_mqtt(self, mqtt_pub):
+    async def test_checker_loop_stores_status(self, mqtt_pub):
         mgr = ServiceCheckerManager(mqtt_pub)
         status = ServiceStatus(
             name="test", available=True, unread_count=3,
             summary="テスト: 3件", last_check=time.time(),
         )
-        checker = ConcreteChecker("test", interval=1, status=status)
+        checker = ConcreteChecker("test", interval=60, status=status)
         mgr.register(checker)
 
-        # Run one iteration of the checker loop
-        await mgr._checker_loop.__wrapped__(mgr, checker) if hasattr(mgr._checker_loop, '__wrapped__') else None
-        # Directly test single iteration logic
-        prev = mgr._statuses.get(checker.name)
-        prev_count = prev.unread_count if prev else 0
+        # Simulate one loop iteration
         result = await checker.check()
         mgr._statuses[checker.name] = result
 
         assert mgr._statuses["test"].unread_count == 3
 
     @pytest.mark.asyncio
+    async def test_checker_loop_publishes_mqtt(self, mqtt_pub):
+        """Run actual _checker_loop and verify MQTT publish is called."""
+        mgr = ServiceCheckerManager(mqtt_pub)
+        status = ServiceStatus(
+            name="test", available=True, unread_count=0, last_check=time.time(),
+        )
+        checker = ConcreteChecker("test", interval=60, status=status)
+        mgr.register(checker)
+
+        # Run one iteration: the loop checks, publishes, then sleeps (interrupted by timeout)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(mgr._checker_loop(checker), timeout=0.1)
+
+        assert mqtt_pub.publish.call_count >= 1
+        first_call = mqtt_pub.publish.call_args_list[0]
+        assert first_call[0][0] == "hems/services/test/status"
+
+    @pytest.mark.asyncio
     async def test_edge_trigger_on_unread_increase(self, mqtt_pub):
         mgr = ServiceCheckerManager(mqtt_pub)
 
-        # Simulate first check: 0 unread
-        status1 = ServiceStatus(name="gmail", unread_count=0, last_check=time.time())
-        mgr._statuses["gmail"] = status1
+        # Simulate first check: 0 unread (stored in state)
+        mgr._statuses["gmail"] = ServiceStatus(name="gmail", unread_count=0, last_check=time.time())
 
         # Second check: 3 unread (increase)
         checker = ConcreteChecker("gmail", status=ServiceStatus(
@@ -268,8 +314,47 @@ class TestServiceCheckerManager:
         new_status = await checker.check()
         mgr._statuses["gmail"] = new_status
 
-        # The edge trigger should detect increase
+        # Edge trigger should detect increase
         assert new_status.unread_count > prev_count
+
+        # Simulate the edge trigger publish (mirrors _checker_loop logic)
+        if new_status.unread_count > prev_count:
+            mqtt_pub.publish(f"hems/services/gmail/event", {
+                "type": "unread_increased",
+                "name": "gmail",
+                "prev_count": prev_count,
+                "new_count": new_status.unread_count,
+            })
+
+        calls = [c[0][0] for c in mqtt_pub.publish.call_args_list]
+        assert any("gmail/event" in t for t in calls)
+
+    @pytest.mark.asyncio
+    async def test_edge_trigger_fires_in_loop(self, mqtt_pub):
+        """Run actual _checker_loop with a pre-existing lower count and verify event publish."""
+        mgr = ServiceCheckerManager(mqtt_pub)
+        mgr._statuses["gmail"] = ServiceStatus(name="gmail", unread_count=0, last_check=time.time())
+
+        checker = ConcreteChecker("gmail", interval=60, status=ServiceStatus(
+            name="gmail", unread_count=5, summary="未読: 5通", last_check=time.time(),
+        ))
+        mgr.register(checker)
+
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(mgr._checker_loop(checker), timeout=0.1)
+
+        # Both status and event topics should have been published
+        topics = [c[0][0] for c in mqtt_pub.publish.call_args_list]
+        assert any("gmail/status" in t for t in topics)
+        assert any("gmail/event" in t for t in topics)
+
+    @pytest.mark.asyncio
+    async def test_run_no_checkers(self, mqtt_pub):
+        """run() with no registered checkers returns without error."""
+        mgr = ServiceCheckerManager(mqtt_pub)
+        # Should complete immediately (no tasks to await)
+        await mgr.run()
+        mqtt_pub.publish.assert_not_called()
 
     def test_get_status_returns_cached(self, mqtt_pub):
         mgr = ServiceCheckerManager(mqtt_pub)

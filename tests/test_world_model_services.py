@@ -3,6 +3,7 @@ Tests for WorldModel service state integration — MQTT routing, LLM context, ev
 """
 import time
 import pytest
+from world_model.data_classes import Event
 
 
 class TestWorldModelServiceRouting:
@@ -116,9 +117,7 @@ class TestWorldModelServiceEvents:
     def test_events_ring_buffer(self, world_model):
         for i in range(25):
             world_model.services_state.add_event(
-                __import__("world_model.data_classes", fromlist=["Event"]).Event(
-                    event_type="test", description=f"event_{i}",
-                )
+                Event(event_type="test", description=f"event_{i}")
             )
         assert len(world_model.services_state.events) == 20  # max_events
 
@@ -155,3 +154,148 @@ class TestWorldModelServiceLLMContext:
         ctx = world_model.get_llm_context()
         assert "⚠" in ctx
         assert "Gmail接続エラー" in ctx
+
+
+class TestWorldModelPCRouting:
+    """Test hems/pc/* MQTT topic routing."""
+
+    def test_cpu_metrics_update(self, world_model):
+        world_model.update_from_mqtt("hems/pc/metrics/cpu", {
+            "usage_percent": 45.0,
+            "core_count": 8,
+            "freq_mhz": 3600.0,
+            "temp_c": 65.0,
+        })
+        pc = world_model.pc_state
+        assert pc.cpu.usage_percent == 45.0
+        assert pc.cpu.core_count == 8
+        assert pc.cpu.temp_c == 65.0
+        assert pc.cpu.last_update > 0
+
+    def test_memory_metrics_update(self, world_model):
+        world_model.update_from_mqtt("hems/pc/metrics/memory", {
+            "used_gb": 12.0,
+            "total_gb": 32.0,
+            "percent": 37.5,
+        })
+        pc = world_model.pc_state
+        assert pc.memory.used_gb == 12.0
+        assert pc.memory.total_gb == 32.0
+        assert pc.memory.percent == 37.5
+        assert pc.memory.last_update > 0
+
+    def test_gpu_metrics_update(self, world_model):
+        world_model.update_from_mqtt("hems/pc/metrics/gpu", {
+            "usage_percent": 80.0,
+            "vram_used_gb": 6.0,
+            "vram_total_gb": 8.0,
+            "temp_c": 72.0,
+        })
+        pc = world_model.pc_state
+        assert pc.gpu.usage_percent == 80.0
+        assert pc.gpu.vram_used_gb == 6.0
+        assert pc.gpu.temp_c == 72.0
+
+    def test_disk_metrics_update(self, world_model):
+        world_model.update_from_mqtt("hems/pc/metrics/disk", {
+            "partitions": [
+                {"mount": "/", "used_gb": 100.0, "total_gb": 500.0, "percent": 20.0},
+            ]
+        })
+        pc = world_model.pc_state
+        assert len(pc.disk.partitions) == 1
+        assert pc.disk.partitions[0].mount == "/"
+        assert pc.disk.partitions[0].percent == 20.0
+
+    def test_top_processes_update(self, world_model):
+        world_model.update_from_mqtt("hems/pc/processes/top", {
+            "processes": [
+                {"pid": 1234, "name": "python", "cpu_percent": 25.0, "mem_mb": 512.0},
+                {"pid": 5678, "name": "chrome", "cpu_percent": 10.0, "mem_mb": 1024.0},
+            ]
+        })
+        pc = world_model.pc_state
+        assert len(pc.top_processes) == 2
+        assert pc.top_processes[0].name == "python"
+        assert pc.top_processes[1].name == "chrome"
+
+    def test_pc_bridge_status_connected(self, world_model):
+        assert world_model.pc_state.bridge_connected is False
+        world_model.update_from_mqtt("hems/pc/bridge/status", {"connected": True})
+        assert world_model.pc_state.bridge_connected is True
+
+    def test_pc_bridge_status_disconnected(self, world_model):
+        world_model.update_from_mqtt("hems/pc/bridge/status", {"connected": True})
+        world_model.update_from_mqtt("hems/pc/bridge/status", {"connected": False})
+        assert world_model.pc_state.bridge_connected is False
+
+    def test_cpu_threshold_event(self, world_model):
+        """CPU crossing 90% generates pc_cpu_high event."""
+        world_model.update_from_mqtt("hems/pc/metrics/cpu", {
+            "usage_percent": 95.0, "core_count": 8, "freq_mhz": 3600.0, "temp_c": 70.0,
+        })
+        events = world_model.pc_state.events
+        assert len(events) == 1
+        assert events[0].event_type == "pc_cpu_high"
+
+    def test_cpu_below_threshold_no_event(self, world_model):
+        world_model.update_from_mqtt("hems/pc/metrics/cpu", {
+            "usage_percent": 50.0, "core_count": 8, "freq_mhz": 3600.0, "temp_c": 55.0,
+        })
+        assert len(world_model.pc_state.events) == 0
+
+    def test_memory_threshold_event(self, world_model):
+        """Memory crossing 90% generates pc_memory_high event."""
+        world_model.update_from_mqtt("hems/pc/metrics/memory", {
+            "used_gb": 30.0, "total_gb": 32.0, "percent": 94.0,
+        })
+        events = world_model.pc_state.events
+        assert len(events) == 1
+        assert events[0].event_type == "pc_memory_high"
+
+    def test_disk_high_usage_event(self, world_model):
+        """Disk partition over 90% generates pc_disk_high event."""
+        world_model.update_from_mqtt("hems/pc/metrics/disk", {
+            "partitions": [
+                {"mount": "/data", "used_gb": 950.0, "total_gb": 1000.0, "percent": 95.0},
+            ]
+        })
+        events = world_model.pc_state.events
+        assert len(events) == 1
+        assert events[0].event_type == "pc_disk_high"
+        assert "/data" in events[0].description
+
+
+class TestWorldModelLLMContextPC:
+    """Test PC section in LLM context."""
+
+    def test_pc_section_not_shown_when_no_data(self, world_model):
+        ctx = world_model.get_llm_context()
+        assert "### PC" not in ctx
+
+    def test_pc_section_shown_when_cpu_data_exists(self, world_model):
+        world_model.update_from_mqtt("hems/pc/metrics/cpu", {
+            "usage_percent": 50.0, "core_count": 8, "freq_mhz": 3600.0, "temp_c": 60.0,
+        })
+        ctx = world_model.get_llm_context()
+        assert "### PC" in ctx
+        assert "CPU" in ctx
+        assert "50" in ctx
+
+    def test_pc_section_shows_memory(self, world_model):
+        world_model.update_from_mqtt("hems/pc/metrics/memory", {
+            "used_gb": 16.0, "total_gb": 32.0, "percent": 50.0,
+        })
+        ctx = world_model.get_llm_context()
+        assert "### PC" in ctx
+        assert "メモリ" in ctx
+        assert "16.0" in ctx
+
+    def test_pc_bridge_disconnected_warning(self, world_model):
+        # Add CPU data so PC section appears; bridge_connected defaults to False
+        world_model.update_from_mqtt("hems/pc/metrics/cpu", {
+            "usage_percent": 30.0, "core_count": 4, "freq_mhz": 3200.0, "temp_c": 55.0,
+        })
+        ctx = world_model.get_llm_context()
+        assert "⚠" in ctx
+        assert "OpenClaw" in ctx

@@ -15,7 +15,10 @@ def client():
         sys.path.insert(0, str(backend_path))
 
     from fastapi import FastAPI
-    from routers.services import router
+    from routers.services import router, _services_store
+
+    # Clear store before each test to ensure isolation
+    _services_store.clear()
 
     app = FastAPI()
     app.include_router(router)
@@ -52,6 +55,20 @@ class TestServicesRouterGetStatus:
         assert data["gmail"]["unread_count"] == 3
         assert data["github"]["unread_count"] == 5
 
+    def test_returns_all_fields(self, client):
+        snapshot = {
+            "gmail": {
+                "name": "gmail", "available": False, "unread_count": 0,
+                "summary": "Gmail接続エラー", "error": "IMAP timeout",
+                "last_check": 1000000,
+            },
+        }
+        client.post("/services/snapshot", json=snapshot)
+        resp = client.get("/services/")
+        data = resp.json()
+        assert data["gmail"]["available"] is False
+        assert data["gmail"]["error"] == "IMAP timeout"
+
 
 class TestServicesRouterSnapshot:
     def test_overwrites_previous_data(self, client):
@@ -72,3 +89,23 @@ class TestServicesRouterSnapshot:
         resp = client.get("/services/")
         data = resp.json()
         assert data.get("status") == "no_data"
+
+    def test_snapshot_replaces_all_keys(self, client):
+        """Second snapshot completely replaces first — no stale keys."""
+        client.post("/services/snapshot", json={
+            "gmail": {"name": "gmail", "unread_count": 3},
+            "github": {"name": "github", "unread_count": 1},
+        })
+        client.post("/services/snapshot", json={
+            "line": {"name": "line", "unread_count": 5},
+        })
+        resp = client.get("/services/")
+        data = resp.json()
+        assert "line" in data
+        assert "gmail" not in data
+        assert "github" not in data
+
+    def test_snapshot_returns_updated_true(self, client):
+        resp = client.post("/services/snapshot", json={"gmail": {"unread_count": 1}})
+        assert resp.status_code == 200
+        assert resp.json() == {"updated": True}
