@@ -179,6 +179,7 @@ Brain subscribes to `office/#` and `mcp/+/response/#`.
 | `get_zone_status` | Query WorldModel for zone details | zone_id |
 | `speak` | Voice-only announcement (ephemeral, no dashboard) | message (70 chars max), zone, tone |
 | `get_active_tasks` | List current tasks (duplicate prevention) | — |
+| `get_device_status` | Check device network/battery status | zone_id (optional, defaults to all zones) |
 
 ### Perception Service (`services/perception/src/`)
 
@@ -206,7 +207,20 @@ SQLAlchemy async ORM with PostgreSQL (asyncpg). Fallback to SQLite (aiosqlite) w
 
 Task duplicate detection: Stage 1 (title + location exact match), Stage 2 (zone + task_type).
 
-Routers: `routers/tasks.py` (CRUD + wallet integration), `routers/users.py` (stub), `routers/voice_events.py`, `routers/sensors.py` (read-only sensor data). Swagger UI at `:8000/docs`.
+Routers: `routers/tasks.py` (CRUD + wallet integration), `routers/users.py` (full CRUD), `routers/voice_events.py`, `routers/sensors.py` (read-only sensor data). Swagger UI at `:8000/docs`.
+
+#### Task Router (`routers/tasks.py`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/tasks/` | List non-expired tasks (paginated) |
+| POST | `/tasks/` | Create task (duplicate detection Stage 1 & 2) |
+| PUT | `/tasks/{task_id}/accept` | Assign task to user |
+| PUT | `/tasks/{task_id}/complete` | Mark completed and pay bounty via wallet |
+| PUT | `/tasks/{task_id}/reminded` | Update last_reminded_at timestamp |
+| GET | `/tasks/queue` | List queued (not yet dispatched) tasks |
+| PUT | `/tasks/{task_id}/dispatch` | Mark queued task as dispatched |
+| GET | `/tasks/stats` | Task statistics (counts, XP, completions) |
 
 Sensor data access uses Repository pattern (`repositories/`): `SensorDataRepository` ABC with `PgSensorRepository` (PostgreSQL) implementation. DI via `repositories/deps.py`. See `docs/architecture/adr-sensor-api-repository-pattern.md`.
 
@@ -240,9 +254,40 @@ VOICEVOX speaker ID 47 (ナースロボ_タイプT). `rejection_stock.py` pre-ge
 
 ### Wallet Service API (`services/wallet/src/`)
 
-Double-entry credit ledger with PostgreSQL (asyncpg). Key models: `Wallet` (balance), `LedgerEntry` (debit/credit pairs), `Device` (XP tracking), `SupplyStats`.
+Double-entry credit ledger with PostgreSQL (asyncpg). Key models: `Wallet` (balance), `LedgerEntry` (debit/credit pairs), `Device` (XP tracking), `SupplyStats`. `services/xp_scorer.py` handles dynamic reward multiplier (1.0x-3.0x based on device XP). Swagger UI at `:8003/docs`.
 
-Routers: `routers/wallets.py` (balance/create), `routers/transactions.py` (history/task reward), `routers/devices.py` (device registration), `routers/admin.py` (supply stats). `services/xp_scorer.py` handles dynamic reward multiplier (1.0x-3.0x based on device XP). Swagger UI at `:8003/docs`.
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/wallets/` | Create wallet |
+| GET | `/wallets/{user_id}` | Get balance |
+| GET | `/wallets/{user_id}/history` | Transaction history |
+| POST | `/transactions/task-reward` | Pay task bounty from system wallet |
+| POST | `/transactions/p2p-transfer` | Transfer between users (with fee) |
+| GET | `/transactions/transfer-fee` | Preview transfer fee |
+| GET | `/transactions/{transaction_id}` | Transaction details |
+| POST | `/devices/` | Register device |
+| GET | `/devices/` | List devices |
+| PUT | `/devices/{device_id}` | Update device metadata |
+| POST | `/devices/xp-grant` | Grant XP to all devices in zone |
+| POST | `/devices/{device_id}/heartbeat` | Record heartbeat, grant infra reward |
+| POST | `/devices/{device_id}/utility-score` | Update device utility score |
+| GET | `/devices/zone-multiplier/{zone}` | Get reward multiplier for zone |
+| POST | `/devices/{device_id}/funding/open` | Open device funding (list shares) |
+| POST | `/devices/{device_id}/funding/close` | Close device funding |
+| POST | `/devices/{device_id}/stakes/buy` | Buy device shares |
+| POST | `/devices/{device_id}/stakes/return` | Return device shares |
+| GET | `/devices/{device_id}/stakes` | List device stakeholders |
+| GET | `/users/{user_id}/portfolio` | User's stakes across all devices |
+| GET | `/supply` | Supply stats (issued/burned/circulating) |
+| POST | `/demurrage/trigger` | Manually trigger demurrage cycle |
+| GET | `/reward-rates` | List all reward rates |
+| PUT | `/reward-rates/{device_type}` | Update reward rate for device type |
+| POST | `/admin/pools` | Create funding pool |
+| GET | `/admin/pools` | List all pools (admin) |
+| GET | `/admin/pools/{pool_id}` | Pool details with contributions |
+| POST | `/admin/pools/{pool_id}/contribute` | Record cash contribution |
+| POST | `/admin/pools/{pool_id}/activate` | Activate pool (link device) |
+| GET | `/pools` | List public pools (open/funded/active) |
 
 ### Mock Infrastructure (`infra/`)
 
@@ -254,7 +299,7 @@ Routers: `routers/wallets.py` (balance/create), `routers/transactions.py` (histo
 ## Tech Stack
 
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt >=2.0, Pydantic 2.x, loguru
-- **Frontend**: React 19, TypeScript, Vite 7, Tailwind CSS 4, Framer Motion, Lucide icons
+- **Frontend**: React 19, TypeScript, Vite 7, Tailwind CSS 4, TanStack Query 5, Framer Motion, Lucide icons; pnpm as package manager
 - **ML/Vision**: Ultralytics YOLOv11 (yolo11s.pt + yolo11s-pose.pt), OpenCV, PyTorch (ROCm)
 - **LLM**: Ollama with ROCm for AMD GPUs (Qwen2.5 target model)
 - **TTS**: VOICEVOX (Japanese speech synthesis)
