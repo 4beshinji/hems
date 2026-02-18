@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import TaskCard, { Task, TaskReport } from './components/TaskCard';
+import TaskCard, { TaskReport } from './components/TaskCard';
 import { useAudioQueue, AudioPriority } from './audio';
+import {
+  fetchTasks,
+  fetchStats,
+  fetchSupply,
+  fetchVoiceEvents,
+  acceptTask,
+  completeTask,
+} from './api';
 
 const ACCEPT_PHRASES = [
   "承知しました。よろしくお願いします。",
@@ -13,32 +22,15 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-interface SystemStats {
-  total_xp: number;
-  tasks_completed: number;
-  tasks_created: number;
-  tasks_active: number;
-  tasks_queued: number;
-  tasks_completed_last_hour: number;
-}
-
-interface SupplyStats {
-  total_issued: number;
-  total_burned: number;
-  circulating: number;
-}
-
 function App() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
   const [isAudioEnabled, setIsAudioEnabled] = useState(false);
   const [prevTaskIds, setPrevTaskIds] = useState<Set<number>>(new Set());
   const [playedVoiceEventIds, setPlayedVoiceEventIds] = useState<Set<number>>(new Set());
   const [acceptedTaskIds, setAcceptedTaskIds] = useState<Set<number>>(new Set());
   const [ignoredTaskIds, setIgnoredTaskIds] = useState<Set<number>>(new Set());
   const initialLoadDone = useRef(false);
-  const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
-  const [supply, setSupply] = useState<SupplyStats | null>(null);
 
   // Configuration
   const MAX_DISPLAY_TASKS = 10;
@@ -46,50 +38,58 @@ function App() {
 
   const { enqueue, enqueueFromApi } = useAudioQueue(isAudioEnabled);
 
+  const tasksQuery = useQuery({
+    queryKey: ['tasks'],
+    queryFn: fetchTasks,
+    refetchInterval: 5000,
+  });
+
+  const statsQuery = useQuery({
+    queryKey: ['stats'],
+    queryFn: fetchStats,
+    refetchInterval: 10000,
+  });
+
+  const supplyQuery = useQuery({
+    queryKey: ['supply'],
+    queryFn: fetchSupply,
+    refetchInterval: 10000,
+  });
+
+  const voiceEventsQuery = useQuery({
+    queryKey: ['voiceEvents'],
+    queryFn: fetchVoiceEvents,
+    refetchInterval: 3000,
+    enabled: isAudioEnabled,
+  });
+
+  const acceptMutation = useMutation({
+    mutationFn: acceptTask,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: completeTask,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+  });
+
+  const tasks = tasksQuery.data ?? [];
+  const loading = tasksQuery.isLoading;
+  const systemStats = statsQuery.data ?? null;
+  const supply = supplyQuery.data ?? null;
+
+  // Restore accepted state from server on data load
   useEffect(() => {
-    const fetchTasks = () => {
-      fetch('/api/tasks/')
-        .then(res => res.json())
-        .then((data: Task[]) => {
-          setTasks(data);
-          // Restore accepted state from server
-          const serverAccepted = new Set(
-            data.filter((t: Task) => t.assigned_to != null && !t.is_completed)
-                .map((t: Task) => t.id)
-          );
-          if (serverAccepted.size > 0) {
-            setAcceptedTaskIds(prev => new Set([...prev, ...serverAccepted]));
-          }
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error("Failed to fetch tasks:", err);
-          setLoading(false);
-        });
-    };
-
-    fetchTasks();
-    const interval = setInterval(fetchTasks, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  // Poll system stats + supply
-  useEffect(() => {
-    const fetchStats = () => {
-      fetch('/api/tasks/stats')
-        .then(res => res.json())
-        .then(data => setSystemStats(data))
-        .catch(err => console.error("Failed to fetch stats:", err));
-      fetch('/api/wallet/supply')
-        .then(res => res.json())
-        .then(data => setSupply(data))
-        .catch(() => setSupply(null));
-    };
-    fetchStats();
-    const interval = setInterval(fetchStats, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!tasksQuery.data) return;
+    const serverAccepted = new Set(
+      tasksQuery.data
+        .filter(t => t.assigned_to != null && !t.is_completed)
+        .map(t => t.id)
+    );
+    if (serverAccepted.size > 0) {
+      setAcceptedTaskIds(prev => new Set([...prev, ...serverAccepted]));
+    }
+  }, [tasksQuery.data]);
 
   // Handle auto-playback for NEW tasks + play latest on first enable
   useEffect(() => {
@@ -126,28 +126,17 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- prevTaskIds intentionally captures previous render's value
   }, [tasks, isAudioEnabled, loading, enqueue]);
 
-  // Voice event polling (ephemeral speak messages from Brain)
+  // Voice event playback side effect
   useEffect(() => {
-    if (!isAudioEnabled) return;
-
-    const pollVoiceEvents = () => {
-      fetch('/api/voice-events/recent')
-        .then(res => res.json())
-        .then((events: { id: number; audio_url: string }[]) => {
-          for (const event of events) {
-            if (!playedVoiceEventIds.has(event.id) && event.audio_url) {
-              enqueue(event.audio_url, AudioPriority.VOICE_EVENT);
-              setPlayedVoiceEventIds(prev => new Set(prev).add(event.id));
-            }
-          }
-        })
-        .catch(err => console.error("Failed to fetch voice events:", err));
-    };
-
-    pollVoiceEvents();
-    const interval = setInterval(pollVoiceEvents, 3000);
-    return () => clearInterval(interval);
-  }, [isAudioEnabled, playedVoiceEventIds, enqueue]);
+    if (!isAudioEnabled || !voiceEventsQuery.data) return;
+    for (const event of voiceEventsQuery.data) {
+      if (!playedVoiceEventIds.has(event.id) && event.audio_url) {
+        enqueue(event.audio_url, AudioPriority.VOICE_EVENT);
+        setPlayedVoiceEventIds(prev => new Set(prev).add(event.id));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- playedVoiceEventIds intentionally excluded to avoid re-enqueue loop
+  }, [voiceEventsQuery.data, isAudioEnabled, enqueue]);
 
   // Sort and Filter Tasks
   const visibleTasks = tasks
@@ -180,13 +169,7 @@ function App() {
 
   const handleAccept = (taskId: number) => {
     setAcceptedTaskIds(prev => new Set(prev).add(taskId));
-
-    // Notify backend (anonymous accept — no user_id)
-    fetch(`/api/tasks/${taskId}/accept`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    }).catch(err => console.error('Failed to accept task:', err));
+    acceptMutation.mutate(taskId);
 
     enqueueFromApi(async () => {
       const text = pickRandom(ACCEPT_PHRASES);
@@ -208,27 +191,12 @@ function App() {
       enqueue(task.completion_audio_url, AudioPriority.USER_ACTION);
     }
 
-    fetch(`/api/tasks/${taskId}/complete`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        report_status: report?.status || null,
-        completion_note: report?.note || null,
-      }),
-    })
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to complete task');
-        return res.json();
-      })
-      .then(updatedTask => {
-        setTasks(tasks.map(t => t.id === taskId ? updatedTask : t));
-        setAcceptedTaskIds(prev => {
-          const next = new Set(prev);
-          next.delete(taskId);
-          return next;
-        });
-      })
-      .catch(err => console.error("Error completing task:", err));
+    completeMutation.mutate({ taskId, report });
+    setAcceptedTaskIds(prev => {
+      const next = new Set(prev);
+      next.delete(taskId);
+      return next;
+    });
   };
 
   const handleIgnore = (taskId: number) => {

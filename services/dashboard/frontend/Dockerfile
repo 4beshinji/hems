@@ -1,11 +1,11 @@
 # Build Stage
 FROM node:18-alpine AS builder
 WORKDIR /app
-COPY package.json .
-COPY package-lock.json .
-RUN npm install
+COPY package.json pnpm-lock.yaml ./
+RUN npm install -g pnpm@10.30.0 \
+    && pnpm install --frozen-lockfile
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 # Production Stage
 FROM nginx:alpine

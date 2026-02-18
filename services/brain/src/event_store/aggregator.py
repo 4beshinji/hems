@@ -6,7 +6,7 @@ Runs every 10 minutes. For each unprocessed hour, queries raw_events
 and llm_decisions, computes per-zone statistics, and UPSERTs into
 hourly_aggregates. Output JSON matches CITY_SCALE_VISION.md schema.
 
-Retention: raw_events 90 days, llm_decisions 90 days.
+Retention: raw_events 730 days, llm_decisions 730 days.
 Cleanup runs once daily at 03:00 UTC.
 """
 import asyncio
@@ -19,8 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 class HourlyAggregator:
     LOOP_INTERVAL = 600  # 10 minutes
-    RAW_RETENTION_DAYS = 90
-    DECISION_RETENTION_DAYS = 90
+    RAW_RETENTION_DAYS = 730       # 2 years (ML seasonal pattern learning)
+    DECISION_RETENTION_DAYS = 730  # 2 years (LLM quality trend analysis)
     CLEANUP_HOUR_UTC = 3
 
     def __init__(self, engine: AsyncEngine):

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from database import engine, Base
-from routers import tasks, users, voice_events
+from routers import tasks, users, voice_events, sensors
 import models # Make sure models are registered
 
 logger = logging.getLogger(__name__)
@@ -57,12 +57,15 @@ async def startup():
         await conn.run_sync(Base.metadata.create_all)
         # Add columns that create_all cannot add to existing tables
         await conn.run_sync(_migrate_add_columns)
+        # Ensure events schema exists (owned by brain, read by sensors API)
+        await conn.execute(text("CREATE SCHEMA IF NOT EXISTS events"))
 
 
 # Include Routers
 app.include_router(tasks.router)
 app.include_router(users.router)
 app.include_router(voice_events.router)
+app.include_router(sensors.router)
 
 @app.get("/")
 async def root():

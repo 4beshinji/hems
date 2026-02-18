@@ -3,13 +3,12 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir -r requirements.txt
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -r requirements.txt \
+    && mkdir -p /app/audio
 
 COPY src/ .
-
-# Create audio directory
-RUN mkdir -p /app/audio
 
 EXPOSE 8000
 

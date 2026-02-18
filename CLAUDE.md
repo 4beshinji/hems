@@ -59,6 +59,7 @@ Wallet integration tests (requires running services):
 ```bash
 python3 infra/tests/integration/test_wallet_integration.py        # F.1: Wallet service direct
 python3 infra/tests/e2e/test_wallet_dashboard_e2e.py              # F.3: Wallet <-> Dashboard cross-service
+python3 infra/tests/integration/test_sensor_api.py                # C.2: Sensor Data API endpoints
 ```
 
 Perception service tests in `services/perception/`:
@@ -184,7 +185,19 @@ SQLAlchemy async ORM with PostgreSQL (asyncpg). Fallback to SQLite (aiosqlite) w
 
 Task duplicate detection: Stage 1 (title + location exact match), Stage 2 (zone + task_type).
 
-Routers: `routers/tasks.py` (CRUD + wallet integration), `routers/users.py` (stub), `routers/voice_events.py`. Swagger UI at `:8000/docs`.
+Routers: `routers/tasks.py` (CRUD + wallet integration), `routers/users.py` (stub), `routers/voice_events.py`, `routers/sensors.py` (read-only sensor data). Swagger UI at `:8000/docs`.
+
+Sensor data access uses Repository pattern (`repositories/`): `SensorDataRepository` ABC with `PgSensorRepository` (PostgreSQL) implementation. DI via `repositories/deps.py`. See `docs/architecture/adr-sensor-api-repository-pattern.md`.
+
+#### Sensor Data API (`routers/sensors.py`)
+
+| Method | Path | Description | Parameters |
+|--------|------|-------------|------------|
+| GET | `/sensors/latest` | Latest value per zone × channel | `?zone=` |
+| GET | `/sensors/time-series` | Chart-ready time series | `?zone=&channel=&window=1h&start=&end=&limit=168` |
+| GET | `/sensors/zones` | All-zone overview snapshot | — |
+| GET | `/sensors/events` | WorldModel event feed | `?zone=&limit=50` |
+| GET | `/sensors/llm-activity` | LLM decision-making summary | `?hours=24` |
 
 ### Voice Service API (`services/voice/src/`)
 
