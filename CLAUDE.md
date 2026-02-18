@@ -24,6 +24,9 @@ docker compose --profile ollama up -d --build
 # With PostgreSQL (instead of SQLite)
 docker compose --profile postgres up -d --build
 
+# With OpenClaw desktop agent (PC metrics + service monitor)
+docker compose --profile openclaw up -d --build
+
 # Rebuild a single service
 docker compose up -d --build <service-name>
 
@@ -32,16 +35,16 @@ docker logs -f hems-brain
 docker logs -f hems-voice
 ```
 
-Service names: `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional: `voicevox`, `ollama`, `postgres`, `perception`
+Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
+Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`
 
 ### Frontend Development
 
 ```bash
 cd services/frontend
-npm install
-npm run dev      # Vite dev server
-npm run build    # tsc -b && vite build
+pnpm install
+pnpm dev      # Vite dev server
+pnpm build    # tsc -b && vite build
 ```
 
 ## Architecture
@@ -56,6 +59,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Backend API | 8010 | `HEMS_PORT_BACKEND` | hems-backend |
 | Mock LLM | 8011 | `HEMS_PORT_MOCK_LLM` | hems-mock-llm |
 | Voice Service | 8012 | `HEMS_PORT_VOICE` | hems-voice |
+| OpenClaw Bridge | 8013 | `HEMS_PORT_OPENCLAW_BRIDGE` | hems-openclaw-bridge |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -66,6 +70,15 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 ```
 # Sensor telemetry
 office/{zone}/{device_type}/{device_id}/{channel}
+
+# PC metrics (OpenClaw bridge)
+hems/pc/metrics/{cpu|memory|gpu|disk}
+hems/pc/processes/top
+hems/pc/bridge/status
+
+# Service monitor (OpenClaw bridge)
+hems/services/{name}/status
+hems/services/{name}/event
 
 # Personal data (Phase 2: data-bridge)
 hems/personal/calendar/{id}/events
@@ -83,7 +96,29 @@ hems/brain/reload-character
 - Dual mode: LLM + rule-based fallback (GPU load > threshold)
 - Character personality injection into system prompt
 - Event store data mart (SOMS-compatible schema)
-- 4 tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`
+- Alert suppression: prevents duplicate tasks while environment slowly responds
+  (e.g., AC cooling after task created — 30min for temp, 10min for CO2)
+- 4 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`
+- OpenClaw tools (profile `openclaw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
+- Service monitor tool (when data available): `get_service_status`
+
+### OpenClaw Bridge (profile: `openclaw`)
+
+Desktop agent integration service. Monitors host PC and external services.
+
+- PC metrics: CPU / memory / GPU / disk / top processes → `hems/pc/*`
+- Service monitor: Gmail (IMAP), GitHub (REST API), browser-based checkers → `hems/services/*`
+- Edge-triggered events: unread count increases fire MQTT events for immediate LLM response
+
+Configure in `.env`:
+```bash
+OPENCLAW_GATEWAY_URL=ws://host.docker.internal:18789
+HEMS_GMAIL_ENABLED=true
+HEMS_GMAIL_EMAIL=user@gmail.com
+HEMS_GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+HEMS_GITHUB_ENABLED=true
+HEMS_GITHUB_TOKEN=ghp_xxxx
+```
 
 ### Voice Service (Plugin-based TTS)
 
@@ -112,6 +147,8 @@ cp config/character.yaml.example config/character.yaml
 
 Templates: `default`, `tsundere`, `gentle-senpai`, `butler`
 Validator: `python validate_character.py config/character.yaml`
+         `python validate_character.py --all`   # validate all templates
+         `python validate_character.py --list`  # list available templates
 
 ### Database
 
@@ -119,11 +156,12 @@ Validator: `python validate_character.py config/character.yaml`
 - Optional: PostgreSQL 16 (`--profile postgres`)
 - Backend: Task, User, PointLog, VoiceEvent, SystemStats
 - Brain event_store: raw_events, llm_decisions, hourly_aggregates (SOMS-compatible)
+- Retention: 730 days (2 years) for raw_events and llm_decisions
 
 ## Tech Stack
 
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x
-- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, Framer Motion
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion
 - **LLM**: OpenAI / Anthropic / Ollama (multi-provider)
 - **TTS**: Plugin-based (espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk, Style-Bert-VITS2)
 - **Infra**: Docker Compose, Mosquitto MQTT, SQLite / PostgreSQL
@@ -148,3 +186,5 @@ Validator: `python validate_character.py config/character.yaml`
 | Ollama only | OpenAI / Anthropic / Ollama |
 | 11 services | 7 core + optional profiles |
 | Office/multi-user | Home/single occupant |
+| No alert suppression | Alert suppression (30min/10min) |
+| npm | pnpm |
