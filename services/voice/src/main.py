@@ -10,10 +10,15 @@ from models import TaskAnnounceRequest, SynthesizeRequest, VoiceResponse, DualVo
 from voicevox_client import VoicevoxClient
 from speech_generator import SpeechGenerator
 from rejection_stock import RejectionStock, idle_generation_loop
+from currency_unit_stock import CurrencyUnitStock, idle_currency_generation_loop
 
 # Initialize clients
 voice_client = VoicevoxClient()
 speech_gen = SpeechGenerator()
+
+# Currency unit stock (text-only, injected into speech_gen)
+currency_unit_stock = CurrencyUnitStock(speech_gen)
+speech_gen.currency_stock = currency_unit_stock
 
 # Rejection voice stock
 rejection_stock = RejectionStock(speech_gen, voice_client)
@@ -34,15 +39,18 @@ def estimate_audio_duration(audio_data: bytes) -> float:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start idle generation background task
-    task = asyncio.create_task(idle_generation_loop(rejection_stock))
-    logger.info("Background idle generation task started")
+    # Start idle generation background tasks
+    rejection_task = asyncio.create_task(idle_generation_loop(rejection_stock))
+    currency_task = asyncio.create_task(idle_currency_generation_loop(currency_unit_stock))
+    logger.info("Background idle generation tasks started (rejection + currency)")
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    rejection_task.cancel()
+    currency_task.cancel()
+    for t in [rejection_task, currency_task]:
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
 
 
 # Initialize FastAPI app
@@ -97,6 +105,7 @@ async def synthesize_text(request: SynthesizeRequest):
     Used by the speak tool where the Brain LLM has already generated the message.
     """
     rejection_stock.request_started()
+    currency_unit_stock.request_started()
     try:
         logger.info(f"Synthesizing text: {request.text[:50]}...")
 
@@ -123,6 +132,7 @@ async def synthesize_text(request: SynthesizeRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         rejection_stock.request_finished()
+        currency_unit_stock.request_finished()
 
 @app.post("/api/voice/announce", response_model=VoiceResponse)
 async def announce_task(request: TaskAnnounceRequest):
@@ -136,6 +146,7 @@ async def announce_task(request: TaskAnnounceRequest):
     4. Return audio URL and metadata
     """
     rejection_stock.request_started()
+    currency_unit_stock.request_started()
     try:
         logger.info(f"Announcing task: {request.task.title}")
 
@@ -165,6 +176,7 @@ async def announce_task(request: TaskAnnounceRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         rejection_stock.request_finished()
+        currency_unit_stock.request_finished()
 
 @app.post("/api/voice/feedback/{feedback_type}")
 async def generate_feedback(feedback_type: str):
@@ -175,6 +187,7 @@ async def generate_feedback(feedback_type: str):
         feedback_type: Type of feedback ('task_completed', 'task_accepted')
     """
     rejection_stock.request_started()
+    currency_unit_stock.request_started()
     try:
         logger.info(f"Generating feedback: {feedback_type}")
 
@@ -204,6 +217,7 @@ async def generate_feedback(feedback_type: str):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         rejection_stock.request_finished()
+        currency_unit_stock.request_finished()
 
 @app.post("/api/voice/announce_with_completion", response_model=DualVoiceResponse)
 async def announce_task_with_completion(request: TaskAnnounceRequest):
@@ -219,6 +233,7 @@ async def announce_task_with_completion(request: TaskAnnounceRequest):
     5. Return both audio URLs and metadata
     """
     rejection_stock.request_started()
+    currency_unit_stock.request_started()
     try:
         logger.info(f"Generating dual voice for task: {request.task.title}")
 
@@ -268,6 +283,7 @@ async def announce_task_with_completion(request: TaskAnnounceRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         rejection_stock.request_finished()
+        currency_unit_stock.request_finished()
 
 @app.get("/api/voice/rejection/random")
 async def get_random_rejection():
@@ -283,6 +299,7 @@ async def get_random_rejection():
     # Fallback: generate on-demand (slower, but avoids silence)
     logger.warning("Rejection stock empty, generating on-demand")
     rejection_stock.request_started()
+    currency_unit_stock.request_started()
     try:
         text = await speech_gen.generate_rejection_text()
         rejection_speaker = VoicevoxClient.pick_speaker("rejection")
@@ -297,6 +314,7 @@ async def get_random_rejection():
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         rejection_stock.request_finished()
+        currency_unit_stock.request_finished()
 
 
 @app.get("/api/voice/rejection/status")
@@ -315,6 +333,24 @@ async def clear_rejection_stock():
     """Clear all pre-generated rejection stock and force regeneration."""
     await rejection_stock.clear_all()
     return {"status": "cleared", "stock_count": rejection_stock.count}
+
+
+@app.get("/api/voice/currency-units/status")
+async def get_currency_unit_status():
+    """Get current currency unit stock status."""
+    return {
+        "stock_count": currency_unit_stock.count,
+        "max_stock": 50,
+        "needs_refill": currency_unit_stock.needs_refill,
+        "sample": currency_unit_stock.get_random(),
+    }
+
+
+@app.post("/api/voice/currency-units/clear")
+async def clear_currency_unit_stock():
+    """Clear all pre-generated currency unit stock and force regeneration."""
+    await currency_unit_stock.clear_all()
+    return {"status": "cleared", "stock_count": currency_unit_stock.count}
 
 
 @app.get("/audio/rejections/{filename}")

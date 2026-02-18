@@ -104,7 +104,7 @@ cp env.example .env
 docker compose -f infra/docker-compose.yml up -d --build
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed setup. See [CITY_SCALE_VISION.md](docs/CITY_SCALE_VISION.md) for urban-scale architecture.
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed setup. See [CITY_SCALE_VISION.md](docs/CITY_SCALE_VISION.md) for urban-scale architecture.
 
 ## Directory Structure
 
@@ -128,8 +128,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed setup. See [CITY_SCALE_VISION.md
 │   ├── test-edge/     PlatformIO C++ firmware (camera/sensor nodes)
 │   └── tools/         Diagnostic scripts
 ├── config/            Perception monitors YAML config
-├── CLAUDE.md          Developer reference (architecture, APIs, conventions)
-└── DEPLOYMENT.md      Deployment guide (Japanese)
+└── CLAUDE.md          Developer reference (architecture, APIs, conventions)
 ```
 
 ## Tech Stack
@@ -149,14 +148,14 @@ Python + MQTT による純粋なイベント駆動アーキテクチャ。重量
 
 ```bash
 # E2E integration test (7 scenarios)
-python3 infra/scripts/e2e_full_test.py
+python3 infra/tests/e2e/e2e_full_test.py
 
 # Individual tests
-python3 infra/scripts/integration_test_mock.py
-python3 infra/scripts/test_task_scheduling.py
-python3 infra/scripts/test_world_model.py
-python3 infra/scripts/test_wallet_integration.py
-python3 infra/scripts/test_demurrage.py
+python3 infra/tests/integration/integration_test_mock.py
+python3 infra/tests/integration/test_task_scheduling.py
+python3 infra/tests/integration/test_world_model.py
+python3 infra/tests/integration/test_wallet_integration.py
+python3 infra/tests/integration/test_demurrage.py
 ```
 
 ## License

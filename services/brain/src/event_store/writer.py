@@ -127,7 +127,7 @@ class EventWriter:
                         INSERT INTO events.raw_events
                             (timestamp, zone, event_type, source_device, data)
                         VALUES
-                            (:timestamp, :zone, :event_type, :source_device, :data::jsonb)
+                            (:timestamp, :zone, :event_type, :source_device, CAST(:data AS jsonb))
                     """),
                     events,
                 )
@@ -142,8 +142,8 @@ class EventWriter:
                              world_state_snapshot)
                         VALUES
                             (:timestamp, :cycle_duration_sec, :iterations,
-                             :total_tool_calls, :trigger_events::jsonb,
-                             :tool_calls::jsonb, :world_state_snapshot::jsonb)
+                             :total_tool_calls, CAST(:trigger_events AS jsonb),
+                             CAST(:tool_calls AS jsonb), CAST(:world_state_snapshot AS jsonb))
                     """),
                     decisions,
                 )

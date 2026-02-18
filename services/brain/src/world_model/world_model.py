@@ -20,6 +20,16 @@ class WorldModel:
     Integrates sensor data, occupancy information, and device states.
     """
 
+    # Default suppression duration (seconds) per alert type.
+    # Slow-changing conditions get longer suppression.
+    SUPPRESSION_DEFAULTS: Dict[str, float] = {
+        "high_temp": 1800,   # 30 min — AC takes time
+        "low_temp": 1800,    # 30 min — heating takes time
+        "high_co2": 600,     # 10 min — ventilation is faster
+        "low_humidity": 1200, # 20 min
+        "high_humidity": 1200,
+    }
+
     def __init__(self):
         self.zones: Dict[str, ZoneState] = {}
         self.sensor_fusion = SensorFusion()
@@ -33,6 +43,10 @@ class WorldModel:
 
         # Sensor readings buffer for fusion
         self._sensor_readings: Dict[str, List] = {}
+
+        # Alert suppression: {(zone_id, alert_type): expiry_timestamp}
+        # Prevents repeated task creation for slow-changing conditions.
+        self._suppressed_alerts: Dict[tuple, float] = {}
 
     def _add_event(self, zone: ZoneState, event: Event):
         """Append an event to a zone, trimming oldest entries if over limit."""
@@ -52,6 +66,42 @@ class WorldModel:
             except Exception:
                 pass  # Non-blocking — never disrupt WorldModel
     
+    def suppress_alert(self, zone_id: str, alert_type: str, duration: float = None):
+        """
+        Suppress an alert for a zone. Used after creating a task so the
+        same condition doesn't trigger another task while the physical
+        environment slowly changes (e.g., AC cooling a room).
+
+        Args:
+            zone_id: Zone identifier
+            alert_type: One of high_temp, low_temp, high_co2, low_humidity, high_humidity
+            duration: Suppression duration in seconds (defaults per alert type)
+        """
+        if duration is None:
+            duration = self.SUPPRESSION_DEFAULTS.get(alert_type, 1800)
+        key = (zone_id, alert_type)
+        self._suppressed_alerts[key] = time.time() + duration
+        self._llm_context_cache = None  # Invalidate cache
+        logger.info("Alert suppressed: zone=%s type=%s duration=%ds", zone_id, alert_type, duration)
+
+    def _is_suppressed(self, zone_id: str, alert_type: str) -> bool:
+        """Check if an alert is currently suppressed."""
+        key = (zone_id, alert_type)
+        expiry = self._suppressed_alerts.get(key)
+        if expiry is None:
+            return False
+        if time.time() > expiry:
+            del self._suppressed_alerts[key]
+            return False
+        return True
+
+    def clear_suppression(self, zone_id: str, alert_type: str):
+        """Manually clear a suppression (e.g., when condition resolves)."""
+        key = (zone_id, alert_type)
+        if key in self._suppressed_alerts:
+            del self._suppressed_alerts[key]
+            self._llm_context_cache = None
+
     def update_from_mqtt(self, topic: str, payload: dict):
         """
         Update world model from MQTT message.
@@ -79,7 +129,21 @@ class WorldModel:
         
         # Route to appropriate handler
         if device_type == "sensor":
-            self._update_environment(zone, channel, payload, device_id)
+            if channel == "status":
+                # Bulk payload: {"temperature": X, "humidity": Y, ...}
+                # Fan out each key as an individual channel update.
+                _KNOWN_CHANNELS = {
+                    "temperature", "humidity", "co2", "pressure",
+                    "gas", "gas_resistance", "illuminance", "motion", "door",
+                }
+                for key, val in payload.items():
+                    if key in _KNOWN_CHANNELS:
+                        ch = "gas_resistance" if key == "gas" else key
+                        self._update_environment(
+                            zone, ch, {"value": val}, device_id
+                        )
+            else:
+                self._update_environment(zone, channel, payload, device_id)
         elif device_type in ("camera", "occupancy"):
             self._update_occupancy(zone, payload)
         elif device_type == "activity":
@@ -309,19 +373,35 @@ class WorldModel:
                     data={"value": zone.environment.co2}
                 )
                 self._add_event(zone, event)
-        
-        # Temperature spike
+
+        # Auto-clear CO2 suppression when condition resolves
+        if zone.environment.co2 is not None and zone.environment.co2 <= 1000:
+            self.clear_suppression(zone.zone_id, "high_co2")
+
+        # Temperature spike (with 600s cooldown, matching CO2)
         if zone.environment.temperature and zone._prev_temperature:
             temp_change = abs(zone.environment.temperature - zone._prev_temperature)
             if temp_change > 3.0:  # 3°C change
-                event = Event(
-                    timestamp=current_time,
-                    event_type="temp_spike",
-                    severity="warning",
-                    data={"value": zone.environment.temperature, "change": temp_change}
-                )
-                self._add_event(zone, event)
-        
+                recent_temp_spikes = [
+                    e for e in zone.events
+                    if e.event_type == "temp_spike"
+                    and current_time - e.timestamp < 600
+                ]
+                if not recent_temp_spikes:
+                    event = Event(
+                        timestamp=current_time,
+                        event_type="temp_spike",
+                        severity="warning",
+                        data={"value": zone.environment.temperature, "change": temp_change}
+                    )
+                    self._add_event(zone, event)
+
+        # Auto-clear temperature suppression when condition resolves
+        if zone.environment.temperature is not None:
+            if 18 <= zone.environment.temperature <= 26:
+                self.clear_suppression(zone.zone_id, "high_temp")
+                self.clear_suppression(zone.zone_id, "low_temp")
+
         zone._prev_temperature = zone.environment.temperature
 
         # Sedentary alert: static posture for >= 30 minutes with people present
@@ -411,25 +491,50 @@ class WorldModel:
         
         context_parts = []
 
-        # Collect alerts for abnormal values across all zones
+        # Collect alerts for abnormal values across all zones.
+        # Suppressed alerts (task already created, waiting for condition to resolve)
+        # are shown as "対応中" instead of "要対応" so the LLM doesn't create duplicates.
         alerts = []
+        suppressed = []
         for zone_id, zone in sorted(self.zones.items()):
             env = zone.environment
             if env.temperature is not None:
                 if env.temperature > 26:
-                    alerts.append(f"⚠️ [{zone_id}] 高温: {env.temperature:.1f}℃（基準: 18-26℃）")
+                    msg = f"[{zone_id}] 高温: {env.temperature:.1f}℃（基準: 18-26℃）"
+                    if self._is_suppressed(zone_id, "high_temp"):
+                        suppressed.append(f"🔄 {msg}（タスク発行済み・対応待ち）")
+                    else:
+                        alerts.append(f"⚠️ {msg}")
                 elif env.temperature < 18:
-                    alerts.append(f"⚠️ [{zone_id}] 低温: {env.temperature:.1f}℃（基準: 18-26℃）")
+                    msg = f"[{zone_id}] 低温: {env.temperature:.1f}℃（基準: 18-26℃）"
+                    if self._is_suppressed(zone_id, "low_temp"):
+                        suppressed.append(f"🔄 {msg}（タスク発行済み・対応待ち）")
+                    else:
+                        alerts.append(f"⚠️ {msg}")
             if env.co2 is not None and env.co2 > 1000:
-                alerts.append(f"⚠️ [{zone_id}] CO2高濃度: {env.co2}ppm（基準: 1000ppm以下）")
+                msg = f"[{zone_id}] CO2高濃度: {env.co2}ppm（基準: 1000ppm以下）"
+                if self._is_suppressed(zone_id, "high_co2"):
+                    suppressed.append(f"🔄 {msg}（タスク発行済み・対応待ち）")
+                else:
+                    alerts.append(f"⚠️ {msg}")
             if env.humidity is not None:
                 if env.humidity > 60:
-                    alerts.append(f"⚠️ [{zone_id}] 高湿度: {env.humidity:.0f}%（基準: 30-60%）")
+                    msg = f"[{zone_id}] 高湿度: {env.humidity:.0f}%（基準: 30-60%）"
+                    if self._is_suppressed(zone_id, "high_humidity"):
+                        suppressed.append(f"🔄 {msg}（タスク発行済み・対応待ち）")
+                    else:
+                        alerts.append(f"⚠️ {msg}")
                 elif env.humidity < 30:
-                    alerts.append(f"⚠️ [{zone_id}] 低湿度: {env.humidity:.0f}%（基準: 30-60%）")
+                    msg = f"[{zone_id}] 低湿度: {env.humidity:.0f}%（基準: 30-60%）"
+                    if self._is_suppressed(zone_id, "low_humidity"):
+                        suppressed.append(f"🔄 {msg}（タスク発行済み・対応待ち）")
+                    else:
+                        alerts.append(f"⚠️ {msg}")
 
         if alerts:
             context_parts.append("### アラート（要対応）\n" + "\n".join(alerts))
+        if suppressed:
+            context_parts.append("### 対応中（タスク発行済み・新規タスク不要）\n" + "\n".join(suppressed))
 
         for zone_id, zone in sorted(self.zones.items()):
             summary = f"### {zone_id}\n"

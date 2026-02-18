@@ -176,8 +176,8 @@ class HourlyAggregator:
                 INSERT INTO events.hourly_aggregates
                     (hub_id, period_start, zones, tasks_created, llm_cycles, device_health)
                 VALUES
-                    ('soms-brain', :period_start, :zones::jsonb, :tasks_created,
-                     :llm_cycles, :device_health::jsonb)
+                    ('soms-brain', :period_start, CAST(:zones AS jsonb), :tasks_created,
+                     :llm_cycles, CAST(:device_health AS jsonb))
                 ON CONFLICT (hub_id, period_start) DO UPDATE SET
                     zones = EXCLUDED.zones,
                     tasks_created = EXCLUDED.tasks_created,

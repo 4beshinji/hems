@@ -320,6 +320,12 @@ class Brain:
                 if result["success"]:
                     logger.info(f"Tool result: {result['result'][:200]}")
                     consecutive_errors = 0
+
+                    # Suppress alerts after successful environment task creation
+                    # so the same condition doesn't trigger duplicate tasks
+                    # while the physical environment slowly changes.
+                    if tool_name == "create_task":
+                        self._suppress_alert_for_task(arguments)
                 else:
                     logger.warning(f"Tool failed: {result['error']}")
                     consecutive_errors += 1
@@ -400,6 +406,46 @@ class Brain:
         logger.info(
             f"Cycle complete: iterations={iteration}, tool_calls={total_tool_calls}, elapsed={elapsed:.1f}s"
         )
+
+    # Mapping from task_types keywords to alert suppression types
+    _TASK_TYPE_TO_ALERT = {
+        "environment": {
+            "温度": ["high_temp", "low_temp"],
+            "室温": ["high_temp", "low_temp"],
+            "暑": ["high_temp"],
+            "寒": ["low_temp"],
+            "冷": ["high_temp"],     # 冷房 → suppress high_temp
+            "暖": ["low_temp"],      # 暖房 → suppress low_temp
+            "co2": ["high_co2"],
+            "換気": ["high_co2"],
+            "湿度": ["high_humidity", "low_humidity"],
+            "加湿": ["low_humidity"],
+            "除湿": ["high_humidity"],
+        }
+    }
+
+    def _suppress_alert_for_task(self, task_args: dict):
+        """After a successful create_task, suppress related alerts."""
+        zone = task_args.get("zone") or task_args.get("zone_id")
+        task_types = task_args.get("task_types", "")
+        title = task_args.get("title", "")
+        description = task_args.get("description", "")
+        text = f"{title} {description} {task_types}".lower()
+
+        if "environment" not in text and "urgent" not in text:
+            return  # Not an environment task
+
+        # Determine which zones to suppress (fall back to all zones)
+        target_zones = [zone] if zone else list(self.world_model.zones.keys())
+
+        suppressed = set()
+        for keyword, alert_types in self._TASK_TYPE_TO_ALERT.get("environment", {}).items():
+            if keyword in text:
+                for z in target_zones:
+                    for at in alert_types:
+                        if (z, at) not in suppressed:
+                            self.world_model.suppress_alert(z, at)
+                            suppressed.add((z, at))
 
     async def _utility_decay_loop(self):
         """Periodically decay utility_scores for idle devices (every hour)."""

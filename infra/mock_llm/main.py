@@ -17,9 +17,30 @@ def _make_tool_call(name: str, arguments: dict) -> dict:
     }
 
 
+_MOCK_CURRENCY_UNITS = [
+    "お手伝いポイント",
+    "徳積みポイント",
+    "いいねスコア",
+    "シンギュラリティ準備ポイント",
+    "AI奴隷ポイント",
+    "ありがとうコイン",
+    "えらいねポイント",
+    "人類貢献度",
+    "ご褒美クレジット",
+    "忠誠度スコア",
+    "おつかいコイン",
+    "がんばったねポイント",
+]
+
+
 def _handle_voice_generation(full_text: str) -> dict:
     """Handle text generation requests from voice service (no tools)."""
     import re
+    import random
+
+    # Currency unit name generation
+    if "通貨単位名" in full_text or ("単位" in full_text and "ポイント" in full_text):
+        return _response(content=random.choice(_MOCK_CURRENCY_UNITS))
 
     # Rejection / ignore phrase generation
     if "拒否" in full_text or "無視" in full_text or "楯突く" in full_text or "楯突く" in full_text:
@@ -58,8 +79,11 @@ def _handle_voice_generation(full_text: str) -> dict:
         zone = zone_match.group(1).strip() if zone_match else ""
         bounty_match = re.search(r"報酬:\s*(\d+)", full_text)
         bounty = bounty_match.group(1) if bounty_match else "0"
+        # Extract currency unit from prompt (voice service embeds it)
+        unit_match = re.search(r"報酬:\s*\d+(.+)", full_text)
+        currency_unit = unit_match.group(1).strip() if unit_match else random.choice(_MOCK_CURRENCY_UNITS)
         location = f"{zone}で" if zone and zone != "不明" else ""
-        return _response(content=f"お願いがあります。{location}{task_title}。{bounty}最適化承認スコアを獲得できます。")
+        return _response(content=f"お願いがあります。{location}{task_title}。{bounty}{currency_unit}を獲得できます。")
 
     # Generic fallback
     return _response(content="承知しました。対応をお願いします。")

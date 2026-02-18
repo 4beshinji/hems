@@ -91,16 +91,24 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Handle auto-playback for NEW tasks only
+  // Handle auto-playback for NEW tasks + play latest on first enable
   useEffect(() => {
     if (!isAudioEnabled || loading || tasks.length === 0) return;
 
     const currentIds = new Set(tasks.map(t => t.id));
 
-    // On first load, just record existing IDs without playing
+    // On first activation, play the latest uncompleted task's announcement
     if (!initialLoadDone.current) {
       initialLoadDone.current = true;
       setPrevTaskIds(currentIds);
+
+      const latest = tasks
+        .filter(t => !t.is_completed && t.announcement_audio_url)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+      if (latest) {
+        console.log("Initial announcement:", latest.title, latest.announcement_audio_url);
+        enqueue(latest.announcement_audio_url!, AudioPriority.ANNOUNCEMENT);
+      }
       return;
     }
 

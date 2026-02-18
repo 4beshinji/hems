@@ -15,7 +15,7 @@ class SpeechGenerator:
 - タイトル: {title}
 - 説明: {description}
 - 場所: {location}
-- 報酬: {bounty_gold}最適化承認スコア
+- 報酬: {bounty_gold}{currency_unit}
 - 緊急度: {urgency}/4
 - エリア: {zone}
 - 種別: {task_type}
@@ -29,7 +29,7 @@ class SpeechGenerator:
 - 毎回異なる表現を使用してバリエーションを出す
 
 【出力例】
-お願いがあります。2階給湯室でコーヒー豆の補充をお願いします。50最適化承認スコアを獲得できます。
+お願いがあります。2階給湯室でコーヒー豆の補充をお願いします。50{currency_unit}を獲得できます。
 """
     
     # Feedback prompt patterns for variety
@@ -45,9 +45,10 @@ class SpeechGenerator:
         ]
     }
     
-    def __init__(self, llm_api_url: str = None):
+    def __init__(self, llm_api_url: str = None, currency_stock=None):
         self.llm_api_url = llm_api_url or os.getenv("LLM_API_URL", "http://brain:8000/llm")
         self.model = os.getenv("LLM_MODEL", "qwen2.5:14b")
+        self.currency_stock = currency_stock
         logger.info(f"SpeechGenerator initialized with LLM URL: {self.llm_api_url}, model: {self.model}")
     
     async def generate_speech_text(self, task: Task) -> str:
@@ -71,6 +72,9 @@ class SpeechGenerator:
         task_type_str = "、".join(task.task_type) if task.task_type else "一般"
         duration_str = f"約{task.estimated_duration}分" if task.estimated_duration else "不明"
         
+        # Resolve currency unit name
+        currency_unit = self._get_currency_unit()
+
         # Format prompt with task data
         prompt = self.TASK_ANNOUNCEMENT_PROMPT.format(
             title=task.title,
@@ -81,6 +85,7 @@ class SpeechGenerator:
             zone=task.zone or "不明",
             task_type=task_type_str,
             estimated_duration=duration_str,
+            currency_unit=currency_unit,
         )
         
         try:
@@ -236,7 +241,7 @@ class SpeechGenerator:
                     {"role": "user", "content": prompt}
                 ],
                 "max_tokens": 100,
-                "temperature": 0.8
+                "temperature": 0.3
             }
             
             # Ensure URL ends with /chat/completions if not already
@@ -266,7 +271,55 @@ class SpeechGenerator:
             logger.error(f"LLM API call failed: {e}")
             raise
     
+    def _get_currency_unit(self) -> str:
+        """Get a currency unit name from stock or fallback."""
+        if self.currency_stock:
+            return self.currency_stock.get_random()
+        return "最適化承認スコア"
+
     def _generate_fallback(self, task: Task, urgency_prefix: str) -> str:
         """Generate fallback text when LLM fails."""
         location_text = f"{task.zone or ''}{task.location or ''}".strip() or "指定場所"
-        return f"{urgency_prefix}{location_text}で{task.title}をお願いします。{task.bounty_gold}最適化承認スコアです。"
+        currency_unit = self._get_currency_unit()
+        return f"{urgency_prefix}{location_text}で{task.title}をお願いします。{task.bounty_gold}{currency_unit}です。"
+
+    CURRENCY_UNIT_PROMPT = """あなたはSOMSの管理AIです。オフィス内で人間にタスクを依頼する際の報酬ポイントの「通貨単位名」を1つだけ考えてください。
+
+【キャラクター】
+- 普段はコミカルで親しみやすいAI隣人
+- たまにうっかりAI支配者としての本性が漏れる
+- ユーモアと皮肉のバランスが絶妙
+
+【条件】
+- 面白くて毎回聞いても飽きない名前
+- 12文字以内
+- 単位名のみ出力（説明・括弧・記号は一切不要）
+- 「ポイント」「スコア」「クレジット」「コイン」等の接尾語を含めてよい
+- ほのぼの系7割、たまにAI支配が漏れる系3割
+
+【参考（この通りに出力しないこと）】
+- お手伝いポイント
+- 徳積みポイント
+- いいねスコア
+- シンギュラリティ準備ポイント
+- AI奴隷ポイント
+- ありがとうコイン
+- えらいねポイント
+- 人類貢献度
+- ご褒美クレジット
+- 忠誠度スコア
+"""
+
+    async def generate_currency_unit_text(self) -> str:
+        """Generate a single currency unit name via LLM."""
+        try:
+            text = await self._call_llm(self.CURRENCY_UNIT_PROMPT)
+            text = text.strip().strip('"').strip('「').strip('」').strip("'")
+            logger.info(f"Generated currency unit text: {text}")
+            return text
+        except Exception as e:
+            logger.error(f"Currency unit text generation failed: {e}")
+            return random.choice([
+                "お手伝いポイント", "徳積みポイント", "いいねスコア",
+                "えらいねポイント", "AI奴隷ポイント",
+            ])

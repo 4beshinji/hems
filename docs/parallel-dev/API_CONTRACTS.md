@@ -599,7 +599,7 @@ Wallet is a self-contained ledger. No outbound calls.
 - Dashboard: run actual backend with SQLite, or stub REST responses
 - Voice: stub `/api/voice/synthesize` → `{"audio_url": "/audio/test.mp3", "text_generated": "test", "duration_seconds": 1.0}`
 - MQTT: use local Mosquitto + virtual edge
-- Full integration: `python3 infra/scripts/integration_test_mock.py`
+- Full integration: `python3 infra/tests/integration/integration_test_mock.py`
 
 ### L7 (Infra) — Mock: nothing
 
