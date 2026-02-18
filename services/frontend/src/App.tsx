@@ -1,148 +1,82 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Volume2, VolumeX, Zap } from 'lucide-react'
 import TaskCard from './components/TaskCard'
 import StatusPanel from './components/StatusPanel'
 import PCStatusPanel from './components/PCStatusPanel'
 import ServiceStatusPanel from './components/ServiceStatusPanel'
 import { useAudioQueue, AudioPriority } from './audio'
+import {
+  fetchTasks,
+  fetchStats,
+  fetchZones,
+  fetchPC,
+  fetchServices,
+  fetchVoiceEvents,
+} from './api'
 
-const API_BASE = '/api'
-
-interface TaskData {
-  id: number
-  title: string
-  description?: string
-  location?: string
-  xp_reward: number
-  is_completed: boolean
-  urgency: number
-  zone?: string
-  task_type?: string[]
-  estimated_duration?: number
-  announcement_audio_url?: string
-  completion_audio_url?: string
-  assigned_to?: number | null
-  accepted_at?: string | null
-  report_status?: string | null
-  completion_note?: string | null
-}
-
-interface StatsData {
-  total_xp: number
-  tasks_completed: number
-  tasks_created: number
-  tasks_active: number
-}
-
-interface VoiceEvent {
-  id: number
-  message: string
-  audio_url: string
-  zone?: string
-  tone: string
-}
-
-export interface EnvironmentData {
-  temperature?: number | null
-  humidity?: number | null
-  co2?: number | null
-  pressure?: number | null
-  light?: number | null
-  voc?: number | null
-  last_update?: number | null
-}
-
-export interface ZoneData {
-  zone_id: string
-  environment: EnvironmentData
-  occupancy: { count: number; last_update?: number | null }
-  events: { type: string; description: string; severity: number; timestamp: number }[]
-}
-
-export interface ServiceStatusItem {
-  name: string
-  available: boolean
-  unread_count: number
-  summary: string
-  last_check: number
-  error?: string | null
-}
-
-export interface ServicesData {
-  status?: string
-  [key: string]: ServiceStatusItem | string | undefined
-}
-
-export interface PCMetrics {
-  status?: string
-  cpu?: { usage_percent: number; core_count: number; temp_c: number }
-  memory?: { used_gb: number; total_gb: number; percent: number }
-  gpu?: { usage_percent: number; vram_used_gb: number; vram_total_gb: number; temp_c: number }
-  disk?: { mount: string; used_gb: number; total_gb: number; percent: number }[]
-  top_processes?: { pid: number; name: string; cpu_percent: number; mem_mb: number }[]
-  bridge_connected?: boolean
-}
+export type { EnvironmentData, ZoneData, ServiceStatusItem, ServicesData, PCMetrics } from './api'
 
 export default function App() {
-  const [tasks, setTasks] = useState<TaskData[]>([])
-  const [stats, setStats] = useState<StatsData | null>(null)
-  const [zones, setZones] = useState<ZoneData[]>([])
-  const [pcMetrics, setPcMetrics] = useState<PCMetrics | null>(null)
-  const [servicesData, setServicesData] = useState<ServicesData | null>(null)
+  const queryClient = useQueryClient()
   const [audioEnabled, setAudioEnabled] = useState(false)
   const { enqueue, isEnabled } = useAudioQueue(audioEnabled)
   const [playedVoiceIds, setPlayedVoiceIds] = useState<Set<number>>(new Set())
   const [playedTaskIds, setPlayedTaskIds] = useState<Set<number>>(new Set())
 
-  const fetchTasks = useCallback(async () => {
-    try {
-      const resp = await fetch(`${API_BASE}/tasks/`)
-      if (resp.ok) setTasks(await resp.json())
-    } catch {}
-  }, [])
+  const tasksQuery = useQuery({
+    queryKey: ['tasks'],
+    queryFn: fetchTasks,
+    refetchInterval: 5000,
+  })
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const resp = await fetch(`${API_BASE}/tasks/stats`)
-      if (resp.ok) setStats(await resp.json())
-    } catch {}
-  }, [])
+  const statsQuery = useQuery({
+    queryKey: ['stats'],
+    queryFn: fetchStats,
+    refetchInterval: 10000,
+  })
 
-  const fetchZones = useCallback(async () => {
-    try {
-      const resp = await fetch(`${API_BASE}/zones/`)
-      if (resp.ok) setZones(await resp.json())
-    } catch {}
-  }, [])
+  const zonesQuery = useQuery({
+    queryKey: ['zones'],
+    queryFn: fetchZones,
+    refetchInterval: 5000,
+  })
 
-  const fetchPC = useCallback(async () => {
-    try {
-      const resp = await fetch(`${API_BASE}/pc/`)
-      if (resp.ok) setPcMetrics(await resp.json())
-    } catch {}
-  }, [])
+  const pcQuery = useQuery({
+    queryKey: ['pc'],
+    queryFn: fetchPC,
+    refetchInterval: 10000,
+  })
 
-  const fetchServices = useCallback(async () => {
-    try {
-      const resp = await fetch(`${API_BASE}/services/`)
-      if (resp.ok) setServicesData(await resp.json())
-    } catch {}
-  }, [])
+  const servicesQuery = useQuery({
+    queryKey: ['services'],
+    queryFn: fetchServices,
+    refetchInterval: 10000,
+  })
 
-  const fetchVoiceEvents = useCallback(async () => {
-    if (!isEnabled) return
-    try {
-      const resp = await fetch(`${API_BASE}/voice-events/recent`)
-      if (!resp.ok) return
-      const events: VoiceEvent[] = await resp.json()
-      for (const ev of events) {
-        if (!playedVoiceIds.has(ev.id) && ev.audio_url) {
-          enqueue(ev.audio_url, AudioPriority.VOICE_EVENT)
-          setPlayedVoiceIds(prev => new Set(prev).add(ev.id))
-        }
+  const voiceEventsQuery = useQuery({
+    queryKey: ['voiceEvents'],
+    queryFn: fetchVoiceEvents,
+    refetchInterval: 3000,
+    enabled: isEnabled,
+  })
+
+  const tasks = tasksQuery.data ?? []
+  const stats = statsQuery.data ?? null
+  const zones = zonesQuery.data ?? []
+  const pcMetrics = pcQuery.data ?? null
+  const servicesData = servicesQuery.data ?? null
+
+  // Play new voice events
+  useEffect(() => {
+    if (!isEnabled || !voiceEventsQuery.data) return
+    for (const ev of voiceEventsQuery.data) {
+      if (!playedVoiceIds.has(ev.id) && ev.audio_url) {
+        enqueue(ev.audio_url, AudioPriority.VOICE_EVENT)
+        setPlayedVoiceIds(prev => new Set(prev).add(ev.id))
       }
-    } catch {}
-  }, [isEnabled, enqueue, playedVoiceIds])
+    }
+  }, [voiceEventsQuery.data, isEnabled, enqueue, playedVoiceIds])
 
   // Auto-play task announcements
   useEffect(() => {
@@ -154,24 +88,6 @@ export default function App() {
       }
     }
   }, [tasks, isEnabled, enqueue, playedTaskIds])
-
-  // Polling
-  useEffect(() => {
-    fetchTasks()
-    fetchStats()
-    fetchZones()
-    fetchPC()
-    fetchServices()
-    const interval = setInterval(() => {
-      fetchTasks()
-      fetchStats()
-      fetchZones()
-      fetchPC()
-      fetchServices()
-      fetchVoiceEvents()
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [fetchTasks, fetchStats, fetchZones, fetchPC, fetchServices, fetchVoiceEvents])
 
   const activeTasks = tasks.filter(t => !t.is_completed)
 
@@ -222,7 +138,7 @@ export default function App() {
               <TaskCard
                 key={task.id}
                 task={task}
-                onComplete={fetchTasks}
+                onComplete={() => queryClient.invalidateQueries({ queryKey: ['tasks'] })}
                 enqueueAudio={enqueue}
                 audioEnabled={isEnabled}
               />

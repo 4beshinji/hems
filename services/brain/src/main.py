@@ -270,6 +270,8 @@ class Brain:
                         break
                 else:
                     consecutive_errors = 0
+                    if tool_name == "create_task":
+                        self._suppress_alert_for_task(arguments)
 
         # Record to event store
         elapsed = time.time() - cycle_start
@@ -294,6 +296,41 @@ class Brain:
             await self.dashboard.push_services_snapshot(self.world_model)
 
         logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
+
+    # Mapping: task text keywords → alert types to suppress
+    _TASK_ALERT_KEYWORDS: dict[str, list[str]] = {
+        "温度": ["temp_high", "temp_low"],
+        "室温": ["temp_high", "temp_low"],
+        "暑": ["temp_high"],
+        "冷": ["temp_high"],   # 冷房 → suppress high temp
+        "寒": ["temp_low"],
+        "暖": ["temp_low"],    # 暖房 → suppress low temp
+        "co2": ["co2_high", "co2_critical"],
+        "換気": ["co2_high", "co2_critical"],
+        "二酸化炭素": ["co2_high", "co2_critical"],
+    }
+
+    def _suppress_alert_for_task(self, task_args: dict):
+        """Suppress environment alerts after a successful create_task call.
+
+        Prevents repeated task creation while the physical environment slowly
+        responds to the intervention (e.g., AC cooling a room).
+        """
+        zone = task_args.get("zone") or task_args.get("zone_id")
+        title = task_args.get("title", "")
+        description = task_args.get("description", "")
+        text = f"{title} {description}".lower()
+
+        target_zones = [zone] if zone else list(self.world_model.zones.keys())
+
+        suppressed: set[tuple] = set()
+        for keyword, alert_types in self._TASK_ALERT_KEYWORDS.items():
+            if keyword in text:
+                for z in target_zones:
+                    for at in alert_types:
+                        if (z, at) not in suppressed:
+                            self.world_model.suppress_alert(z, at)
+                            suppressed.add((z, at))
 
     async def run(self):
         self._loop = asyncio.get_running_loop()

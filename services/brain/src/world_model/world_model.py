@@ -28,12 +28,53 @@ PC_DISK_HIGH = 90
 
 
 class WorldModel:
+    # Default suppression duration (seconds) per alert type.
+    # Slow-changing conditions get longer suppression to avoid duplicate tasks
+    # while the physical environment slowly responds (e.g., AC cooling a room).
+    SUPPRESSION_DEFAULTS: dict[str, float] = {
+        "temp_high": 1800,    # 30 min — AC takes time to cool
+        "temp_low": 1800,     # 30 min — heating takes time
+        "co2_high": 600,      # 10 min — ventilation is faster
+        "co2_critical": 600,  # 10 min
+    }
+
     def __init__(self):
         self.zones: dict[str, ZoneState] = {}
         self.pc_state: PCState = PCState()
         self.services_state: ServicesState = ServicesState()
         self._sensor_fusions: dict[str, SensorFusion] = {}
         self.event_writer = None  # Set by Brain if event_store is available
+
+        # Alert suppression: {(zone_id, alert_type): expiry_timestamp}
+        # Prevents repeated task creation for slow-changing conditions.
+        self._suppressed_alerts: dict[tuple, float] = {}
+
+    def suppress_alert(self, zone_id: str, alert_type: str, duration: float = None):
+        """Suppress an alert for a zone after a task has been created for it.
+
+        Prevents the LLM from creating duplicate tasks while the physical
+        environment slowly responds (e.g., AC cooling a room after task created).
+        Auto-clears when sensor readings return to normal range.
+        """
+        if duration is None:
+            duration = self.SUPPRESSION_DEFAULTS.get(alert_type, 1800)
+        self._suppressed_alerts[(zone_id, alert_type)] = time.time() + duration
+        logger.debug("Alert suppressed: zone=%s type=%s duration=%ds", zone_id, alert_type, duration)
+
+    def _is_suppressed(self, zone_id: str, alert_type: str) -> bool:
+        """Return True if this alert is currently suppressed."""
+        key = (zone_id, alert_type)
+        expiry = self._suppressed_alerts.get(key)
+        if expiry is None:
+            return False
+        if time.time() > expiry:
+            del self._suppressed_alerts[key]
+            return False
+        return True
+
+    def clear_suppression(self, zone_id: str, alert_type: str):
+        """Clear a suppression when the condition has resolved."""
+        self._suppressed_alerts.pop((zone_id, alert_type), None)
 
     def _get_zone(self, zone_id: str) -> ZoneState:
         if zone_id not in self.zones:
@@ -136,41 +177,56 @@ class WorldModel:
         self._check_thresholds(zone, channel, fused, prev)
 
     def _check_thresholds(self, zone: ZoneState, channel: str, value: float, prev: float | None):
+        zid = zone.zone_id
         if channel == "co2":
+            # Auto-clear suppression when CO2 returns to normal
+            if value <= CO2_HIGH:
+                self.clear_suppression(zid, "co2_high")
+                self.clear_suppression(zid, "co2_critical")
+
             if value > CO2_CRITICAL and (prev is None or prev <= CO2_CRITICAL):
-                zone.add_event(Event(
-                    event_type="co2_critical",
-                    description=f"CO2危険レベル: {int(value)}ppm",
-                    severity=2,
-                    zone=zone.zone_id,
-                    data={"co2": value},
-                ))
+                if not self._is_suppressed(zid, "co2_critical"):
+                    zone.add_event(Event(
+                        event_type="co2_critical",
+                        description=f"CO2危険レベル: {int(value)}ppm",
+                        severity=2,
+                        zone=zid,
+                        data={"co2": value},
+                    ))
             elif value > CO2_HIGH and (prev is None or prev <= CO2_HIGH):
-                zone.add_event(Event(
-                    event_type="co2_high",
-                    description=f"CO2上昇: {int(value)}ppm",
-                    severity=1,
-                    zone=zone.zone_id,
-                    data={"co2": value},
-                ))
+                if not self._is_suppressed(zid, "co2_high"):
+                    zone.add_event(Event(
+                        event_type="co2_high",
+                        description=f"CO2上昇: {int(value)}ppm",
+                        severity=1,
+                        zone=zid,
+                        data={"co2": value},
+                    ))
 
         elif channel == "temperature":
+            # Auto-clear suppression when temperature returns to normal range
+            if TEMP_LOW <= value <= TEMP_HIGH:
+                self.clear_suppression(zid, "temp_high")
+                self.clear_suppression(zid, "temp_low")
+
             if value > TEMP_HIGH and (prev is None or prev <= TEMP_HIGH):
-                zone.add_event(Event(
-                    event_type="temp_high",
-                    description=f"室温上昇: {value:.1f}度",
-                    severity=1,
-                    zone=zone.zone_id,
-                    data={"temperature": value},
-                ))
+                if not self._is_suppressed(zid, "temp_high"):
+                    zone.add_event(Event(
+                        event_type="temp_high",
+                        description=f"室温上昇: {value:.1f}度",
+                        severity=1,
+                        zone=zid,
+                        data={"temperature": value},
+                    ))
             elif value < TEMP_LOW and (prev is None or prev >= TEMP_LOW):
-                zone.add_event(Event(
-                    event_type="temp_low",
-                    description=f"室温低下: {value:.1f}度",
-                    severity=1,
-                    zone=zone.zone_id,
-                    data={"temperature": value},
-                ))
+                if not self._is_suppressed(zid, "temp_low"):
+                    zone.add_event(Event(
+                        event_type="temp_low",
+                        description=f"室温低下: {value:.1f}度",
+                        severity=1,
+                        zone=zid,
+                        data={"temperature": value},
+                    ))
 
     def _update_pc_state(self, path_parts: list[str], payload: dict):
         """Handle hems/pc/* topics from OpenClaw bridge."""
@@ -337,11 +393,22 @@ class WorldModel:
             parts = [f"### {zone_id}"]
 
             if env.temperature is not None:
-                parts.append(f"  温度: {env.temperature}度")
+                temp_str = f"  温度: {env.temperature}度"
+                if env.temperature > TEMP_HIGH and self._is_suppressed(zone_id, "temp_high"):
+                    temp_str += " (対応中)"
+                elif env.temperature < TEMP_LOW and self._is_suppressed(zone_id, "temp_low"):
+                    temp_str += " (対応中)"
+                parts.append(temp_str)
             if env.humidity is not None:
                 parts.append(f"  湿度: {env.humidity}%")
             if env.co2 is not None:
-                parts.append(f"  CO2: {int(env.co2)}ppm")
+                co2_str = f"  CO2: {int(env.co2)}ppm"
+                if env.co2 > CO2_HIGH and (
+                    self._is_suppressed(zone_id, "co2_high") or
+                    self._is_suppressed(zone_id, "co2_critical")
+                ):
+                    co2_str += " (対応中)"
+                parts.append(co2_str)
             if zone.occupancy and zone.occupancy.count > 0:
                 parts.append(f"  在室: {zone.occupancy.count}人")
 

@@ -1,6 +1,7 @@
 """
 HourlyAggregator: Background task that rolls up raw events into
 hourly_aggregates (Data Mart). SQLite and PostgreSQL compatible.
+Retention: raw_events 730 days, llm_decisions 730 days.
 """
 import asyncio
 import json
@@ -15,7 +16,7 @@ IS_POSTGRES = "postgresql" in os.getenv("DATABASE_URL", "")
 
 class HourlyAggregator:
     LOOP_INTERVAL = 600  # 10 minutes
-    RAW_RETENTION_DAYS = 90
+    RAW_RETENTION_DAYS = 730       # 2 years (ML seasonal pattern learning)
     CLEANUP_HOUR_UTC = 3
 
     def __init__(self, engine: AsyncEngine):

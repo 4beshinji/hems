@@ -79,7 +79,7 @@ XP報酬: {task.xp_reward}XP
                 "model": self.model,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 100,
-                "temperature": 0.8,
+                "temperature": 0.3,
             }) as resp:
                 if resp.status != 200:
                     raise Exception(f"LLM API error {resp.status}")
