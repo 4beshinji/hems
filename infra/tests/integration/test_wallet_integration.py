@@ -15,14 +15,15 @@ Scenarios:
   8. Frontend proxy routing (nginx /api/wallet/)
 """
 import json
+import os
 import sys
 import time
 import urllib.request
 import urllib.error
 
-BACKEND_URL = "http://localhost:8000"
-WALLET_URL = "http://localhost:8003"
-FRONTEND_URL = "http://localhost"  # nginx proxy
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+WALLET_URL = os.getenv("WALLET_URL", "http://localhost:8003")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost")  # nginx proxy
 
 # Unique suffix to avoid collisions with previous test runs
 _TS = str(int(time.time()))[-6:]

@@ -5,8 +5,8 @@ services:
     container_name: soms-mqtt
     restart: always
     ports:
-      - "${MQTT_BIND_ADDR:-0.0.0.0}:1883:1883" # Exposed for Edge Devices
-      - "${MQTT_BIND_ADDR:-0.0.0.0}:9001:9001" # Websocket
+      - "${MQTT_BIND_ADDR:-0.0.0.0}:${SOMS_PORT_MQTT:-1883}:1883" # Exposed for Edge Devices
+      - "${MQTT_BIND_ADDR:-0.0.0.0}:${SOMS_PORT_MQTT_WS:-9001}:9001" # Websocket
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./mosquitto/passwd:/mosquitto/config/passwd:ro
@@ -65,7 +65,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-soms_dev_password}
       - POSTGRES_DB=soms
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${SOMS_PORT_POSTGRES:-5432}:5432"
     volumes:
       - soms_pg_data:/var/lib/postgresql/data
     networks:
@@ -83,7 +83,7 @@ services:
     container_name: soms-backend
     restart: always
     ports:
-      - "8000:8000"
+      - "${SOMS_PORT_BACKEND:-8000}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -108,7 +108,7 @@ services:
     container_name: soms-frontend
     restart: always
     ports:
-      - "80:80"
+      - "${SOMS_PORT_FRONTEND:-80}:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -143,7 +143,7 @@ services:
     container_name: soms-voice
     restart: always
     ports:
-      - "8002:8000"
+      - "${SOMS_PORT_VOICE:-8002}:8000"
     depends_on:
       voicevox:
         condition: service_healthy
@@ -198,7 +198,7 @@ services:
     container_name: soms-wallet-app
     restart: always
     ports:
-      - "8004:80"
+      - "${SOMS_PORT_WALLET_APP:-8004}:80"
     depends_on:
       wallet:
         condition: service_healthy
@@ -242,7 +242,7 @@ services:
     container_name: soms-mock-llm
     restart: unless-stopped
     ports:
-      - "8001:8000"
+      - "${SOMS_PORT_MOCK_LLM:-8001}:8000"
     networks:
       - soms-net
     healthcheck:

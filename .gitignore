@@ -43,6 +43,7 @@ out/
 .env
 .env.local
 .env.*.local
+infra/.env.ports
 
 # IDE
 .idea/
