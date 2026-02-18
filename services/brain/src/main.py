@@ -131,7 +131,8 @@ class Brain:
         current = {zid: len(z.events) for zid, z in self.world_model.zones.items()}
         if OPENCLAW_ENABLED:
             current["__pc__"] = len(self.world_model.pc_state.events)
-        current["__services__"] = len(self.world_model.services_state.events)
+        if OPENCLAW_ENABLED:
+            current["__services__"] = len(self.world_model.services_state.events)
         if current != self._last_event_count:
             self._last_event_count = current
             self._cycle_triggered.set()
@@ -157,7 +158,7 @@ class Brain:
             await self.dashboard.push_zone_snapshot(self.world_model)
             if OPENCLAW_ENABLED:
                 await self.dashboard.push_pc_snapshot(self.world_model)
-            if self.world_model.services_state.services:
+            if OPENCLAW_ENABLED and self.world_model.services_state.services:
                 await self.dashboard.push_services_snapshot(self.world_model)
             return
 
@@ -179,13 +180,14 @@ class Brain:
             for event in self.world_model.pc_state.events:
                 if now - event.timestamp < 300:
                     recent_events.append(f"[PC] {event.description}")
-        for event in self.world_model.services_state.events:
-            if now - event.timestamp < 300:
-                recent_events.append(f"[サービス] {event.description}")
+        if OPENCLAW_ENABLED:
+            for event in self.world_model.services_state.events:
+                if now - event.timestamp < 300:
+                    recent_events.append(f"[サービス] {event.description}")
 
         active_tasks = await self.dashboard.get_active_tasks()
 
-        services_enabled = bool(self.world_model.services_state.services)
+        services_enabled = OPENCLAW_ENABLED and bool(self.world_model.services_state.services)
         system_msg = build_system_message(
             self.character, openclaw_enabled=OPENCLAW_ENABLED,
             services_enabled=services_enabled,
