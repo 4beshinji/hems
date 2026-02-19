@@ -12,6 +12,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!edge/lib/
 lib64/
 parts/
 sdist/
@@ -42,6 +43,7 @@ out/
 .env
 .env.local
 .env.*.local
+infra/.env.ports
 
 # IDE
 .idea/
@@ -62,6 +64,8 @@ Thumbs.db
 *.pt
 *.wav
 *.mp3
+scan_*.txt
+verified_*.txt
 
 # OAuth tokens (security)
 oauth_tokens.db

@@ -1,0 +1,9 @@
+{
+  "device_id": "sensor_01",
+  "zone": "env",
+  "wifi_ssid": "SSID",
+  "wifi_password": "PASS",
+  "mqtt_broker": "192.168.128.161",
+  "mqtt_port": 1883,
+  "report_interval": 10
+}

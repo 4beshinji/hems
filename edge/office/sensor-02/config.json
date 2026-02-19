@@ -1,0 +1,9 @@
+{
+  "device_id": "sensor-node-02",
+  "zone": "meeting_room_a",
+  "wifi_ssid": "GITY Wi-Fi",
+  "wifi_password": "gity2023",
+  "mqtt_broker": "192.168.128.161",
+  "mqtt_port": 1883,
+  "report_interval": 30
+}

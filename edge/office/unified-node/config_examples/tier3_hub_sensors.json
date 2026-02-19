@@ -1,0 +1,18 @@
+{
+  "device_id": "swarm_hub_01",
+  "zone": "main",
+  "wifi_ssid": "YOUR_SSID",
+  "wifi_password": "YOUR_PASSWORD",
+  "mqtt_broker": "192.168.x.x",
+  "mqtt_port": 1883,
+  "report_interval": 30,
+  "board": "esp32_devkitc",
+  "sensors": [
+    {"type": "sht31", "bus": "i2c", "address": "auto"},
+    {"type": "bh1750", "bus": "i2c", "address": "auto"},
+    {"type": "pir", "bus": "gpio", "pin": 13}
+  ],
+  "transports": ["espnow"],
+  "espnow_channel": 1,
+  "wake_chains": {}
+}

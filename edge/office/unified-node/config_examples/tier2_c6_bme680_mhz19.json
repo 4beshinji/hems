@@ -1,0 +1,14 @@
+{
+  "device_id": "env_02",
+  "zone": "meeting_room_a",
+  "wifi_ssid": "YOUR_SSID",
+  "wifi_password": "YOUR_PASSWORD",
+  "mqtt_broker": "192.168.x.x",
+  "mqtt_port": 1883,
+  "report_interval": 30,
+  "board": "xiao_esp32_c6",
+  "sensors": [
+    {"type": "bme680", "bus": "i2c", "address": "auto"},
+    {"type": "mhz19c", "bus": "uart", "uart_id": 1}
+  ]
+}

@@ -1,0 +1,38 @@
+services:
+  virtual-edge:
+    build: ./virtual_edge
+    container_name: soms-virtual-edge
+    restart: unless-stopped
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_USER=${MQTT_USER:-soms}
+      - MQTT_PASS=${MQTT_PASS:-soms_dev_mqtt}
+    volumes:
+      - ./virtual_edge/src:/app
+      - ../edge/lib:/edge_lib
+    networks:
+      - soms-net
+
+  mock-llm:
+    build: ./mock_llm
+    container_name: soms-mock-llm
+    restart: unless-stopped
+    ports:
+      - "8001:8000" # Expose on 8001 to avoid conflict if needed, or internal only
+    networks:
+      - soms-net
+
+  virtual-camera:
+    build: ./virtual_camera
+    container_name: soms-virtual-camera
+    restart: unless-stopped
+    ports:
+      - "8554:8554"
+    networks:
+      - soms-net
+
+networks:
+  soms-net:
+    external: true
+    name: infra_soms-net

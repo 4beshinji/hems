@@ -1,0 +1,12 @@
+# hadolint configuration
+# https://github.com/hadolint/hadolint
+#
+# DL3008 (apt-get version pinning) is suppressed via inline pragmas
+# (# hadolint ignore=DL3008) in individual Dockerfiles because:
+#   - Exact apt versions differ across mirrors and become unavailable over time
+#   - Pinning would break builds on package version transitions
+#
+# Note: The global `ignore:` key has a known parsing issue in hadolint 2.14.0;
+# inline pragmas are used as a reliable workaround.
+ignore:
+  - DL3008

@@ -1,9 +1,19 @@
-paho-mqtt>=2.0
-aiohttp
-loguru
-python-dotenv
-sqlalchemy>=2.0
+# MQTT
+paho-mqtt>=2.0.0
+
+# Async
+aiohttp>=3.9
+
+# Database (Event Store)
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29
 aiosqlite
-asyncpg
+
+# Utilities
+python-dotenv>=1.0
+pydantic>=2.5
+loguru>=0.7
+
+# HEMS-specific
 anthropic
 pyyaml

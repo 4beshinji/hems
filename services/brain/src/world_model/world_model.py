@@ -4,6 +4,7 @@ Forked from SOMS with HEMS personal topic support.
 """
 import time
 import logging
+from typing import Optional
 from .data_classes import (
     ZoneState, EnvironmentData, OccupancyData, Event,
     PCState, CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
@@ -78,7 +79,16 @@ class WorldModel:
         """Clear a suppression when the condition has resolved."""
         self._suppressed_alerts.pop((zone_id, alert_type), None)
 
+    def get_zone(self, zone_id: str) -> Optional[ZoneState]:
+        """Get state of a specific zone (returns None if zone not yet seen)."""
+        return self.zones.get(zone_id)
+
+    def get_all_zones(self) -> dict[str, ZoneState]:
+        """Get all zones."""
+        return self.zones
+
     def _get_zone(self, zone_id: str) -> ZoneState:
+        """Get or create a zone by ID (internal use)."""
         if zone_id not in self.zones:
             self.zones[zone_id] = ZoneState(zone_id=zone_id)
         return self.zones[zone_id]
@@ -110,11 +120,21 @@ class WorldModel:
         # office/{zone}/activity/{monitor_id} (activity/sedentary)
         elif len(parts) >= 4 and parts[0] == "office" and parts[2] == "activity":
             zone_id = parts[1]
+            zone = self._get_zone(zone_id)
             activity = payload.get("activity_level", "")
+            # Update activity fields on OccupancyData
+            if isinstance(activity, float):
+                zone.occupancy.activity_level = activity
+            if "activity_class" in payload:
+                zone.occupancy.activity_class = payload["activity_class"]
+            if "posture_duration_sec" in payload:
+                zone.occupancy.posture_duration_sec = payload["posture_duration_sec"]
+            if "posture_status" in payload:
+                zone.occupancy.posture_status = payload["posture_status"]
+            # Legacy: sedentary string value
             if activity == "sedentary":
                 duration = payload.get("duration_minutes", 0)
                 if duration >= SEDENTARY_MINUTES:
-                    zone = self._get_zone(zone_id)
                     zone.add_event(Event(
                         event_type="sedentary_alert",
                         description=f"長時間着座検知: {duration}分",
@@ -424,7 +444,7 @@ class WorldModel:
             parts = [f"### {zone_id}"]
 
             if env.temperature is not None:
-                temp_str = f"  温度: {env.temperature}度"
+                temp_str = f"  温度: {env.temperature}度 ({env.thermal_comfort})"
                 if env.temperature > TEMP_HIGH and self._is_suppressed(zone_id, "temp_high"):
                     temp_str += " (対応中)"
                 elif env.temperature < TEMP_LOW and self._is_suppressed(zone_id, "temp_low"):
@@ -434,11 +454,13 @@ class WorldModel:
                 parts.append(f"  湿度: {env.humidity}%")
             if env.co2 is not None:
                 co2_str = f"  CO2: {int(env.co2)}ppm"
-                if env.co2 > CO2_HIGH and (
+                if env.is_stuffy and (
                     self._is_suppressed(zone_id, "co2_high") or
                     self._is_suppressed(zone_id, "co2_critical")
                 ):
                     co2_str += " (対応中)"
+                elif env.is_stuffy:
+                    co2_str += " (換気推奨)"
                 parts.append(co2_str)
             if zone.occupancy and zone.occupancy.count > 0:
                 parts.append(f"  在室: {zone.occupancy.count}人")
