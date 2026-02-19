@@ -4,12 +4,17 @@ Persona Rewriter — rewrites rule-engine speak messages in character voice.
 Uses a compact LLM call to transform plain Japanese messages into the
 configured character's speaking style. Falls back to the original message
 on any error.
+
+Includes a TTL-based cache to avoid redundant LLM calls for recurring
+(message, tone) pairs from rule-engine templates.
 """
 import os
+import time
 from loguru import logger
 
 
 PERSONA_REWRITE_ENABLED = os.getenv("PERSONA_REWRITE_ENABLED", "true").lower() == "true"
+PERSONA_REWRITE_CACHE_TTL = int(os.getenv("PERSONA_REWRITE_CACHE_TTL", "3600"))
 
 
 class PersonaRewriter:
@@ -17,14 +22,33 @@ class PersonaRewriter:
         self.character = character
         self.llm_client = llm_client
         self._persona_prompt = _build_persona_prompt(character)
+        # Cache: (message, tone) -> (rewritten_text, timestamp)
+        self._cache: dict[tuple[str, str], tuple[str, float]] = {}
+        self._cache_checks = 0
 
     def update_character(self, character):
         self.character = character
         self._persona_prompt = _build_persona_prompt(character)
+        self._cache.clear()
 
     async def rewrite(self, message: str, tone: str = "neutral") -> str:
         if not PERSONA_REWRITE_ENABLED or not message:
             return message
+
+        # Check cache
+        cache_key = (message, tone)
+        now = time.monotonic()
+        self._cache_checks += 1
+
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            rewritten, ts = cached
+            if PERSONA_REWRITE_CACHE_TTL > 0 and (now - ts) < PERSONA_REWRITE_CACHE_TTL:
+                return rewritten
+
+        # Periodically prune expired entries
+        if self._cache_checks % 100 == 0 or len(self._cache) > 200:
+            self._prune_cache(now)
 
         user_prompt = (
             f"以下のメッセージを、あなたの口調で言い換えてください。\n"
@@ -61,11 +85,25 @@ class PersonaRewriter:
             if not rewritten:
                 return message
 
+            # Store in cache
+            self._cache[cache_key] = (rewritten, now)
+
             return rewritten
 
         except Exception as e:
             logger.debug(f"Persona rewrite exception: {e}")
             return message
+
+    def _prune_cache(self, now: float) -> None:
+        """Remove expired entries from the cache."""
+        if PERSONA_REWRITE_CACHE_TTL <= 0:
+            return
+        expired = [
+            key for key, (_, ts) in self._cache.items()
+            if (now - ts) >= PERSONA_REWRITE_CACHE_TTL
+        ]
+        for key in expired:
+            del self._cache[key]
 
 
 def _build_persona_prompt(character) -> str:

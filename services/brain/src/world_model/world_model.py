@@ -2,6 +2,7 @@
 WorldModel — maintains unified zone state from MQTT messages.
 Forked from SOMS with HEMS personal topic support.
 """
+import os
 import time
 import logging
 from typing import Optional
@@ -10,23 +11,24 @@ from .data_classes import (
     PCState, CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
     ServicesState, ServiceStatusData,
     KnowledgeState,
+    GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
 )
 from .sensor_fusion import SensorFusion
 
 logger = logging.getLogger(__name__)
 
-# Environment thresholds for event generation
-CO2_HIGH = 1000
-CO2_CRITICAL = 1500
-TEMP_HIGH = 28
-TEMP_LOW = 16
-SEDENTARY_MINUTES = 60
+# Environment thresholds for event generation (configurable via env vars)
+CO2_HIGH = int(os.getenv("HEMS_THRESHOLD_CO2_HIGH", "1000"))
+CO2_CRITICAL = int(os.getenv("HEMS_THRESHOLD_CO2_CRITICAL", "1500"))
+TEMP_HIGH = int(os.getenv("HEMS_THRESHOLD_TEMP_HIGH", "28"))
+TEMP_LOW = int(os.getenv("HEMS_THRESHOLD_TEMP_LOW", "16"))
+SEDENTARY_MINUTES = int(os.getenv("HEMS_THRESHOLD_SEDENTARY_MINUTES", "60"))
 
-# PC thresholds
-PC_CPU_HIGH = 90
-PC_MEMORY_HIGH = 90
-PC_GPU_TEMP_HIGH = 85
-PC_DISK_HIGH = 90
+# PC thresholds (configurable via env vars)
+PC_CPU_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_CPU_HIGH", "90"))
+PC_MEMORY_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_MEMORY_HIGH", "90"))
+PC_GPU_TEMP_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_GPU_TEMP_HIGH", "85"))
+PC_DISK_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_DISK_HIGH", "90"))
 
 
 class WorldModel:
@@ -45,6 +47,7 @@ class WorldModel:
         self.pc_state: PCState = PCState()
         self.services_state: ServicesState = ServicesState()
         self.knowledge_state: KnowledgeState = KnowledgeState()
+        self.gas_state: GASState = GASState()
         self._sensor_fusions: dict[str, SensorFusion] = {}
         self.event_writer = None  # Set by Brain if event_store is available
 
@@ -162,6 +165,10 @@ class WorldModel:
         # hems/services/{name}/status (Service Monitor)
         elif parts[0] == "hems" and len(parts) >= 4 and parts[1] == "services":
             self._update_service_state(parts[2], parts[3], payload)
+
+        # hems/gas/* topics (GAS bridge)
+        elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "gas":
+            self._update_gas_state(parts[2:], payload)
 
         # hems/personal/* topics (Phase 2 — data-bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "personal":
@@ -400,6 +407,128 @@ class WorldModel:
                 data=payload,
             ))
 
+    def _update_gas_state(self, path_parts: list[str], payload: dict):
+        """Handle hems/gas/* topics from GAS bridge."""
+        if not path_parts:
+            return
+
+        gs = self.gas_state
+        category = path_parts[0]
+
+        if category == "calendar" and len(path_parts) >= 2:
+            sub = path_parts[1]
+            if sub == "upcoming":
+                events = []
+                for ev in payload.get("events", []):
+                    start_ts = self._parse_iso_ts(ev.get("start", ""))
+                    end_ts = self._parse_iso_ts(ev.get("end", ""))
+                    events.append(CalendarEvent(
+                        id=ev.get("id", ""),
+                        title=ev.get("title", ""),
+                        start=ev.get("start", ""),
+                        end=ev.get("end", ""),
+                        location=ev.get("location", ""),
+                        calendar_name=ev.get("calendarName", ""),
+                        is_all_day=ev.get("isAllDay", False),
+                        description=ev.get("description", ""),
+                        start_ts=start_ts,
+                        end_ts=end_ts,
+                    ))
+                gs.calendar_events = events
+                gs.last_calendar_update = time.time()
+                gs.bridge_connected = True
+
+            elif sub == "free_slots":
+                gs.free_slots = [
+                    FreeSlot(
+                        start=s.get("start", ""),
+                        end=s.get("end", ""),
+                        duration_minutes=s.get("duration_minutes", 0),
+                    )
+                    for s in payload.get("slots", [])
+                ]
+
+        elif category == "tasks" and len(path_parts) >= 2:
+            sub = path_parts[1]
+            tasks = []
+            for tl in payload.get("taskLists", []):
+                list_name = tl.get("title", "")
+                for t in tl.get("tasks", []):
+                    tasks.append(GoogleTask(
+                        id=t.get("id", ""),
+                        title=t.get("title", ""),
+                        notes=t.get("notes", ""),
+                        due=t.get("due", ""),
+                        status=t.get("status", ""),
+                        list_name=list_name,
+                        is_overdue=t.get("is_overdue", False),
+                    ))
+            if sub == "all":
+                gs.tasks = tasks
+                gs.last_tasks_update = time.time()
+            elif sub == "due_today":
+                # Overwrite tasks list with due_today data (richer with is_overdue)
+                gs.tasks = tasks
+                gs.last_tasks_update = time.time()
+            gs.bridge_connected = True
+
+        elif category == "gmail" and len(path_parts) >= 2:
+            sub = path_parts[1]
+            if sub == "summary":
+                gs.gmail_labels = {}
+                for name, data in payload.get("labels", {}).items():
+                    gs.gmail_labels[name] = GmailLabel(
+                        name=name,
+                        unread=data.get("unread", 0),
+                        total=data.get("total", 0) or 0,
+                    )
+                gs.last_gmail_update = time.time()
+                gs.bridge_connected = True
+            elif sub == "recent":
+                gs.gmail_recent = payload.get("threads", [])
+
+        elif category == "sheets" and len(path_parts) >= 2:
+            sheet_name = path_parts[1]
+            gs.sheets[sheet_name] = SheetData(
+                name=sheet_name,
+                values=payload.get("values", []),
+                headers=payload.get("headers", []),
+                last_update=time.time(),
+            )
+            gs.bridge_connected = True
+
+        elif category == "drive" and len(path_parts) >= 2:
+            sub = path_parts[1]
+            if sub == "recent":
+                gs.drive_recent = [
+                    DriveFile(
+                        name=f.get("name", ""),
+                        mime_type=f.get("mimeType", ""),
+                        modified_time=f.get("modifiedTime", ""),
+                        url=f.get("url", ""),
+                    )
+                    for f in payload.get("files", [])
+                ]
+                gs.bridge_connected = True
+
+        elif category == "bridge" and len(path_parts) >= 2:
+            if path_parts[1] == "status":
+                gs.bridge_connected = payload.get("connected", False)
+
+    @staticmethod
+    def _parse_iso_ts(iso_str: str) -> float:
+        """Parse ISO 8601 string to UNIX timestamp. Returns 0 on failure."""
+        if not iso_str:
+            return 0
+        try:
+            from datetime import datetime, timezone
+            # Handle Z suffix and various formats
+            s = iso_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(s)
+            return dt.timestamp()
+        except (ValueError, TypeError):
+            return 0
+
     def _update_personal(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/* topics."""
         if not path_parts:
@@ -464,6 +593,11 @@ class WorldModel:
                 parts.append(co2_str)
             if zone.occupancy and zone.occupancy.count > 0:
                 parts.append(f"  在室: {zone.occupancy.count}人")
+                if zone.occupancy.activity_class != "unknown":
+                    parts.append(f"  活動: {zone.occupancy.activity_class} (レベル{zone.occupancy.activity_level:.1f})")
+                if zone.occupancy.posture_status != "unknown":
+                    duration_min = int(zone.occupancy.posture_duration_sec / 60)
+                    parts.append(f"  姿勢: {zone.occupancy.posture_status} ({duration_min}分)")
 
             lines.append("\n".join(parts))
 
@@ -497,6 +631,41 @@ class WorldModel:
                 else:
                     svc_parts.append(f"  {name}: {svc.summary}")
             lines.append("\n".join(svc_parts))
+
+        # GAS state (lightweight summary)
+        gs = self.gas_state
+        if gs.bridge_connected:
+            gas_parts = ["### Google連携"]
+            # Next 3 upcoming events
+            now_ts = time.time()
+            upcoming = [e for e in gs.calendar_events if e.start_ts > now_ts][:3]
+            if upcoming:
+                gas_parts.append("  予定:")
+                for ev in upcoming:
+                    time_str = ev.start.split("T")[1][:5] if "T" in ev.start else ev.start
+                    gas_parts.append(f"    - {time_str} {ev.title}")
+            else:
+                gas_parts.append("  予定: なし")
+
+            # Tasks summary
+            overdue = [t for t in gs.tasks if t.is_overdue]
+            pending = [t for t in gs.tasks if t.status != "completed"]
+            if overdue:
+                gas_parts.append(f"  タスク: {len(pending)}件（期限切れ{len(overdue)}件）")
+            elif pending:
+                gas_parts.append(f"  タスク: {len(pending)}件")
+
+            # Gmail unread
+            inbox = gs.gmail_labels.get("INBOX")
+            if inbox and inbox.unread > 0:
+                gas_parts.append(f"  Gmail未読: {inbox.unread}通")
+
+            # Free slots
+            long_slots = [s for s in gs.free_slots if s.duration_minutes >= 120]
+            if long_slots:
+                gas_parts.append(f"  空き時間(2h+): {len(long_slots)}スロット")
+
+            lines.append("\n".join(gas_parts))
 
         # Knowledge base (lightweight metadata only)
         ks = self.knowledge_state

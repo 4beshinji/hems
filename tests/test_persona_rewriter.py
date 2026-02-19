@@ -6,7 +6,7 @@ import pytest
 
 from character_loader import CharacterConfig, load_character
 from llm_client import LLMResponse
-from persona_rewriter import PersonaRewriter, _build_persona_prompt
+from persona_rewriter import PersonaRewriter, PERSONA_REWRITE_CACHE_TTL, _build_persona_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -165,3 +165,63 @@ class TestUpdateCharacter:
         new_prompt = rewriter._persona_prompt
         assert "HEMS" in new_prompt
         assert new_prompt != old_prompt
+
+
+# ---------------------------------------------------------------------------
+# TestRewriteCache
+# ---------------------------------------------------------------------------
+
+class TestRewriteCache:
+    @pytest.mark.asyncio
+    async def test_cache_hit_avoids_llm_call(self, rewriter, mock_llm):
+        """First call hits LLM, second call with same (message, tone) returns cached."""
+        mock_llm.chat.return_value = LLMResponse(content="リライト済み")
+
+        result1 = await rewriter.rewrite("テストメッセージ", tone="neutral")
+        assert result1 == "リライト済み"
+        assert mock_llm.chat.call_count == 1
+
+        result2 = await rewriter.rewrite("テストメッセージ", tone="neutral")
+        assert result2 == "リライト済み"
+        assert mock_llm.chat.call_count == 1  # No additional LLM call
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_on_different_tone(self, rewriter, mock_llm):
+        """Same message but different tone is a cache miss."""
+        mock_llm.chat.return_value = LLMResponse(content="ニュートラル版")
+        await rewriter.rewrite("テストメッセージ", tone="neutral")
+        assert mock_llm.chat.call_count == 1
+
+        mock_llm.chat.return_value = LLMResponse(content="アラート版")
+        result = await rewriter.rewrite("テストメッセージ", tone="alert")
+        assert result == "アラート版"
+        assert mock_llm.chat.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_cache_cleared_on_update_character(
+        self, rewriter, default_character, mock_llm
+    ):
+        """After update_character(), cache is empty and LLM is called again."""
+        mock_llm.chat.return_value = LLMResponse(content="エネ風")
+        await rewriter.rewrite("テストメッセージ", tone="neutral")
+        assert mock_llm.chat.call_count == 1
+
+        rewriter.update_character(default_character)
+        assert len(rewriter._cache) == 0
+
+        mock_llm.chat.return_value = LLMResponse(content="デフォルト風")
+        result = await rewriter.rewrite("テストメッセージ", tone="neutral")
+        assert result == "デフォルト風"
+        assert mock_llm.chat.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_cache_expired_calls_llm_again(self, rewriter, mock_llm):
+        """With TTL=0, every call goes to LLM (cache always expired)."""
+        mock_llm.chat.return_value = LLMResponse(content="毎回LLM")
+
+        with patch("persona_rewriter.PERSONA_REWRITE_CACHE_TTL", 0):
+            await rewriter.rewrite("テストメッセージ", tone="neutral")
+            assert mock_llm.chat.call_count == 1
+
+            await rewriter.rewrite("テストメッセージ", tone="neutral")
+            assert mock_llm.chat.call_count == 2
