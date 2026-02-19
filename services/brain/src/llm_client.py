@@ -24,12 +24,20 @@ class LLMClient:
         self.session = session
         self.provider = LLM_PROVIDER
 
-    async def chat(self, messages: list, tools: list = None) -> LLMResponse:
+    async def chat(self, messages: list, tools: list = None, *,
+                   temperature: float | None = None,
+                   max_tokens: int | None = None) -> LLMResponse:
         if self.provider == "anthropic":
-            return await self._chat_anthropic(messages, tools)
-        return await self._chat_openai(messages, tools)
+            return await self._chat_anthropic(messages, tools,
+                                              temperature=temperature,
+                                              max_tokens=max_tokens)
+        return await self._chat_openai(messages, tools,
+                                       temperature=temperature,
+                                       max_tokens=max_tokens)
 
-    async def _chat_openai(self, messages: list, tools: list = None) -> LLMResponse:
+    async def _chat_openai(self, messages: list, tools: list = None, *,
+                           temperature: float | None = None,
+                           max_tokens: int | None = None) -> LLMResponse:
         """OpenAI-compatible API (works with Ollama, mock-llm, OpenAI)."""
         url = f"{self.api_url}/chat/completions"
         payload = {
@@ -38,6 +46,10 @@ class LLMClient:
         }
         if tools:
             payload["tools"] = tools
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
 
         try:
             async with self.session.post(url, json=payload, timeout=120) as resp:
@@ -71,7 +83,9 @@ class LLMClient:
             logger.error(f"OpenAI API error: {e}")
             return LLMResponse(error=str(e))
 
-    async def _chat_anthropic(self, messages: list, tools: list = None) -> LLMResponse:
+    async def _chat_anthropic(self, messages: list, tools: list = None, *,
+                              temperature: float | None = None,
+                              max_tokens: int | None = None) -> LLMResponse:
         """Anthropic Messages API."""
         api_key = os.getenv("ANTHROPIC_API_KEY", "")
         url = "https://api.anthropic.com/v1/messages"
@@ -103,13 +117,15 @@ class LLMClient:
 
         payload = {
             "model": self.model,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens or 4096,
             "messages": anthropic_messages,
         }
         if system_text:
             payload["system"] = system_text
         if anthropic_tools:
             payload["tools"] = anthropic_tools
+        if temperature is not None:
+            payload["temperature"] = temperature
 
         headers = {
             "x-api-key": api_key,

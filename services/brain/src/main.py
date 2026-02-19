@@ -24,6 +24,7 @@ from system_prompt import build_system_message
 from device_registry import DeviceRegistry
 from character_loader import load_character, reload_character
 from rule_engine import RuleEngine
+from persona_rewriter import PersonaRewriter
 from event_store import init_db, EventWriter, HourlyAggregator
 
 load_dotenv()
@@ -35,6 +36,8 @@ OPENCLAW_BRIDGE_URL = os.getenv("OPENCLAW_BRIDGE_URL", "")
 OPENCLAW_ENABLED = bool(OPENCLAW_BRIDGE_URL)
 OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
 OBSIDIAN_ENABLED = bool(OBSIDIAN_BRIDGE_URL)
+GAS_BRIDGE_URL = os.getenv("GAS_BRIDGE_URL", "")
+GAS_ENABLED = bool(GAS_BRIDGE_URL)
 
 REACT_MAX_ITERATIONS = 5
 CYCLE_INTERVAL = 30
@@ -84,6 +87,7 @@ class Brain:
         self.rule_engine = RuleEngine()
 
         self.llm = None
+        self.persona_rewriter = None
         self.dashboard = None
         self.task_queue = None
         self.task_reminder = None
@@ -113,6 +117,8 @@ class Brain:
         if msg.topic == "hems/brain/reload-character":
             logger.info("Character reload command received")
             self.character = reload_character()
+            if self.persona_rewriter:
+                self.persona_rewriter.update_character(self.character)
             return
 
         if self._loop:
@@ -143,6 +149,8 @@ class Brain:
             current["__services__"] = len(self.world_model.services_state.events)
         if OBSIDIAN_ENABLED:
             current["__knowledge__"] = len(self.world_model.knowledge_state.events)
+        if GAS_ENABLED:
+            current["__gas__"] = len(self.world_model.gas_state.events)
         if current != self._last_event_count:
             self._last_event_count = current
             self._cycle_triggered.set()
@@ -158,6 +166,11 @@ class Brain:
         if self.rule_engine.should_use_rules():
             logger.info("GPU load high — rule-based mode")
             for action in self.rule_engine.evaluate(self.world_model):
+                if action["tool"] == "speak" and self.persona_rewriter:
+                    action["args"]["message"] = await self.persona_rewriter.rewrite(
+                        action["args"].get("message", ""),
+                        tone=action["args"].get("tone", "neutral"),
+                    )
                 result = await self.tool_executor.execute(action["tool"], action["args"])
                 total_tool_calls += 1
                 self._action_history.append({
@@ -170,6 +183,8 @@ class Brain:
                 await self.dashboard.push_pc_snapshot(self.world_model)
             if OPENCLAW_ENABLED and self.world_model.services_state.services:
                 await self.dashboard.push_services_snapshot(self.world_model)
+            if GAS_ENABLED:
+                await self.dashboard.push_gas_snapshot(self.world_model)
             return
 
         llm_context = self.world_model.get_llm_context()
@@ -369,6 +384,8 @@ class Brain:
             if total_tool_calls > 0:
                 cycle_actions = [a for a in self._action_history if a["time"] >= cycle_start]
                 asyncio.create_task(self._write_decision_log(cycle_actions))
+        if GAS_ENABLED:
+            await self.dashboard.push_gas_snapshot(self.world_model)
 
         logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
 
@@ -460,6 +477,7 @@ class Brain:
 
         async with aiohttp.ClientSession() as session:
             self.llm = LLMClient(api_url=LLM_API_URL, session=session)
+            self.persona_rewriter = PersonaRewriter(self.character, self.llm)
             self.dashboard = DashboardClient(session=session)
             self.task_reminder = TaskReminder(session=session)
             self.task_queue = TaskQueueManager(self.world_model, self.dashboard)
@@ -478,6 +496,10 @@ class Brain:
                 logger.info(f"Obsidian integration enabled (bridge={OBSIDIAN_BRIDGE_URL})")
             else:
                 logger.info("Obsidian integration disabled (OBSIDIAN_BRIDGE_URL not set)")
+            if GAS_ENABLED:
+                logger.info(f"GAS integration enabled (bridge={GAS_BRIDGE_URL})")
+            else:
+                logger.info("GAS integration disabled (GAS_BRIDGE_URL not set)")
             logger.info("HEMS Brain running (ReAct mode)...")
 
             last_cycle = 0.0
