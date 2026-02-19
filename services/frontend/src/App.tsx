@@ -6,6 +6,8 @@ import StatusPanel from './components/StatusPanel'
 import PCStatusPanel from './components/PCStatusPanel'
 import ServiceStatusPanel from './components/ServiceStatusPanel'
 import KnowledgeStatusPanel from './components/KnowledgeStatusPanel'
+import GASPanel from './components/GASPanel'
+import BiometricPanel from './components/BiometricPanel'
 import { useAudioQueue, AudioPriority } from './audio'
 import {
   fetchTasks,
@@ -15,9 +17,11 @@ import {
   fetchServices,
   fetchVoiceEvents,
   fetchKnowledge,
+  fetchGAS,
+  fetchBiometric,
 } from './api'
 
-export type { EnvironmentData, ZoneData, ServiceStatusItem, ServicesData, PCMetrics, KnowledgeData } from './api'
+export type { EnvironmentData, ZoneData, ServiceStatusItem, ServicesData, PCMetrics, KnowledgeData, GASData, BiometricData } from './api'
 
 export default function App() {
   const queryClient = useQueryClient()
@@ -62,6 +66,18 @@ export default function App() {
     refetchInterval: 10000,
   })
 
+  const gasQuery = useQuery({
+    queryKey: ['gas'],
+    queryFn: fetchGAS,
+    refetchInterval: 10000,
+  })
+
+  const biometricQuery = useQuery({
+    queryKey: ['biometric'],
+    queryFn: fetchBiometric,
+    refetchInterval: 5000,
+  })
+
   const voiceEventsQuery = useQuery({
     queryKey: ['voiceEvents'],
     queryFn: fetchVoiceEvents,
@@ -75,6 +91,8 @@ export default function App() {
   const pcMetrics = pcQuery.data ?? null
   const servicesData = servicesQuery.data ?? null
   const knowledgeData = knowledgeQuery.data ?? null
+  const gasData = gasQuery.data ?? null
+  const biometricData = biometricQuery.data ?? null
 
   // Play new voice events
   useEffect(() => {
@@ -134,6 +152,10 @@ export default function App() {
       <ServiceStatusPanel services={servicesData} />
 
       <KnowledgeStatusPanel knowledge={knowledgeData} />
+
+      <GASPanel gas={gasData} />
+
+      <BiometricPanel biometric={biometricData} />
 
       <section className="mt-8">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">

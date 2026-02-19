@@ -126,9 +126,7 @@ class TestWorldModelServiceLLMContext:
     """Test services section in LLM context."""
 
     def test_no_services_section_when_empty(self, world_model):
-        world_model.update_from_mqtt("office/living_room/sensor/temp1/temperature", {
-            "temperature": 22.0,
-        })
+        # No service data → "サービス" section absent from context
         ctx = world_model.get_llm_context()
         assert "サービス" not in ctx
 

@@ -7,7 +7,8 @@ Obsidian: search_notes, write_note, get_recent_notes
 
 
 def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
-              obsidian_enabled: bool = False, ha_enabled: bool = False) -> list:
+              obsidian_enabled: bool = False, ha_enabled: bool = False,
+              biometric_enabled: bool = False) -> list:
     tools = [
         {
             "type": "function",
@@ -127,14 +128,19 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
     if ha_enabled:
         tools.extend(_get_ha_tools())
 
+    if biometric_enabled:
+        tools.extend(_get_biometric_tools())
+
     return tools
 
 
 def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = False,
-                   obsidian_enabled: bool = False, ha_enabled: bool = False) -> list:
+                   obsidian_enabled: bool = False, ha_enabled: bool = False,
+                   biometric_enabled: bool = False) -> list:
     """Return list of all enabled tool names."""
     return [t["function"]["name"] for t in get_tools(openclaw_enabled, services_enabled,
-                                                      obsidian_enabled, ha_enabled)]
+                                                      obsidian_enabled, ha_enabled,
+                                                      biometric_enabled)]
 
 
 def _get_service_tools() -> list:
@@ -370,6 +376,34 @@ def _get_ha_tools() -> list:
             "function": {
                 "name": "get_home_devices",
                 "description": "スマートホームデバイスの状態一覧を取得する。照明、エアコン、カーテン等の現在の状態を確認する。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+    ]
+
+
+def _get_biometric_tools() -> list:
+    """Biometric tools — only included when biometric-bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_biometrics",
+                "description": "心拍・SpO2・ストレス・疲労度・歩数などの生体データを取得する。ユーザーの体調確認に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_sleep_summary",
+                "description": "直近の睡眠データ（時間・深い睡眠・REM・品質スコア）を取得する。",
                 "parameters": {
                     "type": "object",
                     "properties": {},

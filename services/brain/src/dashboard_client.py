@@ -243,6 +243,120 @@ class DashboardClient:
         except Exception as e:
             logger.debug(f"Knowledge snapshot push error: {e}")
 
+    async def push_gas_snapshot(self, world_model) -> None:
+        """Push current GAS state to backend for frontend consumption."""
+        gs = world_model.gas_state
+        if not gs.bridge_connected:
+            return
+
+        # Upcoming events (next 5)
+        calendar_events = [
+            {
+                "id": ev.id,
+                "title": ev.title,
+                "start": ev.start,
+                "end": ev.end,
+                "location": ev.location,
+                "is_all_day": ev.is_all_day,
+                "calendar_name": ev.calendar_name,
+            }
+            for ev in gs.calendar_events[:10]
+        ]
+
+        # Tasks due today / overdue
+        tasks_due = [
+            {
+                "title": t.title,
+                "due": t.due,
+                "status": t.status,
+                "list_name": t.list_name,
+                "is_overdue": t.is_overdue,
+            }
+            for t in gs.tasks if t.status != "completed"
+        ]
+
+        inbox = gs.gmail_labels.get("INBOX")
+
+        payload = {
+            "bridge_connected": True,
+            "calendar_events": calendar_events,
+            "calendar_event_count": len(gs.calendar_events),
+            "tasks_due": tasks_due[:10],
+            "overdue_count": sum(1 for t in gs.tasks if t.is_overdue),
+            "gmail_inbox_unread": inbox.unread if inbox else 0,
+            "free_slots": [
+                {"start": s.start, "end": s.end, "duration_minutes": s.duration_minutes}
+                for s in gs.free_slots[:5]
+            ],
+            "last_calendar_update": gs.last_calendar_update,
+            "last_tasks_update": gs.last_tasks_update,
+            "last_gmail_update": gs.last_gmail_update,
+        }
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/gas/snapshot",
+                json=payload, timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"GAS snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"GAS snapshot push error: {e}")
+
+    async def push_biometric_snapshot(self, world_model) -> None:
+        """Push current biometric state to backend for frontend consumption."""
+        bio = world_model.biometric_state
+        if not bio.bridge_connected and bio.last_update == 0:
+            return
+
+        payload = {
+            "bridge_connected": bio.bridge_connected,
+            "provider": bio.provider,
+        }
+        if bio.heart_rate.bpm is not None:
+            payload["heart_rate"] = {
+                "bpm": bio.heart_rate.bpm,
+                "zone": bio.heart_rate.zone,
+                "resting_bpm": bio.heart_rate.resting_bpm,
+            }
+        if bio.spo2.percent is not None:
+            payload["spo2"] = {"percent": bio.spo2.percent}
+        if bio.sleep.last_update > 0:
+            payload["sleep"] = {
+                "stage": bio.sleep.stage,
+                "duration_minutes": bio.sleep.duration_minutes,
+                "deep_minutes": bio.sleep.deep_minutes,
+                "rem_minutes": bio.sleep.rem_minutes,
+                "light_minutes": bio.sleep.light_minutes,
+                "quality_score": bio.sleep.quality_score,
+            }
+        if bio.activity.last_update > 0:
+            payload["activity"] = {
+                "steps": bio.activity.steps,
+                "steps_goal": bio.activity.steps_goal,
+                "calories": bio.activity.calories,
+                "active_minutes": bio.activity.active_minutes,
+                "level": bio.activity.level,
+            }
+        if bio.stress.last_update > 0:
+            payload["stress"] = {
+                "level": bio.stress.level,
+                "category": bio.stress.category,
+            }
+        if bio.fatigue.last_update > 0:
+            payload["fatigue"] = {
+                "score": bio.fatigue.score,
+                "factors": bio.fatigue.factors,
+            }
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/biometric/snapshot",
+                json=payload, timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Biometric snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Biometric snapshot push error: {e}")
+
     async def push_zone_snapshot(self, world_model) -> None:
         """Push current zone sensor data to backend for frontend consumption."""
         zones = []

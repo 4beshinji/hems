@@ -53,6 +53,7 @@ services:
       - OBSIDIAN_BRIDGE_URL=${OBSIDIAN_BRIDGE_URL:-}
       - GAS_BRIDGE_URL=${GAS_BRIDGE_URL:-}
       - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
+      - BIOMETRIC_BRIDGE_URL=${BIOMETRIC_BRIDGE_URL:-}
     volumes:
       - ../services/brain/src:/app
       - ../config:/config:ro
@@ -311,6 +312,35 @@ services:
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
       - ../services/ha-bridge/src:/app
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # --- Biometric Bridge (Smartband / Gadgetbridge integration) ---
+  biometric-bridge:
+    build: ../services/biometric-bridge
+    container_name: hems-biometric-bridge
+    restart: always
+    profiles: ["biometric"]
+    ports:
+      - "${HEMS_PORT_BIOMETRIC_BRIDGE:-8017}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-hems}
+      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - BIOMETRIC_PROVIDER=${BIOMETRIC_PROVIDER:-gadgetbridge}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/biometric-bridge/src:/app
     networks:
       - hems-net
     healthcheck:

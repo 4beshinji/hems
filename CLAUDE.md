@@ -36,6 +36,9 @@ docker compose --profile gas up -d --build
 # With Home Assistant (smart home control)
 docker compose --profile ha up -d --build
 
+# With biometric tracking (Gadgetbridge smartband)
+docker compose --profile biometric up -d --build
+
 # Rebuild a single service
 docker compose up -d --build <service-name>
 
@@ -45,7 +48,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`, `obsidian`, `gas`, `ha`
+Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`, `obsidian`, `gas`, `ha`, `biometric`
 
 ### Frontend Development
 
@@ -72,6 +75,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Obsidian Bridge | 8014 | `HEMS_PORT_OBSIDIAN_BRIDGE` | hems-obsidian-bridge |
 | GAS Bridge | 8015 | `HEMS_PORT_GAS_BRIDGE` | hems-gas-bridge |
 | HA Bridge | 8016 | `HEMS_PORT_HA_BRIDGE` | hems-ha-bridge |
+| Biometric Bridge | 8017 | `HEMS_PORT_BIOMETRIC_BRIDGE` | hems-biometric-bridge |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -111,9 +115,18 @@ hems/gas/bridge/status
 hems/home/{zone}/{domain}/{entity_id}/state
 hems/home/bridge/status
 
-# Personal data (Phase 2: data-bridge)
-hems/personal/calendar/{id}/events
+# Biometric data (biometric-bridge)
 hems/personal/biometrics/{provider}/heart_rate
+hems/personal/biometrics/{provider}/spo2
+hems/personal/biometrics/{provider}/sleep
+hems/personal/biometrics/{provider}/activity
+hems/personal/biometrics/{provider}/steps
+hems/personal/biometrics/{provider}/stress
+hems/personal/biometrics/{provider}/fatigue
+hems/personal/biometrics/bridge/status
+
+# Personal data (future: data-bridge)
+hems/personal/calendar/{id}/events
 hems/personal/training/fitness
 hems/system/gpu/utilization
 
@@ -129,12 +142,14 @@ hems/brain/reload-character
 - Event store data mart (SOMS-compatible schema)
 - Alert suppression: prevents duplicate tasks while environment slowly responds
   (e.g., AC cooling after task created — 30min for temp, 10min for CO2)
+- Tri-domain world model: Physical Space (zones, smart home), Digital Space (PC, services, GAS, knowledge), User State (biometrics)
 - 4 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`
 - OpenClaw tools (profile `openclaw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
 - Service monitor tool (when data available): `get_service_status`
 - Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
 - HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`
-- Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction
+- Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
+- Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
 
 ### OpenClaw Bridge (profile: `openclaw`)
 
@@ -258,6 +273,28 @@ Configure in `.env`:
 HA_URL=http://host.docker.internal:8123
 HA_TOKEN=your-long-lived-access-token
 HA_BRIDGE_URL=http://ha-bridge:8000
+```
+
+### Biometric Integration (Smartband)
+
+Tracks heart rate, sleep, activity, stress, and fatigue via smartband (Xiaomi Mi Band / Amazfit via Gadgetbridge).
+
+- **biometric-bridge**: Docker service receiving webhook data from Gadgetbridge app
+  - POST webhook endpoint normalizes device data → MQTT publish
+  - Fatigue score computation (weighted: HR 30%, sleep 40%, stress 30%)
+  - Sleep session caching for daily summaries
+  - Publishes to `hems/personal/biometrics/*` MQTT topics
+- **Deploy**: Install Gadgetbridge on phone, configure webhook to `http://<host>:8017/api/biometric/webhook`
+- **Profile**: `docker compose --profile biometric up -d --build`
+- **Brain tools**: `get_biometrics` (current readings), `get_sleep_summary` (last night's sleep)
+- **Brain rules**: 7 rules (high HR/stress/fatigue alerts, sleep quality notification, step goal, sleep detection lights off, fatigue-linked dimming)
+- **Thresholds**: HR > 120, HR < 45, SpO2 < 92, Stress > 80 (configurable via env vars)
+- **World model**: Tri-domain architecture — biometrics in User State domain, threshold crossing events
+
+Configure in `.env`:
+```bash
+BIOMETRIC_BRIDGE_URL=http://biometric-bridge:8000
+BIOMETRIC_PROVIDER=gadgetbridge
 ```
 
 ## Tech Stack

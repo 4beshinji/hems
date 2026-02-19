@@ -1,6 +1,6 @@
 """
 Data classes for HEMS WorldModel — zone state, environment, events, PC state,
-Home Assistant smart home devices.
+Home Assistant smart home devices, biometrics, and tri-domain facades.
 """
 from dataclasses import dataclass, field
 from typing import Optional
@@ -363,3 +363,136 @@ class HomeDevicesState:
         self.events.append(event)
         if len(self.events) > self.max_events:
             self.events = self.events[-self.max_events:]
+
+
+# --- Biometric State (Smartband / Gadgetbridge integration) ---
+
+@dataclass
+class HeartRateData:
+    bpm: Optional[int] = None
+    resting_bpm: Optional[int] = None
+    zone: str = "unknown"  # rest | fat_burn | cardio | peak
+    last_update: float = 0
+
+    @staticmethod
+    def classify_zone(bpm: int) -> str:
+        if bpm < 60:
+            return "rest"
+        elif bpm < 120:
+            return "fat_burn"
+        elif bpm < 150:
+            return "cardio"
+        return "peak"
+
+
+@dataclass
+class SleepData:
+    stage: str = "unknown"  # awake | light | deep | rem
+    duration_minutes: int = 0
+    deep_minutes: int = 0
+    rem_minutes: int = 0
+    light_minutes: int = 0
+    quality_score: int = 0  # 0-100
+    sleep_start_ts: float = 0
+    sleep_end_ts: float = 0
+    last_update: float = 0
+
+
+@dataclass
+class ActivityData:
+    steps: int = 0
+    steps_goal: int = 10000
+    calories: int = 0
+    active_minutes: int = 0
+    level: str = "rest"  # rest | light | moderate | vigorous
+    last_update: float = 0
+
+    @property
+    def goal_progress(self) -> float:
+        if self.steps_goal <= 0:
+            return 0.0
+        return min(self.steps / self.steps_goal, 1.0)
+
+
+@dataclass
+class StressData:
+    level: int = 0  # 0-100
+    category: str = "unknown"  # relaxed | normal | moderate | high
+    last_update: float = 0
+
+    @staticmethod
+    def classify_category(level: int) -> str:
+        if level < 25:
+            return "relaxed"
+        elif level < 50:
+            return "normal"
+        elif level < 75:
+            return "moderate"
+        return "high"
+
+
+@dataclass
+class FatigueData:
+    score: int = 0  # 0-100 (higher = more fatigued)
+    factors: list[str] = field(default_factory=list)
+    last_update: float = 0
+
+
+@dataclass
+class SpO2Data:
+    percent: Optional[int] = None
+    last_update: float = 0
+
+
+@dataclass
+class BiometricState:
+    heart_rate: HeartRateData = field(default_factory=HeartRateData)
+    sleep: SleepData = field(default_factory=SleepData)
+    activity: ActivityData = field(default_factory=ActivityData)
+    stress: StressData = field(default_factory=StressData)
+    fatigue: FatigueData = field(default_factory=FatigueData)
+    spo2: SpO2Data = field(default_factory=SpO2Data)
+    provider: str = ""
+    bridge_connected: bool = False
+    events: list[Event] = field(default_factory=list)
+    max_events: int = 30
+
+    def add_event(self, event: Event):
+        self.events.append(event)
+        if len(self.events) > self.max_events:
+            self.events = self.events[-self.max_events:]
+
+    @property
+    def last_update(self) -> float:
+        return max(
+            self.heart_rate.last_update,
+            self.sleep.last_update,
+            self.activity.last_update,
+            self.stress.last_update,
+            self.fatigue.last_update,
+            self.spo2.last_update,
+        )
+
+
+# --- Tri-Domain Facades ---
+
+@dataclass
+class PhysicalSpace:
+    """Physical environment domain — zones and smart home devices."""
+    zones: dict[str, ZoneState] = field(default_factory=dict)
+    home_devices: HomeDevicesState = field(default_factory=HomeDevicesState)
+
+
+@dataclass
+class DigitalSpace:
+    """Digital environment domain — PC, services, GAS, knowledge."""
+    pc_state: PCState = field(default_factory=PCState)
+    services_state: ServicesState = field(default_factory=ServicesState)
+    gas_state: GASState = field(default_factory=GASState)
+    knowledge_state: KnowledgeState = field(default_factory=KnowledgeState)
+
+
+@dataclass
+class UserState:
+    """User state domain — biometrics and personal data."""
+    biometrics: BiometricState = field(default_factory=BiometricState)

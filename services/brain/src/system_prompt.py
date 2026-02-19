@@ -7,7 +7,8 @@ from dataclasses import fields as dc_fields
 def build_system_message(character=None, openclaw_enabled: bool = False,
                          services_enabled: bool = False,
                          obsidian_enabled: bool = False,
-                         ha_enabled: bool = False) -> dict:
+                         ha_enabled: bool = False,
+                         biometric_enabled: bool = False) -> dict:
     """Build system message with safety rules + character personality.
 
     Args:
@@ -144,6 +145,22 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 - 起床予測60分前にカーテンを開ける
 - エアコンの設定温度は16-30度の範囲内に制限する
 - 在室中のデバイス制御は状況に応じて判断する（いきなり消灯しない等）"""
+
+    if biometric_enabled:
+        base += """
+
+## バイオメトリクス（生体データ連携）
+- get_biometrics: 心拍・SpO2・ストレス・疲労度・歩数を取得
+- get_sleep_summary: 直近の睡眠データ（時間・深い睡眠・REM・品質）を取得
+
+## バイオメトリクス対応ルール
+- 心拍120bpm以上 → speakで休憩を促す（tone: caring）
+- SpO2が92%未満 → 緊急通知（tone: alert）、深呼吸を促す
+- ストレス80以上 → speakでリラックスを促す（tone: caring）
+- 疲労度70以上 → speakで休息を促す。21-23時なら早めの就寝を推奨
+- 睡眠品質50未満の朝 → speakで体調を気遣う（tone: caring）
+- 歩数が目標達成 → speakでお祝い（tone: humorous）
+- バイオメトリクスデータがない場合は無視する（エラーにしない）"""
 
     # Character injection
     if character:

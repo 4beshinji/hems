@@ -41,6 +41,8 @@ GAS_BRIDGE_URL = os.getenv("GAS_BRIDGE_URL", "")
 GAS_ENABLED = bool(GAS_BRIDGE_URL)
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 HA_ENABLED = bool(HA_BRIDGE_URL)
+BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
+BIOMETRIC_ENABLED = bool(BIOMETRIC_BRIDGE_URL)
 
 REACT_MAX_ITERATIONS = 5
 CYCLE_INTERVAL = 30
@@ -81,6 +83,10 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return f"entity={args.get('entity_id', '')}, action={args.get('action', '')}"
     elif tool_name == "get_home_devices":
         return "home_devices"
+    elif tool_name == "get_biometrics":
+        return "biometrics"
+    elif tool_name == "get_sleep_summary":
+        return "sleep_summary"
     return str(args)[:50]
 
 
@@ -95,7 +101,7 @@ class Brain:
         self.device_registry = DeviceRegistry()
         self.event_writer: EventWriter | None = None
         self.character = load_character()
-        self.schedule_learner = ScheduleLearner() if HA_ENABLED else None
+        self.schedule_learner = ScheduleLearner() if (HA_ENABLED or BIOMETRIC_ENABLED) else None
         self.rule_engine = RuleEngine(schedule_learner=self.schedule_learner)
 
         self.llm = None
@@ -146,6 +152,13 @@ class Brain:
                 count = payload.get("person_count", payload.get("count", 0))
                 self.schedule_learner.update_occupancy(int(count))
 
+        # Feed biometric sleep data to schedule learner
+        if self.schedule_learner and "biometrics" in topic and "/sleep" in topic:
+            sleep_end = payload.get("sleep_end_ts", 0)
+            sleep_start = payload.get("sleep_start_ts", 0)
+            if sleep_end > 0:
+                self.schedule_learner.record_sleep_from_biometrics(sleep_start, sleep_end)
+
         if self.event_writer:
             parts = topic.split("/")
             if len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
@@ -172,6 +185,8 @@ class Brain:
             current["__gas__"] = len(self.world_model.gas_state.events)
         if HA_ENABLED:
             current["__home__"] = len(self.world_model.home_devices.events)
+        if BIOMETRIC_ENABLED:
+            current["__biometric__"] = len(self.world_model.biometric_state.events)
         if current != self._last_event_count:
             self._last_event_count = current
             self._cycle_triggered.set()
@@ -206,6 +221,8 @@ class Brain:
                 await self.dashboard.push_services_snapshot(self.world_model)
             if GAS_ENABLED:
                 await self.dashboard.push_gas_snapshot(self.world_model)
+            if BIOMETRIC_ENABLED:
+                await self.dashboard.push_biometric_snapshot(self.world_model)
             return
 
         llm_context = self.world_model.get_llm_context()
@@ -257,6 +274,10 @@ class Brain:
             for event in self.world_model.services_state.events:
                 if now - event.timestamp < 300:
                     recent_events.append(f"[サービス] {event.description}")
+        if BIOMETRIC_ENABLED:
+            for event in self.world_model.biometric_state.events:
+                if now - event.timestamp < 300:
+                    recent_events.append(f"[バイオメトリクス] {event.description}")
 
         active_tasks = await self.dashboard.get_active_tasks()
 
@@ -266,6 +287,7 @@ class Brain:
             services_enabled=services_enabled,
             obsidian_enabled=OBSIDIAN_ENABLED,
             ha_enabled=HA_ENABLED,
+            biometric_enabled=BIOMETRIC_ENABLED,
         )
         user_content = f"## 現在の自宅状態\n{llm_context}"
         if recent_events:
@@ -298,7 +320,8 @@ class Brain:
 
         messages = [system_msg, {"role": "user", "content": user_content}]
         tools = get_tools(openclaw_enabled=OPENCLAW_ENABLED, services_enabled=services_enabled,
-                          obsidian_enabled=OBSIDIAN_ENABLED, ha_enabled=HA_ENABLED)
+                          obsidian_enabled=OBSIDIAN_ENABLED, ha_enabled=HA_ENABLED,
+                          biometric_enabled=BIOMETRIC_ENABLED)
 
         tool_call_history = []
         speak_count = 0
@@ -427,6 +450,8 @@ class Brain:
                 asyncio.create_task(self._write_decision_log(cycle_actions))
         if GAS_ENABLED:
             await self.dashboard.push_gas_snapshot(self.world_model)
+        if BIOMETRIC_ENABLED:
+            await self.dashboard.push_biometric_snapshot(self.world_model)
 
         logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
 
@@ -545,6 +570,10 @@ class Brain:
                 logger.info(f"Home Assistant integration enabled (bridge={HA_BRIDGE_URL})")
             else:
                 logger.info("Home Assistant integration disabled (HA_BRIDGE_URL not set)")
+            if BIOMETRIC_ENABLED:
+                logger.info(f"Biometric integration enabled (bridge={BIOMETRIC_BRIDGE_URL})")
+            else:
+                logger.info("Biometric integration disabled (BIOMETRIC_BRIDGE_URL not set)")
             logger.info("HEMS Brain running (ReAct mode)...")
 
             last_cycle = 0.0

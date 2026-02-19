@@ -117,6 +117,50 @@ export interface KnowledgeData {
   recent_changes?: { path: string; title: string; action: string }[]
 }
 
+export interface GASCalendarEvent {
+  id: string
+  title: string
+  start: string
+  end: string
+  location?: string
+  is_all_day?: boolean
+  calendar_name?: string
+}
+
+export interface GASTaskItem {
+  title: string
+  due: string
+  status: string
+  list_name: string
+  is_overdue: boolean
+}
+
+export interface GASFreeSlot {
+  start: string
+  end: string
+  duration_minutes: number
+}
+
+export interface GASData {
+  status?: string
+  bridge_connected?: boolean
+  calendar_events?: GASCalendarEvent[]
+  calendar_event_count?: number
+  tasks_due?: GASTaskItem[]
+  overdue_count?: number
+  gmail_inbox_unread?: number
+  free_slots?: GASFreeSlot[]
+  last_calendar_update?: number
+  last_tasks_update?: number
+  last_gmail_update?: number
+}
+
+export const fetchGAS = async (): Promise<GASData> => {
+  const res = await fetch(`${API_BASE}/gas/`)
+  if (!res.ok) throw new Error('Failed to fetch GAS data')
+  return res.json()
+}
+
 export const fetchVoiceEvents = async (): Promise<VoiceEvent[]> => {
   const res = await fetch(`${API_BASE}/voice-events/recent`)
   if (!res.ok) throw new Error('Failed to fetch voice events')
@@ -126,5 +170,36 @@ export const fetchVoiceEvents = async (): Promise<VoiceEvent[]> => {
 export const fetchKnowledge = async (): Promise<KnowledgeData> => {
   const res = await fetch(`${API_BASE}/knowledge/`)
   if (!res.ok) throw new Error('Failed to fetch knowledge')
+  return res.json()
+}
+
+export interface BiometricData {
+  status?: string
+  bridge_connected?: boolean
+  provider?: string
+  heart_rate?: { bpm: number; zone: string; resting_bpm?: number | null }
+  spo2?: { percent: number }
+  sleep?: {
+    stage: string
+    duration_minutes: number
+    deep_minutes: number
+    rem_minutes: number
+    light_minutes: number
+    quality_score: number
+  }
+  activity?: {
+    steps: number
+    steps_goal: number
+    calories: number
+    active_minutes: number
+    level: string
+  }
+  stress?: { level: number; category: string }
+  fatigue?: { score: number; factors: string[] }
+}
+
+export const fetchBiometric = async (): Promise<BiometricData> => {
+  const res = await fetch(`${API_BASE}/biometric/`)
+  if (!res.ok) throw new Error('Failed to fetch biometric data')
   return res.json()
 }

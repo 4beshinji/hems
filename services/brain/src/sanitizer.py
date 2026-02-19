@@ -68,7 +68,7 @@ class Sanitizer:
             "get_zone_status", "get_active_tasks", "get_device_status",
             "get_pc_status", "control_browser", "send_pc_notification",
             "get_service_status", "search_notes", "get_recent_notes",
-            "get_home_devices",
+            "get_home_devices", "get_biometrics", "get_sleep_summary",
         ):
             return {"allowed": True, "reason": ""}
         else:

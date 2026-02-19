@@ -188,6 +188,11 @@ class RuleEngine:
         if hd.bridge_connected:
             actions.extend(self._evaluate_home_rules(world_model, now))
 
+        # --- Biometric rules ---
+        bio = world_model.biometric_state
+        if bio.bridge_connected:
+            actions.extend(self._evaluate_biometric_rules(world_model, now))
+
         return actions
 
     def _evaluate_gas_rules(self, gas, now: float) -> list[dict]:
@@ -551,6 +556,120 @@ class RuleEngine:
                             "message": "おはようございます。",
                             "zone": zone_id,
                             "tone": "neutral",
+                        },
+                    })
+
+        return actions
+
+    def _evaluate_biometric_rules(self, world_model, now: float) -> list[dict]:
+        """Evaluate biometric health rules."""
+        actions = []
+        bio = world_model.biometric_state
+        hour = datetime.now().hour
+
+        # 1. High heart rate alert
+        if (bio.heart_rate.bpm is not None and bio.heart_rate.bpm > 120
+                and self._check_cooldown("bio_hr_high", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": f"心拍数が{bio.heart_rate.bpm}bpmです。少し休憩しましょう。",
+                    "zone": "home",
+                    "tone": "caring",
+                },
+            })
+
+        # 2. High stress alert
+        if (bio.stress.level > 80
+                and bio.stress.last_update > 0
+                and self._check_cooldown("bio_stress_high", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": "ストレスが高めです。深呼吸してリラックスしましょう。",
+                    "zone": "home",
+                    "tone": "caring",
+                },
+            })
+
+        # 3. High fatigue alert
+        if (bio.fatigue.score > 70
+                and bio.fatigue.last_update > 0
+                and self._check_cooldown("bio_fatigue_high", now)):
+            if 21 <= hour <= 23:
+                msg = "疲労が溜まっていますね。今日は早めに休みましょう。"
+            else:
+                msg = "疲れが溜まっていますね。少し休憩しましょう。"
+            actions.append({
+                "tool": "speak",
+                "args": {"message": msg, "zone": "home", "tone": "caring"},
+            })
+
+        # 4. Poor sleep quality morning notification (8-10 AM)
+        if (8 <= hour < 10
+                and bio.sleep.quality_score > 0
+                and bio.sleep.quality_score < 50
+                and self._check_cooldown_daily("bio_sleep_poor", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": f"昨夜の睡眠品質が{bio.sleep.quality_score}点でした。今日は無理しないでくださいね。",
+                    "zone": "home",
+                    "tone": "caring",
+                },
+            })
+
+        # 5. Step goal achievement
+        if (bio.activity.steps > 0
+                and bio.activity.steps_goal > 0
+                and bio.activity.steps >= bio.activity.steps_goal
+                and self._check_cooldown_daily("bio_steps_goal", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": f"歩数{bio.activity.steps}歩で目標達成です！お疲れさまでした！",
+                    "zone": "home",
+                    "tone": "humorous",
+                },
+            })
+
+        # 6. Enhanced sleep detection (biometric + HA)
+        # If sleep stage detected and HA connected, turn off lights
+        hd = world_model.home_devices
+        if (hd.bridge_connected
+                and bio.sleep.stage in ("deep", "light", "rem")
+                and self._check_cooldown_daily("bio_sleep_lights", now)):
+            lights_on = [eid for eid, l in hd.lights.items() if l.on]
+            if lights_on:
+                for eid in lights_on:
+                    actions.append({
+                        "tool": "control_light",
+                        "args": {"entity_id": eid, "on": False},
+                    })
+                actions.append({
+                    "tool": "speak",
+                    "args": {
+                        "message": "おやすみなさい。照明を消しますね。",
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                })
+
+        # 7. Fatigue-linked dimming (21-23h, fatigue > 60, HA connected)
+        if (hd.bridge_connected
+                and 21 <= hour <= 23
+                and bio.fatigue.score > 60
+                and bio.fatigue.last_update > 0
+                and self._check_cooldown("bio_fatigue_dim", now)):
+            for eid, light in hd.lights.items():
+                if light.on and light.brightness > 100:
+                    actions.append({
+                        "tool": "control_light",
+                        "args": {
+                            "entity_id": eid,
+                            "on": True,
+                            "brightness": 80,
+                            "color_temp": 400,  # warm
                         },
                     })
 

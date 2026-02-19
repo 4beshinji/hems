@@ -12,6 +12,7 @@ from loguru import logger
 OPENCLAW_BRIDGE_URL = os.getenv("OPENCLAW_BRIDGE_URL", "")
 OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
+BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
 
 
 class ToolExecutor:
@@ -27,6 +28,7 @@ class ToolExecutor:
         self.openclaw_url = OPENCLAW_BRIDGE_URL
         self.obsidian_url = OBSIDIAN_BRIDGE_URL
         self.ha_url = HA_BRIDGE_URL
+        self.biometric_url = BIOMETRIC_BRIDGE_URL
         self.voice_url = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self.dashboard_api_url = os.getenv("DASHBOARD_API_URL", "http://backend:8000")
 
@@ -79,6 +81,10 @@ class ToolExecutor:
                 return await self._handle_control_cover(arguments)
             elif tool_name == "get_home_devices":
                 return await self._handle_get_home_devices(arguments)
+            elif tool_name == "get_biometrics":
+                return await self._handle_get_biometrics(arguments)
+            elif tool_name == "get_sleep_summary":
+                return await self._handle_get_sleep_summary(arguments)
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -511,6 +517,62 @@ class ToolExecutor:
             "switches": hd.switches,
         }
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
+
+    # --- Biometric tools ---
+
+    async def _handle_get_biometrics(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get current biometric readings from world model."""
+        bio = self.world_model.biometric_state
+        status = {"bridge_connected": bio.bridge_connected, "provider": bio.provider}
+        if bio.heart_rate.bpm is not None:
+            status["heart_rate"] = {
+                "bpm": bio.heart_rate.bpm,
+                "zone": bio.heart_rate.zone,
+                "resting_bpm": bio.heart_rate.resting_bpm,
+            }
+        if bio.spo2.percent is not None:
+            status["spo2"] = {"percent": bio.spo2.percent}
+        if bio.stress.last_update > 0:
+            status["stress"] = {"level": bio.stress.level, "category": bio.stress.category}
+        if bio.fatigue.last_update > 0:
+            status["fatigue"] = {"score": bio.fatigue.score, "factors": bio.fatigue.factors}
+        if bio.activity.last_update > 0:
+            status["activity"] = {
+                "steps": bio.activity.steps,
+                "steps_goal": bio.activity.steps_goal,
+                "calories": bio.activity.calories,
+                "level": bio.activity.level,
+            }
+        return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
+
+    async def _handle_get_sleep_summary(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get sleep data from world model or bridge API."""
+        bio = self.world_model.biometric_state
+        if bio.sleep.last_update > 0:
+            status = {
+                "duration_minutes": bio.sleep.duration_minutes,
+                "deep_minutes": bio.sleep.deep_minutes,
+                "rem_minutes": bio.sleep.rem_minutes,
+                "light_minutes": bio.sleep.light_minutes,
+                "quality_score": bio.sleep.quality_score,
+                "stage": bio.sleep.stage,
+            }
+            return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
+
+        # Fallback: query bridge API
+        if self.biometric_url:
+            try:
+                async with self._session.get(
+                    f"{self.biometric_url}/api/biometric/sleep",
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    data = await resp.json()
+                    if resp.status == 200 and data.get("status") != "no_data":
+                        return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+            except Exception as e:
+                logger.warning(f"Biometric bridge sleep query error: {e}")
+
+        return {"success": True, "result": "睡眠データがまだありません"}
 
     async def _ha_service_call(self, entity_id: str, service: str,
                                data: dict = None) -> Dict[str, Any]:

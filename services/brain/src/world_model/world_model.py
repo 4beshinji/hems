@@ -13,6 +13,8 @@ from .data_classes import (
     KnowledgeState,
     GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
     HomeDevicesState, LightState, ClimateState, CoverState,
+    BiometricState, HeartRateData, SleepData, ActivityData, StressData, FatigueData, SpO2Data,
+    PhysicalSpace, DigitalSpace, UserState,
 )
 from .sensor_fusion import SensorFusion
 
@@ -31,6 +33,12 @@ PC_MEMORY_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_MEMORY_HIGH", "90"))
 PC_GPU_TEMP_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_GPU_TEMP_HIGH", "85"))
 PC_DISK_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_DISK_HIGH", "90"))
 
+# Biometric thresholds (configurable via env vars)
+HR_HIGH = int(os.getenv("HEMS_THRESHOLD_HR_HIGH", "120"))
+HR_LOW = int(os.getenv("HEMS_THRESHOLD_HR_LOW", "45"))
+SPO2_LOW = int(os.getenv("HEMS_THRESHOLD_SPO2_LOW", "92"))
+STRESS_HIGH = int(os.getenv("HEMS_THRESHOLD_STRESS_HIGH", "80"))
+
 
 class WorldModel:
     # Default suppression duration (seconds) per alert type.
@@ -44,18 +52,76 @@ class WorldModel:
     }
 
     def __init__(self):
-        self.zones: dict[str, ZoneState] = {}
-        self.pc_state: PCState = PCState()
-        self.services_state: ServicesState = ServicesState()
-        self.knowledge_state: KnowledgeState = KnowledgeState()
-        self.gas_state: GASState = GASState()
-        self.home_devices: HomeDevicesState = HomeDevicesState()
+        # Tri-domain architecture
+        self.physical = PhysicalSpace()
+        self.digital = DigitalSpace()
+        self.user = UserState()
+
         self._sensor_fusions: dict[str, SensorFusion] = {}
         self.event_writer = None  # Set by Brain if event_store is available
 
         # Alert suppression: {(zone_id, alert_type): expiry_timestamp}
         # Prevents repeated task creation for slow-changing conditions.
         self._suppressed_alerts: dict[tuple, float] = {}
+
+    # --- Backward-compatible property accessors ---
+    # These delegate to domain objects so existing code works unchanged.
+
+    @property
+    def zones(self) -> dict[str, ZoneState]:
+        return self.physical.zones
+
+    @zones.setter
+    def zones(self, value: dict[str, ZoneState]):
+        self.physical.zones = value
+
+    @property
+    def pc_state(self) -> PCState:
+        return self.digital.pc_state
+
+    @pc_state.setter
+    def pc_state(self, value: PCState):
+        self.digital.pc_state = value
+
+    @property
+    def services_state(self) -> ServicesState:
+        return self.digital.services_state
+
+    @services_state.setter
+    def services_state(self, value: ServicesState):
+        self.digital.services_state = value
+
+    @property
+    def knowledge_state(self) -> KnowledgeState:
+        return self.digital.knowledge_state
+
+    @knowledge_state.setter
+    def knowledge_state(self, value: KnowledgeState):
+        self.digital.knowledge_state = value
+
+    @property
+    def gas_state(self) -> GASState:
+        return self.digital.gas_state
+
+    @gas_state.setter
+    def gas_state(self, value: GASState):
+        self.digital.gas_state = value
+
+    @property
+    def home_devices(self) -> HomeDevicesState:
+        return self.physical.home_devices
+
+    @home_devices.setter
+    def home_devices(self, value: HomeDevicesState):
+        self.physical.home_devices = value
+
+    @property
+    def biometric_state(self) -> BiometricState:
+        return self.user.biometrics
+
+    @biometric_state.setter
+    def biometric_state(self, value: BiometricState):
+        self.user.biometrics = value
 
     def suppress_alert(self, zone_id: str, alert_type: str, duration: float = None):
         """Suppress an alert for a zone after a task has been created for it.
@@ -545,6 +611,149 @@ class WorldModel:
         if category == "notes" and len(path_parts) >= 2:
             self._update_knowledge_state(path_parts[1], payload)
 
+        # hems/personal/biometrics/{provider}/{metric}
+        elif category == "biometrics" and len(path_parts) >= 2:
+            self._update_biometric_state(path_parts[1:], payload)
+
+    def _update_biometric_state(self, path_parts: list[str], payload: dict):
+        """Handle hems/personal/biometrics/* topics from biometric bridge."""
+        if not path_parts:
+            return
+
+        bio = self.biometric_state
+        now = time.time()
+
+        # hems/personal/biometrics/bridge/status
+        if path_parts[0] == "bridge" and len(path_parts) >= 2 and path_parts[1] == "status":
+            bio.bridge_connected = payload.get("connected", False)
+            bio.provider = payload.get("provider", "")
+            return
+
+        # hems/personal/biometrics/{provider}/{metric}
+        if len(path_parts) < 2:
+            return
+
+        metric = path_parts[1]
+
+        if metric == "heart_rate":
+            bpm = payload.get("bpm")
+            if bpm is not None:
+                prev_bpm = bio.heart_rate.bpm
+                bio.heart_rate.bpm = int(bpm)
+                bio.heart_rate.zone = HeartRateData.classify_zone(int(bpm))
+                bio.heart_rate.last_update = now
+                if "resting_bpm" in payload:
+                    bio.heart_rate.resting_bpm = int(payload["resting_bpm"])
+                bio.bridge_connected = True
+                self._check_biometric_thresholds("heart_rate", float(bpm), float(prev_bpm) if prev_bpm else None)
+
+        elif metric == "spo2":
+            pct = payload.get("percent")
+            if pct is not None:
+                prev_pct = bio.spo2.percent
+                bio.spo2.percent = int(pct)
+                bio.spo2.last_update = now
+                bio.bridge_connected = True
+                self._check_biometric_thresholds("spo2", float(pct), float(prev_pct) if prev_pct else None)
+
+        elif metric == "sleep":
+            bio.sleep.stage = payload.get("stage", bio.sleep.stage)
+            if "duration_minutes" in payload:
+                bio.sleep.duration_minutes = int(payload["duration_minutes"])
+            if "deep_minutes" in payload:
+                bio.sleep.deep_minutes = int(payload["deep_minutes"])
+            if "rem_minutes" in payload:
+                bio.sleep.rem_minutes = int(payload["rem_minutes"])
+            if "light_minutes" in payload:
+                bio.sleep.light_minutes = int(payload["light_minutes"])
+            if "quality_score" in payload:
+                bio.sleep.quality_score = int(payload["quality_score"])
+            if "sleep_start_ts" in payload:
+                bio.sleep.sleep_start_ts = float(payload["sleep_start_ts"])
+            if "sleep_end_ts" in payload:
+                bio.sleep.sleep_end_ts = float(payload["sleep_end_ts"])
+            bio.sleep.last_update = now
+            bio.bridge_connected = True
+
+        elif metric == "activity":
+            if "steps" in payload:
+                bio.activity.steps = int(payload["steps"])
+            if "steps_goal" in payload:
+                bio.activity.steps_goal = int(payload["steps_goal"])
+            if "calories" in payload:
+                bio.activity.calories = int(payload["calories"])
+            if "active_minutes" in payload:
+                bio.activity.active_minutes = int(payload["active_minutes"])
+            if "level" in payload:
+                bio.activity.level = payload["level"]
+            bio.activity.last_update = now
+            bio.bridge_connected = True
+
+        elif metric == "stress":
+            level = payload.get("level")
+            if level is not None:
+                prev_level = bio.stress.level
+                bio.stress.level = int(level)
+                bio.stress.category = StressData.classify_category(int(level))
+                bio.stress.last_update = now
+                bio.bridge_connected = True
+                self._check_biometric_thresholds("stress", float(level), float(prev_level) if prev_level else None)
+
+        elif metric == "fatigue":
+            if "score" in payload:
+                bio.fatigue.score = int(payload["score"])
+            if "factors" in payload:
+                bio.fatigue.factors = payload["factors"]
+            bio.fatigue.last_update = now
+            bio.bridge_connected = True
+
+        elif metric == "steps":
+            # Alternative topic: hems/personal/biometrics/{provider}/steps
+            if "count" in payload:
+                bio.activity.steps = int(payload["count"])
+            if "daily_goal" in payload:
+                bio.activity.steps_goal = int(payload["daily_goal"])
+            bio.activity.last_update = now
+            bio.bridge_connected = True
+
+    def _check_biometric_thresholds(self, metric: str, value: float, prev: float | None):
+        """Generate events from biometric threshold crossings."""
+        bio = self.biometric_state
+
+        if metric == "heart_rate":
+            if value > HR_HIGH and (prev is None or prev <= HR_HIGH):
+                bio.add_event(Event(
+                    event_type="hr_high",
+                    description=f"心拍数上昇: {int(value)}bpm",
+                    severity=1,
+                    data={"bpm": value},
+                ))
+            elif value < HR_LOW and (prev is None or prev >= HR_LOW):
+                bio.add_event(Event(
+                    event_type="hr_low",
+                    description=f"心拍数低下: {int(value)}bpm",
+                    severity=1,
+                    data={"bpm": value},
+                ))
+
+        elif metric == "spo2":
+            if value < SPO2_LOW and (prev is None or prev >= SPO2_LOW):
+                bio.add_event(Event(
+                    event_type="spo2_low",
+                    description=f"SpO2低下: {int(value)}%",
+                    severity=2,
+                    data={"percent": value},
+                ))
+
+        elif metric == "stress":
+            if value > STRESS_HIGH and (prev is None or prev <= STRESS_HIGH):
+                bio.add_event(Event(
+                    event_type="stress_high",
+                    description=f"ストレス高: {int(value)}",
+                    severity=1,
+                    data={"level": value},
+                ))
+
     def _update_home_device(self, path_parts: list[str], payload: dict):
         """Handle hems/home/{zone}/{domain}/{entity_id}/state topics from HA bridge."""
         # hems/home/bridge/status
@@ -614,7 +823,25 @@ class WorldModel:
             ))
 
     def get_llm_context(self) -> str:
-        """Build text context for LLM from current world state."""
+        """Build text context for LLM from current world state (tri-domain)."""
+        sections = []
+
+        physical = self._get_physical_context()
+        if physical:
+            sections.append("## 現実空間\n" + physical)
+
+        digital = self._get_digital_context()
+        if digital:
+            sections.append("## 電子空間\n" + digital)
+
+        user = self._get_user_context()
+        if user:
+            sections.append("## ユーザー状態\n" + user)
+
+        return "\n\n".join(sections)
+
+    def _get_physical_context(self) -> str:
+        """Build physical space context (zones + smart home)."""
         lines = []
 
         # Zone data
@@ -651,7 +878,59 @@ class WorldModel:
 
             lines.append("\n".join(parts))
 
-        # PC state (only if bridge has sent data)
+        # Home devices (HA integration)
+        hd = self.home_devices
+        if hd.bridge_connected:
+            home_parts = ["### スマートホーム"]
+            lights_on = [l for l in hd.lights.values() if l.on]
+            lights_off = [l for l in hd.lights.values() if not l.on]
+            if lights_on:
+                for l in lights_on:
+                    name = l.entity_id.split(".")[-1] if "." in l.entity_id else l.entity_id
+                    pct = int(l.brightness / 255 * 100) if l.brightness else 100
+                    home_parts.append(f"  照明: {name} ON({pct}%)")
+            if lights_off:
+                names = ", ".join(
+                    l.entity_id.split(".")[-1] if "." in l.entity_id else l.entity_id
+                    for l in lights_off
+                )
+                home_parts.append(f"  照明: {names} OFF")
+
+            for c in hd.climates.values():
+                name = c.entity_id.split(".")[-1] if "." in c.entity_id else c.entity_id
+                mode_names = {"off": "停止", "cool": "冷房", "heat": "暖房",
+                              "dry": "除湿", "fan_only": "送風", "auto": "自動"}
+                mode_ja = mode_names.get(c.mode, c.mode)
+                temp_str = f"{c.target_temp:.0f}°C" if c.target_temp else ""
+                curr_str = f" (室温{c.current_temp:.1f}°C)" if c.current_temp else ""
+                home_parts.append(f"  エアコン: {name} {mode_ja}{temp_str}{curr_str}")
+
+            for cv in hd.covers.values():
+                name = cv.entity_id.split(".")[-1] if "." in cv.entity_id else cv.entity_id
+                status = "全開" if cv.position >= 95 else "閉" if cv.position <= 5 else f"{cv.position}%"
+                home_parts.append(f"  カーテン: {name} {status}")
+
+            if hd.switches:
+                on_switches = [k.split(".")[-1] if "." in k else k
+                               for k, v in hd.switches.items() if v]
+                off_switches = [k.split(".")[-1] if "." in k else k
+                                for k, v in hd.switches.items() if not v]
+                if on_switches:
+                    home_parts.append(f"  スイッチ: {', '.join(on_switches)} ON")
+                if off_switches:
+                    home_parts.append(f"  スイッチ: {', '.join(off_switches)} OFF")
+
+            if not hd.bridge_connected:
+                home_parts.append("  ⚠ HAブリッジ: 切断中")
+            lines.append("\n".join(home_parts))
+
+        return "\n\n".join(lines)
+
+    def _get_digital_context(self) -> str:
+        """Build digital space context (PC, services, GAS, knowledge)."""
+        lines = []
+
+        # PC state
         pc = self.pc_state
         if pc.cpu.last_update > 0 or pc.memory.last_update > 0:
             pc_parts = ["### PC"]
@@ -672,7 +951,7 @@ class WorldModel:
                 pc_parts.append("  ⚠ OpenClawブリッジ: 切断中")
             lines.append("\n".join(pc_parts))
 
-        # Services state (only if any service data exists)
+        # Services state
         if self.services_state.services:
             svc_parts = ["### サービス"]
             for name, svc in self.services_state.services.items():
@@ -682,11 +961,10 @@ class WorldModel:
                     svc_parts.append(f"  {name}: {svc.summary}")
             lines.append("\n".join(svc_parts))
 
-        # GAS state (lightweight summary)
+        # GAS state
         gs = self.gas_state
         if gs.bridge_connected:
             gas_parts = ["### Google連携"]
-            # Next 3 upcoming events
             now_ts = time.time()
             upcoming = [e for e in gs.calendar_events if e.start_ts > now_ts][:3]
             if upcoming:
@@ -697,7 +975,6 @@ class WorldModel:
             else:
                 gas_parts.append("  予定: なし")
 
-            # Tasks summary
             overdue = [t for t in gs.tasks if t.is_overdue]
             pending = [t for t in gs.tasks if t.status != "completed"]
             if overdue:
@@ -705,69 +982,17 @@ class WorldModel:
             elif pending:
                 gas_parts.append(f"  タスク: {len(pending)}件")
 
-            # Gmail unread
             inbox = gs.gmail_labels.get("INBOX")
             if inbox and inbox.unread > 0:
                 gas_parts.append(f"  Gmail未読: {inbox.unread}通")
 
-            # Free slots
             long_slots = [s for s in gs.free_slots if s.duration_minutes >= 120]
             if long_slots:
                 gas_parts.append(f"  空き時間(2h+): {len(long_slots)}スロット")
 
             lines.append("\n".join(gas_parts))
 
-        # Home devices (HA integration)
-        hd = self.home_devices
-        if hd.bridge_connected:
-            home_parts = ["### スマートホーム"]
-            # Lights
-            lights_on = [l for l in hd.lights.values() if l.on]
-            lights_off = [l for l in hd.lights.values() if not l.on]
-            if lights_on:
-                for l in lights_on:
-                    name = l.entity_id.split(".")[-1] if "." in l.entity_id else l.entity_id
-                    pct = int(l.brightness / 255 * 100) if l.brightness else 100
-                    home_parts.append(f"  照明: {name} ON({pct}%)")
-            if lights_off:
-                names = ", ".join(
-                    l.entity_id.split(".")[-1] if "." in l.entity_id else l.entity_id
-                    for l in lights_off
-                )
-                home_parts.append(f"  照明: {names} OFF")
-
-            # Climate
-            for c in hd.climates.values():
-                name = c.entity_id.split(".")[-1] if "." in c.entity_id else c.entity_id
-                mode_names = {"off": "停止", "cool": "冷房", "heat": "暖房",
-                              "dry": "除湿", "fan_only": "送風", "auto": "自動"}
-                mode_ja = mode_names.get(c.mode, c.mode)
-                temp_str = f"{c.target_temp:.0f}°C" if c.target_temp else ""
-                curr_str = f" (室温{c.current_temp:.1f}°C)" if c.current_temp else ""
-                home_parts.append(f"  エアコン: {name} {mode_ja}{temp_str}{curr_str}")
-
-            # Covers
-            for cv in hd.covers.values():
-                name = cv.entity_id.split(".")[-1] if "." in cv.entity_id else cv.entity_id
-                status = "全開" if cv.position >= 95 else "閉" if cv.position <= 5 else f"{cv.position}%"
-                home_parts.append(f"  カーテン: {name} {status}")
-
-            # Switches
-            if hd.switches:
-                on_switches = [k.split(".")[-1] if "." in k else k
-                               for k, v in hd.switches.items() if v]
-                off_switches = [k.split(".")[-1] if "." in k else k
-                                for k, v in hd.switches.items() if not v]
-                if on_switches:
-                    home_parts.append(f"  スイッチ: {', '.join(on_switches)} ON")
-                if off_switches:
-                    home_parts.append(f"  スイッチ: {', '.join(off_switches)} OFF")
-
-            if not hd.bridge_connected:
-                home_parts.append("  ⚠ HAブリッジ: 切断中")
-            lines.append("\n".join(home_parts))
-
-        # Knowledge base (lightweight metadata only)
+        # Knowledge base
         ks = self.knowledge_state
         if ks.bridge_connected:
             kb_parts = ["### ナレッジベース"]
@@ -777,6 +1002,55 @@ class WorldModel:
                 kb_parts.append(f"  最終変更: {last['title']}")
             lines.append("\n".join(kb_parts))
 
-        if not lines:
-            return ""
+        return "\n\n".join(lines)
+
+    def _get_user_context(self) -> str:
+        """Build user state context (occupancy summary + biometrics)."""
+        lines = []
+
+        # Occupancy summary (aggregated from zones)
+        occupied_zones = {zid: z for zid, z in self.zones.items()
+                         if z.occupancy and z.occupancy.count > 0}
+        if occupied_zones:
+            occ_parts = ["### 在室状態"]
+            for zid, z in occupied_zones.items():
+                occ = z.occupancy
+                status = f"  {zid}: {occ.count}人"
+                if occ.activity_class != "unknown":
+                    status += f", 活動={occ.activity_class}"
+                if occ.posture_status != "unknown":
+                    dur = int(occ.posture_duration_sec / 60)
+                    status += f", 姿勢={occ.posture_status}({dur}分)"
+                occ_parts.append(status)
+            lines.append("\n".join(occ_parts))
+
+        # Biometrics
+        bio = self.biometric_state
+        if bio.last_update > 0:
+            bio_parts = ["### バイオメトリクス"]
+            if bio.heart_rate.bpm is not None:
+                hr_str = f"  心拍: {bio.heart_rate.bpm}bpm ({bio.heart_rate.zone})"
+                if bio.heart_rate.resting_bpm is not None:
+                    hr_str += f", 安静時{bio.heart_rate.resting_bpm}bpm"
+                bio_parts.append(hr_str)
+            if bio.spo2.percent is not None:
+                bio_parts.append(f"  SpO2: {bio.spo2.percent}%")
+            if bio.stress.last_update > 0:
+                bio_parts.append(f"  ストレス: {bio.stress.category} ({bio.stress.level})")
+            if bio.fatigue.last_update > 0:
+                bio_parts.append(f"  疲労度: {bio.fatigue.score}/100")
+            if bio.sleep.last_update > 0:
+                sleep_str = f"  睡眠: {bio.sleep.duration_minutes}分"
+                if bio.sleep.quality_score > 0:
+                    sleep_str += f" (品質{bio.sleep.quality_score}/100)"
+                if bio.sleep.stage != "unknown":
+                    sleep_str += f", ステージ={bio.sleep.stage}"
+                bio_parts.append(sleep_str)
+            if bio.activity.last_update > 0:
+                pct = int(bio.activity.goal_progress * 100)
+                bio_parts.append(f"  歩数: {bio.activity.steps}/{bio.activity.steps_goal} ({pct}%)")
+            if not bio.bridge_connected:
+                bio_parts.append("  ⚠ バイオメトリクスブリッジ: 切断中")
+            lines.append("\n".join(bio_parts))
+
         return "\n\n".join(lines)

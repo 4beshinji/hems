@@ -7,6 +7,16 @@ from .data_classes import (
     Event,
     ServicesState,
     ServiceStatusData,
+    BiometricState,
+    HeartRateData,
+    SleepData,
+    ActivityData,
+    StressData,
+    FatigueData,
+    SpO2Data,
+    PhysicalSpace,
+    DigitalSpace,
+    UserState,
 )
 from .sensor_fusion import SensorFusion
 
@@ -20,4 +30,14 @@ __all__ = [
     "SensorFusion",
     "ServicesState",
     "ServiceStatusData",
+    "BiometricState",
+    "HeartRateData",
+    "SleepData",
+    "ActivityData",
+    "StressData",
+    "FatigueData",
+    "SpO2Data",
+    "PhysicalSpace",
+    "DigitalSpace",
+    "UserState",
 ]

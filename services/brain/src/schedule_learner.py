@@ -85,6 +85,25 @@ class ScheduleLearner:
         self._wake_history[weekday].append(hour_float)
         self._prune_history(self._wake_history[weekday])
 
+    def record_sleep_from_biometrics(self, sleep_start_ts: float, sleep_end_ts: float):
+        """Record wake time from biometric sleep data (more accurate than posture estimation).
+
+        Uses the sleep end timestamp as the wake time.
+        """
+        if sleep_end_ts <= 0:
+            return
+        dt = datetime.fromtimestamp(sleep_end_ts)
+        hour_float = dt.hour + dt.minute / 60.0
+        # Only record reasonable wake times (4:00 - 12:00)
+        if not (4 <= hour_float <= 12):
+            return
+        weekday = dt.weekday()
+        if weekday not in self._wake_history:
+            self._wake_history[weekday] = []
+        self._wake_history[weekday].append(hour_float)
+        self._prune_history(self._wake_history[weekday])
+        logger.debug(f"Biometric wake recorded: weekday={weekday} time={hour_float:.1f}")
+
     def predict_next_arrival(self, calendar_events: list = None) -> float | None:
         """Predict next arrival time as UNIX timestamp.
 
