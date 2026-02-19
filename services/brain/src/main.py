@@ -24,6 +24,7 @@ from system_prompt import build_system_message
 from device_registry import DeviceRegistry
 from character_loader import load_character, reload_character
 from rule_engine import RuleEngine
+from schedule_learner import ScheduleLearner
 from persona_rewriter import PersonaRewriter
 from event_store import init_db, EventWriter, HourlyAggregator
 
@@ -38,6 +39,8 @@ OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
 OBSIDIAN_ENABLED = bool(OBSIDIAN_BRIDGE_URL)
 GAS_BRIDGE_URL = os.getenv("GAS_BRIDGE_URL", "")
 GAS_ENABLED = bool(GAS_BRIDGE_URL)
+HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
+HA_ENABLED = bool(HA_BRIDGE_URL)
 
 REACT_MAX_ITERATIONS = 5
 CYCLE_INTERVAL = 30
@@ -70,6 +73,14 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return f"title={args.get('title', '')[:30]}"
     elif tool_name == "get_recent_notes":
         return f"limit={args.get('limit', 5)}"
+    elif tool_name == "control_light":
+        return f"entity={args.get('entity_id', '')}, on={args.get('on', '')}"
+    elif tool_name == "control_climate":
+        return f"entity={args.get('entity_id', '')}, mode={args.get('mode', '')}"
+    elif tool_name == "control_cover":
+        return f"entity={args.get('entity_id', '')}, action={args.get('action', '')}"
+    elif tool_name == "get_home_devices":
+        return "home_devices"
     return str(args)[:50]
 
 
@@ -84,7 +95,8 @@ class Brain:
         self.device_registry = DeviceRegistry()
         self.event_writer: EventWriter | None = None
         self.character = load_character()
-        self.rule_engine = RuleEngine()
+        self.schedule_learner = ScheduleLearner() if HA_ENABLED else None
+        self.rule_engine = RuleEngine(schedule_learner=self.schedule_learner)
 
         self.llm = None
         self.persona_rewriter = None
@@ -127,6 +139,13 @@ class Brain:
     def _process_mqtt(self, topic: str, payload: dict):
         self.world_model.update_from_mqtt(topic, payload)
 
+        # Feed occupancy changes to schedule learner
+        if self.schedule_learner:
+            parts = topic.split("/")
+            if len(parts) >= 5 and parts[0] == "office" and parts[2] == "camera":
+                count = payload.get("person_count", payload.get("count", 0))
+                self.schedule_learner.update_occupancy(int(count))
+
         if self.event_writer:
             parts = topic.split("/")
             if len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
@@ -151,6 +170,8 @@ class Brain:
             current["__knowledge__"] = len(self.world_model.knowledge_state.events)
         if GAS_ENABLED:
             current["__gas__"] = len(self.world_model.gas_state.events)
+        if HA_ENABLED:
+            current["__home__"] = len(self.world_model.home_devices.events)
         if current != self._last_event_count:
             self._last_event_count = current
             self._cycle_triggered.set()
@@ -195,6 +216,25 @@ class Brain:
         if device_summary:
             llm_context += f"\n\n### デバイスネットワーク状態\n{device_summary}"
 
+        if self.schedule_learner:
+            stats = self.schedule_learner.get_arrival_stats()
+            if stats:
+                llm_context += "\n\n### 生活パターン"
+                if "weekday_arrival" in stats:
+                    stdev = stats.get("arrival_stdev_min", 0)
+                    llm_context += f"\n  平日帰宅: {stats['weekday_arrival']} (±{stdev}min)"
+                if "weekday_wake" in stats:
+                    llm_context += f"\n  起床パターン: {stats['weekday_wake']}"
+            # Add predicted times
+            calendar_events = None
+            if GAS_ENABLED and self.world_model.gas_state.bridge_connected:
+                calendar_events = self.world_model.gas_state.calendar_events
+            wake_time = self.schedule_learner.get_wake_time(calendar_events)
+            if wake_time:
+                from datetime import datetime as _dt
+                wake_str = _dt.fromtimestamp(wake_time).strftime("%H:%M")
+                llm_context += f"\n  明日の起床予測: {wake_str}"
+
         now = time.time()
         recent_events = []
         actionable_reports = []  # task_reports needing follow-up
@@ -225,6 +265,7 @@ class Brain:
             self.character, openclaw_enabled=OPENCLAW_ENABLED,
             services_enabled=services_enabled,
             obsidian_enabled=OBSIDIAN_ENABLED,
+            ha_enabled=HA_ENABLED,
         )
         user_content = f"## 現在の自宅状態\n{llm_context}"
         if recent_events:
@@ -257,7 +298,7 @@ class Brain:
 
         messages = [system_msg, {"role": "user", "content": user_content}]
         tools = get_tools(openclaw_enabled=OPENCLAW_ENABLED, services_enabled=services_enabled,
-                          obsidian_enabled=OBSIDIAN_ENABLED)
+                          obsidian_enabled=OBSIDIAN_ENABLED, ha_enabled=HA_ENABLED)
 
         tool_call_history = []
         speak_count = 0
@@ -500,6 +541,10 @@ class Brain:
                 logger.info(f"GAS integration enabled (bridge={GAS_BRIDGE_URL})")
             else:
                 logger.info("GAS integration disabled (GAS_BRIDGE_URL not set)")
+            if HA_ENABLED:
+                logger.info(f"Home Assistant integration enabled (bridge={HA_BRIDGE_URL})")
+            else:
+                logger.info("Home Assistant integration disabled (HA_BRIDGE_URL not set)")
             logger.info("HEMS Brain running (ReAct mode)...")
 
             last_cycle = 0.0

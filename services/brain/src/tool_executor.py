@@ -11,6 +11,7 @@ from loguru import logger
 
 OPENCLAW_BRIDGE_URL = os.getenv("OPENCLAW_BRIDGE_URL", "")
 OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
+HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 
 
 class ToolExecutor:
@@ -25,6 +26,7 @@ class ToolExecutor:
         self.device_registry = device_registry
         self.openclaw_url = OPENCLAW_BRIDGE_URL
         self.obsidian_url = OBSIDIAN_BRIDGE_URL
+        self.ha_url = HA_BRIDGE_URL
         self.voice_url = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self.dashboard_api_url = os.getenv("DASHBOARD_API_URL", "http://backend:8000")
 
@@ -69,6 +71,14 @@ class ToolExecutor:
                 return await self._handle_write_note(arguments)
             elif tool_name == "get_recent_notes":
                 return await self._handle_get_recent_notes(arguments)
+            elif tool_name == "control_light":
+                return await self._handle_control_light(arguments)
+            elif tool_name == "control_climate":
+                return await self._handle_control_climate(arguments)
+            elif tool_name == "control_cover":
+                return await self._handle_control_cover(arguments)
+            elif tool_name == "get_home_devices":
+                return await self._handle_get_home_devices(arguments)
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -421,5 +431,103 @@ class ToolExecutor:
                 if resp.status == 200:
                     return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
                 return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    # --- Home Assistant tools ---
+
+    async def _handle_control_light(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.ha_url:
+            return {"success": False, "error": "HA bridge not configured"}
+        entity_id = args.get("entity_id", "")
+        on = args.get("on", True)
+        service = "light/turn_on" if on else "light/turn_off"
+        data = {}
+        if on and args.get("brightness") is not None:
+            data["brightness"] = args["brightness"]
+        if on and args.get("color_temp") is not None:
+            data["color_temp"] = args["color_temp"]
+        return await self._ha_service_call(entity_id, service, data)
+
+    async def _handle_control_climate(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.ha_url:
+            return {"success": False, "error": "HA bridge not configured"}
+        entity_id = args.get("entity_id", "")
+        mode = args.get("mode")
+        if mode == "off":
+            return await self._ha_service_call(entity_id, "climate/turn_off")
+
+        data = {}
+        if mode:
+            data["hvac_mode"] = mode
+        if args.get("temperature") is not None:
+            data["temperature"] = args["temperature"]
+        if args.get("fan_mode"):
+            data["fan_mode"] = args["fan_mode"]
+        service = "climate/set_hvac_mode" if mode and not data.get("temperature") else "climate/set_temperature"
+        if mode and data.get("temperature"):
+            # Set mode first, then temperature
+            await self._ha_service_call(entity_id, "climate/set_hvac_mode", {"hvac_mode": mode})
+            return await self._ha_service_call(entity_id, "climate/set_temperature", {
+                "temperature": data["temperature"],
+                **({"fan_mode": data["fan_mode"]} if "fan_mode" in data else {}),
+            })
+        return await self._ha_service_call(entity_id, service, data)
+
+    async def _handle_control_cover(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.ha_url:
+            return {"success": False, "error": "HA bridge not configured"}
+        entity_id = args.get("entity_id", "")
+        action = args.get("action")
+        position = args.get("position")
+
+        if position is not None:
+            return await self._ha_service_call(entity_id, "cover/set_cover_position",
+                                               {"position": position})
+        if action == "open":
+            return await self._ha_service_call(entity_id, "cover/open_cover")
+        elif action == "close":
+            return await self._ha_service_call(entity_id, "cover/close_cover")
+        elif action == "stop":
+            return await self._ha_service_call(entity_id, "cover/stop_cover")
+        return {"success": False, "error": "No action or position specified"}
+
+    async def _handle_get_home_devices(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        hd = self.world_model.home_devices
+        status = {
+            "bridge_connected": hd.bridge_connected,
+            "lights": {
+                eid: {"on": l.on, "brightness": l.brightness}
+                for eid, l in hd.lights.items()
+            },
+            "climates": {
+                eid: {"mode": c.mode, "target_temp": c.target_temp, "current_temp": c.current_temp}
+                for eid, c in hd.climates.items()
+            },
+            "covers": {
+                eid: {"position": c.position, "is_open": c.is_open}
+                for eid, c in hd.covers.items()
+            },
+            "switches": hd.switches,
+        }
+        return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
+
+    async def _ha_service_call(self, entity_id: str, service: str,
+                               data: dict = None) -> Dict[str, Any]:
+        """Call HA bridge REST API to execute a service call."""
+        try:
+            async with self._session.post(
+                f"{self.ha_url}/api/device/control",
+                json={
+                    "entity_id": entity_id,
+                    "service": service,
+                    "data": data or {},
+                },
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                result = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": f"{service} -> {entity_id}"}
+                return {"success": False, "error": result.get("detail", f"HTTP {resp.status}")}
         except Exception as e:
             return {"success": False, "error": str(e)}

@@ -30,6 +30,12 @@ docker compose --profile openclaw up -d --build
 # With Obsidian knowledge store
 docker compose --profile obsidian up -d --build
 
+# With GAS integration (Google Calendar/Tasks/Gmail)
+docker compose --profile gas up -d --build
+
+# With Home Assistant (smart home control)
+docker compose --profile ha up -d --build
+
 # Rebuild a single service
 docker compose up -d --build <service-name>
 
@@ -39,7 +45,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`, `obsidian`
+Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`, `obsidian`, `gas`, `ha`
 
 ### Frontend Development
 
@@ -64,6 +70,8 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Voice Service | 8012 | `HEMS_PORT_VOICE` | hems-voice |
 | OpenClaw Bridge | 8013 | `HEMS_PORT_OPENCLAW_BRIDGE` | hems-openclaw-bridge |
 | Obsidian Bridge | 8014 | `HEMS_PORT_OBSIDIAN_BRIDGE` | hems-obsidian-bridge |
+| GAS Bridge | 8015 | `HEMS_PORT_GAS_BRIDGE` | hems-gas-bridge |
+| HA Bridge | 8016 | `HEMS_PORT_HA_BRIDGE` | hems-ha-bridge |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -88,6 +96,21 @@ hems/services/{name}/event
 hems/personal/notes/changed
 hems/personal/notes/stats
 
+# GAS integration (Google Apps Script bridge)
+hems/gas/calendar/upcoming
+hems/gas/calendar/free_slots
+hems/gas/tasks/all
+hems/gas/tasks/due_today
+hems/gas/gmail/summary
+hems/gas/gmail/recent
+hems/gas/sheets/{name}
+hems/gas/drive/recent
+hems/gas/bridge/status
+
+# Smart home (HA bridge)
+hems/home/{zone}/{domain}/{entity_id}/state
+hems/home/bridge/status
+
 # Personal data (Phase 2: data-bridge)
 hems/personal/calendar/{id}/events
 hems/personal/biometrics/{provider}/heart_rate
@@ -110,6 +133,8 @@ hems/brain/reload-character
 - OpenClaw tools (profile `openclaw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
 - Service monitor tool (when data available): `get_service_status`
 - Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
+- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`
+- Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction
 
 ### OpenClaw Bridge (profile: `openclaw`)
 
@@ -180,6 +205,22 @@ Bridges physical environment management with PC/desktop control via [OpenClaw](h
 - **Brain tools**: `get_pc_status`, `run_pc_command` (with dangerous command blocklist), `control_browser`, `send_pc_notification`
 - **Safety**: Destructive commands (`rm -rf /`, `mkfs`, `shutdown`, etc.) are blocked by sanitizer
 
+### GAS Integration (Google Apps Script)
+
+Bridges Google services (Calendar, Tasks, Gmail, Sheets, Drive) to HEMS via GAS Web App proxy.
+
+- **GAS Script**: `scripts/gas-bridge/Code.gs` — deploy as Web App, `doGet(e)` handler with action-based routing
+- **gas-bridge**: Docker service polling GAS Web App and publishing to MQTT
+  - Calendar: upcoming events + free slots every 120s
+  - Tasks: all + due today every 300s
+  - Gmail: summary + recent every 300s
+  - Sheets: configured sheets every 600s
+  - Drive: recent files every 600s
+- **Deploy**: Deploy GAS as Web App, configure `GAS_WEBAPP_URL` + `GAS_API_KEY`
+- **Profile**: `docker compose --profile gas up -d --build`
+- **Brain rules**: 13 rules (meeting reminders, morning briefing, overdue alerts, task sync, etc.)
+- **GAS Quota**: ~1,100 calls/day with defaults (quota limit: 20,000/day)
+
 ### Obsidian Integration (Knowledge Store)
 
 Connects Obsidian vault to HEMS Brain for bidirectional knowledge access.
@@ -194,6 +235,30 @@ Connects Obsidian vault to HEMS Brain for bidirectional knowledge access.
 - **Writeback**: Decision logs (`HEMS/decisions/`) and learning memos (`HEMS/learnings/`) auto-generated
 - **Token budget**: Only metadata in LLM context (~30 tokens); full content via on-demand `search_notes`
 - **Safety**: Write restricted to `HEMS/` subdirectory, path traversal blocked, 10000 char limit
+
+### Home Assistant Integration (Smart Home)
+
+Connects Home Assistant to HEMS for smart home device control and life automation.
+
+- **ha-bridge**: Docker service connecting to HA via REST/WebSocket API
+  - WebSocket: real-time `state_changed` events → MQTT publish
+  - REST API: Brain tool calls → HA service calls
+  - Polling fallback: 30s interval when WebSocket disconnects
+  - Publishes to `hems/home/*` MQTT topics
+- **Deploy**: HA running on host or via Docker, configure `HA_URL` + `HA_TOKEN`
+- **Profile**: `docker compose --profile ha up -d --build`
+- **Brain tools**: `control_light`, `control_climate`, `control_cover`, `get_home_devices`
+- **Schedule learner**: learns arrival/departure/wake patterns from occupancy data
+- **Automation rules**: sleep detection → lights off, pre-arrival HVAC, wake-up curtains
+- **Supported devices**: SwitchBot (via HA), Nature Remo (via HA), any HA integration
+- **Safety**: temperature 16-30, brightness 0-255, position 0-100 range validation
+
+Configure in `.env`:
+```bash
+HA_URL=http://host.docker.internal:8123
+HA_TOKEN=your-long-lived-access-token
+HA_BRIDGE_URL=http://ha-bridge:8000
+```
 
 ## Tech Stack
 

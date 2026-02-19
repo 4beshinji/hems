@@ -58,10 +58,17 @@ class Sanitizer:
             return self._validate_pc_command(arguments)
         elif tool_name == "write_note":
             return self._validate_write_note(arguments)
+        elif tool_name == "control_light":
+            return self._validate_control_light(arguments)
+        elif tool_name == "control_climate":
+            return self._validate_control_climate(arguments)
+        elif tool_name == "control_cover":
+            return self._validate_control_cover(arguments)
         elif tool_name in (
             "get_zone_status", "get_active_tasks", "get_device_status",
             "get_pc_status", "control_browser", "send_pc_notification",
             "get_service_status", "search_notes", "get_recent_notes",
+            "get_home_devices",
         ):
             return {"allowed": True, "reason": ""}
         else:
@@ -188,5 +195,50 @@ class Sanitizer:
             if pattern.search(command):
                 logger.warning(f"Dangerous PC command blocked: {command[:100]}")
                 return {"allowed": False, "reason": "Dangerous command pattern detected"}
+
+        return {"allowed": True, "reason": ""}
+
+    def _validate_control_light(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate control_light parameters."""
+        entity_id = args.get("entity_id", "")
+        if not entity_id:
+            return {"allowed": False, "reason": "Missing entity_id"}
+
+        brightness = args.get("brightness")
+        if brightness is not None and not (0 <= brightness <= 255):
+            return {"allowed": False, "reason": f"Brightness {brightness} out of range (0-255)"}
+
+        color_temp = args.get("color_temp")
+        if color_temp is not None and not (153 <= color_temp <= 500):
+            return {"allowed": False, "reason": f"Color temp {color_temp} out of range (153-500)"}
+
+        return {"allowed": True, "reason": ""}
+
+    def _validate_control_climate(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate control_climate parameters."""
+        entity_id = args.get("entity_id", "")
+        if not entity_id:
+            return {"allowed": False, "reason": "Missing entity_id"}
+
+        _VALID_MODES = {"off", "cool", "heat", "dry", "fan_only", "auto"}
+        mode = args.get("mode")
+        if mode and mode not in _VALID_MODES:
+            return {"allowed": False, "reason": f"Invalid mode '{mode}'. Allowed: {_VALID_MODES}"}
+
+        temperature = args.get("temperature")
+        if temperature is not None and not (16 <= temperature <= 30):
+            return {"allowed": False, "reason": f"Temperature {temperature} out of range (16-30)"}
+
+        return {"allowed": True, "reason": ""}
+
+    def _validate_control_cover(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate control_cover parameters."""
+        entity_id = args.get("entity_id", "")
+        if not entity_id:
+            return {"allowed": False, "reason": "Missing entity_id"}
+
+        position = args.get("position")
+        if position is not None and not (0 <= position <= 100):
+            return {"allowed": False, "reason": f"Position {position} out of range (0-100)"}
 
         return {"allowed": True, "reason": ""}

@@ -12,6 +12,7 @@ from world_model.world_model import (
     CO2_HIGH, TEMP_HIGH, TEMP_LOW, PC_GPU_TEMP_HIGH, PC_DISK_HIGH,
     SEDENTARY_MINUTES,
 )
+from schedule_learner import ScheduleLearner
 
 
 GPU_TYPE = os.getenv("GPU_TYPE", "none")  # amd | nvidia | none
@@ -51,6 +52,9 @@ class RuleEngine:
     # Cooldowns to prevent repeated actions (zone -> last_action_time)
     _cooldowns: dict[str, float] = {}
     COOLDOWN_SECONDS = 300  # 5 minutes
+
+    def __init__(self, schedule_learner: ScheduleLearner | None = None):
+        self.schedule_learner = schedule_learner
 
     def should_use_rules(self) -> bool:
         """Check if we should use rule-based mode instead of LLM."""
@@ -178,6 +182,11 @@ class RuleEngine:
         gas = world_model.gas_state
         if gas.bridge_connected:
             actions.extend(self._evaluate_gas_rules(gas, now))
+
+        # --- Home Assistant rules ---
+        hd = world_model.home_devices
+        if hd.bridge_connected:
+            actions.extend(self._evaluate_home_rules(world_model, now))
 
         return actions
 
@@ -430,6 +439,120 @@ class RuleEngine:
                         "task_type": ["review"],
                     },
                 })
+
+        return actions
+
+    def _evaluate_home_rules(self, world_model, now: float) -> list[dict]:
+        """Evaluate Home Assistant automation rules."""
+        actions = []
+        hd = world_model.home_devices
+        hour = datetime.now().hour
+
+        # --- 1. Sleep detection → lights off ---
+        # Conditions: 23:00-5:00 AND idle AND static posture > 10 min AND lights on
+        if (hour >= 23 or hour < 5):
+            for zone_id, zone in world_model.zones.items():
+                occ = zone.occupancy
+                if (occ.count > 0
+                        and occ.activity_class == "idle"
+                        and occ.posture_status == "static"
+                        and occ.posture_duration_sec > 600):
+                    # Check if any lights are on
+                    lights_on = [eid for eid, l in hd.lights.items() if l.on]
+                    if lights_on and self._check_cooldown_daily(f"ha_sleep_detect_{zone_id}", now):
+                        for eid in lights_on:
+                            actions.append({
+                                "tool": "control_light",
+                                "args": {"entity_id": eid, "on": False},
+                            })
+                        actions.append({
+                            "tool": "speak",
+                            "args": {
+                                "message": "おやすみなさい。照明を消しますね。",
+                                "zone": zone_id,
+                                "tone": "caring",
+                            },
+                        })
+
+        # --- 2. Pre-arrival HVAC ---
+        # Conditions: nobody home AND predicted arrival in 30 min
+        if self.schedule_learner:
+            calendar_events = None
+            if world_model.gas_state.bridge_connected:
+                calendar_events = world_model.gas_state.calendar_events
+
+            predicted_arrival = self.schedule_learner.predict_next_arrival(calendar_events)
+            if predicted_arrival:
+                minutes_until = (predicted_arrival - now) / 60
+                all_away = all(z.occupancy.count == 0 for z in world_model.zones.values())
+
+                if all_away and 0 < minutes_until <= 30:
+                    if self._check_cooldown("ha_prearrival_hvac", now):
+                        # Determine season from month
+                        month = datetime.now().month
+                        if 6 <= month <= 9:
+                            mode, temp = "cool", 26
+                        elif month <= 3 or month >= 11:
+                            mode, temp = "heat", 22
+                        else:
+                            mode, temp = "auto", 24
+
+                        for eid in hd.climates:
+                            actions.append({
+                                "tool": "control_climate",
+                                "args": {"entity_id": eid, "mode": mode, "temperature": temp},
+                            })
+                        actions.append({
+                            "tool": "speak",
+                            "args": {
+                                "message": f"もうすぐ帰宅ですね。エアコンを{mode}モード{temp}度でつけました。",
+                                "zone": "home",
+                                "tone": "caring",
+                            },
+                        })
+
+        # --- 3. Wake-up curtain → natural light ---
+        # Conditions: 60 min before predicted wake AND covers closed
+        if self.schedule_learner:
+            calendar_events = None
+            if world_model.gas_state.bridge_connected:
+                calendar_events = world_model.gas_state.calendar_events
+
+            wake_time = self.schedule_learner.get_wake_time(calendar_events)
+            if wake_time:
+                minutes_until_wake = (wake_time - now) / 60
+                if 0 < minutes_until_wake <= 60:
+                    closed_covers = [eid for eid, c in hd.covers.items() if not c.is_open]
+                    if closed_covers and self._check_cooldown_daily("ha_wake_curtain", now):
+                        for eid in closed_covers:
+                            actions.append({
+                                "tool": "control_cover",
+                                "args": {"entity_id": eid, "action": "open"},
+                            })
+
+        # --- 4. Wake-up detection → lights on + morning greeting ---
+        # Conditions: 5:00-10:00 AND activity transitions from idle to low/moderate
+        if 5 <= hour < 10:
+            for zone_id, zone in world_model.zones.items():
+                occ = zone.occupancy
+                if (occ.count > 0
+                        and occ.activity_class in ("low", "moderate", "high")
+                        and self._check_cooldown_daily(f"ha_wake_detect_{zone_id}", now)):
+                    lights_off = [eid for eid, l in hd.lights.items() if not l.on]
+                    if lights_off:
+                        for eid in lights_off:
+                            actions.append({
+                                "tool": "control_light",
+                                "args": {"entity_id": eid, "on": True, "brightness": 255},
+                            })
+                    actions.append({
+                        "tool": "speak",
+                        "args": {
+                            "message": "おはようございます。",
+                            "zone": zone_id,
+                            "tone": "neutral",
+                        },
+                    })
 
         return actions
 

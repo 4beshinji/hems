@@ -7,7 +7,7 @@ Obsidian: search_notes, write_note, get_recent_notes
 
 
 def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
-              obsidian_enabled: bool = False) -> list:
+              obsidian_enabled: bool = False, ha_enabled: bool = False) -> list:
     tools = [
         {
             "type": "function",
@@ -124,13 +124,17 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
     if obsidian_enabled:
         tools.extend(_get_obsidian_tools())
 
+    if ha_enabled:
+        tools.extend(_get_ha_tools())
+
     return tools
 
 
 def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = False,
-                   obsidian_enabled: bool = False) -> list:
+                   obsidian_enabled: bool = False, ha_enabled: bool = False) -> list:
     """Return list of all enabled tool names."""
-    return [t["function"]["name"] for t in get_tools(openclaw_enabled, services_enabled, obsidian_enabled)]
+    return [t["function"]["name"] for t in get_tools(openclaw_enabled, services_enabled,
+                                                      obsidian_enabled, ha_enabled)]
 
 
 def _get_service_tools() -> list:
@@ -290,6 +294,85 @@ def _get_pc_tools() -> list:
                         },
                     },
                     "required": ["title", "body"],
+                },
+            },
+        },
+    ]
+
+
+def _get_ha_tools() -> list:
+    """Home Assistant tools — only included when HA bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "control_light",
+                "description": "照明を制御する。ON/OFF、明るさ、色温度を設定可能。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {"type": "string", "description": "HA entity_id (例: light.living_room)"},
+                        "on": {"type": "boolean", "description": "ON/OFF"},
+                        "brightness": {"type": "integer", "description": "明るさ (0-255)", "minimum": 0, "maximum": 255},
+                        "color_temp": {"type": "integer", "description": "色温度 (mirek, 153-500)", "minimum": 153, "maximum": 500},
+                    },
+                    "required": ["entity_id", "on"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "control_climate",
+                "description": "エアコン・空調を制御する。モード、温度、風量を設定可能。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {"type": "string", "description": "HA entity_id (例: climate.living_room)"},
+                        "mode": {
+                            "type": "string",
+                            "enum": ["off", "cool", "heat", "dry", "fan_only", "auto"],
+                            "description": "運転モード",
+                        },
+                        "temperature": {"type": "number", "description": "設定温度 (16-30)", "minimum": 16, "maximum": 30},
+                        "fan_mode": {
+                            "type": "string",
+                            "enum": ["auto", "low", "medium", "high"],
+                            "description": "風量",
+                        },
+                    },
+                    "required": ["entity_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "control_cover",
+                "description": "カーテン・ブラインドを制御する。開閉またはポジション指定が可能。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {"type": "string", "description": "HA entity_id (例: cover.living_room)"},
+                        "action": {
+                            "type": "string",
+                            "enum": ["open", "close", "stop"],
+                            "description": "開閉操作",
+                        },
+                        "position": {"type": "integer", "description": "ポジション (0=閉, 100=全開)", "minimum": 0, "maximum": 100},
+                    },
+                    "required": ["entity_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_home_devices",
+                "description": "スマートホームデバイスの状態一覧を取得する。照明、エアコン、カーテン等の現在の状態を確認する。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
                 },
             },
         },

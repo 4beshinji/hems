@@ -1,5 +1,6 @@
 """
-Data classes for HEMS WorldModel — zone state, environment, events, PC state.
+Data classes for HEMS WorldModel — zone state, environment, events, PC state,
+Home Assistant smart home devices.
 """
 from dataclasses import dataclass, field
 from typing import Optional
@@ -233,6 +234,130 @@ class PCState:
     bridge_connected: bool = False
     events: list[Event] = field(default_factory=list)
     max_events: int = 50
+
+    def add_event(self, event: Event):
+        self.events.append(event)
+        if len(self.events) > self.max_events:
+            self.events = self.events[-self.max_events:]
+
+
+# --- GAS State (Google Apps Script integration) ---
+
+@dataclass
+class CalendarEvent:
+    id: str = ""
+    title: str = ""
+    start: str = ""
+    end: str = ""
+    location: str = ""
+    calendar_name: str = ""
+    is_all_day: bool = False
+    description: str = ""
+    start_ts: float = 0  # UNIX timestamp (parsed)
+    end_ts: float = 0
+
+
+@dataclass
+class FreeSlot:
+    start: str = ""
+    end: str = ""
+    duration_minutes: int = 0
+
+
+@dataclass
+class GoogleTask:
+    id: str = ""
+    title: str = ""
+    notes: str = ""
+    due: str = ""
+    status: str = ""
+    list_name: str = ""
+    is_overdue: bool = False
+
+
+@dataclass
+class GmailLabel:
+    name: str = ""
+    unread: int = 0
+    total: int = 0
+
+
+@dataclass
+class DriveFile:
+    name: str = ""
+    mime_type: str = ""
+    modified_time: str = ""
+    url: str = ""
+
+
+@dataclass
+class SheetData:
+    name: str = ""
+    values: list = field(default_factory=list)
+    headers: list = field(default_factory=list)
+    last_update: float = 0
+
+
+@dataclass
+class GASState:
+    calendar_events: list[CalendarEvent] = field(default_factory=list)
+    free_slots: list[FreeSlot] = field(default_factory=list)
+    tasks: list[GoogleTask] = field(default_factory=list)
+    gmail_labels: dict[str, GmailLabel] = field(default_factory=dict)
+    gmail_recent: list[dict] = field(default_factory=list)
+    sheets: dict[str, SheetData] = field(default_factory=dict)
+    drive_recent: list[DriveFile] = field(default_factory=list)
+    bridge_connected: bool = False
+    last_calendar_update: float = 0
+    last_tasks_update: float = 0
+    last_gmail_update: float = 0
+    events: list[Event] = field(default_factory=list)
+    max_events: int = 30
+
+    def add_event(self, event: Event):
+        self.events.append(event)
+        if len(self.events) > self.max_events:
+            self.events = self.events[-self.max_events:]
+
+
+# --- Home Devices State (Home Assistant integration) ---
+
+@dataclass
+class LightState:
+    entity_id: str = ""
+    on: bool = False
+    brightness: int = 0        # 0-255
+    color_temp: int = 0        # mirek
+    last_update: float = 0
+
+
+@dataclass
+class ClimateState:
+    entity_id: str = ""
+    mode: str = "off"          # off, cool, heat, dry, fan_only, auto
+    target_temp: float = 0
+    current_temp: float = 0
+    fan_mode: str = "auto"
+    last_update: float = 0
+
+
+@dataclass
+class CoverState:
+    entity_id: str = ""
+    position: int = 0          # 0=closed, 100=open
+    is_open: bool = False
+    last_update: float = 0
+
+
+@dataclass
+class HomeDevicesState:
+    lights: dict[str, LightState] = field(default_factory=dict)
+    climates: dict[str, ClimateState] = field(default_factory=dict)
+    covers: dict[str, CoverState] = field(default_factory=dict)
+    switches: dict[str, bool] = field(default_factory=dict)
+    bridge_connected: bool = False
+    events: list[Event] = field(default_factory=list)
+    max_events: int = 30
 
     def add_event(self, event: Event):
         self.events.append(event)

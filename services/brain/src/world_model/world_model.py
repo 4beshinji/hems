@@ -12,6 +12,7 @@ from .data_classes import (
     ServicesState, ServiceStatusData,
     KnowledgeState,
     GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
+    HomeDevicesState, LightState, ClimateState, CoverState,
 )
 from .sensor_fusion import SensorFusion
 
@@ -48,6 +49,7 @@ class WorldModel:
         self.services_state: ServicesState = ServicesState()
         self.knowledge_state: KnowledgeState = KnowledgeState()
         self.gas_state: GASState = GASState()
+        self.home_devices: HomeDevicesState = HomeDevicesState()
         self._sensor_fusions: dict[str, SensorFusion] = {}
         self.event_writer = None  # Set by Brain if event_store is available
 
@@ -165,6 +167,10 @@ class WorldModel:
         # hems/services/{name}/status (Service Monitor)
         elif parts[0] == "hems" and len(parts) >= 4 and parts[1] == "services":
             self._update_service_state(parts[2], parts[3], payload)
+
+        # hems/home/* topics (HA bridge)
+        elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "home":
+            self._update_home_device(parts[2:], payload)
 
         # hems/gas/* topics (GAS bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "gas":
@@ -539,6 +545,50 @@ class WorldModel:
         if category == "notes" and len(path_parts) >= 2:
             self._update_knowledge_state(path_parts[1], payload)
 
+    def _update_home_device(self, path_parts: list[str], payload: dict):
+        """Handle hems/home/{zone}/{domain}/{entity_id}/state topics from HA bridge."""
+        # hems/home/bridge/status
+        if len(path_parts) >= 2 and path_parts[0] == "bridge" and path_parts[1] == "status":
+            self.home_devices.bridge_connected = payload.get("connected", False)
+            return
+
+        # hems/home/{zone}/{domain}/{entity_id}/state
+        if len(path_parts) < 3:
+            return
+
+        domain = path_parts[1] if len(path_parts) >= 2 else ""
+        entity_id = path_parts[2] if len(path_parts) >= 3 else ""
+        now = time.time()
+        hd = self.home_devices
+        hd.bridge_connected = True
+
+        if domain == "light":
+            hd.lights[entity_id] = LightState(
+                entity_id=entity_id,
+                on=payload.get("on", payload.get("state") == "on"),
+                brightness=payload.get("brightness", 0),
+                color_temp=payload.get("color_temp", 0),
+                last_update=now,
+            )
+        elif domain == "climate":
+            hd.climates[entity_id] = ClimateState(
+                entity_id=entity_id,
+                mode=payload.get("hvac_mode", payload.get("state", "off")),
+                target_temp=payload.get("temperature", 0) or 0,
+                current_temp=payload.get("current_temperature", 0) or 0,
+                fan_mode=payload.get("fan_mode", "auto"),
+                last_update=now,
+            )
+        elif domain == "cover":
+            hd.covers[entity_id] = CoverState(
+                entity_id=entity_id,
+                position=payload.get("current_position", 0),
+                is_open=payload.get("is_open", payload.get("state") == "open"),
+                last_update=now,
+            )
+        elif domain == "switch":
+            hd.switches[entity_id] = payload.get("on", payload.get("state") == "on")
+
     def _update_knowledge_state(self, msg_type: str, payload: dict):
         """Handle hems/personal/notes/stats and hems/personal/notes/changed."""
         ks = self.knowledge_state
@@ -666,6 +716,56 @@ class WorldModel:
                 gas_parts.append(f"  空き時間(2h+): {len(long_slots)}スロット")
 
             lines.append("\n".join(gas_parts))
+
+        # Home devices (HA integration)
+        hd = self.home_devices
+        if hd.bridge_connected:
+            home_parts = ["### スマートホーム"]
+            # Lights
+            lights_on = [l for l in hd.lights.values() if l.on]
+            lights_off = [l for l in hd.lights.values() if not l.on]
+            if lights_on:
+                for l in lights_on:
+                    name = l.entity_id.split(".")[-1] if "." in l.entity_id else l.entity_id
+                    pct = int(l.brightness / 255 * 100) if l.brightness else 100
+                    home_parts.append(f"  照明: {name} ON({pct}%)")
+            if lights_off:
+                names = ", ".join(
+                    l.entity_id.split(".")[-1] if "." in l.entity_id else l.entity_id
+                    for l in lights_off
+                )
+                home_parts.append(f"  照明: {names} OFF")
+
+            # Climate
+            for c in hd.climates.values():
+                name = c.entity_id.split(".")[-1] if "." in c.entity_id else c.entity_id
+                mode_names = {"off": "停止", "cool": "冷房", "heat": "暖房",
+                              "dry": "除湿", "fan_only": "送風", "auto": "自動"}
+                mode_ja = mode_names.get(c.mode, c.mode)
+                temp_str = f"{c.target_temp:.0f}°C" if c.target_temp else ""
+                curr_str = f" (室温{c.current_temp:.1f}°C)" if c.current_temp else ""
+                home_parts.append(f"  エアコン: {name} {mode_ja}{temp_str}{curr_str}")
+
+            # Covers
+            for cv in hd.covers.values():
+                name = cv.entity_id.split(".")[-1] if "." in cv.entity_id else cv.entity_id
+                status = "全開" if cv.position >= 95 else "閉" if cv.position <= 5 else f"{cv.position}%"
+                home_parts.append(f"  カーテン: {name} {status}")
+
+            # Switches
+            if hd.switches:
+                on_switches = [k.split(".")[-1] if "." in k else k
+                               for k, v in hd.switches.items() if v]
+                off_switches = [k.split(".")[-1] if "." in k else k
+                                for k, v in hd.switches.items() if not v]
+                if on_switches:
+                    home_parts.append(f"  スイッチ: {', '.join(on_switches)} ON")
+                if off_switches:
+                    home_parts.append(f"  スイッチ: {', '.join(off_switches)} OFF")
+
+            if not hd.bridge_connected:
+                home_parts.append("  ⚠ HAブリッジ: 切断中")
+            lines.append("\n".join(home_parts))
 
         # Knowledge base (lightweight metadata only)
         ks = self.knowledge_state

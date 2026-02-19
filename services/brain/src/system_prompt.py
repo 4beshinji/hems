@@ -6,7 +6,8 @@ from dataclasses import fields as dc_fields
 
 def build_system_message(character=None, openclaw_enabled: bool = False,
                          services_enabled: bool = False,
-                         obsidian_enabled: bool = False) -> dict:
+                         obsidian_enabled: bool = False,
+                         ha_enabled: bool = False) -> dict:
     """Build system message with safety rules + character personality.
 
     Args:
@@ -14,6 +15,7 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
         openclaw_enabled: Whether OpenClaw PC tools are available.
         services_enabled: Whether service monitor tools are available.
         obsidian_enabled: Whether Obsidian knowledge tools are available.
+        ha_enabled: Whether Home Assistant smart home tools are available.
     """
 
     # Base safety rules (NOT overridable by character)
@@ -126,6 +128,22 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 - 書き込みはHEMS/ディレクトリ配下のみ許可
 - ユーザーのプライベートノートは読み取りのみ、書き換え禁止
 - 検索は具体的なキーワードで。曖昧な全文検索は避ける"""
+
+    if ha_enabled:
+        base += """
+
+## スマートホーム（Home Assistant連携）
+- control_light: 照明ON/OFF、明るさ(0-255)、色温度(153-500)を設定
+- control_climate: エアコンのモード(off/cool/heat/dry/fan_only/auto)、温度(16-30)、風量を設定
+- control_cover: カーテン/ブラインドの開閉、ポジション(0-100)を設定
+- get_home_devices: 全スマートホームデバイスの状態を取得
+
+## スマートホーム制御ルール
+- 就寝検知時（深夜+長時間静止）は照明を消灯する
+- 帰宅予測30分前にエアコンを適温で起動する（夏:冷房26°C、冬:暖房22°C）
+- 起床予測60分前にカーテンを開ける
+- エアコンの設定温度は16-30度の範囲内に制限する
+- 在室中のデバイス制御は状況に応じて判断する（いきなり消灯しない等）"""
 
     # Character injection
     if character:

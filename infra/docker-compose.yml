@@ -51,6 +51,8 @@ services:
       - ROOMS=${ROOMS:-living_room}
       - OPENCLAW_BRIDGE_URL=${OPENCLAW_BRIDGE_URL:-}
       - OBSIDIAN_BRIDGE_URL=${OBSIDIAN_BRIDGE_URL:-}
+      - GAS_BRIDGE_URL=${GAS_BRIDGE_URL:-}
+      - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
     volumes:
       - ../services/brain/src:/app
       - ../config:/config:ro
@@ -231,6 +233,84 @@ services:
     volumes:
       - ../services/obsidian-bridge/src:/app
       - ${OBSIDIAN_VAULT_PATH:-/tmp/hems-vault}:/vault
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # --- GAS Bridge (Google Apps Script integration) ---
+  gas-bridge:
+    build: ../services/gas-bridge
+    container_name: hems-gas-bridge
+    restart: always
+    profiles: ["gas"]
+    ports:
+      - "${HEMS_PORT_GAS_BRIDGE:-8015}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - GAS_WEBAPP_URL=${GAS_WEBAPP_URL:-}
+      - GAS_API_KEY=${GAS_API_KEY:-}
+      - HEMS_GAS_CALENDAR_INTERVAL=${HEMS_GAS_CALENDAR_INTERVAL:-120}
+      - HEMS_GAS_TASKS_INTERVAL=${HEMS_GAS_TASKS_INTERVAL:-300}
+      - HEMS_GAS_GMAIL_INTERVAL=${HEMS_GAS_GMAIL_INTERVAL:-300}
+      - HEMS_GAS_SHEETS_INTERVAL=${HEMS_GAS_SHEETS_INTERVAL:-600}
+      - HEMS_GAS_DRIVE_INTERVAL=${HEMS_GAS_DRIVE_INTERVAL:-600}
+      - HEMS_GAS_SHEETS=${HEMS_GAS_SHEETS:-}
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-hems}
+      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/gas-bridge/src:/app
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # --- Home Assistant (Smart home hub) ---
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: hems-homeassistant
+    profiles: ["ha"]
+    volumes:
+      - ${HEMS_HA_CONFIG_PATH:-./ha-config}:/config
+    network_mode: host
+    restart: unless-stopped
+
+  # --- HA Bridge (Home Assistant integration) ---
+  ha-bridge:
+    build: ../services/ha-bridge
+    container_name: hems-ha-bridge
+    restart: always
+    profiles: ["ha"]
+    ports:
+      - "${HEMS_PORT_HA_BRIDGE:-8016}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - HA_URL=${HA_URL:-http://host.docker.internal:8123}
+      - HA_TOKEN=${HA_TOKEN:-}
+      - HEMS_HA_ENTITY_MAP=${HEMS_HA_ENTITY_MAP:-{}}
+      - HEMS_HA_POLL_INTERVAL=${HEMS_HA_POLL_INTERVAL:-30}
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-hems}
+      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/ha-bridge/src:/app
     networks:
       - hems-net
     healthcheck:
