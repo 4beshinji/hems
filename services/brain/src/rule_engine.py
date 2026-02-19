@@ -112,6 +112,33 @@ class RuleEngine:
                         },
                     })
 
+        # --- PC rules ---
+        pc = world_model.pc_state
+        if pc.gpu.temp_c > 85 and self._check_cooldown("pc_gpu_hot", now):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": f"GPU温度が{pc.gpu.temp_c:.0f}度です。負荷を下げてください。",
+                    "zone": "pc",
+                    "tone": "alert",
+                },
+            })
+
+        if pc.disk.partitions:
+            for p in pc.disk.partitions:
+                if p.percent > 90 and self._check_cooldown(f"pc_disk_{p.mount}", now):
+                    actions.append({
+                        "tool": "create_task",
+                        "args": {
+                            "title": f"ディスク容量不足: {p.mount}",
+                            "description": f"{p.mount}の使用率が{p.percent:.0f}%です。不要ファイルを削除してください。",
+                            "xp_reward": 100,
+                            "urgency": 2,
+                            "zone": "pc",
+                            "task_type": ["maintenance"],
+                        },
+                    })
+
         return actions
 
     def _check_cooldown(self, key: str, now: float) -> bool:
