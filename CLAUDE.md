@@ -154,7 +154,7 @@ cp config/character.yaml.example config/character.yaml
 # Hot-reload: mosquitto_pub -t hems/brain/reload-character -m reload
 ```
 
-Templates: `default`, `tsundere`, `gentle-senpai`, `butler`
+Templates: `ene` (default), `tsundere`, `gentle-senpai`, `butler`, `default`
 Validator: `python validate_character.py config/character.yaml`
          `python validate_character.py --all`   # validate all templates
          `python validate_character.py --list`  # list available templates
