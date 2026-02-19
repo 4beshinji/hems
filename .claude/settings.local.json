@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git log:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nmerge: incorporate SOMS upstream improvements into HEMS fork\n\nMerge SOMS main branch into hems-main, selectively adopting upstream\nfeatures and fixes while preserving all HEMS-specific functionality.\n\nAdopted from SOMS:\n- Guard 4 title similarity check for create_task deduplication\n- actionable_reports for task_report follow-up handling\n- Humidity suppression keywords in alert system\n- expires_in_minutes task-type-aware expiry logic\n- get_device_status / get_active_tasks tools\n- Full DeviceRegistry \\(utility score, adaptive timeout, device tree\\)\n- Per-sensor-type SensorFusion \\(half-life, reliability weighting\\)\n- Event store: async lock, per-channel stats, source_device column\n- MCP bridge: thread-safe response handling, error propagation\n- Sanitizer: device allowlist, temperature/pump safety limits\n- System prompt: task_report handling, device network management guide\n- is_stuffy / thermal_comfort properties on EnvironmentData\n- Dashboard client: get_task_stats\\(\\), better session management\n\nPreserved HEMS-specific:\n- YAML character system with hot-reload\n- Plugin TTS \\(espeak, VOICEVOX, Edge TTS\\)\n- OpenClaw / Obsidian integration\n- SQLite default \\(dual DDL\\)\n- Rule engine GPU fallback\n- xp_reward vocabulary \\(not bounty\\)\n- HEMS port offsets and container naming\n\nExcluded SOMS-only components \\(intentionally removed in HEMS fork\\):\n- services/wallet/, services/wallet-app/ \\(replaced by XP points\\)\n- services/perception/ \\(deferred to Phase 4\\)\n- services/dashboard/ \\(restructured to services/backend + frontend\\)\n- wallet_bridge, rejection_stock, currency_unit_stock, voicevox_client\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}

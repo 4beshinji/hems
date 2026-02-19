@@ -1,0 +1,36 @@
+monitors:
+  - name: occupancy_meeting_room
+    type: OccupancyMonitor
+    camera_id: camera_node_01
+    zone_name: meeting_room_a
+    enabled: true
+
+  - name: whiteboard_meeting_room
+    type: WhiteboardMonitor
+    camera_id: camera_node_01
+    zone_name: meeting_room_a
+    enabled: true
+
+discovery:
+  enabled: true
+  network: "192.168.128.0/24"
+  timeout: 3.0
+  verify_yolo: true
+  default_interval_sec: 10.0
+  exclude_ips:
+    - "192.168.128.1"
+    - "192.168.128.161"
+  zone_map:
+    "192.168.128.172": "kitchen"
+    "192.168.128.173": "meeting_room_b"
+    "192.168.128.177": "desk_area_a"
+    "192.168.128.178": "entrance"
+
+yolo:
+  model: yolo11s.pt
+  pose_model: yolo11s-pose.pt
+  device: 0  # GPU 0
+
+mqtt:
+  broker: localhost
+  port: 1883
