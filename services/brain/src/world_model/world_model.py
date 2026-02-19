@@ -8,6 +8,7 @@ from .data_classes import (
     ZoneState, EnvironmentData, OccupancyData, Event,
     PCState, CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
     ServicesState, ServiceStatusData,
+    KnowledgeState,
 )
 from .sensor_fusion import SensorFusion
 
@@ -42,6 +43,7 @@ class WorldModel:
         self.zones: dict[str, ZoneState] = {}
         self.pc_state: PCState = PCState()
         self.services_state: ServicesState = ServicesState()
+        self.knowledge_state: KnowledgeState = KnowledgeState()
         self._sensor_fusions: dict[str, SensorFusion] = {}
         self.event_writer = None  # Set by Brain if event_store is available
 
@@ -379,9 +381,38 @@ class WorldModel:
             ))
 
     def _update_personal(self, path_parts: list[str], payload: dict):
-        """Handle hems/personal/* topics (Phase 2 stub)."""
-        # Will be expanded when data-bridge is implemented
-        pass
+        """Handle hems/personal/* topics."""
+        if not path_parts:
+            return
+        category = path_parts[0]
+
+        # hems/personal/notes/* (Obsidian bridge)
+        if category == "notes" and len(path_parts) >= 2:
+            self._update_knowledge_state(path_parts[1], payload)
+
+    def _update_knowledge_state(self, msg_type: str, payload: dict):
+        """Handle hems/personal/notes/stats and hems/personal/notes/changed."""
+        ks = self.knowledge_state
+
+        if msg_type == "stats":
+            ks.total_notes = payload.get("total_notes", 0)
+            ks.indexed = payload.get("indexed", 0)
+            ks.bridge_connected = True
+
+        elif msg_type == "changed":
+            ks.bridge_connected = True
+            change = {
+                "path": payload.get("path", ""),
+                "title": payload.get("title", ""),
+                "action": payload.get("action", ""),
+            }
+            ks.add_recent_change(change)
+            ks.add_event(Event(
+                event_type="note_changed",
+                description=f"ノート変更: {change['title']} ({change['action']})",
+                severity=0,
+                data=payload,
+            ))
 
     def get_llm_context(self) -> str:
         """Build text context for LLM from current world state."""
@@ -444,6 +475,16 @@ class WorldModel:
                 else:
                     svc_parts.append(f"  {name}: {svc.summary}")
             lines.append("\n".join(svc_parts))
+
+        # Knowledge base (lightweight metadata only)
+        ks = self.knowledge_state
+        if ks.bridge_connected:
+            kb_parts = ["### ナレッジベース"]
+            kb_parts.append(f"  ノート数: {ks.total_notes}")
+            if ks.recent_changes:
+                last = ks.recent_changes[-1]
+                kb_parts.append(f"  最終変更: {last['title']}")
+            lines.append("\n".join(kb_parts))
 
         if not lines:
             return ""

@@ -190,6 +190,28 @@ class DashboardClient:
         except Exception as e:
             logger.debug(f"Services snapshot push error: {e}")
 
+    async def push_knowledge_snapshot(self, world_model) -> None:
+        """Push current knowledge base status to backend for frontend consumption."""
+        ks = world_model.knowledge_state
+        if not ks.bridge_connected:
+            return
+
+        payload = {
+            "total_notes": ks.total_notes,
+            "indexed": ks.indexed,
+            "bridge_connected": ks.bridge_connected,
+            "recent_changes": ks.recent_changes[-5:],
+        }
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/knowledge/snapshot",
+                json=payload, timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Knowledge snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Knowledge snapshot push error: {e}")
+
     async def push_zone_snapshot(self, world_model) -> None:
         """Push current zone sensor data to backend for frontend consumption."""
         zones = []

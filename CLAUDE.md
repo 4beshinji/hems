@@ -27,6 +27,9 @@ docker compose --profile postgres up -d --build
 # With OpenClaw desktop agent (PC metrics + service monitor)
 docker compose --profile openclaw up -d --build
 
+# With Obsidian knowledge store
+docker compose --profile obsidian up -d --build
+
 # Rebuild a single service
 docker compose up -d --build <service-name>
 
@@ -36,7 +39,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`
+Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`, `obsidian`
 
 ### Frontend Development
 
@@ -60,6 +63,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Mock LLM | 8011 | `HEMS_PORT_MOCK_LLM` | hems-mock-llm |
 | Voice Service | 8012 | `HEMS_PORT_VOICE` | hems-voice |
 | OpenClaw Bridge | 8013 | `HEMS_PORT_OPENCLAW_BRIDGE` | hems-openclaw-bridge |
+| Obsidian Bridge | 8014 | `HEMS_PORT_OBSIDIAN_BRIDGE` | hems-obsidian-bridge |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -79,6 +83,10 @@ hems/pc/bridge/status
 # Service monitor (OpenClaw bridge)
 hems/services/{name}/status
 hems/services/{name}/event
+
+# Knowledge store (Obsidian bridge)
+hems/personal/notes/changed
+hems/personal/notes/stats
 
 # Personal data (Phase 2: data-bridge)
 hems/personal/calendar/{id}/events
@@ -101,6 +109,7 @@ hems/brain/reload-character
 - 4 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`
 - OpenClaw tools (profile `openclaw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
 - Service monitor tool (when data available): `get_service_status`
+- Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
 
 ### OpenClaw Bridge (profile: `openclaw`)
 
@@ -157,6 +166,34 @@ Validator: `python validate_character.py config/character.yaml`
 - Backend: Task, User, PointLog, VoiceEvent, SystemStats
 - Brain event_store: raw_events, llm_decisions, hourly_aggregates (SOMS-compatible)
 - Retention: 730 days (2 years) for raw_events and llm_decisions
+
+### OpenClaw Integration (Desktop Agent)
+
+Bridges physical environment management with PC/desktop control via [OpenClaw](https://github.com/openclaw/openclaw).
+
+- **openclaw-bridge**: Docker service connecting to OpenClaw Gateway via WebSocket
+  - Polls PC metrics (CPU, memory, GPU, disk, temperatures) every 10s
+  - Publishes to `hems/pc/*` MQTT topics
+  - REST API for brain tools to execute commands, send notifications, control browser
+- **Deploy**: OpenClaw runs on host OS (needs desktop access), bridge connects via `host.docker.internal:18789`
+- **Profile**: `docker compose --profile openclaw up -d --build`
+- **Brain tools**: `get_pc_status`, `run_pc_command` (with dangerous command blocklist), `control_browser`, `send_pc_notification`
+- **Safety**: Destructive commands (`rm -rf /`, `mkfs`, `shutdown`, etc.) are blocked by sanitizer
+
+### Obsidian Integration (Knowledge Store)
+
+Connects Obsidian vault to HEMS Brain for bidirectional knowledge access.
+
+- **obsidian-bridge**: Docker service with watchdog file monitoring
+  - Indexes vault `.md` files with TF-IDF keyword search
+  - Watches for file changes, publishes to `hems/personal/notes/*` MQTT topics
+  - REST API for search, read, write operations
+- **Deploy**: Mount vault directory, bridge indexes on startup
+- **Profile**: `docker compose --profile obsidian up -d --build`
+- **Brain tools**: `search_notes` (vault search), `write_note` (HEMS/ directory only), `get_recent_notes`
+- **Writeback**: Decision logs (`HEMS/decisions/`) and learning memos (`HEMS/learnings/`) auto-generated
+- **Token budget**: Only metadata in LLM context (~30 tokens); full content via on-demand `search_notes`
+- **Safety**: Write restricted to `HEMS/` subdirectory, path traversal blocked, 10000 char limit
 
 ## Tech Stack
 

@@ -5,7 +5,8 @@ OpenClaw: get_pc_status, run_pc_command, control_browser, send_pc_notification
 """
 
 
-def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False) -> list:
+def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
+              obsidian_enabled: bool = False) -> list:
     tools = [
         {
             "type": "function",
@@ -91,6 +92,9 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False) ->
     if services_enabled:
         tools.extend(_get_service_tools())
 
+    if obsidian_enabled:
+        tools.extend(_get_obsidian_tools())
+
     return tools
 
 
@@ -109,6 +113,67 @@ def _get_service_tools() -> list:
                             "type": "string",
                             "description": "サービス名（例: gmail, github）。省略で全サービス取得",
                         },
+                    },
+                },
+            },
+        },
+    ]
+
+
+def _get_obsidian_tools() -> list:
+    """Obsidian knowledge base tools — only included when obsidian-bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_notes",
+                "description": "Obsidianのノートをキーワード・タグ・パスで検索する。判断に追加コンテキストが必要な場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "検索キーワード"},
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "タグフィルター（例: ['daily', 'project']）",
+                        },
+                        "path_prefix": {"type": "string", "description": "パスプレフィックスフィルター（例: 'projects/'）"},
+                        "max_results": {"type": "integer", "description": "最大結果数", "default": 5, "maximum": 10},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "write_note",
+                "description": "HEMS/配下にメモを書き込む。学習結果・分析・記録の保存に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "ノートタイトル"},
+                        "content": {"type": "string", "description": "ノート本文（Markdown）"},
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "タグ（例: ['hems', 'analysis']）",
+                        },
+                        "category": {"type": "string", "description": "カテゴリ（例: 'decisions', 'learnings'）"},
+                    },
+                    "required": ["title", "content"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_recent_notes",
+                "description": "最近変更されたノートの一覧を取得する。ユーザーの最近の活動を把握する場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "取得件数", "default": 5, "maximum": 20},
                     },
                 },
             },

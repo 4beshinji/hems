@@ -39,7 +39,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from routers import tasks, voice_events, points, users, zones, pc, services
+from routers import tasks, voice_events, points, users, zones, pc, services, knowledge
 
 app.include_router(tasks.router)
 app.include_router(voice_events.router)
@@ -48,6 +48,7 @@ app.include_router(users.router)
 app.include_router(zones.router)
 app.include_router(pc.router)
 app.include_router(services.router)
+app.include_router(knowledge.router)
 
 
 @app.get("/")

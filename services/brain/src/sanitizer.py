@@ -40,9 +40,11 @@ class Sanitizer:
             return self._validate_speak(arguments)
         elif tool_name == "run_pc_command":
             return self._validate_pc_command(arguments)
+        elif tool_name == "write_note":
+            return self._validate_write_note(arguments)
         elif tool_name in ("send_device_command", "get_zone_status",
                            "get_pc_status", "control_browser", "send_pc_notification",
-                           "get_service_status"):
+                           "get_service_status", "search_notes", "get_recent_notes"):
             return {"allowed": True, "reason": ""}
         else:
             return {"allowed": False, "reason": f"Unknown tool: {tool_name}"}
@@ -87,6 +89,25 @@ class Sanitizer:
             return {"allowed": False, "reason": f"Speak cooldown for zone '{zone}': {remaining}s remaining"}
 
         self._speak_cooldowns[zone] = now
+        return {"allowed": True, "reason": ""}
+
+    def _validate_write_note(self, args: dict) -> dict:
+        title = args.get("title", "")
+        if not title:
+            return {"allowed": False, "reason": "Empty title"}
+
+        # Path traversal prevention
+        if ".." in title or title.startswith("/"):
+            return {"allowed": False, "reason": "Path traversal detected in title"}
+
+        category = args.get("category", "")
+        if category and (".." in category or "/" in category):
+            return {"allowed": False, "reason": "Path traversal detected in category"}
+
+        content = args.get("content", "")
+        if len(content) > 10000:
+            return {"allowed": False, "reason": f"Content too long ({len(content)} > 10000)"}
+
         return {"allowed": True, "reason": ""}
 
     def _validate_pc_command(self, args: dict) -> dict:

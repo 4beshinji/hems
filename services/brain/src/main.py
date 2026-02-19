@@ -33,6 +33,8 @@ MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 LLM_API_URL = os.getenv("LLM_API_URL", "http://mock-llm:8000/v1")
 OPENCLAW_BRIDGE_URL = os.getenv("OPENCLAW_BRIDGE_URL", "")
 OPENCLAW_ENABLED = bool(OPENCLAW_BRIDGE_URL)
+OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
+OBSIDIAN_ENABLED = bool(OBSIDIAN_BRIDGE_URL)
 
 REACT_MAX_ITERATIONS = 5
 CYCLE_INTERVAL = 30
@@ -59,6 +61,12 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return "pc_status"
     elif tool_name == "get_service_status":
         return f"service={args.get('service_name', 'all')}"
+    elif tool_name == "search_notes":
+        return f"query={args.get('query', '')[:30]}"
+    elif tool_name == "write_note":
+        return f"title={args.get('title', '')[:30]}"
+    elif tool_name == "get_recent_notes":
+        return f"limit={args.get('limit', 5)}"
     return str(args)[:50]
 
 
@@ -133,6 +141,8 @@ class Brain:
             current["__pc__"] = len(self.world_model.pc_state.events)
         if OPENCLAW_ENABLED:
             current["__services__"] = len(self.world_model.services_state.events)
+        if OBSIDIAN_ENABLED:
+            current["__knowledge__"] = len(self.world_model.knowledge_state.events)
         if current != self._last_event_count:
             self._last_event_count = current
             self._cycle_triggered.set()
@@ -191,6 +201,7 @@ class Brain:
         system_msg = build_system_message(
             self.character, openclaw_enabled=OPENCLAW_ENABLED,
             services_enabled=services_enabled,
+            obsidian_enabled=OBSIDIAN_ENABLED,
         )
         user_content = f"## 現在の自宅状態\n{llm_context}"
         if recent_events:
@@ -211,7 +222,8 @@ class Brain:
                 user_content += f"- {mins_ago}分前: {a['tool']}({a.get('summary', '')})\n"
 
         messages = [system_msg, {"role": "user", "content": user_content}]
-        tools = get_tools(openclaw_enabled=OPENCLAW_ENABLED, services_enabled=services_enabled)
+        tools = get_tools(openclaw_enabled=OPENCLAW_ENABLED, services_enabled=services_enabled,
+                          obsidian_enabled=OBSIDIAN_ENABLED)
 
         tool_call_history = []
         speak_count = 0
@@ -296,6 +308,12 @@ class Brain:
             await self.dashboard.push_pc_snapshot(self.world_model)
         if self.world_model.services_state.services:
             await self.dashboard.push_services_snapshot(self.world_model)
+        if OBSIDIAN_ENABLED:
+            await self.dashboard.push_knowledge_snapshot(self.world_model)
+            # Async decision log writeback
+            if total_tool_calls > 0:
+                cycle_actions = [a for a in self._action_history if a["time"] >= cycle_start]
+                asyncio.create_task(self._write_decision_log(cycle_actions))
 
         logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
 
@@ -333,6 +351,29 @@ class Brain:
                         if (z, at) not in suppressed:
                             self.world_model.suppress_alert(z, at)
                             suppressed.add((z, at))
+
+    async def _write_decision_log(self, actions: list[dict]):
+        """Write decision log to Obsidian vault via bridge (fire-and-forget)."""
+        if not OBSIDIAN_BRIDGE_URL or not actions:
+            return
+        try:
+            for action in actions:
+                if action["tool"] in ("search_notes", "get_recent_notes", "get_zone_status",
+                                      "get_pc_status", "get_service_status"):
+                    continue  # Skip read-only tools
+                async with self.dashboard.session.post(
+                    f"{OBSIDIAN_BRIDGE_URL}/api/notes/decision-log",
+                    json={
+                        "trigger": action.get("summary", action["tool"]),
+                        "action": f"{action['tool']}({action.get('summary', '')})",
+                        "context": f"success={action.get('success', True)}",
+                    },
+                    timeout=5,
+                ) as resp:
+                    if resp.status != 200:
+                        logger.debug(f"Decision log write failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Decision log write error: {e}")
 
     async def run(self):
         self._loop = asyncio.get_running_loop()
@@ -375,6 +416,10 @@ class Brain:
                 logger.info(f"OpenClaw integration enabled (bridge={OPENCLAW_BRIDGE_URL})")
             else:
                 logger.info("OpenClaw integration disabled (OPENCLAW_BRIDGE_URL not set)")
+            if OBSIDIAN_ENABLED:
+                logger.info(f"Obsidian integration enabled (bridge={OBSIDIAN_BRIDGE_URL})")
+            else:
+                logger.info("Obsidian integration disabled (OBSIDIAN_BRIDGE_URL not set)")
             logger.info("HEMS Brain running (ReAct mode)...")
 
             last_cycle = 0.0

@@ -50,6 +50,7 @@ services:
       - TZ=${TZ:-Asia/Tokyo}
       - ROOMS=${ROOMS:-living_room}
       - OPENCLAW_BRIDGE_URL=${OPENCLAW_BRIDGE_URL:-}
+      - OBSIDIAN_BRIDGE_URL=${OBSIDIAN_BRIDGE_URL:-}
     volumes:
       - ../services/brain/src:/app
       - ../config:/config:ro
@@ -199,6 +200,37 @@ services:
       - HEMS_BROWSER_CHECKERS=${HEMS_BROWSER_CHECKERS:-[]}
     volumes:
       - ../services/openclaw-bridge/src:/app
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # --- Obsidian Bridge (Knowledge store integration) ---
+  obsidian-bridge:
+    build: ../services/obsidian-bridge
+    container_name: hems-obsidian-bridge
+    restart: always
+    profiles: ["obsidian"]
+    ports:
+      - "${HEMS_PORT_OBSIDIAN_BRIDGE:-8014}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - OBSIDIAN_VAULT_PATH=/vault
+      - OBSIDIAN_WATCHER_DEBOUNCE=${OBSIDIAN_WATCHER_DEBOUNCE:-2.0}
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-hems}
+      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/obsidian-bridge/src:/app
+      - ${OBSIDIAN_VAULT_PATH:-/tmp/hems-vault}:/vault
     networks:
       - hems-net
     healthcheck:

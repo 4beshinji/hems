@@ -7,6 +7,7 @@ import os
 from loguru import logger
 
 OPENCLAW_BRIDGE_URL = os.getenv("OPENCLAW_BRIDGE_URL", "")
+OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
 
 
 class ToolExecutor:
@@ -20,6 +21,7 @@ class ToolExecutor:
         self.session = session
         self.device_registry = device_registry
         self.openclaw_url = OPENCLAW_BRIDGE_URL
+        self.obsidian_url = OBSIDIAN_BRIDGE_URL
 
     async def execute(self, tool_name: str, arguments: dict) -> dict:
         """Execute a tool call with sanitizer validation."""
@@ -47,6 +49,12 @@ class ToolExecutor:
                 return await self._handle_send_pc_notification(arguments)
             elif tool_name == "get_service_status":
                 return await self._handle_get_service_status(arguments)
+            elif tool_name == "search_notes":
+                return await self._handle_search_notes(arguments)
+            elif tool_name == "write_note":
+                return await self._handle_write_note(arguments)
+            elif tool_name == "get_recent_notes":
+                return await self._handle_get_recent_notes(arguments)
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -216,6 +224,66 @@ class ToolExecutor:
                 data = await resp.json()
                 if resp.status == 200:
                     return {"success": True, "result": "Notification sent"}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    # --- Obsidian tools ---
+
+    async def _handle_search_notes(self, args: dict) -> dict:
+        if not self.obsidian_url:
+            return {"success": False, "error": "Obsidian bridge not configured"}
+        try:
+            async with self.session.post(
+                f"{self.obsidian_url}/api/notes/search",
+                json={
+                    "query": args.get("query", ""),
+                    "tags": args.get("tags"),
+                    "path_prefix": args.get("path_prefix"),
+                    "max_results": args.get("max_results", 5),
+                },
+                timeout=10,
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_write_note(self, args: dict) -> dict:
+        if not self.obsidian_url:
+            return {"success": False, "error": "Obsidian bridge not configured"}
+        try:
+            async with self.session.post(
+                f"{self.obsidian_url}/api/notes/write",
+                json={
+                    "title": args.get("title", ""),
+                    "content": args.get("content", ""),
+                    "tags": args.get("tags"),
+                    "category": args.get("category"),
+                },
+                timeout=10,
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_get_recent_notes(self, args: dict) -> dict:
+        if not self.obsidian_url:
+            return {"success": False, "error": "Obsidian bridge not configured"}
+        try:
+            async with self.session.get(
+                f"{self.obsidian_url}/api/notes/recent",
+                params={"limit": args.get("limit", 5)},
+                timeout=10,
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
                 return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
         except Exception as e:
             return {"success": False, "error": str(e)}

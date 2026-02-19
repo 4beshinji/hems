@@ -109,8 +109,22 @@ export const fetchServices = async (): Promise<ServicesData> => {
   return res.json()
 }
 
+export interface KnowledgeData {
+  status?: string
+  total_notes?: number
+  indexed?: number
+  bridge_connected?: boolean
+  recent_changes?: { path: string; title: string; action: string }[]
+}
+
 export const fetchVoiceEvents = async (): Promise<VoiceEvent[]> => {
   const res = await fetch(`${API_BASE}/voice-events/recent`)
   if (!res.ok) throw new Error('Failed to fetch voice events')
+  return res.json()
+}
+
+export const fetchKnowledge = async (): Promise<KnowledgeData> => {
+  const res = await fetch(`${API_BASE}/knowledge/`)
+  if (!res.ok) throw new Error('Failed to fetch knowledge')
   return res.json()
 }

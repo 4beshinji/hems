@@ -5,6 +5,7 @@ import TaskCard from './components/TaskCard'
 import StatusPanel from './components/StatusPanel'
 import PCStatusPanel from './components/PCStatusPanel'
 import ServiceStatusPanel from './components/ServiceStatusPanel'
+import KnowledgeStatusPanel from './components/KnowledgeStatusPanel'
 import { useAudioQueue, AudioPriority } from './audio'
 import {
   fetchTasks,
@@ -13,9 +14,10 @@ import {
   fetchPC,
   fetchServices,
   fetchVoiceEvents,
+  fetchKnowledge,
 } from './api'
 
-export type { EnvironmentData, ZoneData, ServiceStatusItem, ServicesData, PCMetrics } from './api'
+export type { EnvironmentData, ZoneData, ServiceStatusItem, ServicesData, PCMetrics, KnowledgeData } from './api'
 
 export default function App() {
   const queryClient = useQueryClient()
@@ -54,6 +56,12 @@ export default function App() {
     refetchInterval: 10000,
   })
 
+  const knowledgeQuery = useQuery({
+    queryKey: ['knowledge'],
+    queryFn: fetchKnowledge,
+    refetchInterval: 10000,
+  })
+
   const voiceEventsQuery = useQuery({
     queryKey: ['voiceEvents'],
     queryFn: fetchVoiceEvents,
@@ -66,6 +74,7 @@ export default function App() {
   const zones = zonesQuery.data ?? []
   const pcMetrics = pcQuery.data ?? null
   const servicesData = servicesQuery.data ?? null
+  const knowledgeData = knowledgeQuery.data ?? null
 
   // Play new voice events
   useEffect(() => {
@@ -123,6 +132,8 @@ export default function App() {
       <PCStatusPanel pc={pcMetrics} />
 
       <ServiceStatusPanel services={servicesData} />
+
+      <KnowledgeStatusPanel knowledge={knowledgeData} />
 
       <section className="mt-8">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">

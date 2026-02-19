@@ -80,6 +80,29 @@ class ServicesState:
             self.events = self.events[-self.max_events:]
 
 
+# --- Knowledge State (Obsidian integration) ---
+
+@dataclass
+class KnowledgeState:
+    total_notes: int = 0
+    indexed: int = 0
+    recent_changes: list[dict] = field(default_factory=list)  # [{path, title, action}]
+    bridge_connected: bool = False
+    events: list[Event] = field(default_factory=list)
+    max_events: int = 20
+    max_recent: int = 5
+
+    def add_event(self, event: Event):
+        self.events.append(event)
+        if len(self.events) > self.max_events:
+            self.events = self.events[-self.max_events:]
+
+    def add_recent_change(self, change: dict):
+        self.recent_changes.append(change)
+        if len(self.recent_changes) > self.max_recent:
+            self.recent_changes = self.recent_changes[-self.max_recent:]
+
+
 # --- PC State (OpenClaw integration) ---
 
 @dataclass

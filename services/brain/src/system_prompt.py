@@ -5,13 +5,15 @@ from dataclasses import fields as dc_fields, asdict
 
 
 def build_system_message(character=None, openclaw_enabled: bool = False,
-                         services_enabled: bool = False) -> dict:
+                         services_enabled: bool = False,
+                         obsidian_enabled: bool = False) -> dict:
     """Build system message with safety rules + character personality.
 
     Args:
         character: CharacterConfig dataclass or None.
         openclaw_enabled: Whether OpenClaw PC tools are available.
         services_enabled: Whether service monitor tools are available.
+        obsidian_enabled: Whether Obsidian knowledge tools are available.
     """
 
     # Base safety rules (NOT overridable by character)
@@ -61,6 +63,20 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 - service_nameを省略すると全サービスの状態を一覧取得
 - 未読数が増加した場合はspeakで通知を検討する
 - サービスエラーが続く場合はcreate_taskで確認タスクを作成する"""
+
+    if obsidian_enabled:
+        base += """
+
+## ナレッジベース（Obsidian連携）
+- search_notes: vaultのノートをキーワード/タグ/パスで検索。判断に追加コンテキストが必要な時に使用
+- write_note: HEMS/配下にメモを書き込む。学習結果や分析の記録に使用
+- get_recent_notes: 最近変更されたノートを取得。ユーザーの活動把握に使用
+
+## ナレッジベース使用ルール
+- ノート内容はオンデマンド検索のみ（自動注入しない）
+- 書き込みはHEMS/ディレクトリ配下のみ許可
+- ユーザーのプライベートノートは読み取りのみ、書き換え禁止
+- 検索は具体的なキーワードで。曖昧な全文検索は避ける"""
 
     # Character injection
     if character:
