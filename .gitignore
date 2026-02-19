@@ -70,3 +70,7 @@ verified_*.txt
 # OAuth tokens (security)
 oauth_tokens.db
 google_credentials.json
+
+# Stray redirected stderr artifacts
+ext:/
+**/ext:/
