@@ -13,16 +13,31 @@ class MCPBridge:
     def __init__(self, mqtt_client):
         self.client = mqtt_client
         self._pending: dict[str, asyncio.Future] = {}
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def handle_response(self, topic: str, payload: dict):
         """Handle MCP response from a device."""
-        request_id = payload.get("id")
-        if request_id and request_id in self._pending:
-            future = self._pending.pop(request_id)
-            if not future.done():
-                future.set_result(payload.get("result"))
+        parts = topic.split('/')
+        if len(parts) < 4:
+            return
 
-    async def call_tool(self, agent_id: str, tool_name: str, arguments: dict) -> dict | None:
+        # JSON-RPC payload id is authoritative; topic is fallback
+        request_id = payload.get("id", parts[3])
+
+        if request_id in self._pending:
+            future = self._pending.pop(request_id)
+            if not future.done() and self._loop:
+                if "error" in payload:
+                    self._loop.call_soon_threadsafe(
+                        future.set_exception, Exception(payload["error"])
+                    )
+                else:
+                    self._loop.call_soon_threadsafe(
+                        future.set_result, payload.get("result")
+                    )
+
+    async def call_tool(self, agent_id: str, tool_name: str, arguments: dict,
+                        timeout: float = None) -> dict | None:
         """Send MCP tool call and wait for response."""
         request_id = str(uuid.uuid4())
         topic = f"mcp/{agent_id}/request/{tool_name}"
@@ -33,15 +48,16 @@ class MCPBridge:
             "params": arguments,
         }
 
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
+        self._loop = asyncio.get_running_loop()
+        future = self._loop.create_future()
         self._pending[request_id] = future
 
         self.client.publish(topic, json.dumps(payload))
         logger.debug(f"MCP request sent: {agent_id}/{tool_name} id={request_id}")
 
+        effective_timeout = timeout or MCP_TIMEOUT
         try:
-            result = await asyncio.wait_for(future, timeout=MCP_TIMEOUT)
+            result = await asyncio.wait_for(future, timeout=effective_timeout)
             return result
         except asyncio.TimeoutError:
             self._pending.pop(request_id, None)

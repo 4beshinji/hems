@@ -1,7 +1,8 @@
 """
 OpenAI function-calling tool definitions for HEMS Brain.
-Base: create_task, send_device_command, get_zone_status, speak
+Base: create_task, send_device_command, get_zone_status, speak, get_active_tasks, get_device_status
 OpenClaw: get_pc_status, run_pc_command, control_browser, send_pc_notification
+Obsidian: search_notes, write_note, get_recent_notes
 """
 
 
@@ -17,7 +18,7 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
                     "type": "object",
                     "properties": {
                         "title": {"type": "string", "description": "タスクのタイトル（日本語、簡潔に）"},
-                        "description": {"type": "string", "description": "タスクの詳細説明"},
+                        "description": {"type": "string", "description": "タスクの詳細説明（状況と対応方法を含む）"},
                         "xp_reward": {"type": "integer", "description": "XP報酬 (50-500)", "minimum": 50, "maximum": 500},
                         "urgency": {"type": "integer", "description": "緊急度 0=延期可 1=低 2=通常 3=高 4=緊急", "minimum": 0, "maximum": 4},
                         "zone": {"type": "string", "description": "ゾーン名 (例: living_room, bedroom)"},
@@ -84,6 +85,34 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_active_tasks",
+                "description": "現在アクティブなタスク一覧を取得する。重複タスク作成を防止するために、タスク作成前に確認すること。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_device_status",
+                "description": "デバイスネットワークの状態を取得する。オフライン、低バッテリー、通信エラーなどの問題を確認できる。デバイスコマンド送信前に状態確認として使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone_id": {
+                            "type": "string",
+                            "description": "ゾーンID（省略時: 全ゾーン）",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
     ]
 
     if openclaw_enabled:
@@ -96,6 +125,12 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
         tools.extend(_get_obsidian_tools())
 
     return tools
+
+
+def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = False,
+                   obsidian_enabled: bool = False) -> list:
+    """Return list of all enabled tool names."""
+    return [t["function"]["name"] for t in get_tools(openclaw_enabled, services_enabled, obsidian_enabled)]
 
 
 def _get_service_tools() -> list:

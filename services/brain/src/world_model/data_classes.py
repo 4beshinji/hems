@@ -16,11 +16,32 @@ class EnvironmentData:
     voc: Optional[float] = None
     last_update: float = 0
 
+    @property
+    def is_stuffy(self) -> bool:
+        """CO2 concentration exceeds 1000ppm threshold."""
+        return self.co2 is not None and self.co2 > 1000
+
+    @property
+    def thermal_comfort(self) -> str:
+        """Thermal comfort level: cold | comfortable | hot."""
+        if self.temperature is None:
+            return "unknown"
+        if self.temperature < 18:
+            return "cold"
+        elif self.temperature > 26:
+            return "hot"
+        return "comfortable"
+
 
 @dataclass
 class OccupancyData:
     count: int = 0
     last_update: float = 0
+    # Perception ActivityMonitor data
+    activity_level: float = 0.0            # 0.0-1.0 (short-term motion)
+    activity_class: str = "unknown"        # "idle"|"low"|"moderate"|"high"
+    posture_duration_sec: float = 0.0      # Current posture duration (seconds)
+    posture_status: str = "unknown"        # "changing"|"mostly_static"|"static"
 
 
 @dataclass
@@ -38,6 +59,55 @@ class Event:
     timestamp: float = field(default_factory=time.time)
     zone: str = ""
     data: dict = field(default_factory=dict)
+
+    @property
+    def auto_description(self) -> str:
+        """Auto-generated event description based on event_type and data.
+
+        Falls back to the stored description field if no template matches.
+        """
+        if self.event_type == "person_entered":
+            return f"{self.data.get('count', 0)}人が入室しました"
+        elif self.event_type == "person_exited":
+            return f"{self.data.get('count', 0)}人が退室しました"
+        elif self.event_type in ("co2_threshold_exceeded", "co2_high"):
+            return f"CO2濃度が{self.data.get('value', self.data.get('co2', 0))}ppmに達しました（換気推奨）"
+        elif self.event_type == "co2_critical":
+            return f"CO2危険レベル: {self.data.get('co2', 0)}ppm"
+        elif self.event_type == "temp_spike":
+            return f"気温が急上昇しました（{self.data.get('value', 0)}℃）"
+        elif self.event_type in ("temp_high", "temp_low"):
+            return self.description or f"イベント: {self.event_type}"
+        elif self.event_type == "sedentary_alert":
+            minutes = int(self.data.get('duration_sec', self.data.get('duration_minutes', 0) * 60) / 60)
+            return f"同じ姿勢で{minutes}分以上座り続けています"
+        elif self.event_type == "sensor_tamper":
+            channel = self.data.get('channel', '?')
+            change = self.data.get('change', 0)
+            return f"センサー異常: {channel}が急変({change:.1f}変化)"
+        elif self.event_type == "door_opened":
+            return f"ドアが開きました ({self.data.get('device_id', '')})"
+        elif self.event_type == "door_closed":
+            return f"ドアが閉まりました ({self.data.get('device_id', '')})"
+        elif self.event_type == "task_report":
+            status_labels = {
+                "no_issue": "問題なし",
+                "resolved": "対応済み",
+                "needs_followup": "要追加対応",
+                "cannot_resolve": "対応不可",
+            }
+            title = self.data.get("title", "タスク")
+            status = status_labels.get(
+                self.data.get("report_status", ""),
+                self.data.get("report_status", ""),
+            )
+            note = self.data.get("completion_note", "")
+            desc = f"「{title}」→ {status}"
+            if note:
+                desc += f": {note}"
+            return desc
+        # Fall back to stored description string
+        return self.description or f"イベント: {self.event_type}"
 
 
 @dataclass

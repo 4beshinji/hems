@@ -1,0 +1,13 @@
+{
+  "device_id": "env_01",
+  "zone": "main",
+  "wifi_ssid": "YOUR_SSID",
+  "wifi_password": "YOUR_PASSWORD",
+  "mqtt_broker": "192.168.x.x",
+  "mqtt_port": 1883,
+  "report_interval": 30,
+  "board": "esp32_devkitc",
+  "sensors": [
+    {"type": "dht22", "bus": "gpio", "pin": 4}
+  ]
+}

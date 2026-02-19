@@ -1,0 +1,9 @@
+{
+  "leaf_id": 1,
+  "hw_type": 1,
+  "hub_mac": "AA:BB:CC:DD:EE:FF",
+  "espnow_channel": 1,
+  "report_interval": 30,
+  "deep_sleep": true,
+  "sensors": ["temperature", "humidity"]
+}

@@ -182,10 +182,18 @@ class Brain:
 
         now = time.time()
         recent_events = []
+        actionable_reports = []  # task_reports needing follow-up
         for zone_id, zone in self.world_model.zones.items():
             for event in zone.events:
                 if now - event.timestamp < 300:
                     recent_events.append(f"[{zone_id}] {event.description}")
+                    # Highlight task reports that need action
+                    if event.event_type == "task_report":
+                        status = event.data.get("report_status", "")
+                        if status in ("needs_followup", "cannot_resolve"):
+                            actionable_reports.append(
+                                f"[{zone_id}] {event.description} (要対応)"
+                            )
         if OPENCLAW_ENABLED:
             for event in self.world_model.pc_state.events:
                 if now - event.timestamp < 300:
@@ -206,11 +214,22 @@ class Brain:
         user_content = f"## 現在の自宅状態\n{llm_context}"
         if recent_events:
             user_content += "\n\n## 直近のイベント\n" + "\n".join(recent_events)
+        if actionable_reports:
+            user_content += "\n\n## 対応が必要なタスク報告\n" + "\n".join(actionable_reports)
+            user_content += "\n上記のタスク報告にはフォローアップが必要です。内容を確認し適切に対応してください。"
 
         if active_tasks:
             user_content += "\n\n## 現在のアクティブタスク（重複作成禁止）\n"
             for t in active_tasks[:10]:
-                user_content += f"- {t.get('title', '')}\n"
+                title = t.get("title", "")
+                zone = t.get("zone", "")
+                task_type = t.get("task_type", [])
+                zone_str = f" [{zone}]" if zone else ""
+                type_str = f" ({','.join(task_type)})" if task_type else ""
+                user_content += f"- {title}{zone_str}{type_str}\n"
+            user_content += "上記タスクと同じ目的のタスクを新規作成しないでください。"
+        else:
+            user_content += "\n\n## 現在のアクティブタスク\nなし"
 
         # Inject action history
         cutoff = now - 1800
@@ -240,12 +259,41 @@ class Brain:
                 name = tc["function"]["name"]
                 args = tc["function"].get("arguments", {})
                 call_key = (name, json.dumps(args, sort_keys=True))
+
+                # Guard 1: Skip duplicate tool+args within this cycle
                 if call_key in tool_call_history:
                     continue
+
+                # Guard 2: Limit speak calls per cycle
                 if name == "speak" and speak_count >= MAX_SPEAK_PER_CYCLE:
                     continue
                 if name == "speak":
                     speak_count += 1
+
+                # Guard 4: Skip create_task if similar title exists in active tasks
+                # or was recently attempted (prevents retry loop after rate limit)
+                if name == "create_task":
+                    proposed_title = args.get("title", "")
+                    # Check against active tasks
+                    if active_tasks and any(
+                        proposed_title.lower() in t.get("title", "").lower()
+                        or t.get("title", "").lower() in proposed_title.lower()
+                        for t in active_tasks if proposed_title and t.get("title")
+                    ):
+                        logger.warning(f"Skipping create_task: similar active task exists for '{proposed_title}'")
+                        continue
+                    # Check against recent action history (last 30 min)
+                    recent_creates = [
+                        a for a in self._action_history
+                        if a["tool"] == "create_task" and a["time"] > now - 1800
+                    ]
+                    if any(
+                        proposed_title.lower() in a.get("summary", "").lower()
+                        for a in recent_creates if proposed_title
+                    ):
+                        logger.warning(f"Skipping create_task: '{proposed_title}' was already attempted recently")
+                        continue
+
                 filtered.append(tc)
                 tool_call_history.append(call_key)
 
@@ -290,11 +338,18 @@ class Brain:
         # Record to event store
         elapsed = time.time() - cycle_start
         if self.event_writer and total_tool_calls > 0:
+            # Snapshot recent events that triggered this cycle
+            trigger = [
+                {"zone": zid, "event": e.event_type, "severity": e.severity}
+                for zid, z in self.world_model.zones.items()
+                for e in z.events
+                if cycle_start - e.timestamp < 60  # events in the last minute
+            ][:20]
             self.event_writer.record_decision(
                 cycle_duration=elapsed, iterations=iteration,
                 total_tool_calls=total_tool_calls,
-                trigger_events=[], tool_calls=[
-                    {"tool": a["tool"], "summary": a.get("summary", "")}
+                trigger_events=trigger, tool_calls=[
+                    {"tool": a["tool"], "summary": a.get("summary", ""), "success": a.get("success", True)}
                     for a in self._action_history if a["time"] >= cycle_start
                 ],
             )
@@ -328,6 +383,9 @@ class Brain:
         "co2": ["co2_high", "co2_critical"],
         "換気": ["co2_high", "co2_critical"],
         "二酸化炭素": ["co2_high", "co2_critical"],
+        "湿度": ["humidity_high", "humidity_low"],
+        "加湿": ["humidity_low"],
+        "除湿": ["humidity_high"],
     }
 
     def _suppress_alert_for_task(self, task_args: dict):

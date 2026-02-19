@@ -1,102 +1,203 @@
 """
-Async buffered event writer — writes to raw_events and llm_decisions.
+EventWriter: Async buffered writer for sensor telemetry and LLM decisions.
 SQLite and PostgreSQL compatible.
+
+Buffers events in-memory and flushes to the database every 5 seconds.
+The MQTT callback thread calls record_*() methods, which only append to
+a list; the flush loop runs on the asyncio event loop. An asyncio.Lock
+guards buffer access to prevent races during flush.
 """
 import asyncio
 import json
 import os
-import time
+from datetime import datetime, timezone
+from typing import Any
+
 from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-FLUSH_INTERVAL = 5  # seconds
 IS_POSTGRES = "postgresql" in os.getenv("DATABASE_URL", "")
 
 
 class EventWriter:
+    FLUSH_INTERVAL = 5  # seconds
+
     def __init__(self, engine: AsyncEngine):
         self._engine = engine
-        self._buffer: list[dict] = []
+        self._events: list[dict] = []
+        self._decisions: list[dict] = []
+        self._lock = asyncio.Lock()
         self._running = False
 
-    async def start(self):
-        self._running = True
-        logger.info("EventWriter started (flush every {}s)", FLUSH_INTERVAL)
-        while self._running:
-            await asyncio.sleep(FLUSH_INTERVAL)
-            await self._flush()
+    # ------------------------------------------------------------------
+    # Public record methods (called from MQTT thread via call_soon_threadsafe
+    # or directly from asyncio coroutines)
+    # ------------------------------------------------------------------
 
-    async def stop(self):
-        self._running = False
-        await self._flush()
-
-    def record_sensor(self, zone: str, channel: str, value, device_id: str = "", topic: str = ""):
-        self._buffer.append({
-            "type": "sensor",
+    def record_sensor(
+        self,
+        zone: str,
+        channel: str,
+        value: Any,
+        device_id: str | None = None,
+        topic: str | None = None,
+    ):
+        """Buffer a sensor reading as a raw_event."""
+        self._events.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "zone": zone,
             "event_type": "sensor_reading",
-            "data": {"channel": channel, "value": value, "device_id": device_id, "topic": topic},
-            "timestamp": time.time(),
+            "source_device": device_id,
+            "data": json.dumps({
+                "channel": channel,
+                "value": value,
+                "topic": topic,
+            }),
         })
 
     def record_event(self, zone: str, event_type: str, data: dict = None):
-        self._buffer.append({
-            "type": "event",
+        """Buffer a generic event as a raw_event."""
+        self._events.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "zone": zone,
             "event_type": event_type,
-            "data": data or {},
-            "timestamp": time.time(),
+            "source_device": None,
+            "data": json.dumps(data or {}),
         })
 
-    def record_decision(self, cycle_duration: float, iterations: int,
-                        total_tool_calls: int, trigger_events: list, tool_calls: list):
-        self._buffer.append({
-            "type": "decision",
-            "cycle_duration": cycle_duration,
+    def record_world_event(
+        self,
+        zone: str,
+        event_type: str,
+        severity: str,
+        data: dict,
+    ):
+        """Buffer a WorldModel event (person_entered, co2_threshold, etc.)."""
+        self._events.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "zone": zone,
+            "event_type": f"world_model_{event_type}",
+            "source_device": None,
+            "data": json.dumps({"severity": severity, **data}),
+        })
+
+    def record_decision(
+        self,
+        cycle_duration: float,
+        iterations: int,
+        total_tool_calls: int,
+        trigger_events: list | None = None,
+        tool_calls: list | None = None,
+        world_state_snapshot: dict | None = None,
+    ):
+        """Buffer an LLM cognitive cycle decision."""
+        self._decisions.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "cycle_duration_sec": cycle_duration,
             "iterations": iterations,
             "total_tool_calls": total_tool_calls,
-            "trigger_events": trigger_events,
-            "tool_calls": tool_calls,
-            "timestamp": time.time(),
+            "trigger_events": json.dumps(trigger_events or []),
+            "tool_calls": json.dumps(tool_calls or []),
+            "world_state_snapshot": json.dumps(world_state_snapshot or {}),
         })
 
+    # ------------------------------------------------------------------
+    # Flush loop
+    # ------------------------------------------------------------------
+
+    async def start(self):
+        """Start the background flush loop."""
+        self._running = True
+        logger.info("EventWriter started (flush every {}s)", self.FLUSH_INTERVAL)
+        while self._running:
+            await asyncio.sleep(self.FLUSH_INTERVAL)
+            try:
+                await self._flush()
+            except Exception as e:
+                logger.error("EventWriter flush error: {}", e)
+
+    async def stop(self):
+        """Stop the flush loop and do a final flush."""
+        self._running = False
+        await self._flush()
+        logger.info("EventWriter stopped")
+
     async def _flush(self):
-        if not self._buffer:
+        """Bulk INSERT buffered events and decisions, then clear buffers."""
+        async with self._lock:
+            events = self._events[:]
+            decisions = self._decisions[:]
+            self._events.clear()
+            self._decisions.clear()
+
+        if not events and not decisions:
             return
 
-        batch = self._buffer[:]
-        self._buffer.clear()
-
-        sensors = [e for e in batch if e["type"] in ("sensor", "event")]
-        decisions = [e for e in batch if e["type"] == "decision"]
-
-        table_prefix = "events." if IS_POSTGRES else ""
+        tp = "events." if IS_POSTGRES else ""
 
         try:
             async with self._engine.begin() as conn:
-                if sensors:
-                    for s in sensors:
+                if events:
+                    if IS_POSTGRES:
                         await conn.execute(
-                            text(f"INSERT INTO {table_prefix}raw_events (zone, event_type, data) VALUES (:zone, :event_type, :data)"),
-                            {"zone": s["zone"], "event_type": s["event_type"], "data": json.dumps(s["data"])},
+                            text(f"""
+                                INSERT INTO {tp}raw_events
+                                    (timestamp, zone, event_type, source_device, data)
+                                VALUES
+                                    (:timestamp, :zone, :event_type, :source_device,
+                                     CAST(:data AS jsonb))
+                            """),
+                            events,
                         )
+                    else:
+                        for e in events:
+                            await conn.execute(
+                                text(f"""
+                                    INSERT INTO {tp}raw_events
+                                        (timestamp, zone, event_type, source_device, data)
+                                    VALUES (:timestamp, :zone, :event_type, :source_device, :data)
+                                """),
+                                e,
+                            )
+                    logger.debug("Flushed {} raw events", len(events))
 
                 if decisions:
-                    for d in decisions:
+                    if IS_POSTGRES:
                         await conn.execute(
-                            text(f"INSERT INTO {table_prefix}llm_decisions (cycle_duration, iterations, total_tool_calls, trigger_events, tool_calls) VALUES (:dur, :iter, :tc, :te, :tcs)"),
-                            {
-                                "dur": d["cycle_duration"],
-                                "iter": d["iterations"],
-                                "tc": d["total_tool_calls"],
-                                "te": json.dumps(d["trigger_events"]),
-                                "tcs": json.dumps(d["tool_calls"]),
-                            },
+                            text(f"""
+                                INSERT INTO {tp}llm_decisions
+                                    (timestamp, cycle_duration_sec, iterations,
+                                     total_tool_calls, trigger_events, tool_calls,
+                                     world_state_snapshot)
+                                VALUES
+                                    (:timestamp, :cycle_duration_sec, :iterations,
+                                     :total_tool_calls, CAST(:trigger_events AS jsonb),
+                                     CAST(:tool_calls AS jsonb),
+                                     CAST(:world_state_snapshot AS jsonb))
+                            """),
+                            decisions,
                         )
+                    else:
+                        for d in decisions:
+                            await conn.execute(
+                                text(f"""
+                                    INSERT INTO {tp}llm_decisions
+                                        (timestamp, cycle_duration_sec, iterations,
+                                         total_tool_calls, trigger_events, tool_calls,
+                                         world_state_snapshot)
+                                    VALUES
+                                        (:timestamp, :cycle_duration_sec, :iterations,
+                                         :total_tool_calls, :trigger_events, :tool_calls,
+                                         :world_state_snapshot)
+                                """),
+                                d,
+                            )
+                    logger.debug("Flushed {} LLM decisions", len(decisions))
 
-            logger.debug(f"Flushed {len(sensors)} events + {len(decisions)} decisions")
         except Exception as e:
-            logger.error(f"Event flush failed: {e}")
-            # Re-queue on failure
-            self._buffer = batch + self._buffer
+            logger.error("Event flush failed: {}", e)
+            # Re-queue on failure so data is not lost
+            async with self._lock:
+                self._events = events + self._events
+                self._decisions = decisions + self._decisions

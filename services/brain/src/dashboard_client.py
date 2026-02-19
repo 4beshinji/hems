@@ -2,6 +2,7 @@
 REST client for HEMS Dashboard Backend.
 """
 import os
+from datetime import datetime, timedelta, timezone
 from loguru import logger
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
@@ -16,6 +17,21 @@ class DashboardClient:
 
     async def create_task(self, task_data: dict) -> dict | None:
         """Create a task on the dashboard backend."""
+        task_type = task_data.get("task_type", [])
+
+        # Determine expiration based on task type
+        expires_in_minutes = task_data.get("expires_in_minutes")
+        if expires_in_minutes is None:
+            expires_in_minutes = 60 * 24  # Default 24h
+            if "environment" in task_type:
+                expires_in_minutes = min(expires_in_minutes, 60)  # 1 hour max for env issues
+            if "supply" in task_type:
+                expires_in_minutes = 60 * 24 * 7  # 1 week for supplies
+            if "urgent" in task_type:
+                expires_in_minutes = min(expires_in_minutes, 30)  # 30 mins for urgent
+
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)).isoformat()
+
         # Generate voice announcement first
         voice_data = await self._generate_voice(task_data)
 
@@ -26,8 +42,9 @@ class DashboardClient:
             "xp_reward": task_data.get("xp_reward", 100),
             "urgency": task_data.get("urgency", 2),
             "zone": task_data.get("zone", ""),
-            "task_type": task_data.get("task_type", []),
+            "task_type": task_type,
             "estimated_duration": task_data.get("estimated_duration", 10),
+            "expires_at": expires_at,
         }
 
         if voice_data:
@@ -120,6 +137,20 @@ class DashboardClient:
         except Exception as e:
             logger.warning(f"Get active tasks error: {e}")
         return []
+
+    async def get_task_stats(self) -> dict:
+        """Fetch task statistics from backend."""
+        try:
+            async with self.session.get(
+                f"{self.backend_url}/tasks/stats", timeout=5
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                else:
+                    logger.warning(f"Get task stats failed: {resp.status}")
+        except Exception as e:
+            logger.warning(f"Get task stats error: {e}")
+        return {}
 
     async def push_pc_snapshot(self, world_model) -> None:
         """Push current PC metrics to backend for frontend consumption."""

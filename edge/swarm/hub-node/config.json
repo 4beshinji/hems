@@ -1,0 +1,14 @@
+{
+  "device_id": "swarm_hub_01",
+  "zone": "main",
+  "wifi_ssid": "SSID",
+  "wifi_password": "PASS",
+  "mqtt_broker": "192.168.128.161",
+  "mqtt_port": 1883,
+  "report_interval": 30,
+  "swarm": {
+    "transports": ["espnow"],
+    "espnow_channel": 1,
+    "wake_chains": {}
+  }
+}
