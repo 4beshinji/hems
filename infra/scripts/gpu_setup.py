@@ -33,14 +33,25 @@ MODEL_RECOMMENDATIONS = [
     ], "tier": "~4GB", "desc": "Lightweight (2-4B params)"},
     {"vram_min": 6144, "models": [
         "qwen2.5:7b", "llama3.1:8b", "mistral:7b",
+        "okamototk/llama-swallow:8b",
     ], "tier": "~8GB", "desc": "General purpose (7-8B params)"},
     {"vram_min": 10240, "models": [
         "qwen2.5:14b", "deepseek-r1:14b",
-    ], "tier": "~12-16GB", "desc": "Strong Japanese support (14B params)"},
+        "gpt-oss:20b",
+    ], "tier": "~12-16GB", "desc": "Strong Japanese support (14-20B params)"},
     {"vram_min": 20480, "models": [
         "qwen2.5:32b", "deepseek-r1:32b",
     ], "tier": "~24GB+", "desc": "High performance (32B params)"},
 ]
+
+# HuggingFace models requiring manual import via `ollama create`
+HUGGINGFACE_MODELS = {
+    "gpt-oss-swallow:20b": {
+        "hf_repo": "tokyotech-llm/GPT-OSS-Swallow-20B-RL-v0.1",
+        "tier": "~12-16GB",
+        "desc": "GPT-OSS Swallow 20B (Japanese-enhanced, requires GGUF conversion)",
+    },
+}
 
 
 @dataclass
@@ -423,26 +434,54 @@ def print_summary(gpu: GPUInfo, models: list[dict]) -> None:
     print(f"\nOverride: {OVERRIDE_PATH}")
 
     if models:
-        print("\nRecommended models:")
+        print("\nRecommended models (Ollama library):")
         for tier in models:
             print(f"  [{tier['tier']}] {tier['desc']}")
             for m in tier["models"]:
                 print(f"    - {m}")
 
+    # Show HuggingFace models for matching tiers
+    hf_matches = _matching_hf_models(gpu.vram_mb)
+    if hf_matches:
+        print("\n  HuggingFace models (manual import):")
+        for name, info in hf_matches.items():
+            print(f"    - {name}  [{info['tier']}]")
+            print(f"      {info['desc']}")
+            print(f"      HF: {info['hf_repo']}")
 
-def interactive_model_select(models: list[dict]) -> Optional[str]:
+
+def _matching_hf_models(vram_mb: int) -> dict:
+    """Return HuggingFace models matching available VRAM."""
+    # Map tier labels to vram_min thresholds from MODEL_RECOMMENDATIONS
+    tier_thresholds = {t["tier"]: t["vram_min"] for t in MODEL_RECOMMENDATIONS}
+    results = {}
+    for name, info in HUGGINGFACE_MODELS.items():
+        threshold = tier_thresholds.get(info["tier"], 0)
+        if vram_mb <= 0 or vram_mb >= threshold:
+            results[name] = info
+    return results
+
+
+def interactive_model_select(models: list[dict],
+                             vram_mb: int = 0) -> Optional[str]:
     """Interactive model selection prompt."""
     all_models = []
     for tier in models:
         for m in tier["models"]:
-            all_models.append((m, tier["tier"], tier["desc"]))
+            all_models.append((m, tier["tier"], False))
+
+    # Add HuggingFace models
+    hf_matches = _matching_hf_models(vram_mb)
+    for name, info in hf_matches.items():
+        all_models.append((name, info["tier"], True))
 
     if not all_models:
         return None
 
     print("\nSelect a model to configure (or press Enter to skip):\n")
-    for i, (model, tier, desc) in enumerate(all_models, 1):
-        print(f"  {i}) {model}  [{tier}]")
+    for i, (model, tier, is_hf) in enumerate(all_models, 1):
+        suffix = " [HF]" if is_hf else ""
+        print(f"  {i}) {model}  [{tier}]{suffix}")
 
     print()
     try:
@@ -457,10 +496,18 @@ def interactive_model_select(models: list[dict]) -> Optional[str]:
     try:
         idx = int(choice) - 1
         if 0 <= idx < len(all_models):
-            selected = all_models[idx][0]
+            selected, _, is_hf = all_models[idx]
             print(f"\nSelected: {selected}")
-            print(f"\nAfter starting Ollama, pull the model with:")
-            print(f"  docker exec hems-ollama ollama pull {selected}")
+            if is_hf:
+                info = HUGGINGFACE_MODELS[selected]
+                print(f"\nThis model requires manual import from HuggingFace:")
+                print(f"  1. Convert to GGUF (if not already available):")
+                print(f"     huggingface-cli download {info['hf_repo']}")
+                print(f"  2. Create Ollama Modelfile and import:")
+                print(f"     ollama create {selected} -f Modelfile")
+            else:
+                print(f"\nAfter starting Ollama, pull the model with:")
+                print(f"  docker exec hems-ollama ollama pull {selected}")
             return selected
     except ValueError:
         pass
@@ -495,7 +542,7 @@ def main():
     # Interactive model selection
     selected_model = None
     if not args.non_interactive and gpu.vendor != "none":
-        selected_model = interactive_model_select(models)
+        selected_model = interactive_model_select(models, gpu.vram_mb)
 
     # Update .env
     if ENV_PATH.exists():

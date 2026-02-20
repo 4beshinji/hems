@@ -247,6 +247,16 @@ class TestRecommendModels:
         assert "~8GB" in tiers
         assert "~12-16GB" not in tiers
 
+    def test_8gb_includes_swallow(self):
+        models = gpu_setup.recommend_models(8192)
+        tier_8gb = [m for m in models if m["tier"] == "~8GB"][0]
+        assert "okamototk/llama-swallow:8b" in tier_8gb["models"]
+
+    def test_12gb_includes_gpt_oss(self):
+        models = gpu_setup.recommend_models(12288)
+        tier_12 = [m for m in models if m["tier"] == "~12-16GB"][0]
+        assert "gpt-oss:20b" in tier_12["models"]
+
     def test_16gb_vram(self):
         models = gpu_setup.recommend_models(16384)
         tiers = [m["tier"] for m in models]
@@ -262,6 +272,22 @@ class TestRecommendModels:
     def test_unknown_vram_returns_all(self):
         models = gpu_setup.recommend_models(0)
         assert len(models) == len(gpu_setup.MODEL_RECOMMENDATIONS)
+
+
+class TestMatchingHfModels:
+    def test_hf_models_with_enough_vram(self):
+        hf = gpu_setup._matching_hf_models(16384)
+        assert "gpt-oss-swallow:20b" in hf
+        assert hf["gpt-oss-swallow:20b"]["hf_repo"] == \
+            "tokyotech-llm/GPT-OSS-Swallow-20B-RL-v0.1"
+
+    def test_hf_models_insufficient_vram(self):
+        hf = gpu_setup._matching_hf_models(4000)
+        assert "gpt-oss-swallow:20b" not in hf
+
+    def test_hf_models_unknown_vram_returns_all(self):
+        hf = gpu_setup._matching_hf_models(0)
+        assert "gpt-oss-swallow:20b" in hf
 
 
 # -- .env Update Tests --
