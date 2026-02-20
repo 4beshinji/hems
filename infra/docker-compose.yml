@@ -368,21 +368,18 @@ services:
       start_period: 120s
 
   # --- Ollama (Local LLM) ---
+  # GPU-agnostic base. Run `python infra/scripts/gpu_setup.py` to generate
+  # docker-compose.gpu.yml with NVIDIA/AMD-specific settings, then start with:
+  #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d
   ollama:
-    image: ollama/ollama:rocm
+    image: ollama/ollama
     container_name: hems-ollama
     restart: always
     profiles: ["ollama"]
-    devices:
-      - /dev/kfd:/dev/kfd
-      - /dev/dri/card1:/dev/dri/card1
-      - /dev/dri/renderD128:/dev/dri/renderD128
     ports:
       - "${HEMS_PORT_OLLAMA:-11444}:11434"
     volumes:
       - ollama_models:/root/.ollama
-    environment:
-      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-12.0.1}
     networks:
       - hems-net
     healthcheck:

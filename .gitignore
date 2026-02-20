@@ -55,6 +55,9 @@ infra/.env.ports
 .DS_Store
 Thumbs.db
 
+# Generated GPU override
+infra/docker-compose.gpu.yml
+
 # Project Specific
 /data/
 /models/

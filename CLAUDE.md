@@ -18,7 +18,12 @@ cd infra && docker compose up -d --build
 # With VOICEVOX TTS
 docker compose --profile voicevox up -d --build
 
-# With local LLM (AMD ROCm)
+# With local LLM (GPU auto-detect → generates docker-compose.gpu.yml)
+python infra/scripts/gpu_setup.py
+cd infra && docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
+  --profile ollama up -d --build
+
+# With local LLM (CPU-only, no GPU override needed)
 docker compose --profile ollama up -d --build
 
 # With PostgreSQL (instead of SQLite)
