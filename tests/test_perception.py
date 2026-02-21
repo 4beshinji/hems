@@ -15,23 +15,52 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import numpy as np
 import pytest
 
-# Mock heavy optional dependencies that may not be installed in test env
-for mod_name in ("cv2", "ultralytics", "paho", "paho.mqtt", "paho.mqtt.client"):
-    if mod_name not in sys.modules:
-        mock_mod = types.ModuleType(mod_name)
-        if mod_name == "paho.mqtt.client":
-            mock_mod.Client = MagicMock
-            mock_mod.CallbackAPIVersion = MagicMock()
-            mock_mod.CallbackAPIVersion.VERSION2 = 2
-        sys.modules[mod_name] = mock_mod
+# Mock heavy optional dependencies that are NOT installed in the test env.
+# Only mock what's truly missing — paho-mqtt IS installed and must not be mocked
+# (mocking it breaks other tests like test_openclaw_bridge).
+for _mod_name in ("cv2", "ultralytics"):
+    if _mod_name not in sys.modules:
+        sys.modules[_mod_name] = types.ModuleType(_mod_name)
 
-# Add perception src to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "perception" / "src"))
+# Import perception modules using importlib to avoid polluting sys.modules.
+# Multiple services share module names (e.g., mqtt_publisher, config) so we
+# must not let perception's versions shadow openclaw-bridge's.
+import importlib.util as _ilu
 
-from detector import Detector, Detection, FrameResult
-from activity_tracker import ActivityTracker, ActivityState
-from camera_manager import CameraManager, MCPCamera, StreamCamera, CameraSource
-from mqtt_publisher import MQTTPublisher
+_PERCEP_SRC = Path(__file__).resolve().parent.parent / "services" / "perception" / "src"
+
+
+def _import_perception_module(name: str):
+    spec = _ilu.spec_from_file_location(f"perception.{name}", _PERCEP_SRC / f"{name}.py")
+    mod = _ilu.module_from_spec(spec)
+    # Temporarily make sibling modules discoverable for intra-package imports
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_mod_config = _import_perception_module("config")
+_mod_mqtt = _import_perception_module("mqtt_publisher")
+_mod_detector = _import_perception_module("detector")
+_mod_activity = _import_perception_module("activity_tracker")
+_mod_camera = _import_perception_module("camera_manager")
+
+# Re-export classes under clean names
+Detector = _mod_detector.Detector
+Detection = _mod_detector.Detection
+FrameResult = _mod_detector.FrameResult
+ActivityTracker = _mod_activity.ActivityTracker
+ActivityState = _mod_activity.ActivityState
+CameraManager = _mod_camera.CameraManager
+MCPCamera = _mod_camera.MCPCamera
+StreamCamera = _mod_camera.StreamCamera
+CameraSource = _mod_camera.CameraSource
+MQTTPublisher = _mod_mqtt.MQTTPublisher
+
+# Clean up: remove perception modules from sys.modules so they don't shadow
+# identically-named modules from other services (openclaw-bridge, etc.)
+for _name in ("config", "mqtt_publisher", "detector", "activity_tracker", "camera_manager"):
+    sys.modules.pop(_name, None)
 
 
 # ---------------------------------------------------------------------------
