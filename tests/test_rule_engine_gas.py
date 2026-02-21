@@ -2,6 +2,9 @@
 Tests for RuleEngine GAS rules.
 """
 import time
+from datetime import datetime as _real_dt
+from unittest.mock import patch
+
 import pytest
 from world_model.data_classes import (
     GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel,
@@ -9,8 +12,23 @@ from world_model.data_classes import (
 )
 
 
+class _FakeDatetime(_real_dt):
+    """datetime subclass that freezes .now() to 14:00 (outside 8-9 AM briefing window)."""
+    @classmethod
+    def now(cls, tz=None):
+        if tz:
+            return _real_dt(2026, 2, 21, 14, 0, 0, tzinfo=tz)
+        return _real_dt(2026, 2, 21, 14, 0, 0)
+
+
 class TestRuleEngineGASRules:
     """Test GAS-specific rules in the rule engine."""
+
+    @pytest.fixture(autouse=True)
+    def _freeze_time(self):
+        """Freeze datetime.now() to 14:00 so morning briefing (8-9 AM) never fires."""
+        with patch("rule_engine.datetime", _FakeDatetime):
+            yield
 
     def _make_engine(self):
         from rule_engine import RuleEngine
