@@ -21,6 +21,8 @@ class SensorFusion:
 
     def __init__(self):
         self.sensor_reliability: Dict[str, float] = {"default": 0.5}
+        self._readings: List[Tuple[str, float, float]] = []  # (sensor_id, value, ts)
+        self._max_readings: int = 10
 
     def set_reliability(self, sensor_id: str, score: float):
         """Set reliability score for a specific sensor."""
@@ -31,6 +33,18 @@ class SensorFusion:
     def _get_half_life(self, sensor_type: str) -> float:
         """Get half-life for sensor type."""
         return self.HALF_LIFE.get(sensor_type, self.HALF_LIFE["default"])
+
+    def add_reading(self, value: float, sensor_id: str = "default"):
+        """Add a single sensor reading with current timestamp."""
+        self._readings.append((sensor_id, value, time.time()))
+        if len(self._readings) > self._max_readings:
+            self._readings = self._readings[-self._max_readings:]
+
+    def get_value(self, sensor_type: str = "default") -> Optional[float]:
+        """Get fused value from stored readings."""
+        if not self._readings:
+            return None
+        return self.fuse_generic(self._readings, sensor_type)
 
     def fuse_temperature(self, readings: List[Tuple[str, float, float]], sensor_type: str = "temperature") -> Optional[float]:
         """Fuse multiple temperature readings with weighted average."""

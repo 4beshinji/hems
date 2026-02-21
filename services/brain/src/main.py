@@ -44,6 +44,8 @@ HA_ENABLED = bool(HA_BRIDGE_URL)
 BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
 BIOMETRIC_ENABLED = bool(BIOMETRIC_BRIDGE_URL)
 
+SCHEDULE_STATE_PATH = os.getenv("SCHEDULE_STATE_PATH", "/app/data/schedule_learner_state.json")
+
 REACT_MAX_ITERATIONS = 5
 CYCLE_INTERVAL = 30
 EVENT_BATCH_DELAY = 3
@@ -115,6 +117,7 @@ class Brain:
         self._last_event_count: dict[str, int] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._action_history: list[dict] = []
+        self._schedule_save_counter: int = 0
 
     def on_connect(self, client, userdata, flags, rc, properties=None):
         logger.info(f"Connected to MQTT Broker (rc={rc})")
@@ -516,6 +519,32 @@ class Brain:
         except Exception as e:
             logger.debug(f"Decision log write error: {e}")
 
+    def _load_schedule_state(self):
+        """Load schedule learner state from disk."""
+        if not self.schedule_learner:
+            return
+        try:
+            with open(SCHEDULE_STATE_PATH) as f:
+                data = json.load(f)
+            self.schedule_learner.load_state(data)
+            logger.info(f"Schedule learner state loaded from {SCHEDULE_STATE_PATH}")
+        except FileNotFoundError:
+            logger.debug("No schedule learner state file found (first run)")
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning(f"Schedule learner state load failed: {e}")
+
+    def _save_schedule_state(self):
+        """Save schedule learner state to disk."""
+        if not self.schedule_learner:
+            return
+        try:
+            os.makedirs(os.path.dirname(SCHEDULE_STATE_PATH), exist_ok=True)
+            data = self.schedule_learner.save_state()
+            with open(SCHEDULE_STATE_PATH, "w") as f:
+                json.dump(data, f)
+        except Exception as e:
+            logger.debug(f"Schedule state save failed: {e}")
+
     async def run(self):
         self._loop = asyncio.get_running_loop()
         logger.info(f"Connecting to {MQTT_BROKER}:{MQTT_PORT}...")
@@ -574,6 +603,9 @@ class Brain:
                 logger.info(f"Biometric integration enabled (bridge={BIOMETRIC_BRIDGE_URL})")
             else:
                 logger.info("Biometric integration disabled (BIOMETRIC_BRIDGE_URL not set)")
+            # Load persisted schedule learner state
+            self._load_schedule_state()
+
             logger.info("HEMS Brain running (ReAct mode)...")
 
             last_cycle = 0.0
@@ -591,6 +623,11 @@ class Brain:
                 try:
                     await self.cognitive_cycle()
                     last_cycle = time.time()
+                    # Periodically save schedule learner state (every 10 cycles)
+                    self._schedule_save_counter += 1
+                    if self._schedule_save_counter >= 10:
+                        self._save_schedule_state()
+                        self._schedule_save_counter = 0
                 except Exception as e:
                     logger.error(f"Cognitive cycle error: {e}")
 

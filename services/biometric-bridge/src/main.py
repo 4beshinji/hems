@@ -89,6 +89,15 @@ def _publish_reading(reading: BiometricReading):
             activity_data["steps"] = reading.steps
         mqtt_pub.publish(f"{prefix}/activity", activity_data)
 
+    if reading.hrv_ms is not None:
+        mqtt_pub.publish(f"{prefix}/hrv", {"rmssd_ms": reading.hrv_ms})
+
+    if reading.body_temperature is not None:
+        mqtt_pub.publish(f"{prefix}/body_temperature", {"celsius": reading.body_temperature})
+
+    if reading.respiratory_rate is not None:
+        mqtt_pub.publish(f"{prefix}/respiratory_rate", {"breaths_per_minute": reading.respiratory_rate})
+
     # Compute and publish fatigue
     fatigue = processor.compute_fatigue()
     if fatigue["score"] > 0:
@@ -188,6 +197,12 @@ async def get_latest():
         result["stress_level"] = reading.stress_level
     if reading.activity_level is not None:
         result["activity_level"] = reading.activity_level
+    if reading.hrv_ms is not None:
+        result["hrv_ms"] = reading.hrv_ms
+    if reading.body_temperature is not None:
+        result["body_temperature"] = reading.body_temperature
+    if reading.respiratory_rate is not None:
+        result["respiratory_rate"] = reading.respiratory_rate
     fatigue = processor.compute_fatigue()
     result["fatigue"] = fatigue
     return result

@@ -113,6 +113,28 @@ class GadgetbridgeProvider(BiometricProvider):
         if sleep_end is not None:
             reading.sleep_end_ts = float(sleep_end)
 
+        # HRV (Heart Rate Variability)
+        hrv = data.get("hrv") or data.get("heart_rate_variability") or data.get("hrv_ms") or data.get("rmssd")
+        if hrv is not None:
+            reading.hrv_ms = int(hrv)
+
+        # Body / skin temperature
+        body_temp = (data.get("body_temperature") or data.get("body_temp")
+                     or data.get("skin_temperature") or data.get("temperature"))
+        if body_temp is not None:
+            try:
+                val = float(body_temp)
+                if 30.0 <= val <= 45.0:  # sanity check for body temp range
+                    reading.body_temperature = val
+            except (ValueError, TypeError):
+                pass
+
+        # Respiratory rate
+        resp = (data.get("respiratory_rate") or data.get("respiration_rate")
+                or data.get("breathing_rate") or data.get("resp_rate"))
+        if resp is not None:
+            reading.respiratory_rate = int(resp)
+
         self._latest = reading
         logger.debug(f"Gadgetbridge webhook processed: hr={reading.heart_rate}, steps={reading.steps}")
         return reading

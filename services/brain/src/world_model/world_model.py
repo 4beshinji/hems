@@ -14,6 +14,7 @@ from .data_classes import (
     GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
     HomeDevicesState, LightState, ClimateState, CoverState,
     BiometricState, HeartRateData, SleepData, ActivityData, StressData, FatigueData, SpO2Data,
+    HRVData, BodyTemperatureData, RespiratoryRateData, ScreenTimeData,
     PhysicalSpace, DigitalSpace, UserState,
 )
 from .sensor_fusion import SensorFusion
@@ -38,6 +39,16 @@ HR_HIGH = int(os.getenv("HEMS_THRESHOLD_HR_HIGH", "120"))
 HR_LOW = int(os.getenv("HEMS_THRESHOLD_HR_LOW", "45"))
 SPO2_LOW = int(os.getenv("HEMS_THRESHOLD_SPO2_LOW", "92"))
 STRESS_HIGH = int(os.getenv("HEMS_THRESHOLD_STRESS_HIGH", "80"))
+
+# Environment extended thresholds
+HUMIDITY_HIGH = int(os.getenv("HEMS_THRESHOLD_HUMIDITY_HIGH", "70"))
+HUMIDITY_LOW = int(os.getenv("HEMS_THRESHOLD_HUMIDITY_LOW", "30"))
+
+# Extended biometric thresholds
+HRV_LOW = int(os.getenv("HEMS_THRESHOLD_HRV_LOW", "20"))
+BODY_TEMP_HIGH = float(os.getenv("HEMS_THRESHOLD_BODY_TEMP_HIGH", "37.5"))
+RESPIRATORY_RATE_HIGH = int(os.getenv("HEMS_THRESHOLD_RESPIRATORY_RATE_HIGH", "25"))
+SCREEN_TIME_ALERT_MINUTES = int(os.getenv("HEMS_THRESHOLD_SCREEN_TIME_MINUTES", "120"))
 
 
 class WorldModel:
@@ -418,6 +429,30 @@ class WorldModel:
                 data=payload,
             ))
 
+        # Update screen time tracking when PC metrics are received
+        if pc.bridge_connected and pc.cpu.last_update > 0:
+            self._update_screen_time(pc.cpu.last_update)
+
+    def _update_screen_time(self, now: float):
+        """Track daily screen time based on PC activity."""
+        st = self.user.screen_time
+        from datetime import datetime
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+        # Reset daily counter if new day
+        if st.session_start_ts < today_start:
+            st.total_minutes = 0
+            st.session_start_ts = now
+        elif st.last_update > 0:
+            # Increment by elapsed time since last update (cap at 5 min gap)
+            elapsed = now - st.last_update
+            if 0 < elapsed < 300:
+                st.total_minutes += int(elapsed / 60)
+        else:
+            st.session_start_ts = now
+
+        st.last_update = now
+
     def _check_pc_thresholds(self, metric: str, value: float, prev: float):
         """Generate events from PC metric threshold crossings."""
         pc = self.pc_state
@@ -706,6 +741,51 @@ class WorldModel:
                 bio.fatigue.factors = payload["factors"]
             bio.fatigue.last_update = now
             bio.bridge_connected = True
+
+        elif metric == "hrv":
+            rmssd = payload.get("rmssd_ms")
+            if rmssd is not None:
+                prev_rmssd = bio.hrv.rmssd_ms
+                bio.hrv.rmssd_ms = int(rmssd)
+                bio.hrv.last_update = now
+                bio.bridge_connected = True
+                if int(rmssd) < HRV_LOW and (prev_rmssd is None or prev_rmssd >= HRV_LOW):
+                    bio.add_event(Event(
+                        event_type="hrv_low",
+                        description=f"HRV低下: {int(rmssd)}ms",
+                        severity=1,
+                        data={"rmssd_ms": int(rmssd)},
+                    ))
+
+        elif metric == "body_temperature":
+            celsius = payload.get("celsius")
+            if celsius is not None:
+                prev_temp = bio.body_temperature.celsius
+                bio.body_temperature.celsius = float(celsius)
+                bio.body_temperature.last_update = now
+                bio.bridge_connected = True
+                if float(celsius) > BODY_TEMP_HIGH and (prev_temp is None or prev_temp <= BODY_TEMP_HIGH):
+                    bio.add_event(Event(
+                        event_type="body_temp_high",
+                        description=f"体温上昇: {float(celsius):.1f}°C",
+                        severity=1,
+                        data={"celsius": float(celsius)},
+                    ))
+
+        elif metric == "respiratory_rate":
+            rate = payload.get("breaths_per_minute")
+            if rate is not None:
+                prev_rate = bio.respiratory_rate.breaths_per_minute
+                bio.respiratory_rate.breaths_per_minute = int(rate)
+                bio.respiratory_rate.last_update = now
+                bio.bridge_connected = True
+                if int(rate) > RESPIRATORY_RATE_HIGH and (prev_rate is None or prev_rate <= RESPIRATORY_RATE_HIGH):
+                    bio.add_event(Event(
+                        event_type="respiratory_rate_high",
+                        description=f"呼吸数上昇: {int(rate)}回/分",
+                        severity=1,
+                        data={"breaths_per_minute": int(rate)},
+                    ))
 
         elif metric == "steps":
             # Alternative topic: hems/personal/biometrics/{provider}/steps
@@ -1046,11 +1126,24 @@ class WorldModel:
                 if bio.sleep.stage != "unknown":
                     sleep_str += f", ステージ={bio.sleep.stage}"
                 bio_parts.append(sleep_str)
+            if bio.hrv.rmssd_ms is not None:
+                bio_parts.append(f"  HRV(RMSSD): {bio.hrv.rmssd_ms}ms")
+            if bio.body_temperature.celsius is not None:
+                bio_parts.append(f"  体温: {bio.body_temperature.celsius:.1f}°C")
+            if bio.respiratory_rate.breaths_per_minute is not None:
+                bio_parts.append(f"  呼吸数: {bio.respiratory_rate.breaths_per_minute}回/分")
             if bio.activity.last_update > 0:
                 pct = int(bio.activity.goal_progress * 100)
                 bio_parts.append(f"  歩数: {bio.activity.steps}/{bio.activity.steps_goal} ({pct}%)")
             if not bio.bridge_connected:
                 bio_parts.append("  ⚠ バイオメトリクスブリッジ: 切断中")
             lines.append("\n".join(bio_parts))
+
+        # Screen time
+        st = self.user.screen_time
+        if st.total_minutes > 0:
+            hours = st.total_minutes // 60
+            mins = st.total_minutes % 60
+            lines.append(f"### スクリーンタイム\n  今日: {hours}h{mins}m")
 
         return "\n\n".join(lines)

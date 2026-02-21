@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from loguru import logger
 from world_model.world_model import (
     CO2_HIGH, TEMP_HIGH, TEMP_LOW, PC_GPU_TEMP_HIGH, PC_DISK_HIGH,
-    SEDENTARY_MINUTES,
+    SEDENTARY_MINUTES, HUMIDITY_HIGH, HUMIDITY_LOW,
+    HRV_LOW, BODY_TEMP_HIGH, RESPIRATORY_RATE_HIGH, SCREEN_TIME_ALERT_MINUTES,
 )
 from schedule_learner import ScheduleLearner
 
@@ -51,6 +52,7 @@ class RuleEngine:
 
     # Cooldowns to prevent repeated actions (zone -> last_action_time)
     _cooldowns: dict[str, float] = {}
+    _pressure_history: dict[str, float] = {}  # zone_id → last known pressure
     COOLDOWN_SECONDS = 300  # 5 minutes
 
     def __init__(self, schedule_learner: ScheduleLearner | None = None):
@@ -136,6 +138,45 @@ class RuleEngine:
                     },
                 })
 
+            # Humidity high
+            if env.humidity is not None and env.humidity > HUMIDITY_HIGH:
+                if self._check_cooldown(f"humidity_high_{zone_id}", now):
+                    actions.append({
+                        "tool": "speak",
+                        "args": {
+                            "message": f"{zone_id}の湿度が{env.humidity:.0f}%です。除湿しましょう。",
+                            "zone": zone_id,
+                            "tone": "caring",
+                        },
+                    })
+
+            # Humidity low
+            if env.humidity is not None and env.humidity < HUMIDITY_LOW:
+                if self._check_cooldown(f"humidity_low_{zone_id}", now):
+                    actions.append({
+                        "tool": "speak",
+                        "args": {
+                            "message": f"{zone_id}の湿度が{env.humidity:.0f}%と低めです。加湿しましょう。",
+                            "zone": zone_id,
+                            "tone": "caring",
+                        },
+                    })
+
+            # Pressure drop detection (weather pain / 気象病)
+            if env.pressure is not None:
+                prev_pressure = self._pressure_history.get(zone_id)
+                self._pressure_history[zone_id] = env.pressure
+                if prev_pressure is not None and prev_pressure - env.pressure >= 5:
+                    if self._check_cooldown(f"pressure_drop_{zone_id}", now):
+                        actions.append({
+                            "tool": "speak",
+                            "args": {
+                                "message": f"気圧が低下しています（{prev_pressure:.0f}→{env.pressure:.0f}hPa）。頭痛に注意してください。",
+                                "zone": zone_id,
+                                "tone": "caring",
+                            },
+                        })
+
             # Late night low activity — suggest sleep
             hour = datetime.now().hour
             if ((hour >= 23 or hour < 5)
@@ -187,6 +228,20 @@ class RuleEngine:
         hd = world_model.home_devices
         if hd.bridge_connected:
             actions.extend(self._evaluate_home_rules(world_model, now))
+
+        # --- Screen time rule ---
+        st = world_model.user.screen_time
+        if (st.total_minutes >= SCREEN_TIME_ALERT_MINUTES
+                and self._check_cooldown("screen_time_alert", now)):
+            hours = st.total_minutes // 60
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": f"画面を{hours}時間以上見ています。目を休めましょう。",
+                    "zone": "home",
+                    "tone": "caring",
+                },
+            })
 
         # --- Biometric rules ---
         bio = world_model.biometric_state
@@ -655,7 +710,48 @@ class RuleEngine:
                     },
                 })
 
-        # 7. Fatigue-linked dimming (21-23h, fatigue > 60, HA connected)
+        # 8. Low HRV alert (autonomic stress)
+        if (bio.hrv.rmssd_ms is not None and bio.hrv.rmssd_ms < HRV_LOW
+                and bio.hrv.last_update > 0
+                and self._check_cooldown("bio_hrv_low", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": f"HRVが{bio.hrv.rmssd_ms}msと低めです。自律神経の疲れが出ています。",
+                    "zone": "home",
+                    "tone": "caring",
+                },
+            })
+
+        # 9. Body temperature high
+        if (bio.body_temperature.celsius is not None
+                and bio.body_temperature.celsius > BODY_TEMP_HIGH
+                and bio.body_temperature.last_update > 0
+                and self._check_cooldown("bio_body_temp_high", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": f"体温が{bio.body_temperature.celsius:.1f}°Cです。体調に気をつけてください。",
+                    "zone": "home",
+                    "tone": "caring",
+                },
+            })
+
+        # 10. Respiratory rate high
+        if (bio.respiratory_rate.breaths_per_minute is not None
+                and bio.respiratory_rate.breaths_per_minute > RESPIRATORY_RATE_HIGH
+                and bio.respiratory_rate.last_update > 0
+                and self._check_cooldown("bio_resp_high", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": "呼吸が速くなっています。落ち着いて深呼吸しましょう。",
+                    "zone": "home",
+                    "tone": "caring",
+                },
+            })
+
+        # 11. Fatigue-linked dimming (21-23h, fatigue > 60, HA connected)
         if (hd.bridge_connected
                 and 21 <= hour <= 23
                 and bio.fatigue.score > 60

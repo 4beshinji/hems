@@ -445,8 +445,37 @@ class SpO2Data:
 
 
 @dataclass
+class HRVData:
+    rmssd_ms: Optional[int] = None  # Root Mean Square of Successive Differences
+    last_update: float = 0
+
+
+@dataclass
+class BodyTemperatureData:
+    celsius: Optional[float] = None
+    last_update: float = 0
+
+
+@dataclass
+class RespiratoryRateData:
+    breaths_per_minute: Optional[int] = None
+    last_update: float = 0
+
+
+@dataclass
+class ScreenTimeData:
+    total_minutes: int = 0
+    active_app: str = ""
+    session_start_ts: float = 0
+    last_update: float = 0
+
+
+@dataclass
 class BiometricState:
     heart_rate: HeartRateData = field(default_factory=HeartRateData)
+    hrv: HRVData = field(default_factory=HRVData)
+    body_temperature: BodyTemperatureData = field(default_factory=BodyTemperatureData)
+    respiratory_rate: RespiratoryRateData = field(default_factory=RespiratoryRateData)
     sleep: SleepData = field(default_factory=SleepData)
     activity: ActivityData = field(default_factory=ActivityData)
     stress: StressData = field(default_factory=StressData)
@@ -466,6 +495,9 @@ class BiometricState:
     def last_update(self) -> float:
         return max(
             self.heart_rate.last_update,
+            self.hrv.last_update,
+            self.body_temperature.last_update,
+            self.respiratory_rate.last_update,
             self.sleep.last_update,
             self.activity.last_update,
             self.stress.last_update,
@@ -496,3 +528,4 @@ class DigitalSpace:
 class UserState:
     """User state domain — biometrics and personal data."""
     biometrics: BiometricState = field(default_factory=BiometricState)
+    screen_time: ScreenTimeData = field(default_factory=ScreenTimeData)

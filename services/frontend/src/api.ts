@@ -196,6 +196,10 @@ export interface BiometricData {
   }
   stress?: { level: number; category: string }
   fatigue?: { score: number; factors: string[] }
+  hrv?: { rmssd_ms: number }
+  body_temperature?: { celsius: number }
+  respiratory_rate?: { breaths_per_minute: number }
+  screen_time?: { total_minutes: number }
 }
 
 export const fetchBiometric = async (): Promise<BiometricData> => {

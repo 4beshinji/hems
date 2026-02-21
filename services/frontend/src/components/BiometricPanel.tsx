@@ -27,6 +27,10 @@ export default function BiometricPanel({ biometric }: Props) {
   const stress = biometric.stress
   const fatigue = biometric.fatigue
   const spo2 = biometric.spo2
+  const hrv = biometric.hrv
+  const bodyTemp = biometric.body_temperature
+  const respRate = biometric.respiratory_rate
+  const screenTime = biometric.screen_time
 
   const stepsProgress = activity
     ? Math.min((activity.steps / (activity.steps_goal || 10000)) * 100, 100)
@@ -62,6 +66,13 @@ export default function BiometricPanel({ biometric }: Props) {
               <div className="text-xs text-gray-500 mt-1">
                 SpO2: <span className={spo2.percent < 95 ? 'text-red-600 font-bold' : ''}>
                   {spo2.percent}%
+                </span>
+              </div>
+            )}
+            {hrv && (
+              <div className="text-xs text-gray-500 mt-1">
+                HRV: <span className={hrv.rmssd_ms < 20 ? 'text-red-600 font-bold' : hrv.rmssd_ms < 40 ? 'text-yellow-600' : ''}>
+                  {hrv.rmssd_ms}ms
                 </span>
               </div>
             )}
@@ -129,6 +140,36 @@ export default function BiometricPanel({ biometric }: Props) {
           </div>
         )}
 
+        {/* Body Temperature & Respiratory Rate */}
+        {(bodyTemp || respRate) && (
+          <div className="bg-white rounded-xl elevation-1 p-4">
+            <div className="text-xs text-gray-500 mb-1">身体指標</div>
+            {bodyTemp && (
+              <div className="mb-2">
+                <span className="text-xs text-gray-400">体温 </span>
+                <span className={`text-lg font-bold ${
+                  bodyTemp.celsius > 37.5 ? 'text-red-600' :
+                  bodyTemp.celsius > 37.0 ? 'text-yellow-600' : 'text-gray-800'
+                }`}>
+                  {bodyTemp.celsius.toFixed(1)}
+                  <span className="text-sm font-normal ml-0.5">°C</span>
+                </span>
+              </div>
+            )}
+            {respRate && (
+              <div>
+                <span className="text-xs text-gray-400">呼吸数 </span>
+                <span className={`text-lg font-bold ${
+                  respRate.breaths_per_minute > 25 ? 'text-red-600' : 'text-gray-800'
+                }`}>
+                  {respRate.breaths_per_minute}
+                  <span className="text-sm font-normal ml-0.5">回/分</span>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Stress / Fatigue */}
         {(stress || fatigue) && (
           <div className="bg-white rounded-xl elevation-1 p-4">
@@ -161,6 +202,19 @@ export default function BiometricPanel({ biometric }: Props) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {/* Screen Time */}
+        {screenTime && screenTime.total_minutes > 0 && (
+          <div className="bg-white rounded-xl elevation-1 p-4">
+            <div className="text-xs text-gray-500 mb-1">スクリーンタイム</div>
+            <div className={`text-2xl font-bold ${
+              screenTime.total_minutes > 180 ? 'text-red-600' :
+              screenTime.total_minutes > 120 ? 'text-yellow-600' : 'text-gray-800'
+            }`}>
+              {Math.floor(screenTime.total_minutes / 60)}h{screenTime.total_minutes % 60}m
+            </div>
+            <div className="text-xs text-gray-400 mt-1">今日のPC使用時間</div>
           </div>
         )}
       </div>

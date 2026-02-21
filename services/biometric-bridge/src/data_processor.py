@@ -30,6 +30,9 @@ class BiometricReading:
     sleep_quality_score: Optional[int] = None
     sleep_start_ts: Optional[float] = None
     sleep_end_ts: Optional[float] = None
+    hrv_ms: Optional[int] = None  # Heart Rate Variability (RMSSD) in ms
+    body_temperature: Optional[float] = None  # Body/skin temperature in °C
+    respiratory_rate: Optional[int] = None  # Breaths per minute
     provider: str = ""
 
 
@@ -111,5 +114,15 @@ class DataProcessor:
             fatigue_score = int(score / weight_total)
         else:
             fatigue_score = 0
+
+        # HRV modifier: low HRV indicates autonomic nervous system fatigue
+        if self._latest and self._latest.hrv_ms is not None:
+            hrv = self._latest.hrv_ms
+            if hrv < 20:
+                fatigue_score += 15
+                factors.append("very_low_hrv")
+            elif hrv < 40:
+                fatigue_score += 8
+                factors.append("low_hrv")
 
         return {"score": min(fatigue_score, 100), "factors": factors}
