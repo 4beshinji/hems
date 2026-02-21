@@ -44,6 +44,9 @@ docker compose --profile ha up -d --build
 # With biometric tracking (Gadgetbridge smartband)
 docker compose --profile biometric up -d --build
 
+# With perception (camera-based person detection + activity tracking)
+docker compose --profile perception up -d --build
+
 # Rebuild a single service
 docker compose up -d --build <service-name>
 
@@ -53,7 +56,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`, `obsidian`, `gas`, `ha`, `biometric`
+Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`
 
 ### Frontend Development
 
@@ -81,6 +84,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | GAS Bridge | 8015 | `HEMS_PORT_GAS_BRIDGE` | hems-gas-bridge |
 | HA Bridge | 8016 | `HEMS_PORT_HA_BRIDGE` | hems-ha-bridge |
 | Biometric Bridge | 8017 | `HEMS_PORT_BIOMETRIC_BRIDGE` | hems-biometric-bridge |
+| Perception | 8018 | `HEMS_PORT_PERCEPTION` | hems-perception |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -129,6 +133,11 @@ hems/personal/biometrics/{provider}/steps
 hems/personal/biometrics/{provider}/stress
 hems/personal/biometrics/{provider}/fatigue
 hems/personal/biometrics/bridge/status
+
+# Perception (camera detection + activity tracking)
+office/{zone}/camera/{camera_id}/status
+office/{zone}/activity/{monitor_id}
+hems/perception/bridge/status
 
 # Personal data (future: data-bridge)
 hems/personal/calendar/{id}/events
@@ -300,6 +309,28 @@ Configure in `.env`:
 ```bash
 BIOMETRIC_BRIDGE_URL=http://biometric-bridge:8000
 BIOMETRIC_PROVIDER=gadgetbridge
+```
+
+### Perception (Camera Detection + Activity Tracking)
+
+Camera-based person detection and posture/activity tracking using YOLOv11s-pose.
+
+- **perception**: Docker service with YOLOv11s-pose inference pipeline
+  - Captures frames from MCP (ESP32 MQTT) or stream (RTSP/HTTP) cameras
+  - Single-pass person detection + skeleton keypoint extraction
+  - Posture classification (standing/sitting/lying/walking) from COCO 17 keypoints
+  - Activity level (0.0-1.0) with EMA smoothing + tiered pose buffer
+  - Publishes to `office/{zone}/camera/{cam_id}/status` and `office/{zone}/activity/{cam_id}`
+- **Deploy**: Configure cameras in `HEMS_PERCEPTION_CAMERAS` env var (JSON array)
+- **Profile**: `docker compose --profile perception up -d --build`
+- **Brain integration**: WorldModel receives occupancy + activity data via MQTT, Rule Engine triggers sedentary alerts and sleep detection
+- **Privacy**: RAM-only processing, no image storage, person class only (no face recognition), all local
+- **GPU**: Optional GPU acceleration (auto-detected by `gpu_setup.py`), CPU fallback
+
+Configure in `.env`:
+```bash
+PERCEPTION_BRIDGE_URL=http://perception:8000
+HEMS_PERCEPTION_CAMERAS=[{"device_id":"cam01","zone":"living_room","type":"mcp"}]
 ```
 
 ## Tech Stack

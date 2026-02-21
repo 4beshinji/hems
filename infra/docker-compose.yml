@@ -412,11 +412,39 @@ services:
       retries: 5
       start_period: 10s
 
-  # --- Perception (Camera monitoring) — Phase 4, not yet implemented ---
-  # perception:
-  #   build: ../services/perception
-  #   container_name: hems-perception
-  #   profiles: ["perception"]
+  # --- Perception (Camera-based person detection + activity tracking) ---
+  perception:
+    build: ../services/perception
+    container_name: hems-perception
+    restart: always
+    profiles: ["perception"]
+    ports:
+      - "${HEMS_PORT_PERCEPTION:-8018}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-hems}
+      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - HEMS_PERCEPTION_CAMERAS=${HEMS_PERCEPTION_CAMERAS:-[]}
+      - HEMS_PERCEPTION_MODEL=${HEMS_PERCEPTION_MODEL:-yolo11s.pt}
+      - HEMS_PERCEPTION_POSE_MODEL=${HEMS_PERCEPTION_POSE_MODEL:-yolo11s-pose.pt}
+      - HEMS_PERCEPTION_CONFIDENCE=${HEMS_PERCEPTION_CONFIDENCE:-0.5}
+      - HEMS_PERCEPTION_INTERVAL=${HEMS_PERCEPTION_INTERVAL:-5}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/perception/src:/app
+      - hems_perception_models:/root/.cache
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
   hems_mqtt_data:
@@ -426,6 +454,7 @@ volumes:
   hems_audio_data:
   hems_pg_data:
   ollama_models:
+  hems_perception_models:
 
 networks:
   hems-net:

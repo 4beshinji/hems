@@ -69,25 +69,27 @@ accepted_at = Column(DateTime(timezone=True), nullable=True)
 
 ## 2. HIGH — 早期対応推奨
 
-### H-1: Occupancy Monitor のペイロードフィールド名不一致
+### H-1: Occupancy Monitor のペイロードフィールド名不一致 ✅ 解決済み
 
 | 項目 | 内容 |
 |------|------|
 | **送信側** | `services/perception/src/monitors/occupancy.py:42` → `"count": count` |
 | **受信側** | `services/brain/src/world_model/world_model.py:157` → `"person_count" in payload` |
 | **影響** | カメラからの人数検出データが WorldModel に取り込まれず、vision_count が常に 0 |
-| **対応** | occupancy.py のフィールド名を `person_count` に変更、または WorldModel 側で `count` もフォールバック |
+| **対応** | Perception Service を再実装。`person_count` フィールドで統一。WorldModel側は `count` フォールバックも保持。 |
+| **解決日** | 2026-02-21 |
 
 ---
 
-### H-2: Perception → Brain MQTT トピック形式不一致
+### H-2: Perception → Brain MQTT トピック形式不一致 ✅ 解決済み
 
 | 項目 | 内容 |
 |------|------|
 | **送信側** | Perception monitors → `office/{zone}/activity`, `office/{zone}/occupancy` (3パート) |
 | **受信側** | WorldModel topic parser → `office/{zone}/{device_type}/{device_id}/{channel}` (5パート想定) |
 | **影響** | Perception からのトピックが WorldModel のパーサーで正しくルーティングされない |
-| **対応** | Perception 側のトピックを 5パート形式に統一、または WorldModel パーサーに短縮トピック対応を追加 |
+| **対応** | Perception Service を再実装。カメラ: 5パート `office/{zone}/camera/{cam_id}/status`、活動: 4パート `office/{zone}/activity/{cam_id}` でWorldModelパーサーと完全一致。 |
+| **解決日** | 2026-02-21 |
 
 ---
 
