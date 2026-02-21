@@ -12,8 +12,9 @@ import types
 from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock, patch
 
-import numpy as np
 import pytest
+
+np = pytest.importorskip("numpy", reason="numpy not installed")
 
 # Mock heavy optional dependencies that are NOT installed in the test env.
 # Only mock what's truly missing — paho-mqtt IS installed and must not be mocked
