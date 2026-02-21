@@ -2,11 +2,22 @@
 Tests for perception-related rules in RuleEngine.
 """
 import time
+from datetime import datetime as _real_dt
+from unittest.mock import patch
 
 import pytest
 
 from rule_engine import RuleEngine
 from world_model.data_classes import ZoneState, LightState
+
+
+class _FakeDatetime(_real_dt):
+    """datetime subclass that freezes .now() to 14:00 (inside 6-21h daytime window)."""
+    @classmethod
+    def now(cls, tz=None):
+        if tz:
+            return _real_dt(2026, 2, 21, 14, 0, 0, tzinfo=tz)
+        return _real_dt(2026, 2, 21, 14, 0, 0)
 
 
 @pytest.fixture
@@ -86,12 +97,12 @@ class TestLyingDetection:
         zone.occupancy.last_update = time.time()
         world_model.zones["living_room"] = zone
 
-        actions = engine.evaluate(world_model)
+        with patch("rule_engine.datetime", _FakeDatetime):
+            actions = engine.evaluate(world_model)
         lying_actions = [a for a in actions if "横になって" in a.get("args", {}).get("message", "")]
-        # Only triggers during daytime (6-21h), so check shape if it fires.
-        for a in lying_actions:
-            assert a["tool"] == "speak"
-            assert a["args"]["tone"] == "caring"
+        assert len(lying_actions) == 1
+        assert lying_actions[0]["tool"] == "speak"
+        assert lying_actions[0]["args"]["tone"] == "caring"
 
 
 class TestActivityDrop:

@@ -3,7 +3,7 @@ Tests for ScheduleLearner — life pattern learning and prediction.
 """
 import time
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 from schedule_learner import ScheduleLearner
 
@@ -79,14 +79,12 @@ class TestScheduleLearnerPrediction:
 
     def test_predict_arrival_sufficient_data(self):
         sl = self._make_learner_with_history(18.5, weeks=3)
-        now = datetime.now().replace(hour=12, minute=0)
-        # Monkey-patch "now" by testing the logic directly
-        predicted = sl.predict_next_arrival()
-        if datetime.now().hour < 18:
-            assert predicted is not None
-        else:
-            # After 18:30, no prediction for today
-            pass
+        fake_now = datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        with patch("schedule_learner.datetime") as mock_dt:
+            mock_dt.now.return_value = fake_now
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            predicted = sl.predict_next_arrival()
+        assert predicted is not None
 
     def test_predict_arrival_insufficient_data(self):
         sl = ScheduleLearner()

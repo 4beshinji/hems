@@ -50,13 +50,12 @@ def _get_gpu_utilization() -> float | None:
 class RuleEngine:
     """Threshold-based decision engine — no LLM required."""
 
-    # Cooldowns to prevent repeated actions (zone -> last_action_time)
-    _cooldowns: dict[str, float] = {}
-    _pressure_history: dict[str, float] = {}  # zone_id → last known pressure
     COOLDOWN_SECONDS = 300  # 5 minutes
 
     def __init__(self, schedule_learner: ScheduleLearner | None = None):
         self.schedule_learner = schedule_learner
+        self._cooldowns: dict[str, float] = {}
+        self._pressure_history: dict[str, float] = {}  # zone_id → last known pressure
 
     def should_use_rules(self) -> bool:
         """Check if we should use rule-based mode instead of LLM."""
