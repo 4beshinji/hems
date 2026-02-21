@@ -10,8 +10,8 @@ import time
 import random
 from datetime import datetime
 
-MQTT_USER = os.getenv("MQTT_USER", "soms")
-MQTT_PASS = os.getenv("MQTT_PASS", "soms_dev_mqtt")
+MQTT_USER = os.getenv("MQTT_USER", "hems")
+MQTT_PASS = os.getenv("MQTT_PASS", "hems_dev_mqtt")
 
 
 class MockEdgeDevice:

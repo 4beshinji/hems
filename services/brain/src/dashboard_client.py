@@ -357,6 +357,63 @@ class DashboardClient:
         except Exception as e:
             logger.debug(f"Biometric snapshot push error: {e}")
 
+    async def push_perception_snapshot(self, world_model) -> None:
+        """Push current perception (camera) state to backend for frontend consumption."""
+        zones_data = {}
+        for zone_id, zone in world_model.zones.items():
+            occ = zone.occupancy
+            if occ.last_update > 0:
+                zones_data[zone_id] = {
+                    "person_count": occ.count,
+                    "activity_level": occ.activity_level,
+                    "activity_class": occ.activity_class,
+                    "posture_status": occ.posture_status,
+                    "posture_duration_sec": occ.posture_duration_sec,
+                    "last_update": occ.last_update,
+                }
+        if not zones_data:
+            return
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/perception/snapshot",
+                json={"zones": zones_data}, timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Perception snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Perception snapshot push error: {e}")
+
+    async def push_home_snapshot(self, world_model) -> None:
+        """Push current home device state to backend for frontend consumption."""
+        hd = world_model.home_devices
+        if not hd.bridge_connected:
+            return
+        payload = {
+            "bridge_connected": True,
+            "lights": {
+                eid: {"on": l.on, "brightness": l.brightness}
+                for eid, l in hd.lights.items()
+            },
+            "climates": {
+                eid: {"mode": c.mode, "target_temp": c.target_temp, "current_temp": c.current_temp}
+                for eid, c in hd.climates.items()
+            },
+            "covers": {
+                eid: {"position": c.position, "is_open": c.is_open}
+                for eid, c in hd.covers.items()
+            },
+            "switches": hd.switches,
+        }
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/home/snapshot",
+                json=payload, timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Home snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Home snapshot push error: {e}")
+
     async def push_zone_snapshot(self, world_model) -> None:
         """Push current zone sensor data to backend for frontend consumption."""
         zones = []

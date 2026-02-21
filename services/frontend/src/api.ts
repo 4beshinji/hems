@@ -207,3 +207,106 @@ export const fetchBiometric = async (): Promise<BiometricData> => {
   if (!res.ok) throw new Error('Failed to fetch biometric data')
   return res.json()
 }
+
+// --- Perception ---
+
+export interface PerceptionZone {
+  person_count: number
+  activity_level: number | null
+  activity_class: string
+  posture_status: string
+  posture_duration_sec: number
+  last_update: number
+}
+
+export interface PerceptionData {
+  status?: string
+  zones?: Record<string, PerceptionZone>
+}
+
+export const fetchPerception = async (): Promise<PerceptionData> => {
+  const res = await fetch(`${API_BASE}/perception/`)
+  if (!res.ok) throw new Error('Failed to fetch perception data')
+  return res.json()
+}
+
+// --- Home (HA) ---
+
+export interface HomeLight {
+  on: boolean
+  brightness: number
+}
+
+export interface HomeClimate {
+  mode: string
+  target_temp: number
+  current_temp: number
+}
+
+export interface HomeCover {
+  position: number
+  is_open: boolean
+}
+
+export interface HomeData {
+  status?: string
+  bridge_connected?: boolean
+  lights?: Record<string, HomeLight>
+  climates?: Record<string, HomeClimate>
+  covers?: Record<string, HomeCover>
+  switches?: Record<string, unknown>
+}
+
+export const fetchHome = async (): Promise<HomeData> => {
+  const res = await fetch(`${API_BASE}/home/`)
+  if (!res.ok) throw new Error('Failed to fetch home data')
+  return res.json()
+}
+
+export const controlLight = async (
+  entity_id: string, on: boolean, brightness?: number, color_temp?: number
+): Promise<void> => {
+  await fetch(`${API_BASE}/home/light/control`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity_id, on, brightness, color_temp }),
+  })
+}
+
+export const controlClimate = async (
+  entity_id: string, mode?: string, temperature?: number
+): Promise<void> => {
+  await fetch(`${API_BASE}/home/climate/control`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity_id, mode, temperature }),
+  })
+}
+
+export const controlCover = async (
+  entity_id: string, action?: string, position?: number
+): Promise<void> => {
+  await fetch(`${API_BASE}/home/cover/control`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity_id, action, position }),
+  })
+}
+
+// --- Time Series ---
+
+export interface TimeSeriesPoint {
+  value: number
+  recorded_at: string
+  zone?: string | null
+}
+
+export const fetchTimeSeries = async (
+  metric: string, zone?: string, hours: number = 24
+): Promise<TimeSeriesPoint[]> => {
+  const params = new URLSearchParams({ metric, hours: String(hours) })
+  if (zone) params.set('zone', zone)
+  const res = await fetch(`${API_BASE}/timeseries/?${params}`)
+  if (!res.ok) throw new Error('Failed to fetch timeseries')
+  return res.json()
+}

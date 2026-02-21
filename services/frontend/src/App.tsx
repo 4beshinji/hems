@@ -8,6 +8,8 @@ import ServiceStatusPanel from './components/ServiceStatusPanel'
 import KnowledgeStatusPanel from './components/KnowledgeStatusPanel'
 import GASPanel from './components/GASPanel'
 import BiometricPanel from './components/BiometricPanel'
+import PerceptionPanel from './components/PerceptionPanel'
+import HomeControlPanel from './components/HomeControlPanel'
 import { useAudioQueue, AudioPriority } from './audio'
 import {
   fetchTasks,
@@ -21,7 +23,7 @@ import {
   fetchBiometric,
 } from './api'
 
-export type { EnvironmentData, ZoneData, ServiceStatusItem, ServicesData, PCMetrics, KnowledgeData, GASData, BiometricData } from './api'
+export type { EnvironmentData, ZoneData, ServiceStatusItem, ServicesData, PCMetrics, KnowledgeData, GASData, BiometricData, PerceptionData, HomeData } from './api'
 
 export default function App() {
   const queryClient = useQueryClient()
@@ -156,6 +158,10 @@ export default function App() {
       <GASPanel gas={gasData} />
 
       <BiometricPanel biometric={biometricData} />
+
+      <PerceptionPanel />
+
+      <HomeControlPanel />
 
       <section className="mt-8">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">

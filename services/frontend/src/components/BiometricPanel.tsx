@@ -1,4 +1,5 @@
 import { BiometricData } from '../api'
+import TimeSeriesChart from './TimeSeriesChart'
 
 interface Props {
   biometric: BiometricData | null
@@ -76,6 +77,7 @@ export default function BiometricPanel({ biometric }: Props) {
                 </span>
               </div>
             )}
+            <TimeSeriesChart metric="heart_rate.bpm" hours={24} color="#ef4444" compact />
           </div>
         )}
 
@@ -137,6 +139,7 @@ export default function BiometricPanel({ biometric }: Props) {
               目標 {(activity.steps_goal || 10000).toLocaleString()}歩
               {activity.calories > 0 && ` / ${activity.calories}kcal`}
             </div>
+            <TimeSeriesChart metric="activity.steps" hours={168} color="#10b981" compact />
           </div>
         )}
 
@@ -202,6 +205,7 @@ export default function BiometricPanel({ biometric }: Props) {
                 </div>
               </div>
             )}
+            <TimeSeriesChart metric="stress.level" hours={24} color="#f59e0b" compact />
           </div>
         )}
         {/* Screen Time */}

@@ -248,6 +248,9 @@ class RuleEngine:
         if bio.bridge_connected:
             actions.extend(self._evaluate_biometric_rules(world_model, now))
 
+        # --- Perception rules ---
+        actions.extend(self._evaluate_perception_rules(world_model, now))
+
         return actions
 
     def _evaluate_gas_rules(self, gas, now: float) -> list[dict]:
@@ -768,6 +771,91 @@ class RuleEngine:
                             "color_temp": 400,  # warm
                         },
                     })
+
+        return actions
+
+    def _evaluate_perception_rules(self, world_model, now: float) -> list[dict]:
+        """Evaluate camera/perception-based rules."""
+        actions = []
+        hour = datetime.now().hour
+        ha_enabled = world_model.home_devices.bridge_connected
+
+        for zone_id, zone in world_model.zones.items():
+            occ = zone.occupancy
+
+            # 1. Sedentary sitting detection (camera posture)
+            if (occ.posture_status == "sitting"
+                    and occ.posture_duration_sec > SEDENTARY_MINUTES * 60
+                    and self._check_cooldown(f"percep_sitting_{zone_id}", now)):
+                duration_min = int(occ.posture_duration_sec / 60)
+                actions.append({
+                    "tool": "speak",
+                    "args": {
+                        "message": f"{duration_min}分座りっぱなしです。少し体を動かしましょう。",
+                        "zone": zone_id,
+                        "tone": "caring",
+                    },
+                })
+
+            # 2. Empty room with lights/climate on → turn off (HA required)
+            if (ha_enabled
+                    and occ.count == 0
+                    and occ.last_update > 0
+                    and now - occ.last_update < 300):
+                hd = world_model.home_devices
+                lights_on = [eid for eid, l in hd.lights.items()
+                             if l.on and zone_id in eid]
+                if lights_on and self._check_cooldown(f"percep_empty_lights_{zone_id}", now):
+                    for eid in lights_on:
+                        actions.append({
+                            "tool": "control_light",
+                            "args": {"entity_id": eid, "on": False},
+                        })
+                    actions.append({
+                        "tool": "speak",
+                        "args": {
+                            "message": f"{zone_id}は空室です。照明を消しますね。",
+                            "zone": zone_id,
+                            "tone": "neutral",
+                        },
+                    })
+                climates_on = [eid for eid, c in hd.climates.items()
+                               if c.mode != "off" and zone_id in eid]
+                if climates_on and self._check_cooldown(f"percep_empty_climate_{zone_id}", now):
+                    for eid in climates_on:
+                        actions.append({
+                            "tool": "control_climate",
+                            "args": {"entity_id": eid, "mode": "off"},
+                        })
+
+            # 3. Daytime lying detection → health check
+            if (6 <= hour <= 21
+                    and occ.posture_status == "lying"
+                    and occ.posture_duration_sec > 600
+                    and self._check_cooldown(f"percep_lying_{zone_id}", now)):
+                actions.append({
+                    "tool": "speak",
+                    "args": {
+                        "message": "日中に横になっていますね。体調は大丈夫ですか？",
+                        "zone": zone_id,
+                        "tone": "caring",
+                    },
+                })
+
+            # 4. Activity level sudden drop (>0.5 → <0.1 sustained 15min)
+            if (occ.activity_level is not None
+                    and occ.activity_level < 0.1
+                    and occ.count > 0
+                    and occ.posture_duration_sec > 900
+                    and self._check_cooldown(f"percep_activity_drop_{zone_id}", now)):
+                actions.append({
+                    "tool": "speak",
+                    "args": {
+                        "message": "しばらく動きがないようです。大丈夫ですか？",
+                        "zone": zone_id,
+                        "tone": "caring",
+                    },
+                })
 
         return actions
 

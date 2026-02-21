@@ -8,7 +8,8 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
                          services_enabled: bool = False,
                          obsidian_enabled: bool = False,
                          ha_enabled: bool = False,
-                         biometric_enabled: bool = False) -> dict:
+                         biometric_enabled: bool = False,
+                         perception_enabled: bool = False) -> dict:
     """Build system message with safety rules + character personality.
 
     Args:
@@ -17,6 +18,8 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
         services_enabled: Whether service monitor tools are available.
         obsidian_enabled: Whether Obsidian knowledge tools are available.
         ha_enabled: Whether Home Assistant smart home tools are available.
+        biometric_enabled: Whether biometric tools are available.
+        perception_enabled: Whether perception (camera) tools are available.
     """
 
     # Base safety rules (NOT overridable by character)
@@ -145,6 +148,19 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 - 起床予測60分前にカーテンを開ける
 - エアコンの設定温度は16-30度の範囲内に制限する
 - 在室中のデバイス制御は状況に応じて判断する（いきなり消灯しない等）"""
+
+    if perception_enabled:
+        base += """
+
+## パーセプション（カメラ検知）
+- get_perception_status: カメラから在室人数・姿勢・活動レベルを取得する
+
+## パーセプション対応ルール
+- 座位30分以上 → speakでストレッチを促す（tone: caring）
+- 空室なのに照明/空調ON → 自動消灯・停止（HA連携時）
+- 日中の横臥10分以上 → speakで体調確認（tone: caring）
+- 活動レベル急落（15分以上停滞） → speakで様子確認
+- パーセプションデータがない場合は無視する"""
 
     if biometric_enabled:
         base += """

@@ -5,3 +5,4 @@ aiosqlite
 asyncpg
 paho-mqtt>=2.0
 pydantic>=2.0
+httpx

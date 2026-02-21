@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          pip install -r services/backend/requirements.txt
+          pip install pytest
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  lint-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: services/frontend/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: services/frontend
+      - name: Type check and build
+        run: pnpm build
+        working-directory: services/frontend

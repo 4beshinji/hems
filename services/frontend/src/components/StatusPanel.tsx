@@ -1,5 +1,6 @@
-import { Thermometer, Droplets, Wind, Users } from 'lucide-react'
+import { Thermometer, Droplets, Wind, Users, Gauge, Sun, Cloudy } from 'lucide-react'
 import type { ZoneData } from '../App'
+import TimeSeriesChart from './TimeSeriesChart'
 
 interface Props {
   zones: ZoneData[]
@@ -121,6 +122,49 @@ export default function StatusPanel({ zones }: Props) {
                   </div>
                 </div>
               )}
+
+              {env.pressure != null && (
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <Gauge className="w-4 h-4 text-purple-400" />
+                    気圧
+                  </span>
+                  <span className="font-mono font-bold text-gray-800">
+                    {env.pressure.toFixed(0)}hPa
+                  </span>
+                </div>
+              )}
+
+              {env.light != null && (
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <Sun className="w-4 h-4 text-yellow-400" />
+                    照度
+                  </span>
+                  <span className="font-mono font-bold text-gray-800">
+                    {env.light.toFixed(0)}lux
+                  </span>
+                </div>
+              )}
+
+              {env.voc != null && (
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <Cloudy className="w-4 h-4 text-teal-400" />
+                    VOC
+                  </span>
+                  <span className="font-mono font-bold text-gray-800">
+                    {env.voc.toFixed(0)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Sparklines */}
+            <div className="mt-3 space-y-1">
+              <TimeSeriesChart metric="temperature" zone={zone.zone_id} hours={6} color="#ef4444" compact />
+              <TimeSeriesChart metric="co2" zone={zone.zone_id} hours={6} color="#9ca3af" compact />
+              <TimeSeriesChart metric="humidity" zone={zone.zone_id} hours={6} color="#3b82f6" compact />
             </div>
           </div>
         )

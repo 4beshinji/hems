@@ -44,7 +44,7 @@ class HourlyAggregate(Base):
     __tablename__ = "hourly_aggregates"
     __table_args__ = {"schema": "events"}
 
-    hub_id: Mapped[str] = mapped_column(Text, primary_key=True, default="soms-brain")
+    hub_id: Mapped[str] = mapped_column(Text, primary_key=True, default="hems-brain")
     period_start: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), primary_key=True
     )

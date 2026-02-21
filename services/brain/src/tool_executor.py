@@ -85,6 +85,8 @@ class ToolExecutor:
                 return await self._handle_get_biometrics(arguments)
             elif tool_name == "get_sleep_summary":
                 return await self._handle_get_sleep_summary(arguments)
+            elif tool_name == "get_perception_status":
+                return await self._handle_get_perception_status(arguments)
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -573,6 +575,26 @@ class ToolExecutor:
                 logger.warning(f"Biometric bridge sleep query error: {e}")
 
         return {"success": True, "result": "睡眠データがまだありません"}
+
+    # --- Perception tools ---
+
+    async def _handle_get_perception_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get camera-based occupancy and activity data from world model."""
+        zones_data = {}
+        for zone_id, zone in self.world_model.zones.items():
+            occ = zone.occupancy
+            if occ.last_update > 0:
+                zones_data[zone_id] = {
+                    "person_count": occ.count,
+                    "activity_level": occ.activity_level,
+                    "activity_class": occ.activity_class,
+                    "posture_status": occ.posture_status,
+                    "posture_duration_sec": occ.posture_duration_sec,
+                    "last_update": occ.last_update,
+                }
+        if not zones_data:
+            return {"success": True, "result": "カメラデータがまだありません"}
+        return {"success": True, "result": json.dumps({"zones": zones_data}, ensure_ascii=False)}
 
     async def _ha_service_call(self, entity_id: str, service: str,
                                data: dict = None) -> Dict[str, Any]:

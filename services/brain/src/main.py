@@ -91,6 +91,8 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return "biometrics"
     elif tool_name == "get_sleep_summary":
         return "sleep_summary"
+    elif tool_name == "get_perception_status":
+        return "perception_status"
     return str(args)[:50]
 
 
@@ -228,6 +230,10 @@ class Brain:
                 await self.dashboard.push_gas_snapshot(self.world_model)
             if BIOMETRIC_ENABLED:
                 await self.dashboard.push_biometric_snapshot(self.world_model)
+            if PERCEPTION_ENABLED:
+                await self.dashboard.push_perception_snapshot(self.world_model)
+            if HA_ENABLED:
+                await self.dashboard.push_home_snapshot(self.world_model)
             return
 
         llm_context = self.world_model.get_llm_context()
@@ -293,6 +299,7 @@ class Brain:
             obsidian_enabled=OBSIDIAN_ENABLED,
             ha_enabled=HA_ENABLED,
             biometric_enabled=BIOMETRIC_ENABLED,
+            perception_enabled=PERCEPTION_ENABLED,
         )
         user_content = f"## 現在の自宅状態\n{llm_context}"
         if recent_events:
@@ -326,7 +333,8 @@ class Brain:
         messages = [system_msg, {"role": "user", "content": user_content}]
         tools = get_tools(openclaw_enabled=OPENCLAW_ENABLED, services_enabled=services_enabled,
                           obsidian_enabled=OBSIDIAN_ENABLED, ha_enabled=HA_ENABLED,
-                          biometric_enabled=BIOMETRIC_ENABLED)
+                          biometric_enabled=BIOMETRIC_ENABLED,
+                          perception_enabled=PERCEPTION_ENABLED)
 
         tool_call_history = []
         speak_count = 0
@@ -457,6 +465,10 @@ class Brain:
             await self.dashboard.push_gas_snapshot(self.world_model)
         if BIOMETRIC_ENABLED:
             await self.dashboard.push_biometric_snapshot(self.world_model)
+        if PERCEPTION_ENABLED:
+            await self.dashboard.push_perception_snapshot(self.world_model)
+        if HA_ENABLED:
+            await self.dashboard.push_home_snapshot(self.world_model)
 
         logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
 
@@ -605,6 +617,10 @@ class Brain:
                 logger.info(f"Biometric integration enabled (bridge={BIOMETRIC_BRIDGE_URL})")
             else:
                 logger.info("Biometric integration disabled (BIOMETRIC_BRIDGE_URL not set)")
+            if PERCEPTION_ENABLED:
+                logger.info(f"Perception integration enabled (bridge={PERCEPTION_BRIDGE_URL})")
+            else:
+                logger.info("Perception integration disabled (PERCEPTION_BRIDGE_URL not set)")
             # Load persisted schedule learner state
             self._load_schedule_state()
 

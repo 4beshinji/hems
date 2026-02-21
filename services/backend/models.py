@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from database import Base
 
@@ -73,6 +73,15 @@ class VoiceEvent(Base):
     zone = Column(String, nullable=True)
     tone = Column(String, default="neutral")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class TimeSeriesPoint(Base):
+    __tablename__ = "timeseries"
+    id = Column(Integer, primary_key=True, index=True)
+    metric = Column(String, nullable=False, index=True)
+    value = Column(Float, nullable=False)
+    zone = Column(String, nullable=True, index=True)
+    recorded_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class SystemStats(Base):

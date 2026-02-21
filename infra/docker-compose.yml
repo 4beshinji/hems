@@ -54,6 +54,7 @@ services:
       - GAS_BRIDGE_URL=${GAS_BRIDGE_URL:-}
       - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
       - BIOMETRIC_BRIDGE_URL=${BIOMETRIC_BRIDGE_URL:-}
+      - PERCEPTION_BRIDGE_URL=${PERCEPTION_BRIDGE_URL:-}
     volumes:
       - ../services/brain/src:/app
       - ../config:/config:ro
@@ -83,6 +84,7 @@ services:
       - MQTT_USER=${MQTT_USER:-hems}
       - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
       - TZ=${TZ:-Asia/Tokyo}
+      - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
     volumes:
       - ../services/backend:/app
       - hems_backend_data:/app/data
