@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.sql import func
-from sqlalchemy import text
 from typing import List
 
 from database import get_db
@@ -20,6 +19,16 @@ MQTT_USER = os.getenv("MQTT_USER", "hems")
 MQTT_PASS = os.getenv("MQTT_PASS", "hems_dev_mqtt")
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+def _safe_json_loads(value: str | None) -> list:
+    """Parse JSON task_type, returning empty list on failure."""
+    if not value:
+        return []
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 async def _get_or_create_system_stats(db: AsyncSession) -> models.SystemStats:
@@ -67,7 +76,7 @@ def _task_to_response(task_model: models.Task) -> schemas.Task:
         completed_at=task_model.completed_at,
         dispatched_at=task_model.dispatched_at,
         expires_at=task_model.expires_at,
-        task_type=json.loads(task_model.task_type) if task_model.task_type else [],
+        task_type=_safe_json_loads(task_model.task_type),
         urgency=task_model.urgency,
         zone=task_model.zone,
         estimated_duration=task_model.estimated_duration,

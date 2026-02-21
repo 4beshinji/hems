@@ -5,7 +5,7 @@ services:
   # To enable: ensure /dev/kfd and /dev/dri exist on the host machine
   llm-engine:
     image: rocm/vllm:latest
-    container_name: soms-llm-engine
+    container_name: hems-llm-engine
     restart: unless-stopped
     devices:
       - /dev/kfd:/dev/kfd
@@ -14,18 +14,18 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - soms_models:/root/.cache/huggingface
+      - hems_models:/root/.cache/huggingface
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
     # Command optimized for 32B model on consumer GPUs. Adjust --tensor-parallel-size if using multiple GPUs.
     command: --model Qwen/Qwen2.5-32B-Instruct-AWQ --quantization awq --gpu-memory-utilization 0.95 --tensor-parallel-size 1
     networks:
-      - soms-llm-net
+      - hems-llm-net
 
 volumes:
-  soms_models:
+  hems_models:
 
 
 networks:
-  soms-llm-net:
+  hems-llm-net:
     driver: bridge

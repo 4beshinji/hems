@@ -783,7 +783,7 @@ class RuleEngine:
             occ = zone.occupancy
 
             # 1. Sedentary sitting detection (camera posture)
-            if (occ.posture_status == "sitting"
+            if (occ.posture == "sitting"
                     and occ.posture_duration_sec > SEDENTARY_MINUTES * 60
                     and self._check_cooldown(f"percep_sitting_{zone_id}", now)):
                 duration_min = int(occ.posture_duration_sec / 60)
@@ -829,7 +829,7 @@ class RuleEngine:
 
             # 3. Daytime lying detection → health check
             if (6 <= hour <= 21
-                    and occ.posture_status == "lying"
+                    and occ.posture == "lying"
                     and occ.posture_duration_sec > 600
                     and self._check_cooldown(f"percep_lying_{zone_id}", now)):
                 actions.append({

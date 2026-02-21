@@ -72,6 +72,7 @@ async def _processing_loop():
                         {
                             "activity_level": state.activity_level,
                             "activity_class": state.activity_class,
+                            "posture": state.posture,
                             "posture_duration_sec": state.posture_duration_sec,
                             "posture_status": state.posture_status,
                         },

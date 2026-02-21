@@ -209,6 +209,8 @@ class WorldModel:
                 zone.occupancy.activity_level = activity
             if "activity_class" in payload:
                 zone.occupancy.activity_class = payload["activity_class"]
+            if "posture" in payload:
+                zone.occupancy.posture = payload["posture"]
             if "posture_duration_sec" in payload:
                 zone.occupancy.posture_duration_sec = payload["posture_duration_sec"]
             if "posture_status" in payload:
@@ -952,9 +954,9 @@ class WorldModel:
                 parts.append(f"  在室: {zone.occupancy.count}人")
                 if zone.occupancy.activity_class != "unknown":
                     parts.append(f"  活動: {zone.occupancy.activity_class} (レベル{zone.occupancy.activity_level:.1f})")
-                if zone.occupancy.posture_status != "unknown":
+                if zone.occupancy.posture != "unknown":
                     duration_min = int(zone.occupancy.posture_duration_sec / 60)
-                    parts.append(f"  姿勢: {zone.occupancy.posture_status} ({duration_min}分)")
+                    parts.append(f"  姿勢: {zone.occupancy.posture} ({duration_min}分)")
 
             lines.append("\n".join(parts))
 
@@ -1098,9 +1100,9 @@ class WorldModel:
                 status = f"  {zid}: {occ.count}人"
                 if occ.activity_class != "unknown":
                     status += f", 活動={occ.activity_class}"
-                if occ.posture_status != "unknown":
+                if occ.posture != "unknown":
                     dur = int(occ.posture_duration_sec / 60)
-                    status += f", 姿勢={occ.posture_status}({dur}分)"
+                    status += f", 姿勢={occ.posture}({dur}分)"
                 occ_parts.append(status)
             lines.append("\n".join(occ_parts))
 

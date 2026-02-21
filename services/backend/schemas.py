@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -9,7 +9,7 @@ class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
     location: Optional[str] = None
-    xp_reward: int = 100
+    xp_reward: int = Field(default=100, ge=50, le=500)
     expires_at: Optional[datetime] = None
     task_type: Optional[List[str]] = None
     urgency: int = 2

@@ -6,7 +6,7 @@ import os
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/home", tags=["home"])
 
@@ -20,21 +20,21 @@ _home_store: dict = {}
 class LightControl(BaseModel):
     entity_id: str
     on: bool
-    brightness: int | None = None
+    brightness: int | None = Field(default=None, ge=0, le=255)
     color_temp: int | None = None
 
 
 class ClimateControl(BaseModel):
     entity_id: str
     mode: str | None = None
-    temperature: float | None = None
+    temperature: float | None = Field(default=None, ge=16, le=30)
     fan_mode: str | None = None
 
 
 class CoverControl(BaseModel):
     entity_id: str
     action: str | None = None
-    position: int | None = None
+    position: int | None = Field(default=None, ge=0, le=100)
 
 
 # --- Endpoints ---
@@ -126,7 +126,7 @@ async def get_home_devices():
         try:
             resp = await client.get(f"{HA_BRIDGE_URL}/api/devices")
             return resp.json()
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, ValueError) as e:
             raise HTTPException(status_code=502, detail=str(e))
 
 

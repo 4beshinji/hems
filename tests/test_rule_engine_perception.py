@@ -30,7 +30,7 @@ def engine():
 class TestSittingDetection:
     def test_sitting_over_threshold_triggers_speak(self, world_model, engine):
         zone = ZoneState(zone_id="living_room")
-        zone.occupancy.posture_status = "sitting"
+        zone.occupancy.posture = "sitting"
         zone.occupancy.posture_duration_sec = 3601  # just over 60 min threshold
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
@@ -44,7 +44,7 @@ class TestSittingDetection:
 
     def test_sitting_under_threshold_no_action(self, world_model, engine):
         zone = ZoneState(zone_id="living_room")
-        zone.occupancy.posture_status = "sitting"
+        zone.occupancy.posture = "sitting"
         zone.occupancy.posture_duration_sec = 60  # 1 min
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
@@ -91,7 +91,7 @@ class TestEmptyRoomDetection:
 class TestLyingDetection:
     def test_daytime_lying_triggers_health_check(self, world_model, engine):
         zone = ZoneState(zone_id="living_room")
-        zone.occupancy.posture_status = "lying"
+        zone.occupancy.posture = "lying"
         zone.occupancy.posture_duration_sec = 900  # 15 min
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()

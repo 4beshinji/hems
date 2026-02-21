@@ -41,6 +41,7 @@ class OccupancyData:
     # Perception ActivityMonitor data
     activity_level: float = 0.0            # 0.0-1.0 (short-term motion)
     activity_class: str = "unknown"        # "idle"|"low"|"moderate"|"high"
+    posture: str = "unknown"               # "standing"|"sitting"|"lying"|"walking"|"unknown"
     posture_duration_sec: float = 0.0      # Current posture duration (seconds)
     posture_status: str = "unknown"        # "changing"|"mostly_static"|"static"
 

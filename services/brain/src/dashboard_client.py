@@ -367,6 +367,7 @@ class DashboardClient:
                     "person_count": occ.count,
                     "activity_level": occ.activity_level,
                     "activity_class": occ.activity_class,
+                    "posture": occ.posture,
                     "posture_status": occ.posture_status,
                     "posture_duration_sec": occ.posture_duration_sec,
                     "last_update": occ.last_update,

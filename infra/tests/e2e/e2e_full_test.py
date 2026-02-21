@@ -25,8 +25,8 @@ import paho.mqtt.client as mqtt
 
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
-MQTT_USER = os.getenv("MQTT_USER", "soms")
-MQTT_PASS = os.getenv("MQTT_PASS", "soms_dev_mqtt")
+MQTT_USER = os.getenv("MQTT_USER", "hems")
+MQTT_PASS = os.getenv("MQTT_PASS", "hems_dev_mqtt")
 BACKEND_URL = "http://localhost:8000"
 VOICE_URL = "http://localhost:8002"
 AUDIO_BASE_URL = "http://localhost"  # nginx serves /audio/
@@ -249,7 +249,7 @@ def test_3_temperature_reaction(client):
     try:
         import subprocess
         logs = subprocess.check_output(
-            ["docker", "logs", "soms-brain", "--since", "60s"],
+            ["docker", "logs", "hems-brain", "--since", "60s"],
             stderr=subprocess.STDOUT, timeout=5,
         ).decode()
         temp_keywords = ["38", "温度", "temperature", "暑", "エアコン", "冷房", "speak"]
@@ -279,7 +279,7 @@ def test_3_temperature_reaction(client):
         return result(True, f"Brain reacted with {len(new_tasks)} new task(s)")
     else:
         print(f"    No new tasks or voice events detected")
-        print(f"    Hint: docker logs soms-brain --tail 30")
+        print(f"    Hint: docker logs hems-brain --tail 30")
         return result(False, "No reaction to 38C temperature")
 
 

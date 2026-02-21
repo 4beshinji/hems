@@ -12,6 +12,14 @@ class TaskQueueManager:
         self.world_model = world_model
         self.dashboard = dashboard_client
 
+    async def add_task(self, task_id: int, title: str, urgency: int = 2, zone: str = ""):
+        """Register a newly created task for queue processing.
+
+        The task is already persisted in the backend DB; this logs the addition
+        so the next process_queue() cycle picks it up.
+        """
+        logger.info(f"Task queued: #{task_id} '{title}' (urgency={urgency}, zone={zone})")
+
     async def process_queue(self):
         """Check queued tasks and dispatch the highest priority one."""
         try:
