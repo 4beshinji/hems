@@ -49,7 +49,7 @@ services:
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}
       - ROOMS=${ROOMS:-living_room}
-      - OPENCLAW_BRIDGE_URL=${OPENCLAW_BRIDGE_URL:-}
+      - LOCALCRAW_BRIDGE_URL=${LOCALCRAW_BRIDGE_URL:-}
       - OBSIDIAN_BRIDGE_URL=${OBSIDIAN_BRIDGE_URL:-}
       - GAS_BRIDGE_URL=${GAS_BRIDGE_URL:-}
       - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
@@ -172,12 +172,18 @@ services:
 
   # ========== Optional Services (profiles) ==========
 
-  # --- OpenClaw Bridge (Desktop agent integration) ---
-  openclaw-bridge:
-    build: ../services/openclaw-bridge
-    container_name: hems-openclaw-bridge
+  # --- localcraw Bridge (PC metrics + service monitor, OpenClaw不要) ---
+  localcraw-bridge:
+    build:
+      context: ../../localcraw
+      dockerfile: Dockerfile
+    container_name: hems-localcraw-bridge
     restart: always
-    profiles: ["openclaw"]
+    profiles: ["localcraw"]
+    # pid:host でホストのPID名前空間を共有。
+    # /proc はpid:host時にコンテナ内で自動的にホストのものが見えるため明示的なマウント不要。
+    # (/proc:ro マウントは AppArmor + healthcheck exec と競合するため使用しない)
+    pid: "host"
     ports:
       - "${HEMS_PORT_OPENCLAW_BRIDGE:-8013}:8000"
     depends_on:
@@ -186,33 +192,31 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - OPENCLAW_GATEWAY_URL=${OPENCLAW_GATEWAY_URL:-ws://host.docker.internal:18789}
-      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
-      - OPENCLAW_METRICS_INTERVAL=${OPENCLAW_METRICS_INTERVAL:-10}
-      - OPENCLAW_PROCESS_INTERVAL=${OPENCLAW_PROCESS_INTERVAL:-30}
+      - PORT=8000
+      - TZ=${TZ:-Asia/Tokyo}
       - MQTT_BROKER=mosquitto
       - MQTT_USER=${MQTT_USER:-hems}
       - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - TZ=${TZ:-Asia/Tokyo}
-      - HEMS_GMAIL_ENABLED=${HEMS_GMAIL_ENABLED:-}
+      - OPENCLAW_METRICS_INTERVAL=${OPENCLAW_METRICS_INTERVAL:-10}
+      - OPENCLAW_PROCESS_INTERVAL=${OPENCLAW_PROCESS_INTERVAL:-30}
+      - HEMS_GMAIL_ENABLED=${HEMS_GMAIL_ENABLED:-false}
       - HEMS_GMAIL_EMAIL=${HEMS_GMAIL_EMAIL:-}
       - HEMS_GMAIL_APP_PASSWORD=${HEMS_GMAIL_APP_PASSWORD:-}
       - HEMS_GMAIL_INTERVAL=${HEMS_GMAIL_INTERVAL:-300}
-      - HEMS_GITHUB_ENABLED=${HEMS_GITHUB_ENABLED:-}
+      - HEMS_GITHUB_ENABLED=${HEMS_GITHUB_ENABLED:-false}
       - HEMS_GITHUB_TOKEN=${HEMS_GITHUB_TOKEN:-}
       - HEMS_GITHUB_INTERVAL=${HEMS_GITHUB_INTERVAL:-300}
       - HEMS_BROWSER_CHECKERS=${HEMS_BROWSER_CHECKERS:-[]}
-    volumes:
-      - ../services/openclaw-bridge/src:/app
+      - HEMS_HA_URL=${HEMS_HA_URL:-}
+      - HEMS_HA_TOKEN=${HEMS_HA_TOKEN:-}
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   # --- Obsidian Bridge (Knowledge store integration) ---
   obsidian-bridge:

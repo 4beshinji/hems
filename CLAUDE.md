@@ -29,8 +29,8 @@ docker compose --profile ollama up -d --build
 # With PostgreSQL (instead of SQLite)
 docker compose --profile postgres up -d --build
 
-# With OpenClaw desktop agent (PC metrics + service monitor)
-docker compose --profile openclaw up -d --build
+# With localcraw (PC metrics + service monitor, no external gateway needed)
+docker compose --profile localcraw up -d --build
 
 # With Obsidian knowledge store
 docker compose --profile obsidian up -d --build
@@ -56,7 +56,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `voicevox`, `ollama`, `postgres`, `openclaw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`
+Optional profiles: `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`
 
 ### Frontend Development
 
@@ -79,7 +79,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Backend API | 8010 | `HEMS_PORT_BACKEND` | hems-backend |
 | Mock LLM | 8011 | `HEMS_PORT_MOCK_LLM` | hems-mock-llm |
 | Voice Service | 8012 | `HEMS_PORT_VOICE` | hems-voice |
-| OpenClaw Bridge | 8013 | `HEMS_PORT_OPENCLAW_BRIDGE` | hems-openclaw-bridge |
+| localcraw Bridge | 8013 | `HEMS_PORT_OPENCLAW_BRIDGE` | hems-localcraw-bridge |
 | Obsidian Bridge | 8014 | `HEMS_PORT_OBSIDIAN_BRIDGE` | hems-obsidian-bridge |
 | GAS Bridge | 8015 | `HEMS_PORT_GAS_BRIDGE` | hems-gas-bridge |
 | HA Bridge | 8016 | `HEMS_PORT_HA_BRIDGE` | hems-ha-bridge |
@@ -158,24 +158,24 @@ hems/brain/reload-character
   (e.g., AC cooling after task created — 30min for temp, 10min for CO2)
 - Tri-domain world model: Physical Space (zones, smart home), Digital Space (PC, services, GAS, knowledge), User State (biometrics)
 - 4 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`
-- OpenClaw tools (profile `openclaw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
+- localcraw tools (profile `localcraw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
 - Service monitor tool (when data available): `get_service_status`
 - Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
 - HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
 - Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
 
-### OpenClaw Bridge (profile: `openclaw`)
+### localcraw Bridge (profile: `localcraw`)
 
-Desktop agent integration service. Monitors host PC and external services.
+PC metrics + service monitor bridge. OpenClaw Gateway 不要 — Node.js + systeminformation で直接ホスト計測。
 
 - PC metrics: CPU / memory / GPU / disk / top processes → `hems/pc/*`
-- Service monitor: Gmail (IMAP), GitHub (REST API), browser-based checkers → `hems/services/*`
+- Service monitor: Gmail (IMAP), GitHub (REST API), browser-based checkers (Playwright内蔵) → `hems/services/*`
 - Edge-triggered events: unread count increases fire MQTT events for immediate LLM response
 
 Configure in `.env`:
 ```bash
-OPENCLAW_GATEWAY_URL=ws://host.docker.internal:18789
+LOCALCRAW_BRIDGE_URL=http://localcraw-bridge:8000
 HEMS_GMAIL_ENABLED=true
 HEMS_GMAIL_EMAIL=user@gmail.com
 HEMS_GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
@@ -221,16 +221,16 @@ Validator: `python validate_character.py config/character.yaml`
 - Brain event_store: raw_events, llm_decisions, hourly_aggregates (SOMS-compatible)
 - Retention: 730 days (2 years) for raw_events and llm_decisions
 
-### OpenClaw Integration (Desktop Agent)
+### localcraw Integration (PC Metrics + Desktop Control)
 
-Bridges physical environment management with PC/desktop control via [OpenClaw](https://github.com/openclaw/openclaw).
+PC metrics collection and desktop control. OpenClaw Gateway 不要。Node.js + systeminformation で直接ホスト計測、Playwright 内蔵ブラウザ制御。
 
-- **openclaw-bridge**: Docker service connecting to OpenClaw Gateway via WebSocket
-  - Polls PC metrics (CPU, memory, GPU, disk, temperatures) every 10s
+- **localcraw-bridge**: Docker service (Node.js) running on host PID namespace
+  - Polls PC metrics (CPU, memory, GPU, disk, temperatures) every 10s via systeminformation
   - Publishes to `hems/pc/*` MQTT topics
   - REST API for brain tools to execute commands, send notifications, control browser
-- **Deploy**: OpenClaw runs on host OS (needs desktop access), bridge connects via `host.docker.internal:18789`
-- **Profile**: `docker compose --profile openclaw up -d --build`
+- **Deploy**: ホストプロセス不要 — `pid:host` + `/proc` `/sys` マウントで直接取得
+- **Profile**: `docker compose --profile localcraw up -d --build`
 - **Brain tools**: `get_pc_status`, `run_pc_command` (with dangerous command blocklist), `control_browser`, `send_pc_notification`
 - **Safety**: Destructive commands (`rm -rf /`, `mkfs`, `shutdown`, etc.) are blocked by sanitizer
 
