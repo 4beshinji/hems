@@ -52,6 +52,10 @@ docker compose --profile biometric up -d --build
 # With perception (camera-based person detection + activity tracking)
 docker compose --profile perception up -d --build
 
+# With mock LLM (development, no Ollama needed)
+LLM_API_URL=http://mock-llm:8000/v1 LLM_MODEL=mock \
+  docker compose --profile mock up -d --build
+
 # Rebuild a single service
 docker compose up -d --build <service-name>
 
@@ -61,7 +65,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`
+Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`
 
 ### Frontend Development
 

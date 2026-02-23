@@ -154,11 +154,12 @@ services:
       retries: 3
       start_period: 15s
 
-  # --- Mock LLM (Development) ---
+  # --- Mock LLM (Development, profile: mock) ---
   mock-llm:
     build: ./mock_llm
     container_name: hems-mock-llm
     restart: unless-stopped
+    profiles: ["mock"]
     ports:
       - "${HEMS_PORT_MOCK_LLM:-8011}:8000"
     networks:
