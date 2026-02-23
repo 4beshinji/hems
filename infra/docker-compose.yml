@@ -35,8 +35,8 @@ services:
       - MQTT_USER=${MQTT_USER:-hems}
       - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LLM_API_URL=${LLM_API_URL:-http://mock-llm:8000/v1}
-      - LLM_MODEL=${LLM_MODEL:-mock}
+      - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen2.5:7b}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -135,8 +135,8 @@ services:
       - VOISONA_USERNAME=${VOISONA_USERNAME:-}
       - VOISONA_PASSWORD=${VOISONA_PASSWORD:-}
       - STYLE_BERT_VITS2_URL=${STYLE_BERT_VITS2_URL:-}
-      - LLM_API_URL=${LLM_API_URL:-http://mock-llm:8000/v1}
-      - LLM_MODEL=${LLM_MODEL:-mock}
+      - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen2.5:7b}
       - CHARACTER=${CHARACTER:-}
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}
