@@ -25,6 +25,7 @@ from device_registry import DeviceRegistry
 from character_loader import load_character, reload_character
 from rule_engine import RuleEngine
 from schedule_learner import ScheduleLearner
+from low_power_mode import PowerModeManager
 from persona_rewriter import PersonaRewriter
 from event_store import init_db, EventWriter, HourlyAggregator
 
@@ -33,8 +34,8 @@ load_dotenv()
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 LLM_API_URL = os.getenv("LLM_API_URL", "http://mock-llm:8000/v1")
-OPENCLAW_BRIDGE_URL = os.getenv("OPENCLAW_BRIDGE_URL", "")
-OPENCLAW_ENABLED = bool(OPENCLAW_BRIDGE_URL)
+LOCALCRAW_BRIDGE_URL = os.getenv("LOCALCRAW_BRIDGE_URL", "")
+OPENCLAW_ENABLED = bool(LOCALCRAW_BRIDGE_URL)
 OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
 OBSIDIAN_ENABLED = bool(OBSIDIAN_BRIDGE_URL)
 GAS_BRIDGE_URL = os.getenv("GAS_BRIDGE_URL", "")
@@ -109,6 +110,7 @@ class Brain:
         self.character = load_character()
         self.schedule_learner = ScheduleLearner() if (HA_ENABLED or BIOMETRIC_ENABLED) else None
         self.rule_engine = RuleEngine(schedule_learner=self.schedule_learner)
+        self.power_mode_manager = PowerModeManager()
 
         self.llm = None
         self.persona_rewriter = None
@@ -204,6 +206,79 @@ class Brain:
 
         if self.task_queue:
             await self.task_queue.process_queue()
+
+        # Update power mode based on current world state
+        self.power_mode_manager.evaluate(self.world_model)
+
+        # Low-power mode: rule-triggered LLM escalation
+        # ---------------------------------------------------------------
+        # Cost model:
+        #   critical rules  → always execute (no LLM, fast response)
+        #   normal rules    → used as a lightweight "is anything happening?" gate
+        #     • nothing fires → skip LLM entirely          (maximum saving)
+        #     • something fires + LLM budget ok → escalate to LLM  (rich response)
+        #     • something fires + LLM throttled → execute rule actions directly (fallback)
+        # ---------------------------------------------------------------
+        low_power_escalation = False  # set True when falling through to LLM
+        if self.power_mode_manager.is_low_power:
+            pm = self.power_mode_manager.get_status()
+
+            # Step 1 — Critical safety rules: always execute immediately, no LLM needed
+            for action in self.rule_engine.evaluate_critical(self.world_model):
+                result = await self.tool_executor.execute(action["tool"], action["args"])
+                total_tool_calls += 1
+                self._action_history.append({
+                    "time": time.time(), "tool": action["tool"],
+                    "summary": _summarize_action(action["tool"], action["args"]),
+                    "success": result.get("success", True),
+                })
+
+            # Step 2 — Normal rules: lightweight scan (consumes rule cooldowns)
+            rule_actions = self.rule_engine.evaluate(self.world_model)
+
+            if rule_actions and self.power_mode_manager.allow_llm_call():
+                # Something noteworthy detected + LLM budget available → escalate
+                logger.info(
+                    "[低消費電力] %sモード: ルール発火(%d件) → LLMエスカレーション",
+                    pm["mode"], len(rule_actions),
+                )
+                self.power_mode_manager.record_llm_call()
+                low_power_escalation = True
+                # Fall through to LLM path below ↓
+                # (rule actions NOT executed directly — LLM will reason with full context)
+
+            elif rule_actions:
+                # LLM throttled → execute rule actions directly as fallback
+                wait_sec = self.power_mode_manager.seconds_until_llm_allowed()
+                logger.debug(
+                    "[低消費電力] LLMレート制限中(%s, %d秒後に解除) — ルールアクション直接実行",
+                    pm["mode"], wait_sec,
+                )
+                for action in rule_actions:
+                    if action["tool"] == "speak" and self.persona_rewriter:
+                        action["args"]["message"] = await self.persona_rewriter.rewrite(
+                            action["args"].get("message", ""),
+                            tone=action["args"].get("tone", "neutral"),
+                        )
+                    result = await self.tool_executor.execute(action["tool"], action["args"])
+                    total_tool_calls += 1
+                    self._action_history.append({
+                        "time": time.time(), "tool": action["tool"],
+                        "summary": _summarize_action(action["tool"], action["args"]),
+                        "success": result.get("success", True),
+                    })
+                await self.dashboard.push_zone_snapshot(self.world_model)
+                if BIOMETRIC_ENABLED:
+                    await self.dashboard.push_biometric_snapshot(self.world_model)
+                return
+
+            else:
+                # Nothing detected — skip LLM entirely
+                logger.debug("[低消費電力] %sモード: ルール未発火 — LLMスキップ", pm["mode"])
+                await self.dashboard.push_zone_snapshot(self.world_model)
+                if BIOMETRIC_ENABLED:
+                    await self.dashboard.push_biometric_snapshot(self.world_model)
+                return
 
         # Rule-based fallback when GPU is busy
         if self.rule_engine.should_use_rules():
@@ -302,6 +377,17 @@ class Brain:
             perception_enabled=PERCEPTION_ENABLED,
         )
         user_content = f"## 現在の自宅状態\n{llm_context}"
+
+        # Low-power escalation notice: tell LLM why it was woken up
+        if low_power_escalation:
+            pm = self.power_mode_manager.get_status()
+            user_content += (
+                f"\n\n## システム状態（低消費電力モード）\n"
+                f"現在 **{pm['mode']}モード** 中です（理由: {pm['reason']}）。\n"
+                f"ルールエンジンが異常を検出したため起動されました。"
+                f"不要なアクションは最小限にし、本当に必要な対応のみ行ってください。"
+            )
+
         if recent_events:
             user_content += "\n\n## 直近のイベント\n" + "\n".join(recent_events)
         if actionable_reports:
@@ -598,9 +684,9 @@ class Brain:
             )
             asyncio.create_task(self.task_reminder.run_periodic_check())
             if OPENCLAW_ENABLED:
-                logger.info(f"OpenClaw integration enabled (bridge={OPENCLAW_BRIDGE_URL})")
+                logger.info(f"localcraw integration enabled (bridge={LOCALCRAW_BRIDGE_URL})")
             else:
-                logger.info("OpenClaw integration disabled (OPENCLAW_BRIDGE_URL not set)")
+                logger.info("localcraw integration disabled (LOCALCRAW_BRIDGE_URL not set)")
             if OBSIDIAN_ENABLED:
                 logger.info(f"Obsidian integration enabled (bridge={OBSIDIAN_BRIDGE_URL})")
             else:
@@ -629,14 +715,16 @@ class Brain:
             last_cycle = 0.0
             while True:
                 try:
-                    await asyncio.wait_for(self._cycle_triggered.wait(), timeout=CYCLE_INTERVAL)
+                    cycle_timeout = self.power_mode_manager.cycle_interval
+                    await asyncio.wait_for(self._cycle_triggered.wait(), timeout=cycle_timeout)
                     self._cycle_triggered.clear()
                     await asyncio.sleep(EVENT_BATCH_DELAY)
                 except asyncio.TimeoutError:
                     pass
 
-                if time.time() - last_cycle < MIN_CYCLE_INTERVAL:
-                    await asyncio.sleep(MIN_CYCLE_INTERVAL - (time.time() - last_cycle))
+                min_interval = self.power_mode_manager.min_cycle_interval
+                if time.time() - last_cycle < min_interval:
+                    await asyncio.sleep(min_interval - (time.time() - last_cycle))
 
                 try:
                     await self.cognitive_cycle()

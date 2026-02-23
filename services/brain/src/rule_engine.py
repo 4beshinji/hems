@@ -9,10 +9,16 @@ import time
 from datetime import datetime, timezone
 from loguru import logger
 from world_model.world_model import (
-    CO2_HIGH, TEMP_HIGH, TEMP_LOW, PC_GPU_TEMP_HIGH, PC_DISK_HIGH,
-    SEDENTARY_MINUTES, HUMIDITY_HIGH, HUMIDITY_LOW,
+    CO2_HIGH, CO2_CRITICAL, TEMP_HIGH, TEMP_LOW, PC_GPU_TEMP_HIGH, PC_DISK_HIGH,
+    SEDENTARY_MINUTES, HUMIDITY_HIGH, HUMIDITY_LOW, SPO2_LOW,
     HRV_LOW, BODY_TEMP_HIGH, RESPIRATORY_RATE_HIGH, SCREEN_TIME_ALERT_MINUTES,
 )
+
+# Critical thresholds used only in low-power mode (more extreme than normal alerts)
+TEMP_CRITICAL_HIGH = float(os.getenv("HEMS_THRESHOLD_TEMP_CRITICAL_HIGH", "40.0"))
+TEMP_CRITICAL_LOW = float(os.getenv("HEMS_THRESHOLD_TEMP_CRITICAL_LOW", "5.0"))
+SPO2_CRITICAL_LOW = int(os.getenv("HEMS_THRESHOLD_SPO2_CRITICAL_LOW", "88"))
+HR_CRITICAL_SLEEP = int(os.getenv("HEMS_THRESHOLD_HR_CRITICAL_SLEEP", "150"))
 from schedule_learner import ScheduleLearner
 
 
@@ -873,3 +879,110 @@ class RuleEngine:
             return False
         self._cooldowns[key] = now
         return True
+
+    def evaluate_critical(self, world_model) -> list[dict]:
+        """Evaluate life-safety critical rules only.
+
+        Used in low-power mode (sleep / away) to respond to dangerous conditions
+        without running the full rule set or the LLM.  Only fires on conditions
+        that genuinely require immediate action regardless of occupancy or time.
+        """
+        actions = []
+        now = time.time()
+
+        # --- Environmental: CO2 danger level ---
+        for zone_id, zone in world_model.zones.items():
+            env = zone.environment
+            if (env.co2 is not None and env.co2 > CO2_CRITICAL
+                    and self._check_cooldown(f"critical_co2_{zone_id}", now)):
+                actions.append({
+                    "tool": "create_task",
+                    "args": {
+                        "title": f"【緊急】{zone_id}のCO2危険レベル",
+                        "description": (
+                            f"CO2濃度が{int(env.co2)}ppmです。直ちに換気してください。"
+                        ),
+                        "xp_reward": 200,
+                        "urgency": 5,
+                        "zone": zone_id,
+                        "task_type": ["ventilation"],
+                    },
+                })
+                actions.append({
+                    "tool": "speak",
+                    "args": {
+                        "message": (
+                            f"緊急です！{zone_id}のCO2濃度が{int(env.co2)}ppmです。"
+                            "すぐに換気してください！"
+                        ),
+                        "zone": zone_id,
+                        "tone": "urgent",
+                    },
+                })
+
+            # --- Environmental: extreme temperature ---
+            if env.temperature is not None:
+                if (env.temperature > TEMP_CRITICAL_HIGH
+                        and self._check_cooldown(f"critical_temp_high_{zone_id}", now)):
+                    actions.append({
+                        "tool": "speak",
+                        "args": {
+                            "message": (
+                                f"危険！{zone_id}の室温が{env.temperature:.1f}℃です。"
+                                "熱中症に注意してください！"
+                            ),
+                            "zone": zone_id,
+                            "tone": "urgent",
+                        },
+                    })
+                elif (env.temperature < TEMP_CRITICAL_LOW
+                        and self._check_cooldown(f"critical_temp_low_{zone_id}", now)):
+                    actions.append({
+                        "tool": "speak",
+                        "args": {
+                            "message": (
+                                f"危険！{zone_id}の室温が{env.temperature:.1f}℃まで低下しています。"
+                                "暖房を確認してください！"
+                            ),
+                            "zone": zone_id,
+                            "tone": "urgent",
+                        },
+                    })
+
+        # --- Biometric: SpO2 critical drop (sleep apnea risk) ---
+        bio = world_model.biometric_state
+        if (bio.spo2.percent is not None
+                and bio.spo2.percent < SPO2_CRITICAL_LOW
+                and bio.spo2.last_update > now - 300
+                and self._check_cooldown("critical_spo2", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": (
+                        f"緊急！血中酸素濃度が{bio.spo2.percent}%まで低下しています！"
+                        "目を覚ましてください！"
+                    ),
+                    "zone": "home",
+                    "tone": "urgent",
+                },
+            })
+
+        # --- Biometric: very high heart rate during sleep ---
+        if (bio.heart_rate.bpm is not None
+                and bio.heart_rate.bpm > HR_CRITICAL_SLEEP
+                and bio.sleep.stage in ("deep", "light", "rem")
+                and bio.heart_rate.last_update > now - 120
+                and self._check_cooldown("critical_hr_sleep", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": (
+                        f"睡眠中に心拍数が{bio.heart_rate.bpm}bpmに達しています！"
+                        "体調を確認してください！"
+                    ),
+                    "zone": "home",
+                    "tone": "urgent",
+                },
+            })
+
+        return actions
