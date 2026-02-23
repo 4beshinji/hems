@@ -175,7 +175,7 @@ class KnowledgeState:
             self.recent_changes = self.recent_changes[-self.max_recent:]
 
 
-# --- PC State (OpenClaw integration) ---
+# --- PC State (localcraw integration) ---
 
 @dataclass
 class CPUData:

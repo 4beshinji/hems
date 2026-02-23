@@ -9,7 +9,7 @@ from typing import Dict, Any
 import aiohttp
 from loguru import logger
 
-OPENCLAW_BRIDGE_URL = os.getenv("OPENCLAW_BRIDGE_URL", "")
+LOCALCRAW_BRIDGE_URL = os.getenv("LOCALCRAW_BRIDGE_URL", "")
 OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
@@ -25,7 +25,7 @@ class ToolExecutor:
         self.task_queue = task_queue
         self._session = session
         self.device_registry = device_registry
-        self.openclaw_url = OPENCLAW_BRIDGE_URL
+        self.openclaw_url = LOCALCRAW_BRIDGE_URL
         self.obsidian_url = OBSIDIAN_BRIDGE_URL
         self.ha_url = HA_BRIDGE_URL
         self.biometric_url = BIOMETRIC_BRIDGE_URL

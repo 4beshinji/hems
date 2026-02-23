@@ -1,7 +1,7 @@
 """
 OpenAI function-calling tool definitions for HEMS Brain.
 Base: create_task, send_device_command, get_zone_status, speak, get_active_tasks, get_device_status
-OpenClaw: get_pc_status, run_pc_command, control_browser, send_pc_notification
+localcraw: get_pc_status, run_pc_command, control_browser, send_pc_notification
 Obsidian: search_notes, write_note, get_recent_notes
 """
 
