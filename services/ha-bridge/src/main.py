@@ -137,6 +137,63 @@ app = FastAPI(title="HEMS HA Bridge", lifespan=lifespan)
 
 # --- REST API ---
 
+# Domains that could be used for command injection or dangerous operations
+_BLOCKED_DOMAINS = {
+    "shell_command", "command_line", "python_script", "script",
+    "automation", "event", "persistent_notification",
+}
+
+# Per-domain parameter validation rules
+_DOMAIN_VALIDATORS: dict[str, dict] = {
+    "light": {
+        "brightness": {"type": (int, float), "min": 0, "max": 255},
+        "color_temp": {"type": (int, float), "min": 153, "max": 500},
+        "transition": {"type": (int, float), "min": 0, "max": 300},
+        "color_name": {"type": str, "max_len": 50},
+        "rgb_color": {"type": list},
+    },
+    "climate": {
+        "temperature": {"type": (int, float), "min": 16, "max": 30},
+        "target_temp_high": {"type": (int, float), "min": 16, "max": 30},
+        "target_temp_low": {"type": (int, float), "min": 16, "max": 30},
+        "fan_mode": {"type": str, "max_len": 30},
+        "hvac_mode": {"type": str, "max_len": 20},
+    },
+    "cover": {
+        "position": {"type": (int, float), "min": 0, "max": 100},
+        "tilt_position": {"type": (int, float), "min": 0, "max": 100},
+    },
+    "switch": {},
+    "light.turn_on": {},
+    "light.turn_off": {},
+}
+
+
+def _validate_ha_params(domain: str, service: str, data: dict) -> str | None:
+    """Validate HA service call parameters. Returns error message or None."""
+    # Block dangerous domains
+    if domain in _BLOCKED_DOMAINS:
+        return f"Domain '{domain}' is blocked for safety reasons"
+
+    # Validate known parameters
+    rules = _DOMAIN_VALIDATORS.get(domain, {})
+    for param, value in data.items():
+        if param not in rules:
+            continue  # Unknown params pass through (HA will reject invalid ones)
+        rule = rules[param]
+        if "type" in rule and not isinstance(value, rule["type"]):
+            return f"Parameter '{param}' has invalid type"
+        if isinstance(value, (int, float)):
+            if "min" in rule and value < rule["min"]:
+                return f"Parameter '{param}' = {value} is below minimum {rule['min']}"
+            if "max" in rule and value > rule["max"]:
+                return f"Parameter '{param}' = {value} exceeds maximum {rule['max']}"
+        if isinstance(value, str) and "max_len" in rule and len(value) > rule["max_len"]:
+            return f"Parameter '{param}' string too long"
+
+    return None
+
+
 class DeviceControlRequest(BaseModel):
     entity_id: str
     service: str
@@ -160,6 +217,11 @@ async def device_control(req: DeviceControlRequest):
     else:
         domain = req.entity_id.split(".")[0] if "." in req.entity_id else ""
         service = req.service
+
+    # Validate parameters before forwarding to HA
+    err = _validate_ha_params(domain, service, req.data)
+    if err:
+        raise HTTPException(400, f"Invalid parameters: {err}")
 
     success = await ha_client.call_service(domain, service, req.entity_id, req.data)
     if success:

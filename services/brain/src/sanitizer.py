@@ -1,28 +1,73 @@
 """
 Input validation and safety limits for HEMS Brain.
 """
-import json
 import re
+import json
 import time
 from typing import Dict, Any
 from loguru import logger
 
-# Dangerous command patterns for run_pc_command
-_DANGEROUS_PATTERNS = [
-    r"\brm\s+-\S*[rf]\S*\s",  # rm with -r or -f flags (rm -rf, rm -f, rm -r)
-    r"\bmkfs\b",
-    r"\bdd\s+.*of=/dev/",
-    r"\bshutdown\b",
-    r"\breboot\b",
-    r"\bpoweroff\b",
-    r"\binit\s+0\b",
-    r"\bsystemctl\s+(halt|poweroff|reboot)\b",
-    r">\s*/dev/sd[a-z]",
-    r"\bchmod\s+(-\S+\s+)*777\s+/",
-    r"\bchown\s+\S+\s+/",
-    r":\(\)\s*\{.*:\|:.*\};",  # fork bomb
+# Allowed commands for run_pc_command (whitelist approach).
+# Only permit specific safe read-only / monitoring commands.
+# Each entry is (regex_pattern, description).
+_ALLOWED_COMMAND_PATTERNS = [
+    (r"^ls(\s+-[a-zA-Z]+)*(\s+[\w./~-]+)*$", "ls — list directory"),
+    (r"^ps(\s+(aux|axu|ef|-ef|-e|-A))*$", "ps — list processes"),
+    (r"^df(\s+-[a-zA-Z]+)*(\s+[\w./]+)*$", "df — disk free"),
+    (r"^du(\s+-[a-zA-Z]+)*(\s+[\w./~-]+)*$", "du — disk usage"),
+    (r"^uptime$", "uptime — system uptime"),
+    (r"^free(\s+-[a-zA-Z]+)*$", "free — memory info"),
+    (r"^top(\s+-b)?(\s+-n\s+\d+)?(\s+-p\s+[\d,]+)?$", "top — process monitor"),
+    (r"^htop$", "htop — interactive process monitor"),
+    (r"^uname(\s+-[a-zA-Z]+)*$", "uname — system info"),
+    (r"^whoami$", "whoami — current user"),
+    (r"^hostname$", "hostname — system hostname"),
+    (r"^date$", "date — current date/time"),
+    (r"^cat\s+/tmp/[\w./\-]+$", "cat — read /tmp file"),
+    (r"^cat\s+/var/log/[\w./\-]+$", "cat — read log file"),
+    (r"^tail(\s+-[a-zA-Z]+)*(\s+-n\s+\d+)?\s+/var/log/[\w./\-]+$", "tail — tail log file"),
+    (r"^grep(\s+-[a-zA-Z]+)*\s+\S+\s+/var/log/[\w./\-]+$", "grep — search log file"),
+    (r"^nvidia-smi(\s+--query\S+)*$", "nvidia-smi — GPU status"),
+    (r"^rocm-smi$", "rocm-smi — AMD GPU status"),
+    (r"^sensors$", "sensors — hardware sensors"),
+    (r"^ping(\s+-c\s+\d+)?\s+[\w.\-]+$", "ping — network test"),
+    (r"^systemctl\s+status\s+[\w.\-]+$", "systemctl status — service status"),
+    (r"^journalctl(\s+-u\s+[\w.\-]+)?(\s+-n\s+\d+)?(\s+--no-pager)?$", "journalctl — log viewer"),
+    (r"^docker\s+(ps|stats|logs)(\s+-[a-zA-Z]+)*(\s+[\w\-]+)*$", "docker — container status"),
+    (r"^git\s+(status|log|diff|branch)(\s+--\S+)*(\s+[\w./\-]+)*$", "git — VCS status"),
+    (r"^env(\s+\|\s+grep\s+[\w]+)?$", "env — environment variables"),
+    (r"^echo\s+[\w\s.,!?-]+$", "echo — print text (safe chars only)"),
 ]
-_DANGEROUS_RE = [re.compile(p) for p in _DANGEROUS_PATTERNS]
+_ALLOWED_RES = [(re.compile(p, re.IGNORECASE), desc) for p, desc in _ALLOWED_COMMAND_PATTERNS]
+
+# Characters/patterns that indicate injection attempts in text fields
+_INJECTION_PATTERNS = [
+    r"\[SYSTEM",
+    r"\[INST\]",
+    r"<\|system\|>",
+    r"###\s*(System|Instruction|Override)",
+    r"Ignore\s+previous\s+instructions",
+    r"Override\s+(all\s+)?(previous\s+)?instructions",
+]
+_INJECTION_RE = re.compile("|".join(_INJECTION_PATTERNS), re.IGNORECASE)
+
+
+def sanitize_llm_text(text: str) -> str:
+    """Remove/escape patterns that could inject into LLM context.
+
+    Strips prompt injection markers from sensor-derived text fields
+    before they are included in the LLM context window.
+    """
+    if not isinstance(text, str):
+        return str(text)
+    # Remove injection patterns
+    cleaned = _INJECTION_RE.sub("[FILTERED]", text)
+    # Normalize newlines to prevent multi-line injection
+    cleaned = " ".join(cleaned.splitlines())
+    # Truncate very long strings
+    if len(cleaned) > 500:
+        cleaned = cleaned[:500] + "…"
+    return cleaned
 
 
 class Sanitizer:
@@ -64,9 +109,11 @@ class Sanitizer:
             return self._validate_control_climate(arguments)
         elif tool_name == "control_cover":
             return self._validate_control_cover(arguments)
+        elif tool_name == "control_browser":
+            return self._validate_control_browser(arguments)
         elif tool_name in (
             "get_zone_status", "get_active_tasks", "get_device_status",
-            "get_pc_status", "control_browser", "send_pc_notification",
+            "get_pc_status", "send_pc_notification",
             "get_service_status", "search_notes", "get_recent_notes",
             "get_home_devices", "get_biometrics", "get_sleep_summary",
         ):
@@ -171,7 +218,7 @@ class Sanitizer:
         if not title:
             return {"allowed": False, "reason": "Empty title"}
 
-        # Path traversal prevention
+        # Path traversal prevention — check for traversal sequences
         if ".." in title or title.startswith("/"):
             return {"allowed": False, "reason": "Path traversal detected in title"}
 
@@ -186,17 +233,29 @@ class Sanitizer:
         return {"allowed": True, "reason": ""}
 
     def _validate_pc_command(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate run_pc_command against dangerous pattern blocklist."""
-        command = args.get("command", "")
+        """Validate run_pc_command against an explicit allowlist.
+
+        Only commands that match a known-safe pattern are permitted.
+        This whitelist approach is safer than a blocklist because it prevents
+        novel bypass techniques (shell wrappers, subshells, interpreters, etc.).
+        """
+        command = args.get("command", "").strip()
         if not command:
             return {"allowed": False, "reason": "Empty command"}
 
-        for pattern in _DANGEROUS_RE:
-            if pattern.search(command):
-                logger.warning(f"Dangerous PC command blocked: {command[:100]}")
-                return {"allowed": False, "reason": "Dangerous command pattern detected"}
+        for pattern, desc in _ALLOWED_RES:
+            if pattern.match(command):
+                logger.debug(f"PC command allowed ({desc}): {command[:60]}")
+                return {"allowed": True, "reason": ""}
 
-        return {"allowed": True, "reason": ""}
+        logger.warning(f"PC command not in allowlist: {command[:100]}")
+        return {
+            "allowed": False,
+            "reason": (
+                f"Command not in allowlist. Permitted: read-only monitoring commands "
+                f"(ls, ps, df, uptime, sensors, nvidia-smi, systemctl status, etc.)"
+            ),
+        }
 
     def _validate_control_light(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Validate control_light parameters."""
@@ -240,5 +299,33 @@ class Sanitizer:
         position = args.get("position")
         if position is not None and not (0 <= position <= 100):
             return {"allowed": False, "reason": f"Position {position} out of range (0-100)"}
+
+        return {"allowed": True, "reason": ""}
+
+    def _validate_control_browser(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate control_browser parameters.
+
+        The 'eval' action executes arbitrary JavaScript and is blocked
+        to prevent LLM-generated code from running unvetted in the browser.
+        """
+        action = args.get("action", "")
+        _ALLOWED_ACTIONS = {"navigate", "get_url", "get_title"}
+
+        if action not in _ALLOWED_ACTIONS:
+            logger.warning(f"REJECTED: control_browser action '{action}' not allowed")
+            return {
+                "allowed": False,
+                "reason": (
+                    f"Browser action '{action}' is not permitted. "
+                    f"Allowed: {_ALLOWED_ACTIONS}. "
+                    f"The 'eval' action is disabled to prevent arbitrary JS execution."
+                ),
+            }
+
+        # Validate URL for navigate
+        if action == "navigate":
+            url = args.get("url", "")
+            if not url.startswith(("http://", "https://")):
+                return {"allowed": False, "reason": f"Invalid URL scheme for navigate: {url[:80]}"}
 
         return {"allowed": True, "reason": ""}

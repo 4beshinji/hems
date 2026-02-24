@@ -9,12 +9,13 @@ services:
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - ./mosquitto/aclfile:/mosquitto/config/aclfile:ro
       - hems_mqtt_data:/mosquitto/data
       - hems_mqtt_log:/mosquitto/log
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u ${MQTT_USER:-hems} -P ${MQTT_PASS:-hems_dev_mqtt} -t '$$SYS/broker/version' -C 1 -W 5 2>/dev/null || exit 1"]
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u ${MQTT_USER_BRAIN:-hems-brain} -P ${MQTT_PASS_BRAIN} -t '$$SYS/broker/version' -C 1 -W 5 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -32,8 +33,9 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER:-hems}
-      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - MQTT_USER=${MQTT_USER_BRAIN:-hems-brain}
+      - MQTT_PASS=${MQTT_PASS_BRAIN:?MQTT_PASS_BRAIN is required}
+      - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
       - LLM_MODEL=${LLM_MODEL:-qwen2.5:7b}
@@ -81,8 +83,10 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/hems.db}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER:-hems}
-      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - MQTT_USER=${MQTT_USER_BACKEND:-hems-backend}
+      - MQTT_PASS=${MQTT_PASS_BACKEND:?MQTT_PASS_BACKEND is required}
+      - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       - TZ=${TZ:-Asia/Tokyo}
       - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
     volumes:
@@ -196,8 +200,8 @@ services:
       - PORT=8000
       - TZ=${TZ:-Asia/Tokyo}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER:-hems}
-      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - MQTT_USER=${MQTT_USER_LOCALCRAW:-hems-localcraw}
+      - MQTT_PASS=${MQTT_PASS_LOCALCRAW:?MQTT_PASS_LOCALCRAW is required}
       - OPENCLAW_METRICS_INTERVAL=${OPENCLAW_METRICS_INTERVAL:-10}
       - OPENCLAW_PROCESS_INTERVAL=${OPENCLAW_PROCESS_INTERVAL:-30}
       - HEMS_GMAIL_ENABLED=${HEMS_GMAIL_ENABLED:-false}
@@ -234,8 +238,8 @@ services:
       - OBSIDIAN_VAULT_PATH=/vault
       - OBSIDIAN_WATCHER_DEBOUNCE=${OBSIDIAN_WATCHER_DEBOUNCE:-2.0}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER:-hems}
-      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - MQTT_USER=${MQTT_USER_OBSIDIAN:-hems-obsidian}
+      - MQTT_PASS=${MQTT_PASS_OBSIDIAN:?MQTT_PASS_OBSIDIAN is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -271,8 +275,8 @@ services:
       - HEMS_GAS_DRIVE_INTERVAL=${HEMS_GAS_DRIVE_INTERVAL:-600}
       - HEMS_GAS_SHEETS=${HEMS_GAS_SHEETS:-}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER:-hems}
-      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - MQTT_USER=${MQTT_USER_GAS:-hems-gas}
+      - MQTT_PASS=${MQTT_PASS_GAS:?MQTT_PASS_GAS is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -313,8 +317,8 @@ services:
       - HEMS_HA_ENTITY_MAP=${HEMS_HA_ENTITY_MAP:-{}}
       - HEMS_HA_POLL_INTERVAL=${HEMS_HA_POLL_INTERVAL:-30}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER:-hems}
-      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - MQTT_USER=${MQTT_USER_HA:-hems-ha-bridge}
+      - MQTT_PASS=${MQTT_PASS_HA:?MQTT_PASS_HA is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -341,8 +345,9 @@ services:
         condition: service_healthy
     environment:
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER:-hems}
-      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - MQTT_USER=${MQTT_USER_BIOMETRIC:-hems-biometric}
+      - MQTT_PASS=${MQTT_PASS_BIOMETRIC:?MQTT_PASS_BIOMETRIC is required}
+      - BIOMETRIC_WEBHOOK_SECRET=${BIOMETRIC_WEBHOOK_SECRET:?BIOMETRIC_WEBHOOK_SECRET is required}
       - BIOMETRIC_PROVIDER=${BIOMETRIC_PROVIDER:-gadgetbridge}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
@@ -404,7 +409,7 @@ services:
     profiles: ["postgres"]
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-hems}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-hems_dev_password}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required when using --profile postgres}
       - POSTGRES_DB=hems
     ports:
       - "127.0.0.1:${HEMS_PORT_POSTGRES:-5442}:5432"

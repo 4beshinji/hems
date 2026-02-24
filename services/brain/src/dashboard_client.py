@@ -7,6 +7,13 @@ from loguru import logger
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
+_HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
+
+# Authorization header for all backend requests
+_AUTH_HEADERS = {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY else {}
+
+if not _HEMS_API_KEY:
+    logger.warning("HEMS_API_KEY not set — backend API calls will be rejected (401)")
 
 
 class DashboardClient:
@@ -55,7 +62,8 @@ class DashboardClient:
 
         try:
             async with self.session.post(
-                f"{self.backend_url}/tasks/", json=payload, timeout=10
+                f"{self.backend_url}/tasks/", json=payload, timeout=10,
+                headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status == 200:
                     return await resp.json()
@@ -120,6 +128,7 @@ class DashboardClient:
                     "tone": tone,
                 },
                 timeout=5,
+                headers=_AUTH_HEADERS,
             )
             return voice_data
         except Exception as e:
@@ -130,7 +139,8 @@ class DashboardClient:
         """Get active (non-completed) tasks from backend."""
         try:
             async with self.session.get(
-                f"{self.backend_url}/tasks/", timeout=5
+                f"{self.backend_url}/tasks/", timeout=5,
+                headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status == 200:
                     return await resp.json()
@@ -142,7 +152,8 @@ class DashboardClient:
         """Fetch task statistics from backend."""
         try:
             async with self.session.get(
-                f"{self.backend_url}/tasks/stats", timeout=5
+                f"{self.backend_url}/tasks/stats", timeout=5,
+                headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status == 200:
                     return await resp.json()
@@ -188,7 +199,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/pc/snapshot",
-                json=payload, timeout=5,
+                json=payload, timeout=5, headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status != 200:
                     logger.debug(f"PC snapshot push failed: {resp.status}")
@@ -214,7 +225,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/services/snapshot",
-                json=payload, timeout=5,
+                json=payload, timeout=5, headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status != 200:
                     logger.debug(f"Services snapshot push failed: {resp.status}")
@@ -236,7 +247,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/knowledge/snapshot",
-                json=payload, timeout=5,
+                json=payload, timeout=5, headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status != 200:
                     logger.debug(f"Knowledge snapshot push failed: {resp.status}")
@@ -295,7 +306,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/gas/snapshot",
-                json=payload, timeout=5,
+                json=payload, timeout=5, headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status != 200:
                     logger.debug(f"GAS snapshot push failed: {resp.status}")
@@ -350,7 +361,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/biometric/snapshot",
-                json=payload, timeout=5,
+                json=payload, timeout=5, headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status != 200:
                     logger.debug(f"Biometric snapshot push failed: {resp.status}")
@@ -377,7 +388,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/perception/snapshot",
-                json={"zones": zones_data}, timeout=5,
+                json={"zones": zones_data}, timeout=5, headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status != 200:
                     logger.debug(f"Perception snapshot push failed: {resp.status}")
@@ -408,7 +419,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/home/snapshot",
-                json=payload, timeout=5,
+                json=payload, timeout=5, headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status != 200:
                     logger.debug(f"Home snapshot push failed: {resp.status}")
@@ -446,7 +457,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/zones/snapshot",
-                json={"zones": zones}, timeout=5,
+                json={"zones": zones}, timeout=5, headers=_AUTH_HEADERS,
             ) as resp:
                 if resp.status != 200:
                     logger.debug(f"Zone snapshot push failed: {resp.status}")

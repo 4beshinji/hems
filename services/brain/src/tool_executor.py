@@ -14,6 +14,9 @@ OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
 
+_HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
+_AUTH_HEADERS = {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY else {}
+
 
 class ToolExecutor:
     def __init__(self, sanitizer, mcp_bridge, dashboard_client, world_model,
@@ -214,6 +217,7 @@ class ToolExecutor:
                         "tone": tone,
                     },
                     timeout=aiohttp.ClientTimeout(total=10),
+                    headers=_AUTH_HEADERS,
                 )
             except Exception as e:
                 logger.warning(f"Failed to record voice event: {e}")

@@ -84,6 +84,7 @@ date: {today}
         """Write arbitrary note to vault (within HEMS/ directory only).
 
         Returns the relative path of the written file.
+        Raises ValueError if the resolved path escapes the vault boundary.
         """
         # Safety: only allow writing under HEMS/
         if not rel_path.startswith("HEMS/"):
@@ -94,13 +95,30 @@ date: {today}
             rel_path += ".md"
 
         full_path = self.vault_path / rel_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Path traversal check: resolve symlinks + ".." components and verify
+        # the resulting absolute path is still within the vault directory.
+        vault_resolved = self.vault_path.resolve()
+        try:
+            full_resolved = full_path.resolve()
+        except (OSError, ValueError) as e:
+            raise ValueError(f"Invalid path: {rel_path}") from e
+
+        if not str(full_resolved).startswith(str(vault_resolved) + "/"):
+            logger.warning(f"Path traversal attempt blocked: {rel_path!r} → {full_resolved}")
+            raise ValueError(
+                f"Path traversal detected: '{rel_path}' resolves outside vault"
+            )
+
+        full_resolved.parent.mkdir(parents=True, exist_ok=True)
 
         # Add frontmatter if tags provided and file is new
-        if tags and not full_path.exists():
+        if tags and not full_resolved.exists():
             tag_str = ", ".join(tags)
             content = f"---\ntags: [{tag_str}]\n---\n{content}"
 
-        full_path.write_text(content, encoding="utf-8")
-        logger.debug(f"Note written: {rel_path}")
-        return rel_path
+        full_resolved.write_text(content, encoding="utf-8")
+        # Return path relative to vault root
+        rel_result = str(full_resolved.relative_to(vault_resolved))
+        logger.debug(f"Note written: {rel_result}")
+        return rel_result

@@ -1,0 +1,71 @@
+# HEMS Mosquitto ACL File
+# Per-service topic permissions — principle of least privilege
+#
+# Format:
+#   user <username>
+#   topic [read|write|readwrite] <topic_pattern>
+#
+# Run infra/mosquitto/setup-users.sh to (re)generate the passwd file.
+
+# --- Brain service ---
+# Needs full read on office/# and hems/# to receive sensor data,
+# and write on mcp/# to send device commands.
+user hems-brain
+topic readwrite office/#
+topic readwrite hems/#
+topic readwrite mcp/#
+
+# --- Backend API service ---
+# Reads sensor/event data, publishes task reports to office/# topics.
+user hems-backend
+topic read   office/#
+topic read   hems/#
+topic write  office/+/task_report/#
+
+# --- Voice service ---
+# No MQTT pub/sub needed (REST only), but subscribe to voice commands if needed.
+user hems-voice
+topic read   hems/brain/#
+
+# --- HA Bridge ---
+# Publishes home device state to hems/home/#.
+# No need to subscribe (brain subscribes).
+user hems-ha-bridge
+topic write  hems/home/#
+topic read   hems/home/bridge/status
+
+# --- Biometric Bridge ---
+# Publishes biometric readings to hems/personal/biometrics/#.
+user hems-biometric
+topic write  hems/personal/biometrics/#
+
+# --- GAS Bridge ---
+# Publishes Google data to hems/gas/#.
+user hems-gas
+topic write  hems/gas/#
+
+# --- Obsidian Bridge ---
+# Publishes note changes to hems/personal/notes/#.
+user hems-obsidian
+topic write  hems/personal/notes/#
+
+# --- localcraw Bridge ---
+# Publishes PC metrics to hems/pc/# and service status to hems/services/#.
+user hems-localcraw
+topic write  hems/pc/#
+topic write  hems/services/#
+
+# --- Perception service ---
+# Publishes camera/activity data to office/+/camera/# and office/+/activity/#.
+user hems-perception
+topic write  office/+/camera/#
+topic write  office/+/activity/#
+topic write  hems/perception/#
+
+# --- IoT sensor devices (zone sensors, MCP agents) ---
+# Sensors publish to office/{zone}/sensor/# and respond on mcp/+/response/#.
+# Use a shared credential for all IoT devices.
+user hems-iot
+topic write  office/#
+topic write  mcp/+/response/#
+topic read   mcp/#

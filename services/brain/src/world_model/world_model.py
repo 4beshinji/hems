@@ -3,6 +3,7 @@ WorldModel — maintains unified zone state from MQTT messages.
 Forked from SOMS with HEMS personal topic support.
 """
 import os
+import re
 import time
 import logging
 from typing import Optional
@@ -20,6 +21,30 @@ from .data_classes import (
 from .sensor_fusion import SensorFusion
 
 logger = logging.getLogger(__name__)
+
+# Prompt injection patterns to strip from MQTT-sourced text before LLM context
+_INJECTION_RE = re.compile(
+    r"\[SYSTEM|<\|system\|>|###\s*(System|Instruction|Override)|"
+    r"Ignore\s+previous\s+instructions|Override\s+(all\s+)?(previous\s+)?instructions|"
+    r"\[INST\]|<\|im_start\|>|<\|im_end\|>",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_text(text: str, max_len: int = 200) -> str:
+    """Sanitize MQTT-sourced text before including it in LLM context.
+
+    - Removes prompt-injection marker patterns
+    - Collapses newlines (prevents multi-line injection)
+    - Truncates to max_len
+    """
+    if not isinstance(text, str):
+        return str(text)[:max_len]
+    cleaned = _INJECTION_RE.sub("[FILTERED]", text)
+    cleaned = " ".join(cleaned.splitlines()).strip()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len] + "…"
+    return cleaned
 
 # Environment thresholds for event generation (configurable via env vars)
 CO2_HIGH = int(os.getenv("HEMS_THRESHOLD_CO2_HIGH", "1000"))
@@ -231,9 +256,11 @@ class WorldModel:
         elif "task_report" in topic:
             zone_id = parts[1] if len(parts) >= 2 else "unknown"
             zone = self._get_zone(zone_id)
+            safe_title = _sanitize_text(payload.get("title", ""), 100)
+            safe_status = _sanitize_text(payload.get("report_status", ""), 30)
             zone.add_event(Event(
                 event_type="task_report",
-                description=f"タスク報告: {payload.get('title', '')} ({payload.get('report_status', '')})",
+                description=f"タスク報告: {safe_title} ({safe_status})",
                 severity=1 if payload.get("report_status") in ("needs_followup", "cannot_resolve") else 0,
                 zone=zone_id,
                 data=payload,
@@ -489,13 +516,13 @@ class WorldModel:
             prev_count = prev.unread_count if prev else 0
 
             ssd = ServiceStatusData(
-                name=payload.get("name", service_name),
-                available=payload.get("available", True),
-                unread_count=payload.get("unread_count", 0),
-                summary=payload.get("summary", ""),
+                name=_sanitize_text(payload.get("name", service_name), 50),
+                available=bool(payload.get("available", True)),
+                unread_count=int(payload.get("unread_count", 0)),
+                summary=_sanitize_text(payload.get("summary", "")),
                 details=payload.get("details", {}),
                 last_check=payload.get("last_check", time.time()),
-                error=payload.get("error"),
+                error=_sanitize_text(payload.get("error", "") or "", 100) or None,
             )
             ss.services[service_name] = ssd
 
@@ -511,7 +538,7 @@ class WorldModel:
         elif msg_type == "event":
             ss.add_event(Event(
                 event_type=f"service_{payload.get('type', 'unknown')}",
-                description=payload.get("summary", f"{service_name} event"),
+                description=_sanitize_text(payload.get("summary", f"{service_name} event")),
                 severity=0,
                 data=payload,
             ))
@@ -892,9 +919,9 @@ class WorldModel:
         elif msg_type == "changed":
             ks.bridge_connected = True
             change = {
-                "path": payload.get("path", ""),
-                "title": payload.get("title", ""),
-                "action": payload.get("action", ""),
+                "path": _sanitize_text(payload.get("path", ""), 150),
+                "title": _sanitize_text(payload.get("title", ""), 100),
+                "action": _sanitize_text(payload.get("action", ""), 30),
             }
             ks.add_recent_change(change)
             ks.add_event(Event(

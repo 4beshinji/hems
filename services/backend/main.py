@@ -3,10 +3,11 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import engine, Base
+from auth import verify_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS: restrict to explicitly allowed origins.
+# allow_credentials=True requires an explicit origin list (not wildcard).
+_allowed_origins_raw = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:8080,http://127.0.0.1:8080"
+)
+_allowed_origins = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 from routers import (
@@ -44,21 +53,30 @@ from routers import (
     knowledge, gas, biometric, perception, home, timeseries,
 )
 
-app.include_router(tasks.router)
-app.include_router(voice_events.router)
-app.include_router(points.router)
-app.include_router(users.router)
-app.include_router(zones.router)
-app.include_router(pc.router)
-app.include_router(services.router)
-app.include_router(knowledge.router)
-app.include_router(gas.router)
-app.include_router(biometric.router)
-app.include_router(perception.router)
-app.include_router(home.router)
-app.include_router(timeseries.router)
+# All routers require API key authentication.
+_auth = [Depends(verify_api_key)]
+
+app.include_router(tasks.router, dependencies=_auth)
+app.include_router(voice_events.router, dependencies=_auth)
+app.include_router(points.router, dependencies=_auth)
+app.include_router(users.router, dependencies=_auth)
+app.include_router(zones.router, dependencies=_auth)
+app.include_router(pc.router, dependencies=_auth)
+app.include_router(services.router, dependencies=_auth)
+app.include_router(knowledge.router, dependencies=_auth)
+app.include_router(gas.router, dependencies=_auth)
+app.include_router(biometric.router, dependencies=_auth)
+app.include_router(perception.router, dependencies=_auth)
+app.include_router(home.router, dependencies=_auth)
+app.include_router(timeseries.router, dependencies=_auth)
 
 
 @app.get("/")
 async def root():
     return {"service": "HEMS Backend", "status": "running"}
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint — no auth required for Docker healthcheck."""
+    return {"status": "ok"}

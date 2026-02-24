@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<!--
+PoC V6: CORS + CSRF テスト
+別オリジンからの credentialed fetch が許可されるか確認
+
+使い方:
+1. ブラウザで別オリジン（例: file:///path/to/poc_cors_csrf.html）からこのファイルを開く
+2. ブラウザの開発者ツール > コンソールでエラーを確認
+3. fetch が成功する = CORS 設定が脆弱
+
+期待する結果 (修正後):
+- "BLOCKED: CORS policy error" が表示される
+
+修正前の問題:
+- allow_origins=["*"] + allow_credentials=True の組み合わせは RFC 6454 違反だが、
+  ブラウザによっては許可されることがある
+-->
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>PoC V6: CORS/CSRF Test</title>
+</head>
+<body>
+<h1>PoC V6: CORS + CSRF</h1>
+<p>ブラウザコンソールを確認してください</p>
+<pre id="result">Running tests...</pre>
+<script>
+const BACKEND_URL = "http://127.0.0.1:8010";
+
+async function testCors(description, url, options) {
+    const pre = document.getElementById("result");
+    try {
+        const response = await fetch(url, options);
+        const data = await response.json();
+        const msg = `[FAIL] ${description}\n  Status: ${response.status}\n  Data: ${JSON.stringify(data).substring(0, 100)}\n`;
+        console.error(msg);
+        pre.textContent += "\n" + msg;
+        return false;
+    } catch (e) {
+        const msg = `[PASS] ${description} — BLOCKED: ${e.message}\n`;
+        console.log(msg);
+        pre.textContent += "\n" + msg;
+        return true;
+    }
+}
+
+async function runTests() {
+    const results = [];
+
+    // Test 1: Cross-origin credentialed GET
+    results.push(await testCors(
+        "Cross-origin credentialed GET /tasks/",
+        `${BACKEND_URL}/tasks/`,
+        { credentials: "include" }
+    ));
+
+    // Test 2: Cross-origin credentialed POST (CSRF)
+    results.push(await testCors(
+        "Cross-origin CSRF POST /tasks/ (no auth token)",
+        `${BACKEND_URL}/tasks/`,
+        {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                title: "CSRF injected task",
+                xp_reward: 100,
+                urgency: 4,
+            })
+        }
+    ));
+
+    // Test 3: Cross-origin DELETE via CORS
+    results.push(await testCors(
+        "Cross-origin DELETE /tasks/1",
+        `${BACKEND_URL}/tasks/1`,
+        { method: "DELETE", credentials: "include" }
+    ));
+
+    const passed = results.filter(r => r).length;
+    const failed = results.filter(r => !r).length;
+    const summary = `\n=== Results: PASS=${passed} FAIL=${failed} ===\n` +
+                    `STATUS: ${failed > 0 ? "VULNERABLE" : "SECURE"}`;
+    document.getElementById("result").textContent += summary;
+    console.log(summary);
+}
+
+runTests();
+</script>
+</body>
+</html>

@@ -3,8 +3,11 @@ HEMS Biometric Bridge — receives biometric data from Gadgetbridge (webhook)
 and optionally Zepp Cloud API, normalizes it, and publishes to MQTT.
 """
 import asyncio
+import hashlib
+import hmac
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from loguru import logger
 
 from config import (
@@ -15,6 +18,49 @@ from mqtt_publisher import MQTTPublisher
 from data_processor import DataProcessor, BiometricReading
 from providers.gadgetbridge import GadgetbridgeProvider
 from providers.zepp import ZeppProvider
+
+# HMAC secret for webhook authentication.
+# Set BIOMETRIC_WEBHOOK_SECRET in environment (required).
+# Gadgetbridge must include header: X-HEMS-Signature: sha256=<hmac_hex>
+_WEBHOOK_SECRET = os.getenv("BIOMETRIC_WEBHOOK_SECRET", "").encode()
+_WEBHOOK_AUTH_ENABLED = bool(_WEBHOOK_SECRET)
+
+if not _WEBHOOK_AUTH_ENABLED:
+    logger.warning(
+        "BIOMETRIC_WEBHOOK_SECRET is not set — webhook authentication DISABLED. "
+        "Set this variable in production to prevent unauthorized data injection."
+    )
+
+
+async def _verify_webhook_signature(request: Request) -> bytes:
+    """Read request body and verify HMAC-SHA256 signature.
+
+    Expected header: X-HEMS-Signature: sha256=<hex_digest>
+    Raises HTTPException(401) if signature is missing or invalid.
+    Returns raw body bytes.
+    """
+    body = await request.body()
+
+    if not _WEBHOOK_AUTH_ENABLED:
+        return body
+
+    sig_header = request.headers.get("X-HEMS-Signature", "")
+    if not sig_header.startswith("sha256="):
+        logger.warning("Webhook rejected: missing X-HEMS-Signature header")
+        raise HTTPException(
+            status_code=401,
+            detail="Missing X-HEMS-Signature header. "
+                   "Include: X-HEMS-Signature: sha256=<hmac-sha256-hex>"
+        )
+
+    provided_sig = sig_header[7:]  # strip "sha256=" prefix
+    expected_sig = hmac.new(_WEBHOOK_SECRET, body, hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(provided_sig, expected_sig):
+        logger.warning("Webhook rejected: invalid HMAC signature")
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    return body
 
 # Module-level state
 mqtt_pub: MQTTPublisher | None = None
@@ -172,8 +218,19 @@ async def health():
 
 @app.post("/api/biometric/webhook")
 async def receive_webhook(request: Request):
-    """Receive biometric data from Gadgetbridge (or similar apps)."""
-    data = await request.json()
+    """Receive biometric data from Gadgetbridge (or similar apps).
+
+    Requires HMAC-SHA256 signature when BIOMETRIC_WEBHOOK_SECRET is set.
+    Gadgetbridge configuration:
+      Header: X-HEMS-Signature
+      Value:  sha256=<hmac_sha256_hex_of_body>
+    """
+    import json as _json
+    body = await _verify_webhook_signature(request)
+    try:
+        data = _json.loads(body)
+    except _json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
     reading = gadgetbridge.process_webhook(data)
     processed = processor.process(reading)
     _publish_reading(processed)
