@@ -12,7 +12,7 @@ pass() { echo -e "  ${GREEN}[PASS]${NC} $1"; ((PASS++)); }
 fail() { echo -e "  ${RED}[FAIL]${NC} $1"; ((FAIL++)); }
 warn() { echo -e "  ${YELLOW}[WARN]${NC} $1"; ((WARN++)); }
 
-echo "=== SOMS GPU Isolation Verification ==="
+echo "=== HEMS GPU Isolation Verification ==="
 echo ""
 
 # --- 1. カーネルバージョン ---

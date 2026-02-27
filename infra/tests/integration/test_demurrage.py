@@ -80,7 +80,7 @@ def test_create_rich_wallet():
         api_request(f"{WALLET_URL}/wallets/", method="POST", data={"user_id": uid})
     except RuntimeError:
         pass
-    # Fund with 10000 milli-units (10.0 SOMS) — well above exempt threshold of 100
+    # Fund with 10000 milli-units (10.0 HEMS) — well above exempt threshold of 100
     api_request(f"{WALLET_URL}/transactions/task-reward", method="POST", data={
         "user_id": uid,
         "amount": 10000,
@@ -213,7 +213,7 @@ def test_system_wallet_not_taxed():
 def main():
     global passed, failed, skipped
     print("=" * 60)
-    print("SOMS Demurrage Test")
+    print("HEMS Demurrage Test")
     print("=" * 60)
 
     print("\n🔍 Test 1: Health Check")

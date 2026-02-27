@@ -19,8 +19,8 @@ import paho.mqtt.client as mqtt
 
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
-MQTT_USER = os.getenv("MQTT_USER", "soms")
-MQTT_PASS = os.getenv("MQTT_PASS", "soms_dev_mqtt")
+MQTT_USER = os.getenv("MQTT_USER", "hems")
+MQTT_PASS = os.getenv("MQTT_PASS", "hems_dev_mqtt")
 API_URL = "http://localhost:8000"
 CYCLE_WAIT = 40  # Brain cycle=30s + batch delay + margin
 
@@ -194,7 +194,7 @@ def main():
     else:
         print(f"  ❌ FAIL — No reaction to 38°C. Tasks before={tasks_before_temp} after={tasks_after_temp}")
         # Check brain logs for clues
-        print("  💡 Check: docker logs soms-brain --tail 30")
+        print("  💡 Check: docker logs hems-brain --tail 30")
         failed += 1
 
     # ========================================

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-SOMS LLM Model Evaluation Framework
-Evaluates multiple LLM models against SOMS Brain/Voice scenarios.
+HEMS LLM Model Evaluation Framework
+Evaluates multiple LLM models against HEMS Brain/Voice scenarios.
 
 No external dependencies — uses only Python standard library + urllib.
 
@@ -285,7 +285,7 @@ VOICE_TASK_URGENT_PROMPT = """\
 お願いがあります。2階給湯室でコーヒー豆の補充をお願いします。50最適化承認スコアを獲得できます。"""
 
 VOICE_REJECTION_PROMPT = """\
-あなたはSOMSの管理AIです。人間がタスクを無視・拒否した時に使うセリフを1つだけ生成してください。
+あなたはHEMSの管理AIです。人間がタスクを無視・拒否した時に使うセリフを1つだけ生成してください。
 
 【キャラクター】
 - オフィスを統治する自称「完璧な」AI
@@ -1034,7 +1034,7 @@ def run_evaluation(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="SOMS LLM Model Evaluation Framework"
+        description="HEMS LLM Model Evaluation Framework"
     )
     parser.add_argument(
         "--url",
@@ -1067,7 +1067,7 @@ def main():
     models = args.models.split(",") if args.models else DEFAULT_MODELS
     scenario_ids = args.scenarios.split(",") if args.scenarios else None
 
-    log("SOMS LLM Model Evaluation Framework")
+    log("HEMS LLM Model Evaluation Framework")
     log(f"API URL: {args.url}")
     log(f"Models:  {models}")
     log(f"Runs:    {args.runs}/scenario")

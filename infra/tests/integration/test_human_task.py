@@ -9,8 +9,8 @@ import sys
 # Configuration
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
-MQTT_USER = os.getenv("MQTT_USER", "soms")
-MQTT_PASS = os.getenv("MQTT_PASS", "soms_dev_mqtt")
+MQTT_USER = os.getenv("MQTT_USER", "hems")
+MQTT_PASS = os.getenv("MQTT_PASS", "hems_dev_mqtt")
 API_URL = "http://localhost:8000"
 
 def on_connect(client, userdata, flags, rc, properties=None):

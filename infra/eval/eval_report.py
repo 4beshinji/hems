@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SOMS LLM Evaluation Report Generator
+HEMS LLM Evaluation Report Generator
 Reads JSONL results from eval_models.py and generates a Markdown comparison report.
 
 Usage:
@@ -220,7 +220,7 @@ def generate_report(all_results: dict) -> str:
     lines = []
     w = lines.append
 
-    w("# SOMS LLM Model Evaluation Report")
+    w("# HEMS LLM Model Evaluation Report")
     w("")
     w(f"Generated: {datetime.now(JST).strftime('%Y-%m-%d %H:%M:%S')} JST")
     w("")

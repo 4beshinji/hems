@@ -199,7 +199,7 @@ cd infra
 docker-compose down
 
 # Remove database to force recreation
-docker volume rm infra_soms_db_data
+docker volume rm infra_hems_db_data
 
 # Restart services (schema will be recreated)
 docker-compose up -d

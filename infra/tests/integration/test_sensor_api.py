@@ -271,7 +271,7 @@ def test6_events_nonexistent_zone():
 def main():
     global passed, failed, skipped
     print("=" * 60)
-    print("SOMS Sensor Data API Test (C.2+)")
+    print("HEMS Sensor Data API Test (C.2+)")
     print("=" * 60)
 
     print("\n[1] /sensors/latest")

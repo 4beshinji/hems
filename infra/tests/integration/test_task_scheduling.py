@@ -185,7 +185,7 @@ async def main():
     print("3. Normal/Low tasks may queue based on zone occupancy")
     print("4. Tasks requiring multiple people may queue until conditions are met")
     print("\nℹ️  Check Brain logs for dispatch decisions:")
-    print("   docker logs -f soms-brain | grep -E 'Dispatching|Queuing|Task Queue'")
+    print("   docker logs -f hems-brain | grep -E 'Dispatching|Queuing|Task Queue'")
 
 
 if __name__ == "__main__":

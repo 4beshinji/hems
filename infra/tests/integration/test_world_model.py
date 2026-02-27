@@ -237,7 +237,7 @@ def main():
         print("✅ Test sequence completed!")
         print("=" * 60)
         print("\nℹ️  Next steps:")
-        print("1. Check Brain service logs: docker logs -f soms-brain")
+        print("1. Check Brain service logs: docker logs -f hems-brain")
         print("2. Verify World Model state in Brain")
         print("3. Check Dashboard API: curl http://localhost:8000/tasks")
         

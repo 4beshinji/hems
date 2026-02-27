@@ -131,7 +131,7 @@ docker-compose up -d
 # 2. タスクを作成
 # 3. 1時間待つ（または REMINDER_INTERVAL_MINUTES を短く設定）
 # 4. Brainログで自動リマインドを確認
-docker logs -f soms-brain
+docker logs -f hems-brain
 ```
 
 ## ログ出力例
@@ -153,7 +153,7 @@ docker logs -f soms-brain
 
 ```bash
 docker-compose down
-docker volume rm infra_soms_db_data
+docker volume rm infra_hems_db_data
 docker-compose up -d
 ```
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SOMS port-aware startup script.
+HEMS port-aware startup script.
 Detects host port conflicts and maps to free alternatives (+100 offset).
 """
 import os
@@ -46,7 +46,7 @@ def next_free(start: int) -> int:
 
 
 def main():
-    print("=== SOMS Port Conflict Check ===")
+    print("=== HEMS Port Conflict Check ===")
     env_overrides = {}
 
     for var, default_port, name in PORT_MAP:
@@ -86,7 +86,7 @@ def main():
         sys.exit(result.returncode)
 
     # Print summary
-    print("\n=== SOMS Running ===")
+    print("\n=== HEMS Running ===")
     for var, default_port, name in PORT_MAP:
         port = env_overrides.get(var, default_port)
         print(f"  {name:25s}: http://localhost:{port}")

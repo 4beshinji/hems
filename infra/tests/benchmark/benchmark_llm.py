@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LLM Load Test / Benchmark for SOMS Brain
+LLM Load Test / Benchmark for HEMS Brain
 Tests ollama (qwen2.5:14b) on RX 9700 GPU via OpenAI-compatible API.
 No external dependencies — uses only Python standard library.
 
@@ -17,7 +17,7 @@ import concurrent.futures
 from dataclasses import dataclass, field
 from typing import Optional, List
 
-# ── SOMS system prompt (actual production prompt) ──
+# ── HEMS system prompt (actual production prompt) ──
 SYSTEM_PROMPT = """\
 あなたは自律型オフィス管理AI「Brain」です。センサーデータとイベント情報を分析し、オフィスの快適性と安全性を維持します。
 
@@ -231,7 +231,7 @@ def print_result(r: BenchResult):
 
 
 def run_benchmark(url: str, model: str):
-    print(f"\nSOMS LLM Benchmark")
+    print(f"\nHEMS LLM Benchmark")
     print(f"  Target:  {url}")
     print(f"  Model:   {model}")
     print(f"  GPU:     RX 9700 (gfx1201, RDNA4)")
@@ -337,7 +337,7 @@ def run_benchmark(url: str, model: str):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SOMS LLM Benchmark")
+    parser = argparse.ArgumentParser(description="HEMS LLM Benchmark")
     parser.add_argument("--url", default="http://localhost:11434/v1", help="Ollama API URL")
     parser.add_argument("--model", default="qwen2.5:14b", help="Model name")
     args = parser.parse_args()
