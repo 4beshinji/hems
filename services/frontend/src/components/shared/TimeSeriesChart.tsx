@@ -8,7 +8,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from 'recharts'
-import { fetchTimeSeries } from '../api'
+import { fetchTimeSeries } from '@/lib/api'
 
 interface Props {
   metric: string
@@ -70,11 +70,11 @@ export default function TimeSeriesChart({
 
   return (
     <div>
-      {label && <p className="text-xs text-gray-500 mb-1">{label}</p>}
+      {label && <p className="text-xs text-muted-foreground mb-1">{label}</p>}
       <div style={{ width: '100%', height }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
             <XAxis
               dataKey="time"
               type="number"

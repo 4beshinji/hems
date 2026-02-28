@@ -89,8 +89,11 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       - TZ=${TZ:-Asia/Tokyo}
       - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
+      - CHARACTER=${CHARACTER:-}
+      - CHARACTER_FILE=${CHARACTER_FILE:-}
     volumes:
       - ../services/backend:/app
+      - ../config:/config:ro
       - hems_backend_data:/app/data
     networks:
       - hems-net
@@ -111,6 +114,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    environment:
+      - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
     networks:
       - hems-net
     healthcheck:

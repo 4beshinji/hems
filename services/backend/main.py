@@ -51,6 +51,7 @@ app.add_middleware(
 from routers import (
     tasks, voice_events, points, users, zones, pc, services,
     knowledge, gas, biometric, perception, home, timeseries,
+    character,
 )
 
 # All routers require API key authentication.
@@ -69,6 +70,7 @@ app.include_router(biometric.router, dependencies=_auth)
 app.include_router(perception.router, dependencies=_auth)
 app.include_router(home.router, dependencies=_auth)
 app.include_router(timeseries.router, dependencies=_auth)
+app.include_router(character.router, dependencies=_auth)
 
 
 @app.get("/")
