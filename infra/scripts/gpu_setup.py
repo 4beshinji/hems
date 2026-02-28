@@ -36,12 +36,12 @@ MODEL_RECOMMENDATIONS = [
         "okamototk/llama-swallow:8b",
     ], "tier": "~8GB", "desc": "General purpose (7-8B params)"},
     {"vram_min": 10240, "models": [
-        "qwen2.5:14b", "deepseek-r1:14b",
+        "qwen3.5", "qwen2.5:14b", "deepseek-r1:14b",
         "gpt-oss:20b",
     ], "tier": "~12-16GB", "desc": "Strong Japanese support (14-20B params)"},
     {"vram_min": 20480, "models": [
-        "qwen2.5:32b", "deepseek-r1:32b",
-    ], "tier": "~24GB+", "desc": "High performance (32B params)"},
+        "qwen3.5:35b", "qwen2.5:32b", "deepseek-r1:32b",
+    ], "tier": "~24GB+", "desc": "High performance (32B+ params)"},
 ]
 
 # HuggingFace models requiring manual import via `ollama create`

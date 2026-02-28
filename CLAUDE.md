@@ -23,13 +23,13 @@ python infra/scripts/gpu_setup.py
 cd infra && docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
   --profile ollama up -d --build
 # Pull default model (first time only)
-docker exec hems-ollama ollama pull qwen2.5:7b
+docker exec hems-ollama ollama pull qwen3.5
 
 # With local LLM (CPU-only, no GPU override needed)
 docker compose --profile ollama up -d --build
 # Pull default model (first time only)
-docker exec hems-ollama ollama pull qwen2.5:7b
-# Lighter alternatives: qwen2.5:3b, llama3.2:3b
+docker exec hems-ollama ollama pull qwen3.5
+# Lighter alternatives: qwen3.5:27b, qwen2.5:7b, llama3.2:3b
 
 # With PostgreSQL (instead of SQLite)
 docker compose --profile postgres up -d --build

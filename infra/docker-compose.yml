@@ -38,7 +38,7 @@ services:
       - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-qwen2.5:7b}
+      - LLM_MODEL=${LLM_MODEL:-qwen3.5}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -145,7 +145,7 @@ services:
       - VOISONA_PASSWORD=${VOISONA_PASSWORD:-}
       - STYLE_BERT_VITS2_URL=${STYLE_BERT_VITS2_URL:-}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-qwen2.5:7b}
+      - LLM_MODEL=${LLM_MODEL:-qwen3.5}
       - CHARACTER=${CHARACTER:-}
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}

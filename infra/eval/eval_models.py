@@ -48,7 +48,9 @@ DEFAULT_MODELS = [
     "llama3.1:8b",
     "qwen3:8b",
     "phi3:14b",
-    "qwen2.5:14b",       # current production baseline
+    "qwen3.5",           # current production baseline (MoE, ~17GB)
+    "qwen2.5:14b",
+    "qwen3.5:35b",
     "command-r:35b",
     "qwen2.5:32b",
 ]
