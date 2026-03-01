@@ -318,6 +318,15 @@ def generate_compose_override(gpu: GPUInfo) -> str:
                         - driver: nvidia
                           count: 1
                           capabilities: [gpu]
+              ollama-pull:
+                image: ollama/ollama
+                deploy:
+                  resources:
+                    reservations:
+                      devices:
+                        - driver: nvidia
+                          count: 1
+                          capabilities: [gpu]
               perception:
                 deploy:
                   resources:
@@ -332,6 +341,14 @@ def generate_compose_override(gpu: GPUInfo) -> str:
         return textwrap.dedent(f"""\
             services:
               ollama:
+                image: ollama/ollama:rocm
+                devices:
+                  - /dev/kfd:/dev/kfd
+                  - {gpu.card_device}:{gpu.card_device}
+                  - {gpu.render_device}:{gpu.render_device}
+                environment:
+                  - HSA_OVERRIDE_GFX_VERSION=${{HSA_OVERRIDE_GFX_VERSION:-{hsa_val}}}
+              ollama-pull:
                 image: ollama/ollama:rocm
                 devices:
                   - /dev/kfd:/dev/kfd
