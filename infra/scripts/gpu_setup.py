@@ -28,20 +28,30 @@ OVERRIDE_PATH = INFRA_DIR / "docker-compose.gpu.yml"
 ENV_PATH = PROJECT_ROOT / ".env"
 
 MODEL_RECOMMENDATIONS = [
+    # < 6GB VRAM: CPU-only or low-end GPU
     {"vram_min": 0, "models": [
-        "gemma2:2b", "qwen2.5:3b", "phi3:mini",
+        "qwen2.5:3b", "llama3.2:3b", "phi3:mini",
     ], "tier": "~4GB", "desc": "Lightweight (2-4B params)"},
+    # 6–12GB VRAM
     {"vram_min": 6144, "models": [
         "qwen2.5:7b", "llama3.1:8b", "mistral:7b",
-        "okamototk/llama-swallow:8b",
     ], "tier": "~8GB", "desc": "General purpose (7-8B params)"},
-    {"vram_min": 10240, "models": [
-        "qwen3.5", "qwen2.5:14b", "deepseek-r1:14b",
-        "gpt-oss:20b",
-    ], "tier": "~12-16GB", "desc": "Strong Japanese support (14-20B params)"},
-    {"vram_min": 20480, "models": [
-        "qwen3.5:35b", "qwen2.5:32b", "deepseek-r1:32b",
-    ], "tier": "~24GB+", "desc": "High performance (32B+ params)"},
+    # 12–18GB VRAM
+    {"vram_min": 12288, "models": [
+        "qwen2.5:14b", "deepseek-r1:14b",
+    ], "tier": "~14GB", "desc": "Strong reasoning (14B params)"},
+    # 15–24GB VRAM: qwen3.5:27b (17GB model; Ollama auto-offloads overflow layers to CPU)
+    {"vram_min": 15360, "models": [
+        "qwen3.5:27b",
+    ], "tier": "~16-20GB", "desc": "Qwen3.5 27B — 256K ctx, multilingual"},
+    # 24GB+ VRAM: qwen3.5:35b-a3b MoE (24GB model, 3B active params)
+    {"vram_min": 24576, "models": [
+        "qwen3.5:35b-a3b", "qwen3.5:35b",
+    ], "tier": "~26GB", "desc": "Qwen3.5 35B MoE — 3B active, 256K ctx"},
+    # 80GB+ VRAM: qwen3.5:122b-a10b MoE (81GB model, 10B active params)
+    {"vram_min": 81920, "models": [
+        "qwen3.5:122b-a10b",
+    ], "tier": "~85GB+", "desc": "Qwen3.5 122B MoE — 10B active, 256K ctx"},
 ]
 
 # HuggingFace models requiring manual import via `ollama create`
@@ -364,6 +374,22 @@ def recommend_models(vram_mb: int) -> list[dict]:
     return results
 
 
+def auto_select_model(vram_mb: int) -> str:
+    """Auto-select the best model for the given VRAM without user interaction.
+
+    Picks the first model from the highest applicable tier.
+    Falls back to the smallest available model if VRAM is unknown.
+    """
+    tiers = recommend_models(vram_mb)
+    if not tiers:
+        return MODEL_RECOMMENDATIONS[0]["models"][0]
+    # Highest tier = last in list; prefer first model (top recommendation)
+    best_tier = tiers[-1]
+    selected = best_tier["models"][0]
+    print(f"Auto-selected: {selected}  [{best_tier['tier']}] — {best_tier['desc']}")
+    return selected
+
+
 def update_env(gpu: GPUInfo, model: Optional[str] = None,
                env_path: Path = ENV_PATH) -> None:
     """Update .env file with GPU configuration."""
@@ -535,6 +561,9 @@ def main():
     parser = argparse.ArgumentParser(description="HEMS GPU auto-detection and setup")
     parser.add_argument("--non-interactive", action="store_true",
                         help="Skip interactive model selection")
+    parser.add_argument("--auto-select", action="store_true",
+                        help="Automatically select the best Qwen3.5 model for detected VRAM "
+                             "(no prompt). Updates .env and prints the selected model.")
     parser.add_argument("--force-vendor", choices=["nvidia", "amd", "none"],
                         help="Force GPU vendor instead of auto-detecting")
     parser.add_argument("--amd-card",
@@ -554,9 +583,14 @@ def main():
     # Print summary
     print_summary(gpu, models)
 
-    # Interactive model selection
+    # Model selection: --auto-select > interactive > skip
     selected_model = None
-    if not args.non_interactive and gpu.vendor != "none":
+    if args.auto_select:
+        selected_model = auto_select_model(gpu.vram_mb)
+        if selected_model:
+            print(f"\nPull command:")
+            print(f"  docker exec hems-ollama ollama pull {selected_model}")
+    elif not args.non_interactive and gpu.vendor != "none":
         selected_model = interactive_model_select(models, gpu.vram_mb)
 
     # Update .env

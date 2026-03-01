@@ -38,7 +38,7 @@ services:
       - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-qwen3.5}
+      - LLM_MODEL=${LLM_MODEL:-qwen3.5:27b}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -145,7 +145,7 @@ services:
       - VOISONA_PASSWORD=${VOISONA_PASSWORD:-}
       - STYLE_BERT_VITS2_URL=${STYLE_BERT_VITS2_URL:-}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-qwen3.5}
+      - LLM_MODEL=${LLM_MODEL:-qwen3.5:27b}
       - CHARACTER=${CHARACTER:-}
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}
@@ -406,6 +406,28 @@ services:
       retries: 3
       start_period: 60s
 
+  # Pulls LLM_MODEL on startup (one-shot). Re-run after changing LLM_MODEL.
+  # VRAM-based model selection: run `python infra/scripts/gpu_setup.py --auto-select`
+  #   Tiers: ~4GB→qwen2.5:3b  ~8GB→qwen2.5:7b  ~14GB→qwen2.5:14b
+  #          ~20GB→qwen3.5:27b  ~26GB→qwen3.5:35b-a3b  ~85GB+→qwen3.5:122b-a10b
+  ollama-pull:
+    image: ollama/ollama
+    container_name: hems-ollama-pull
+    restart: "no"
+    profiles: ["ollama"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - LLM_MODEL=${LLM_MODEL:-qwen3.5:27b}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull $${LLM_MODEL}"]
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - hems-net
+
   # --- PostgreSQL (optional, replaces SQLite) ---
   postgres:
     image: postgres:16-alpine
@@ -442,8 +464,8 @@ services:
         condition: service_healthy
     environment:
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER:-hems}
-      - MQTT_PASS=${MQTT_PASS:-hems_dev_mqtt}
+      - MQTT_USER=${MQTT_USER_PERCEPTION:-hems-perception}
+      - MQTT_PASS=${MQTT_PASS_PERCEPTION:?MQTT_PASS_PERCEPTION is required}
       - HEMS_PERCEPTION_CAMERAS=${HEMS_PERCEPTION_CAMERAS:-[]}
       - HEMS_PERCEPTION_MODEL=${HEMS_PERCEPTION_MODEL:-yolo11s.pt}
       - HEMS_PERCEPTION_POSE_MODEL=${HEMS_PERCEPTION_POSE_MODEL:-yolo11s-pose.pt}
