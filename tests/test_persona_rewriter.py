@@ -14,11 +14,11 @@ from persona_rewriter import PersonaRewriter, PERSONA_REWRITE_CACHE_TTL, _build_
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def ene_character():
-    """Load the ene character template for testing."""
+def ena_character():
+    """Load the ena character template for testing."""
     from pathlib import Path
     config_dir = Path(__file__).resolve().parent.parent / "config"
-    with patch.dict(os.environ, {"CHARACTER": "ene"}):
+    with patch.dict(os.environ, {"CHARACTER": "ena"}):
         return load_character(config_dir=config_dir)
 
 
@@ -36,9 +36,9 @@ def mock_llm():
 
 
 @pytest.fixture
-def rewriter(ene_character, mock_llm):
-    """PersonaRewriter with ene character and mocked LLM."""
-    return PersonaRewriter(ene_character, mock_llm)
+def rewriter(ena_character, mock_llm):
+    """PersonaRewriter with ena character and mocked LLM."""
+    return PersonaRewriter(ena_character, mock_llm)
 
 
 # ---------------------------------------------------------------------------
@@ -50,25 +50,25 @@ class TestBuildPersonaPrompt:
         prompt = _build_persona_prompt(default_character)
         assert "HEMS" in prompt
 
-    def test_ene_identity(self, ene_character):
-        prompt = _build_persona_prompt(ene_character)
-        assert "エネ" in prompt
+    def test_ena_identity(self, ena_character):
+        prompt = _build_persona_prompt(ena_character)
+        assert "エナ" in prompt
         assert "わたし" in prompt
         assert "ご主人" in prompt
 
-    def test_ene_endings_by_tone(self, ene_character):
-        prompt = _build_persona_prompt(ene_character)
+    def test_ena_endings_by_tone(self, ena_character):
+        prompt = _build_persona_prompt(ena_character)
         assert "語尾(neutral)" in prompt
         assert "語尾(caring)" in prompt
         assert "語尾(alert)" in prompt
 
-    def test_ene_catchphrase(self, ene_character):
-        prompt = _build_persona_prompt(ene_character)
+    def test_ena_catchphrase(self, ena_character):
+        prompt = _build_persona_prompt(ena_character)
         assert "決め台詞" in prompt
-        assert "スーパープリティ電脳ガール" in prompt
+        assert "最強のデジタルアシスタント" in prompt
 
-    def test_ene_vocabulary(self, ene_character):
-        prompt = _build_persona_prompt(ene_character)
+    def test_ena_vocabulary(self, ena_character):
+        prompt = _build_persona_prompt(ena_character)
         assert "好む表現" in prompt
         assert "避ける表現" in prompt
         assert "かしこまりました" in prompt
@@ -157,9 +157,9 @@ class TestRewrite:
 # ---------------------------------------------------------------------------
 
 class TestUpdateCharacter:
-    def test_update_rebuilds_prompt(self, rewriter, default_character, ene_character):
+    def test_update_rebuilds_prompt(self, rewriter, default_character, ena_character):
         old_prompt = rewriter._persona_prompt
-        assert "エネ" in old_prompt
+        assert "エナ" in old_prompt
 
         rewriter.update_character(default_character)
         new_prompt = rewriter._persona_prompt
@@ -202,7 +202,7 @@ class TestRewriteCache:
         self, rewriter, default_character, mock_llm
     ):
         """After update_character(), cache is empty and LLM is called again."""
-        mock_llm.chat.return_value = LLMResponse(content="エネ風")
+        mock_llm.chat.return_value = LLMResponse(content="エナ風")
         await rewriter.rewrite("テストメッセージ", tone="neutral")
         assert mock_llm.chat.call_count == 1
 
