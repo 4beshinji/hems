@@ -351,11 +351,33 @@ class CoverState:
 
 
 @dataclass
+class BinarySensorState:
+    entity_id: str = ""
+    state: bool = False           # True = on/detected/open/wet
+    device_class: str = ""        # door, window, moisture, vibration, motion, occupancy
+    last_update: float = 0
+    last_changed: float = 0       # 状態が実際に変化したタイミング
+    previous_state: bool = False  # 遷移検知用（open→closed等）
+
+
+@dataclass
+class HASensorState:
+    entity_id: str = ""
+    value: float = 0
+    unit: str = ""
+    device_class: str = ""        # power, energy, carbon_dioxide, pm25, voc, temperature, humidity
+    last_update: float = 0
+    previous_value: float = 0     # 電力変化検知用
+
+
+@dataclass
 class HomeDevicesState:
     lights: dict[str, LightState] = field(default_factory=dict)
     climates: dict[str, ClimateState] = field(default_factory=dict)
     covers: dict[str, CoverState] = field(default_factory=dict)
     switches: dict[str, bool] = field(default_factory=dict)
+    binary_sensors: dict[str, BinarySensorState] = field(default_factory=dict)
+    sensors: dict[str, HASensorState] = field(default_factory=dict)
     bridge_connected: bool = False
     events: list[Event] = field(default_factory=list)
     max_events: int = 30

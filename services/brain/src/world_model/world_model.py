@@ -13,7 +13,7 @@ from .data_classes import (
     ServicesState, ServiceStatusData,
     KnowledgeState,
     GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
-    HomeDevicesState, LightState, ClimateState, CoverState,
+    HomeDevicesState, LightState, ClimateState, CoverState, BinarySensorState, HASensorState,
     BiometricState, HeartRateData, SleepData, ActivityData, StressData, FatigueData, SpO2Data,
     HRVData, BodyTemperatureData, RespiratoryRateData, ScreenTimeData,
     PhysicalSpace, DigitalSpace, UserState,
@@ -74,6 +74,10 @@ HRV_LOW = int(os.getenv("HEMS_THRESHOLD_HRV_LOW", "20"))
 BODY_TEMP_HIGH = float(os.getenv("HEMS_THRESHOLD_BODY_TEMP_HIGH", "37.5"))
 RESPIRATORY_RATE_HIGH = int(os.getenv("HEMS_THRESHOLD_RESPIRATORY_RATE_HIGH", "25"))
 SCREEN_TIME_ALERT_MINUTES = int(os.getenv("HEMS_THRESHOLD_SCREEN_TIME_MINUTES", "120"))
+
+# Zigbee sensor thresholds
+POWER_IDLE_WATTS = float(os.getenv("HEMS_THRESHOLD_POWER_IDLE_WATTS", "5"))
+PM25_HIGH = float(os.getenv("HEMS_THRESHOLD_PM25_HIGH", "35"))
 
 
 class WorldModel:
@@ -906,6 +910,79 @@ class WorldModel:
             )
         elif domain == "switch":
             hd.switches[entity_id] = payload.get("on", payload.get("state") == "on")
+        elif domain == "binary_sensor":
+            raw_state = payload.get("state", "off")
+            new_state = raw_state in ("on", "detected", "open", "wet")
+            existing = hd.binary_sensors.get(entity_id)
+            prev_state = existing.state if existing else False
+            changed = existing is None or prev_state != new_state
+            hd.binary_sensors[entity_id] = BinarySensorState(
+                entity_id=entity_id,
+                state=new_state,
+                device_class=payload.get("device_class", existing.device_class if existing else ""),
+                last_update=now,
+                last_changed=now if changed else (existing.last_changed if existing else now),
+                previous_state=prev_state,
+            )
+            if changed and existing is not None:
+                self._handle_binary_sensor_event(hd, entity_id, new_state, prev_state,
+                                                  hd.binary_sensors[entity_id].device_class)
+        elif domain == "sensor":
+            try:
+                raw_val = payload.get("state", payload.get("value", 0))
+                value = float(raw_val) if raw_val not in (None, "unknown", "unavailable", "") else 0
+            except (ValueError, TypeError):
+                value = 0
+            existing = hd.sensors.get(entity_id)
+            prev_value = existing.value if existing else 0
+            device_class = payload.get("device_class", existing.device_class if existing else "")
+            hd.sensors[entity_id] = HASensorState(
+                entity_id=entity_id,
+                value=value,
+                unit=payload.get("unit_of_measurement", payload.get("unit", existing.unit if existing else "")),
+                device_class=device_class,
+                last_update=now,
+                previous_value=prev_value,
+            )
+            if device_class == "power":
+                self._check_power_thresholds(hd, entity_id, value, prev_value)
+
+    def _handle_binary_sensor_event(self, hd, entity_id: str, new_state: bool,
+                                     prev_state: bool, device_class: str):
+        """Generate events for binary sensor state transitions."""
+        if device_class in ("door", "window"):
+            event_type = f"{device_class}_{'opened' if new_state else 'closed'}"
+            desc = f"{'開' if new_state else '閉'}きました ({entity_id})"
+            hd.add_event(Event(
+                event_type=event_type,
+                description=desc,
+                severity=0,
+                data={"entity_id": entity_id, "device_class": device_class, "state": new_state},
+            ))
+        elif device_class == "moisture" and new_state:
+            hd.add_event(Event(
+                event_type="moisture_detected",
+                description=f"水漏れ検知 ({entity_id})",
+                severity=2,
+                data={"entity_id": entity_id},
+            ))
+        elif device_class == "vibration" and not new_state:
+            hd.add_event(Event(
+                event_type="vibration_stopped",
+                description=f"振動停止 ({entity_id})",
+                severity=0,
+                data={"entity_id": entity_id},
+            ))
+
+    def _check_power_thresholds(self, hd, entity_id: str, value: float, prev_value: float):
+        """Generate event when power drops to idle level."""
+        if prev_value > POWER_IDLE_WATTS and value <= POWER_IDLE_WATTS:
+            hd.add_event(Event(
+                event_type="power_drop_idle",
+                description=f"電力がアイドルに低下 ({entity_id}: {prev_value:.1f}W → {value:.1f}W)",
+                severity=0,
+                data={"entity_id": entity_id, "value": value, "previous_value": prev_value},
+            ))
 
     def _update_knowledge_state(self, msg_type: str, payload: dict):
         """Handle hems/personal/notes/stats and hems/personal/notes/changed."""
@@ -1028,6 +1105,33 @@ class WorldModel:
                     home_parts.append(f"  スイッチ: {', '.join(on_switches)} ON")
                 if off_switches:
                     home_parts.append(f"  スイッチ: {', '.join(off_switches)} OFF")
+
+            # Binary sensors
+            _DEVICE_CLASS_JA = {
+                "door": "ドア", "window": "窓", "moisture": "水漏れ",
+                "vibration": "振動", "motion": "モーション", "occupancy": "在室",
+            }
+            for bs in hd.binary_sensors.values():
+                if bs.device_class == "moisture":
+                    name = bs.entity_id.split(".")[-1] if "." in bs.entity_id else bs.entity_id
+                    status = "検知" if bs.state else "正常"
+                    prefix = "⚠ " if bs.state else ""
+                    dc_ja = _DEVICE_CLASS_JA.get(bs.device_class, bs.device_class)
+                    home_parts.append(f"  {prefix}{dc_ja}: {name} {status}")
+                elif bs.state:
+                    name = bs.entity_id.split(".")[-1] if "." in bs.entity_id else bs.entity_id
+                    dc_ja = _DEVICE_CLASS_JA.get(bs.device_class, bs.device_class)
+                    home_parts.append(f"  {dc_ja}: {name} 検知中")
+
+            # HA sensors (power, air quality)
+            for s in hd.sensors.values():
+                name = s.entity_id.split(".")[-1] if "." in s.entity_id else s.entity_id
+                if s.device_class == "power" and s.value > 0:
+                    home_parts.append(f"  電力: {name} {s.value:.0f}{s.unit or 'W'}")
+                elif s.device_class in ("carbon_dioxide", "pm25", "voc"):
+                    dc_labels = {"carbon_dioxide": "CO2", "pm25": "PM2.5", "voc": "VOC"}
+                    label = dc_labels.get(s.device_class, s.device_class)
+                    home_parts.append(f"  {label}: {name} {s.value:.0f}{s.unit or ''}")
 
             if not hd.bridge_connected:
                 home_parts.append("  ⚠ HAブリッジ: 切断中")

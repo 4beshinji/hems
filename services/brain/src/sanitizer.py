@@ -109,6 +109,10 @@ class Sanitizer:
             return self._validate_control_climate(arguments)
         elif tool_name == "control_cover":
             return self._validate_control_cover(arguments)
+        elif tool_name == "control_switch":
+            return self._validate_control_switch(arguments)
+        elif tool_name == "execute_scene":
+            return self._validate_execute_scene(arguments)
         elif tool_name == "control_browser":
             return self._validate_control_browser(arguments)
         elif tool_name in (
@@ -116,6 +120,7 @@ class Sanitizer:
             "get_pc_status", "send_pc_notification",
             "get_service_status", "search_notes", "get_recent_notes",
             "get_home_devices", "get_biometrics", "get_sleep_summary",
+            "get_sensor_data", "get_perception_status",
         ):
             return {"allowed": True, "reason": ""}
         else:
@@ -300,6 +305,24 @@ class Sanitizer:
         if position is not None and not (0 <= position <= 100):
             return {"allowed": False, "reason": f"Position {position} out of range (0-100)"}
 
+        return {"allowed": True, "reason": ""}
+
+    def _validate_control_switch(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate control_switch parameters."""
+        entity_id = args.get("entity_id", "")
+        if not entity_id:
+            return {"allowed": False, "reason": "Missing entity_id"}
+        if not entity_id.startswith("switch."):
+            return {"allowed": False, "reason": f"Invalid entity_id prefix: expected 'switch.' but got '{entity_id}'"}
+        return {"allowed": True, "reason": ""}
+
+    def _validate_execute_scene(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate execute_scene parameters."""
+        entity_id = args.get("entity_id", "")
+        if not entity_id:
+            return {"allowed": False, "reason": "Missing entity_id"}
+        if not entity_id.startswith("scene."):
+            return {"allowed": False, "reason": f"Invalid entity_id prefix: expected 'scene.' but got '{entity_id}'"}
         return {"allowed": True, "reason": ""}
 
     def _validate_control_browser(self, args: Dict[str, Any]) -> Dict[str, Any]:

@@ -388,6 +388,49 @@ def _get_ha_tools() -> list:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "control_switch",
+                "description": "スイッチをON/OFFする。スマートプラグ、家電の電源制御に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {"type": "string", "description": "HA entity_id (例: switch.plug_washer)"},
+                        "on": {"type": "boolean", "description": "ON/OFF"},
+                    },
+                    "required": ["entity_id", "on"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_sensor_data",
+                "description": "HAセンサーの値を取得する。電力、CO2、PM2.5等の数値データを確認する。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {"type": "string", "description": "特定のsensor entity_id（省略で全件）"},
+                        "device_class": {"type": "string", "description": "デバイスクラスでフィルタ（例: power, carbon_dioxide, pm25）"},
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "execute_scene",
+                "description": "HAシーンを実行する。事前定義された複数デバイスの一括操作に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {"type": "string", "description": "HA scene entity_id (例: scene.good_night)"},
+                    },
+                    "required": ["entity_id"],
+                },
+            },
+        },
     ]
 
 

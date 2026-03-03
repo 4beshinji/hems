@@ -84,6 +84,12 @@ class ToolExecutor:
                 return await self._handle_control_cover(arguments)
             elif tool_name == "get_home_devices":
                 return await self._handle_get_home_devices(arguments)
+            elif tool_name == "control_switch":
+                return await self._handle_control_switch(arguments)
+            elif tool_name == "get_sensor_data":
+                return await self._handle_get_sensor_data(arguments)
+            elif tool_name == "execute_scene":
+                return await self._handle_execute_scene(arguments)
             elif tool_name == "get_biometrics":
                 return await self._handle_get_biometrics(arguments)
             elif tool_name == "get_sleep_summary":
@@ -504,6 +510,42 @@ class ToolExecutor:
             return await self._ha_service_call(entity_id, "cover/stop_cover")
         return {"success": False, "error": "No action or position specified"}
 
+    async def _handle_control_switch(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.ha_url:
+            return {"success": False, "error": "HA bridge not configured"}
+        entity_id = args.get("entity_id", "")
+        on = args.get("on", True)
+        service = "switch/turn_on" if on else "switch/turn_off"
+        return await self._ha_service_call(entity_id, service)
+
+    async def _handle_get_sensor_data(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        hd = self.world_model.home_devices
+        entity_id = args.get("entity_id")
+        device_class = args.get("device_class")
+
+        if entity_id:
+            s = hd.sensors.get(entity_id)
+            if not s:
+                return {"success": False, "error": f"Sensor '{entity_id}' not found"}
+            data = {"entity_id": s.entity_id, "value": s.value,
+                    "unit": s.unit, "device_class": s.device_class}
+            return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+
+        sensors = hd.sensors.values()
+        if device_class:
+            sensors = [s for s in sensors if s.device_class == device_class]
+        data = {
+            s.entity_id: {"value": s.value, "unit": s.unit, "device_class": s.device_class}
+            for s in sensors
+        }
+        return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+
+    async def _handle_execute_scene(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.ha_url:
+            return {"success": False, "error": "HA bridge not configured"}
+        entity_id = args.get("entity_id", "")
+        return await self._ha_service_call(entity_id, "scene/turn_on")
+
     async def _handle_get_home_devices(self, args: Dict[str, Any]) -> Dict[str, Any]:
         hd = self.world_model.home_devices
         status = {
@@ -521,6 +563,14 @@ class ToolExecutor:
                 for eid, c in hd.covers.items()
             },
             "switches": hd.switches,
+            "binary_sensors": {
+                eid: {"state": bs.state, "device_class": bs.device_class}
+                for eid, bs in hd.binary_sensors.items()
+            },
+            "sensors": {
+                eid: {"value": s.value, "unit": s.unit, "device_class": s.device_class}
+                for eid, s in hd.sensors.items()
+            },
         }
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
 
