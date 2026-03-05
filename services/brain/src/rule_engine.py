@@ -1292,7 +1292,7 @@ class RuleEngine:
                             f"CO2濃度が{int(env.co2)}ppmです。直ちに換気してください。"
                         ),
                         "xp_reward": 200,
-                        "urgency": 5,
+                        "urgency": 4,
                         "zone": zone_id,
                         "task_type": ["ventilation"],
                     },
@@ -1305,7 +1305,7 @@ class RuleEngine:
                             "すぐに換気してください！"
                         ),
                         "zone": zone_id,
-                        "tone": "urgent",
+                        "tone": "alert",
                     },
                 })
 
@@ -1321,7 +1321,7 @@ class RuleEngine:
                                 "熱中症に注意してください！"
                             ),
                             "zone": zone_id,
-                            "tone": "urgent",
+                            "tone": "alert",
                         },
                     })
                 elif (env.temperature < TEMP_CRITICAL_LOW
@@ -1334,7 +1334,7 @@ class RuleEngine:
                                 "暖房を確認してください！"
                             ),
                             "zone": zone_id,
-                            "tone": "urgent",
+                            "tone": "alert",
                         },
                     })
 
@@ -1360,7 +1360,7 @@ class RuleEngine:
                         "args": {
                             "message": f"緊急！{name}で水漏れを検知しました！すぐに確認してください！",
                             "zone": "home",
-                            "tone": "urgent",
+                            "tone": "alert",
                         },
                     })
 
@@ -1378,7 +1378,7 @@ class RuleEngine:
                         "目を覚ましてください！"
                     ),
                     "zone": "home",
-                    "tone": "urgent",
+                    "tone": "alert",
                 },
             })
 
@@ -1396,7 +1396,7 @@ class RuleEngine:
                         "体調を確認してください！"
                     ),
                     "zone": "home",
-                    "tone": "urgent",
+                    "tone": "alert",
                 },
             })
 

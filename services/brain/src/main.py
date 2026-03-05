@@ -104,6 +104,10 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return f"enabled={args.get('enabled', '')}, hours={args.get('duration_hours', '')}"
     elif tool_name == "get_weather":
         return "weather"
+    elif tool_name == "send_device_command":
+        return f"agent={args.get('agent_id', '')}, tool={args.get('tool_name', '')}"
+    elif tool_name == "get_active_tasks":
+        return "active_tasks"
     return str(args)[:50]
 
 
@@ -284,17 +288,13 @@ class Brain:
                         "summary": _summarize_action(action["tool"], action["args"]),
                         "success": result.get("success", True),
                     })
-                await self.dashboard.push_zone_snapshot(self.world_model)
-                if BIOMETRIC_ENABLED:
-                    await self.dashboard.push_biometric_snapshot(self.world_model)
+                await self._push_all_snapshots()
                 return
 
             else:
                 # Nothing detected — skip LLM entirely
                 logger.debug("[低消費電力] %sモード: ルール未発火 — LLMスキップ", pm["mode"])
-                await self.dashboard.push_zone_snapshot(self.world_model)
-                if BIOMETRIC_ENABLED:
-                    await self.dashboard.push_biometric_snapshot(self.world_model)
+                await self._push_all_snapshots()
                 return
 
         # Rule-based fallback when GPU is busy
@@ -313,19 +313,7 @@ class Brain:
                     "summary": _summarize_action(action["tool"], action["args"]),
                     "success": result.get("success", True),
                 })
-            await self.dashboard.push_zone_snapshot(self.world_model)
-            if OPENCLAW_ENABLED:
-                await self.dashboard.push_pc_snapshot(self.world_model)
-            if OPENCLAW_ENABLED and self.world_model.services_state.services:
-                await self.dashboard.push_services_snapshot(self.world_model)
-            if GAS_ENABLED:
-                await self.dashboard.push_gas_snapshot(self.world_model)
-            if BIOMETRIC_ENABLED:
-                await self.dashboard.push_biometric_snapshot(self.world_model)
-            if PERCEPTION_ENABLED:
-                await self.dashboard.push_perception_snapshot(self.world_model)
-            if HA_ENABLED:
-                await self.dashboard.push_home_snapshot(self.world_model)
+            await self._push_all_snapshots()
             return
 
         llm_context = self.world_model.get_llm_context()
@@ -559,18 +547,24 @@ class Brain:
         # Prune old history
         self._action_history = [a for a in self._action_history if a["time"] > time.time() - 7200]
 
-        # Push zone sensor snapshot to backend for frontend
+        # Push all snapshots to backend for frontend
+        await self._push_all_snapshots()
+        # Async decision log writeback (Obsidian)
+        if OBSIDIAN_ENABLED and total_tool_calls > 0:
+            cycle_actions = [a for a in self._action_history if a["time"] >= cycle_start]
+            asyncio.create_task(self._write_decision_log(cycle_actions))
+
+        logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
+
+    async def _push_all_snapshots(self):
+        """Push all domain snapshots to backend for frontend consumption."""
         await self.dashboard.push_zone_snapshot(self.world_model)
         if OPENCLAW_ENABLED:
             await self.dashboard.push_pc_snapshot(self.world_model)
-        if self.world_model.services_state.services:
+        if OPENCLAW_ENABLED and self.world_model.services_state.services:
             await self.dashboard.push_services_snapshot(self.world_model)
         if OBSIDIAN_ENABLED:
             await self.dashboard.push_knowledge_snapshot(self.world_model)
-            # Async decision log writeback
-            if total_tool_calls > 0:
-                cycle_actions = [a for a in self._action_history if a["time"] >= cycle_start]
-                asyncio.create_task(self._write_decision_log(cycle_actions))
         if GAS_ENABLED:
             await self.dashboard.push_gas_snapshot(self.world_model)
         if BIOMETRIC_ENABLED:
@@ -579,8 +573,6 @@ class Brain:
             await self.dashboard.push_perception_snapshot(self.world_model)
         if HA_ENABLED:
             await self.dashboard.push_home_snapshot(self.world_model)
-
-        logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
 
     # Mapping: task text keywords → alert types to suppress
     _TASK_ALERT_KEYWORDS: dict[str, list[str]] = {
