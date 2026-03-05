@@ -1,0 +1,214 @@
+# HEMS Lite — lightweight monitoring satellite
+# Usage:
+#   cd infra && docker compose -f docker-compose.lite.yml up -d --build
+#   With biometric: docker compose -f docker-compose.lite.yml --profile biometric up -d --build
+#   With perception: docker compose -f docker-compose.lite.yml --profile perception up -d --build
+#   With HA bridge: docker compose -f docker-compose.lite.yml --profile ha up -d --build
+
+services:
+  # --- Central Bus (shared with full HEMS) ---
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: hems-lite-mqtt
+    restart: always
+    ports:
+      - "${MQTT_BIND_ADDR:-0.0.0.0}:${HEMS_PORT_MQTT:-1893}:1883"
+    volumes:
+      - ./mosquitto/mosquitto-lite.conf:/mosquitto/config/mosquitto.conf
+      - hems_lite_mqtt_data:/mosquitto/data
+      - hems_lite_mqtt_log:/mosquitto/log
+    networks:
+      - hems-lite-net
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -t '$$SYS/broker/version' -C 1 -W 5 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # --- Sentinel (watchdog engine, replaces brain) ---
+  sentinel:
+    build: ../services/sentinel
+    container_name: hems-lite-sentinel
+    restart: always
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      notifier:
+        condition: service_started
+    environment:
+      - SITE_ID=${SITE_ID:-hems-lite}
+      - SITE_NAME=${SITE_NAME:-HEMS Lite}
+      - HEMS_LITE_MODE=${HEMS_LITE_MODE:-standalone}
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_USER=${MQTT_USER:-}
+      - MQTT_PASS=${MQTT_PASS:-}
+      - NOTIFIER_URL=http://notifier:8000
+      # LLM escalation (cloud API for gray zones)
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_API_URL=${LLM_API_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LLM_DAILY_BUDGET=${LLM_DAILY_BUDGET:-50}
+      - LLM_ESCALATION_COOLDOWN=${LLM_ESCALATION_COOLDOWN:-600}
+      # Thresholds
+      - HR_CRITICAL_HIGH=${HR_CRITICAL_HIGH:-150}
+      - HR_CRITICAL_LOW=${HR_CRITICAL_LOW:-40}
+      - SPO2_CRITICAL=${SPO2_CRITICAL:-88}
+      - HR_HIGH=${HR_HIGH:-120}
+      - HR_LOW=${HR_LOW:-45}
+      - SPO2_LOW=${SPO2_LOW:-92}
+      - STRESS_HIGH=${STRESS_HIGH:-80}
+      - BODY_TEMP_HIGH=${BODY_TEMP_HIGH:-37.5}
+      - TEMP_HIGH=${TEMP_HIGH:-32}
+      - TEMP_LOW=${TEMP_LOW:-10}
+      - SEDENTARY_ALERT_MINUTES=${SEDENTARY_ALERT_MINUTES:-90}
+      - ABSENCE_ALERT_MINUTES=${ABSENCE_ALERT_MINUTES:-120}
+      - SENTINEL_CYCLE_INTERVAL=${SENTINEL_CYCLE_INTERVAL:-60}
+      - DAILY_SUMMARY_ENABLED=${DAILY_SUMMARY_ENABLED:-true}
+      - DAILY_SUMMARY_TIME=${DAILY_SUMMARY_TIME:-08:00}
+      - NOTIFY_MIN_LEVEL=${NOTIFY_MIN_LEVEL:-HIGH}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/sentinel/src:/app
+      - hems_lite_sentinel_data:/data
+    networks:
+      - hems-lite-net
+
+  # --- Notifier (multi-platform notification gateway) ---
+  notifier:
+    build: ../services/notifier
+    container_name: hems-lite-notifier
+    restart: always
+    ports:
+      - "${HEMS_PORT_NOTIFIER:-8019}:8000"
+    environment:
+      # Configure at least one provider
+      - LINE_NOTIFY_TOKEN=${LINE_NOTIFY_TOKEN:-}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - NTFY_TOPIC=${NTFY_TOPIC:-}
+      - NTFY_SERVER=${NTFY_SERVER:-https://ntfy.sh}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    networks:
+      - hems-lite-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ========== Optional Services (profiles) ==========
+
+  # --- Biometric Bridge (Gadgetbridge smartband) ---
+  biometric-bridge:
+    build: ../services/biometric-bridge
+    container_name: hems-lite-biometric
+    restart: always
+    profiles: ["biometric"]
+    ports:
+      - "${HEMS_PORT_BIOMETRIC_BRIDGE:-8017}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-}
+      - MQTT_PASS=${MQTT_PASS:-}
+      - BIOMETRIC_WEBHOOK_SECRET=${BIOMETRIC_WEBHOOK_SECRET:-changeme}
+      - BIOMETRIC_PROVIDER=${BIOMETRIC_PROVIDER:-gadgetbridge}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/biometric-bridge/src:/app
+    networks:
+      - hems-lite-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # --- Perception (Camera person detection, nano model for RPi/NUC) ---
+  perception:
+    build: ../services/perception
+    container_name: hems-lite-perception
+    restart: always
+    profiles: ["perception"]
+    ports:
+      - "${HEMS_PORT_PERCEPTION:-8018}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-}
+      - MQTT_PASS=${MQTT_PASS:-}
+      - HEMS_PERCEPTION_CAMERAS=${HEMS_PERCEPTION_CAMERAS:-[]}
+      # Use nano model for lightweight hardware
+      - HEMS_PERCEPTION_MODEL=${HEMS_PERCEPTION_MODEL:-yolo11n.pt}
+      - HEMS_PERCEPTION_POSE_MODEL=${HEMS_PERCEPTION_POSE_MODEL:-yolo11n-pose.pt}
+      - HEMS_PERCEPTION_CONFIDENCE=${HEMS_PERCEPTION_CONFIDENCE:-0.4}
+      # Longer interval for CPU inference
+      - HEMS_PERCEPTION_INTERVAL=${HEMS_PERCEPTION_INTERVAL:-30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/perception/src:/app
+      - hems_lite_perception_models:/root/.cache
+    networks:
+      - hems-lite-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # --- HA Bridge (Home Assistant integration) ---
+  ha-bridge:
+    build: ../services/ha-bridge
+    container_name: hems-lite-ha-bridge
+    restart: always
+    profiles: ["ha"]
+    ports:
+      - "${HEMS_PORT_HA_BRIDGE:-8016}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - HA_URL=${HA_URL:-http://host.docker.internal:8123}
+      - HA_TOKEN=${HA_TOKEN:-}
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER:-}
+      - MQTT_PASS=${MQTT_PASS:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/ha-bridge/src:/app
+    networks:
+      - hems-lite-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  hems_lite_mqtt_data:
+  hems_lite_mqtt_log:
+  hems_lite_sentinel_data:
+  hems_lite_perception_models:
+
+networks:
+  hems-lite-net:
+    driver: bridge
