@@ -121,6 +121,7 @@ class Sanitizer:
             "get_service_status", "search_notes", "get_recent_notes",
             "get_home_devices", "get_biometrics", "get_sleep_summary",
             "get_sensor_data", "get_perception_status",
+            "set_guest_mode", "get_weather",
         ):
             return {"allowed": True, "reason": ""}
         else:

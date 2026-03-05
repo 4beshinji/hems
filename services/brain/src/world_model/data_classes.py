@@ -529,6 +529,27 @@ class BiometricState:
         )
 
 
+# --- Weather State (from HA weather entity) ---
+
+@dataclass
+class WeatherForecast:
+    datetime: str = ""
+    condition: str = ""       # sunny, cloudy, rainy, snowy, etc.
+    temperature: float = 0
+    precipitation_probability: int = 0
+    wind_speed: float = 0
+
+
+@dataclass
+class WeatherState:
+    condition: str = "unknown"  # sunny, cloudy, rainy, snowy, etc.
+    temperature: float = 0
+    humidity: float = 0
+    wind_speed: float = 0
+    forecast: list[WeatherForecast] = field(default_factory=list)
+    last_update: float = 0
+
+
 # --- Tri-Domain Facades ---
 
 @dataclass
@@ -536,6 +557,7 @@ class PhysicalSpace:
     """Physical environment domain — zones and smart home devices."""
     zones: dict[str, ZoneState] = field(default_factory=dict)
     home_devices: HomeDevicesState = field(default_factory=HomeDevicesState)
+    weather: WeatherState = field(default_factory=WeatherState)
 
 
 @dataclass

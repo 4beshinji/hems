@@ -90,6 +90,10 @@ class ToolExecutor:
                 return await self._handle_get_sensor_data(arguments)
             elif tool_name == "execute_scene":
                 return await self._handle_execute_scene(arguments)
+            elif tool_name == "set_guest_mode":
+                return self._handle_set_guest_mode(arguments)
+            elif tool_name == "get_weather":
+                return self._handle_get_weather(arguments)
             elif tool_name == "get_biometrics":
                 return await self._handle_get_biometrics(arguments)
             elif tool_name == "get_sleep_summary":
@@ -573,6 +577,30 @@ class ToolExecutor:
             },
         }
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
+
+    # --- System tools ---
+
+    def _handle_set_guest_mode(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        enabled = args.get("enabled", False)
+        duration = args.get("duration_hours", 4)
+        self.world_model.set_guest_mode(enabled, duration)
+        return {"success": True, "result": f"ゲストモード{'ON' if enabled else 'OFF'} ({duration}時間)"}
+
+    def _handle_get_weather(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        w = self.world_model.weather
+        if w.last_update == 0:
+            return {"success": True, "result": "天気データなし"}
+        forecast = [
+            {"datetime": f.datetime, "condition": f.condition,
+             "temperature": f.temperature, "precipitation": f.precipitation_probability}
+            for f in w.forecast[:6]
+        ]
+        result = {
+            "condition": w.condition, "temperature": w.temperature,
+            "humidity": w.humidity, "wind_speed": w.wind_speed,
+            "forecast": forecast,
+        }
+        return {"success": True, "result": json.dumps(result, ensure_ascii=False)}
 
     # --- Biometric tools ---
 

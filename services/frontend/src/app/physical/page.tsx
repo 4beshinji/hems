@@ -4,6 +4,7 @@ import ZoneEnvironmentCard from '@/components/physical/ZoneEnvironmentCard'
 import LightCard from '@/components/physical/LightCard'
 import ClimateCard from '@/components/physical/ClimateCard'
 import CoverCard from '@/components/physical/CoverCard'
+import EnergyPanel from '@/components/physical/EnergyPanel'
 import PerceptionPanel from '@/components/physical/PerceptionPanel'
 import LoadingState from '@/components/shared/LoadingState'
 import ErrorState from '@/components/shared/ErrorState'
@@ -32,6 +33,8 @@ export default function PhysicalPage() {
   const lights = hasHome && home.lights ? Object.entries(home.lights) : []
   const climates = hasHome && home.climates ? Object.entries(home.climates) : []
   const covers = hasHome && home.covers ? Object.entries(home.covers) : []
+  const energySensors = hasHome && home.energy_sensors ? home.energy_sensors : {}
+  const hasEnergy = Object.keys(energySensors).length > 0
   const hasSmartHome = lights.length > 0 || climates.length > 0 || covers.length > 0
 
   return (
@@ -68,6 +71,13 @@ export default function PhysicalPage() {
               <CoverCard key={id} entityId={id} cover={cover} />
             ))}
           </div>
+        </section>
+      )}
+
+      {/* Energy Dashboard */}
+      {hasEnergy && (
+        <section>
+          <EnergyPanel sensors={energySensors} />
         </section>
       )}
 

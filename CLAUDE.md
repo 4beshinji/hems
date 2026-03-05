@@ -46,7 +46,7 @@ docker compose --profile gas up -d --build
 # With Home Assistant (smart home control)
 docker compose --profile ha up -d --build
 
-# With biometric tracking (Gadgetbridge smartband)
+# With biometric tracking (Xiaomi Smart Band via Health Connect + Huami API)
 docker compose --profile biometric up -d --build
 
 # With perception (camera-based person detection + activity tracking)
@@ -155,6 +155,7 @@ hems/system/gpu/utilization
 
 # Brain control
 hems/brain/reload-character
+hems/brain/guest-mode
 ```
 
 ### Brain Service
@@ -170,9 +171,10 @@ hems/brain/reload-character
 - localcraw tools (profile `localcraw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
 - Service monitor tool (when data available): `get_service_status`
 - Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
-- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`
+- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `control_switch`, `get_home_devices`, `get_sensor_data`, `execute_scene`, `set_guest_mode`, `get_weather`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
 - Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
+- Automation rules: circadian lighting, absence mode (security lighting), weather integration, guest mode
 
 ### localcraw Bridge (profile: `localcraw`)
 
@@ -285,9 +287,10 @@ Connects Home Assistant to HEMS for smart home device control and life automatio
   - Publishes to `hems/home/*` MQTT topics
 - **Deploy**: HA running on host or via Docker, configure `HA_URL` + `HA_TOKEN`
 - **Profile**: `docker compose --profile ha up -d --build`
-- **Brain tools**: `control_light`, `control_climate`, `control_cover`, `get_home_devices`
+- **Brain tools**: `control_light`, `control_climate`, `control_cover`, `control_switch`, `get_home_devices`, `get_sensor_data`, `execute_scene`, `set_guest_mode`, `get_weather`
 - **Schedule learner**: learns arrival/departure/wake patterns from occupancy data
-- **Automation rules**: sleep detection → lights off, pre-arrival HVAC, wake-up curtains
+- **Automation rules**: sleep detection → lights off, pre-arrival HVAC, wake-up curtains, circadian lighting, absence mode, weather integration, guest mode
+- **Energy Dashboard**: power sensor data → timeseries store → frontend visualization
 - **Supported devices**: SwitchBot (via HA), Nature Remo (via HA), any HA integration
 - **Safety**: temperature 16-30, brightness 0-255, position 0-100 range validation
 
@@ -298,26 +301,38 @@ HA_TOKEN=your-long-lived-access-token
 HA_BRIDGE_URL=http://ha-bridge:8000
 ```
 
-### Biometric Integration (Smartband)
+### Biometric Integration (Xiaomi Smart Band 10)
 
-Tracks heart rate, sleep, activity, stress, and fatigue via smartband (Xiaomi Mi Band / Amazfit via Gadgetbridge).
+Tracks heart rate, sleep, activity, stress, SpO2, and fatigue via Xiaomi Smart Band 10.
+Dual-path data ingestion with automatic deduplication.
 
-- **biometric-bridge**: Docker service receiving webhook data from Gadgetbridge app
-  - POST webhook endpoint normalizes device data → MQTT publish
+- **biometric-bridge**: Docker service with dual data paths
+  - **Path 1 — Health Connect** (primary): Android companion app reads Health Connect
+    data (written by Mi Fitness app) every 15min → POST to webhook
+  - **Path 2 — Huami API** (fallback): Server-side polling of Xiaomi/Huami cloud API
+    for steps, sleep, HR summary data
+  - Deduplication: suppresses duplicate MQTT publishes when both paths deliver same data
   - Fatigue score computation (weighted: HR 30%, sleep 40%, stress 30%)
-  - Sleep session caching for daily summaries
   - Publishes to `hems/personal/biometrics/*` MQTT topics
-- **Deploy**: Install Gadgetbridge on phone, configure webhook to `http://<host>:8017/api/biometric/webhook`
-- **Profile**: `docker compose --profile biometric up -d --build`
+- **Health Connect Companion App**: `apps/healthconnect-companion/` (Android/Kotlin)
+  - Reads HR, SpO2, Sleep, Steps, Calories, HRV from Health Connect
+  - WorkManager periodic sync (15min default, configurable)
+  - HMAC-SHA256 signed webhook POST
+- **Deploy**: Profile `biometric`, install companion app on Android, set bridge URL
+- **Huami token**: `pip install huami-token && huami-token --method xiaomi`
 - **Brain tools**: `get_biometrics` (current readings), `get_sleep_summary` (last night's sleep)
 - **Brain rules**: 7 rules (high HR/stress/fatigue alerts, sleep quality notification, step goal, sleep detection lights off, fatigue-linked dimming)
 - **Thresholds**: HR > 120, HR < 45, SpO2 < 92, Stress > 80 (configurable via env vars)
-- **World model**: Tri-domain architecture — biometrics in User State domain, threshold crossing events
 
 Configure in `.env`:
 ```bash
 BIOMETRIC_BRIDGE_URL=http://biometric-bridge:8000
-BIOMETRIC_PROVIDER=gadgetbridge
+BIOMETRIC_WEBHOOK_SECRET=change_me
+# Huami cloud API (optional fallback)
+HUAMI_ENABLED=true
+HUAMI_AUTH_TOKEN=your_token
+HUAMI_USER_ID=your_user_id
+HUAMI_SERVER_REGION=us
 ```
 
 ### Perception (Camera Detection + Activity Tracking)

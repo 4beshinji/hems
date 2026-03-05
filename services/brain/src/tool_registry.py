@@ -128,6 +128,7 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
 
     if ha_enabled:
         tools.extend(_get_ha_tools())
+        tools.extend(_get_system_tools())
 
     if biometric_enabled:
         tools.extend(_get_biometric_tools())
@@ -428,6 +429,38 @@ def _get_ha_tools() -> list:
                         "entity_id": {"type": "string", "description": "HA scene entity_id (例: scene.good_night)"},
                     },
                     "required": ["entity_id"],
+                },
+            },
+        },
+    ]
+
+
+def _get_system_tools() -> list:
+    """System control tools — always available."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "set_guest_mode",
+                "description": "ゲストモードのON/OFF。来客時に自動化を一時停止する。ONで個人的な通知・生体ルールを抑制。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {"type": "boolean", "description": "ON/OFF"},
+                        "duration_hours": {"type": "number", "description": "自動解除までの時間（デフォルト4時間）"},
+                    },
+                    "required": ["enabled"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "現在の天気と予報を取得する。天気連動の判断に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
                 },
             },
         },

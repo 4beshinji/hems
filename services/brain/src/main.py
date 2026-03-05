@@ -88,12 +88,22 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return f"entity={args.get('entity_id', '')}, action={args.get('action', '')}"
     elif tool_name == "get_home_devices":
         return "home_devices"
+    elif tool_name == "control_switch":
+        return f"entity={args.get('entity_id', '')}, on={args.get('on', '')}"
+    elif tool_name == "get_sensor_data":
+        return f"entity={args.get('entity_id', 'all')}, class={args.get('device_class', 'all')}"
+    elif tool_name == "execute_scene":
+        return f"entity={args.get('entity_id', '')}"
     elif tool_name == "get_biometrics":
         return "biometrics"
     elif tool_name == "get_sleep_summary":
         return "sleep_summary"
     elif tool_name == "get_perception_status":
         return "perception_status"
+    elif tool_name == "set_guest_mode":
+        return f"enabled={args.get('enabled', '')}, hours={args.get('duration_hours', '')}"
+    elif tool_name == "get_weather":
+        return "weather"
     return str(args)[:50]
 
 
@@ -146,6 +156,13 @@ class Brain:
             self.character = reload_character()
             if self.persona_rewriter:
                 self.persona_rewriter.update_character(self.character)
+            return
+
+        if msg.topic == "hems/brain/guest-mode":
+            enabled = payload.get("enabled", True)
+            hours = payload.get("duration_hours", 3)
+            self.world_model.set_guest_mode(enabled, hours)
+            logger.info(f"Guest mode {'enabled' if enabled else 'disabled'} via MQTT (duration={hours}h)")
             return
 
         if self._loop:

@@ -400,6 +400,15 @@ class DashboardClient:
         hd = world_model.home_devices
         if not hd.bridge_connected:
             return
+        # Collect power/energy sensors for dashboard
+        energy_sensors = {}
+        for eid, s in hd.sensors.items():
+            if s.device_class in ("power", "energy"):
+                energy_sensors[eid] = {
+                    "value": s.value,
+                    "unit": s.unit or ("W" if s.device_class == "power" else "kWh"),
+                    "device_class": s.device_class,
+                }
         payload = {
             "bridge_connected": True,
             "lights": {
@@ -415,7 +424,25 @@ class DashboardClient:
                 for eid, c in hd.covers.items()
             },
             "switches": hd.switches,
+            "energy_sensors": energy_sensors,
         }
+
+        # Push power readings to timeseries for historical charts
+        ts_points = []
+        for eid, s in hd.sensors.items():
+            if s.device_class == "power" and s.value > 0:
+                name = eid.split(".")[-1] if "." in eid else eid
+                ts_points.append({"metric": f"power.{name}", "value": s.value})
+        if ts_points:
+            try:
+                async with self.session.post(
+                    f"{self.backend_url}/timeseries/ingest",
+                    json={"points": ts_points}, timeout=5, headers=_AUTH_HEADERS,
+                ) as resp:
+                    if resp.status != 200:
+                        logger.debug(f"Energy timeseries push failed: {resp.status}")
+            except Exception as e:
+                logger.debug(f"Energy timeseries push error: {e}")
         try:
             async with self.session.post(
                 f"{self.backend_url}/home/snapshot",

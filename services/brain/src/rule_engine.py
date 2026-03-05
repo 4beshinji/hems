@@ -4,6 +4,7 @@ Used when GPU load is high or LLM is unavailable.
 Evaluates simple threshold rules and returns tool call actions.
 """
 import os
+import random
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -25,6 +26,28 @@ from schedule_learner import ScheduleLearner
 
 GPU_TYPE = os.getenv("GPU_TYPE", "none")  # amd | nvidia | none
 GPU_HIGH_LOAD_THRESHOLD = int(os.getenv("GPU_HIGH_LOAD_THRESHOLD", "80"))
+
+# Absence lighting config
+ABSENCE_LIGHTING_ENABLED = os.getenv("HEMS_ABSENCE_LIGHTING_ENABLED", "true").lower() == "true"
+ABSENCE_LIGHTING_INTERVAL = int(os.getenv("HEMS_ABSENCE_LIGHTING_INTERVAL", "1800"))
+ABSENCE_LIGHTING_START_HOUR = int(os.getenv("HEMS_ABSENCE_LIGHTING_HOURS_START", "17"))
+ABSENCE_LIGHTING_END_HOUR = int(os.getenv("HEMS_ABSENCE_LIGHTING_HOURS_END", "23"))
+
+# Circadian lighting config
+CIRCADIAN_ENABLED = os.getenv("HEMS_CIRCADIAN_ENABLED", "true").lower() == "true"
+CIRCADIAN_INTERVAL = int(os.getenv("HEMS_CIRCADIAN_INTERVAL", "1800"))
+
+# Circadian color temp curve (hour → mirek, brightness_pct)
+# 153 mirek = 6500K (cold), 500 mirek = 2000K (warm)
+CIRCADIAN_CURVE = [
+    (0, 450, 30),   # midnight: very warm, dim
+    (6, 400, 50),   # early morning: warm
+    (8, 270, 100),  # morning: cool/energizing
+    (12, 250, 100), # noon: daylight
+    (17, 300, 100), # afternoon: neutral
+    (20, 380, 80),  # evening: warm
+    (22, 430, 50),  # late evening: very warm, dim
+]
 
 
 def _get_gpu_utilization() -> float | None:
@@ -63,6 +86,7 @@ class RuleEngine:
         self.schedule_learner = schedule_learner
         self._cooldowns: dict[str, float] = {}
         self._pressure_history: dict[str, float] = {}  # zone_id → last known pressure
+        self._absence_light_state: dict[str, bool] = {}  # entity_id → simulated on
 
     def should_use_rules(self) -> bool:
         """Check if we should use rule-based mode instead of LLM."""
@@ -233,8 +257,15 @@ class RuleEngine:
         # --- Home Assistant rules ---
         hd = world_model.home_devices
         if hd.bridge_connected:
-            actions.extend(self._evaluate_home_rules(world_model, now))
-            actions.extend(self._evaluate_zigbee_sensor_rules(world_model, now))
+            if not world_model.is_guest_mode:
+                actions.extend(self._evaluate_home_rules(world_model, now))
+                actions.extend(self._evaluate_zigbee_sensor_rules(world_model, now))
+                actions.extend(self._evaluate_circadian_lighting(world_model, now))
+                actions.extend(self._evaluate_absence_lighting(world_model, now))
+                actions.extend(self._evaluate_weather_rules(world_model, now))
+            else:
+                # Guest mode: only critical safety rules from zigbee sensors
+                actions.extend(self._evaluate_zigbee_critical_only(world_model, now))
 
         # --- Screen time rule ---
         st = world_model.user.screen_time
@@ -250,9 +281,9 @@ class RuleEngine:
                 },
             })
 
-        # --- Biometric rules ---
+        # --- Biometric rules (skip in guest mode for privacy) ---
         bio = world_model.biometric_state
-        if bio.bridge_connected:
+        if bio.bridge_connected and not world_model.is_guest_mode:
             actions.extend(self._evaluate_biometric_rules(world_model, now))
 
         # --- Perception rules ---
@@ -1057,6 +1088,168 @@ class RuleEngine:
                                 "tone": "neutral",
                             },
                         })
+
+        return actions
+
+    def _evaluate_zigbee_critical_only(self, world_model, now: float) -> list[dict]:
+        """In guest mode, only evaluate critical safety rules (water leak, extreme conditions)."""
+        actions = []
+        hd = world_model.home_devices
+        for eid, bs in hd.binary_sensors.items():
+            if bs.device_class == "moisture" and bs.state:
+                if self._check_cooldown(f"zigbee_moisture_{eid}", now):
+                    name = eid.split(".")[-1] if "." in eid else eid
+                    actions.append({
+                        "tool": "create_task",
+                        "args": {
+                            "title": f"【緊急】水漏れ検知: {name}",
+                            "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
+                            "xp_reward": 200, "urgency": 4, "zone": "home",
+                            "task_type": ["water_leak"],
+                        },
+                    })
+        return actions
+
+    def _evaluate_circadian_lighting(self, world_model, now: float) -> list[dict]:
+        """Adjust light color temperature based on time of day (circadian rhythm)."""
+        if not CIRCADIAN_ENABLED:
+            return []
+        if not self._check_cooldown("circadian_update", now):
+            return []
+
+        hd = world_model.home_devices
+        lights_on = [l for l in hd.lights.values() if l.on]
+        if not lights_on:
+            return []
+
+        # Interpolate circadian curve
+        hour = datetime.now().hour + datetime.now().minute / 60.0
+        target_mirek, target_brightness_pct = self._interpolate_circadian(hour)
+        target_brightness = int(target_brightness_pct / 100 * 255)
+
+        actions = []
+        for light in lights_on:
+            # Skip lights that already match (within tolerance)
+            if (light.color_temp and abs(light.color_temp - target_mirek) < 20
+                    and abs(light.brightness - target_brightness) < 15):
+                continue
+            actions.append({
+                "tool": "control_light",
+                "args": {
+                    "entity_id": light.entity_id,
+                    "on": True,
+                    "brightness": target_brightness,
+                    "color_temp": target_mirek,
+                },
+            })
+        return actions
+
+    @staticmethod
+    def _interpolate_circadian(hour: float) -> tuple[int, int]:
+        """Interpolate circadian curve for given fractional hour."""
+        curve = CIRCADIAN_CURVE
+        # Find surrounding points
+        for i in range(len(curve) - 1):
+            if curve[i][0] <= hour < curve[i + 1][0]:
+                h0, m0, b0 = curve[i]
+                h1, m1, b1 = curve[i + 1]
+                t = (hour - h0) / (h1 - h0)
+                return int(m0 + (m1 - m0) * t), int(b0 + (b1 - b0) * t)
+        # After last point, use last value
+        return curve[-1][1], curve[-1][2]
+
+    def _evaluate_absence_lighting(self, world_model, now: float) -> list[dict]:
+        """Randomly toggle lights during extended absence to simulate presence."""
+        if not ABSENCE_LIGHTING_ENABLED:
+            return []
+
+        # Only when in away mode (all zones empty)
+        all_empty = world_model.zones and all(
+            z.occupancy.count == 0 for z in world_model.zones.values()
+        )
+        if not all_empty:
+            # Turn off any simulated lights when returning
+            actions = []
+            for eid in list(self._absence_light_state.keys()):
+                if self._absence_light_state[eid]:
+                    actions.append({
+                        "tool": "control_light",
+                        "args": {"entity_id": eid, "on": False},
+                    })
+            self._absence_light_state.clear()
+            return actions
+
+        # Only during evening hours
+        hour = datetime.now().hour
+        if not (ABSENCE_LIGHTING_START_HOUR <= hour < ABSENCE_LIGHTING_END_HOUR):
+            return []
+
+        if not self._check_cooldown("absence_lighting", now):
+            return []
+        # Randomize next interval
+        self._cooldowns["absence_lighting"] = now - self.COOLDOWN_SECONDS + random.randint(
+            ABSENCE_LIGHTING_INTERVAL // 2, ABSENCE_LIGHTING_INTERVAL
+        )
+
+        hd = world_model.home_devices
+        all_lights = list(hd.lights.keys())
+        if not all_lights:
+            return []
+
+        actions = []
+        # Toggle 1-2 lights
+        targets = random.sample(all_lights, min(2, len(all_lights)))
+        for eid in targets:
+            currently_simulated = self._absence_light_state.get(eid, False)
+            new_state = not currently_simulated
+            self._absence_light_state[eid] = new_state
+            args = {"entity_id": eid, "on": new_state}
+            if new_state:
+                args["brightness"] = random.randint(100, 200)
+            actions.append({"tool": "control_light", "args": args})
+
+        return actions
+
+    def _evaluate_weather_rules(self, world_model, now: float) -> list[dict]:
+        """Weather-based automation rules."""
+        w = world_model.weather
+        if w.last_update == 0:
+            return []
+
+        actions = []
+        hd = world_model.home_devices
+
+        # Rain forecast + windows open → alert
+        rain_soon = any(
+            f.precipitation_probability > 60
+            for f in w.forecast[:4]  # next ~4 hours
+        )
+        if rain_soon:
+            open_windows = [
+                bs for bs in hd.binary_sensors.values()
+                if bs.device_class == "window" and bs.state
+            ]
+            if open_windows and self._check_cooldown("weather_rain_window", now):
+                actions.append({
+                    "tool": "speak",
+                    "args": {
+                        "message": "雨の予報が出ています。窓を閉めてください。",
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                })
+
+        # High temperature forecast → pre-cool advice
+        hot_forecast = any(f.temperature > 33 for f in w.forecast[:6])
+        if (hot_forecast and self._check_cooldown_daily("weather_hot_forecast", now)):
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": "本日は猛暑の予報です。エアコンの早めの稼働をお勧めします。",
+                    "zone": "home",
+                    "tone": "caring",
+                },
+            })
 
         return actions
 

@@ -14,6 +14,7 @@ from .data_classes import (
     KnowledgeState,
     GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
     HomeDevicesState, LightState, ClimateState, CoverState, BinarySensorState, HASensorState,
+    WeatherState, WeatherForecast,
     BiometricState, HeartRateData, SleepData, ActivityData, StressData, FatigueData, SpO2Data,
     HRVData, BodyTemperatureData, RespiratoryRateData, ScreenTimeData,
     PhysicalSpace, DigitalSpace, UserState,
@@ -104,6 +105,10 @@ class WorldModel:
         # Prevents repeated task creation for slow-changing conditions.
         self._suppressed_alerts: dict[tuple, float] = {}
 
+        # Guest mode: temporarily pause non-critical automations
+        self._guest_mode: bool = False
+        self._guest_mode_expires: float = 0
+
     # --- Backward-compatible property accessors ---
     # These delegate to domain objects so existing code works unchanged.
 
@@ -162,6 +167,26 @@ class WorldModel:
     @biometric_state.setter
     def biometric_state(self, value: BiometricState):
         self.user.biometrics = value
+
+    # --- Guest mode ---
+
+    @property
+    def is_guest_mode(self) -> bool:
+        if self._guest_mode and time.time() > self._guest_mode_expires:
+            self._guest_mode = False
+            logger.info("ゲストモード期限切れ — 自動解除")
+        return self._guest_mode
+
+    def set_guest_mode(self, enabled: bool, duration_hours: float = 4):
+        self._guest_mode = enabled
+        self._guest_mode_expires = time.time() + duration_hours * 3600 if enabled else 0
+        logger.info("ゲストモード%s (期限: %.1f時間)", "ON" if enabled else "OFF", duration_hours if enabled else 0)
+
+    # --- Weather ---
+
+    @property
+    def weather(self) -> WeatherState:
+        return self.physical.weather
 
     def suppress_alert(self, zone_id: str, alert_type: str, duration: float = None):
         """Suppress an alert for a zone after a task has been created for it.
@@ -927,6 +952,29 @@ class WorldModel:
             if changed and existing is not None:
                 self._handle_binary_sensor_event(hd, entity_id, new_state, prev_state,
                                                   hd.binary_sensors[entity_id].device_class)
+        elif domain == "weather":
+            w = self.physical.weather
+            w.condition = payload.get("state", payload.get("condition", w.condition))
+            if "temperature" in payload:
+                w.temperature = float(payload["temperature"])
+            if "humidity" in payload:
+                w.humidity = float(payload["humidity"])
+            if "wind_speed" in payload:
+                w.wind_speed = float(payload["wind_speed"])
+            forecasts = payload.get("forecast", [])
+            if forecasts:
+                w.forecast = [
+                    WeatherForecast(
+                        datetime=f.get("datetime", ""),
+                        condition=f.get("condition", ""),
+                        temperature=float(f.get("temperature", 0)),
+                        precipitation_probability=int(f.get("precipitation_probability", 0)),
+                        wind_speed=float(f.get("wind_speed", 0)),
+                    )
+                    for f in forecasts[:12]
+                ]
+            w.last_update = now
+            return
         elif domain == "sensor":
             try:
                 raw_val = payload.get("state", payload.get("value", 0))
@@ -1136,6 +1184,26 @@ class WorldModel:
             if not hd.bridge_connected:
                 home_parts.append("  ⚠ HAブリッジ: 切断中")
             lines.append("\n".join(home_parts))
+
+        # Weather
+        w = self.physical.weather
+        if w.last_update > 0:
+            condition_ja = {
+                "sunny": "晴れ", "clear-night": "晴れ", "cloudy": "曇り",
+                "partlycloudy": "曇り時々晴れ", "rainy": "雨", "pouring": "大雨",
+                "snowy": "雪", "windy": "強風", "fog": "霧", "lightning": "雷",
+            }
+            cond = condition_ja.get(w.condition, w.condition)
+            weather_parts = [f"### 天気: {cond} {w.temperature:.0f}°C 湿度{w.humidity:.0f}%"]
+            rain_soon = [f for f in w.forecast[:4] if f.precipitation_probability > 50]
+            if rain_soon:
+                weather_parts.append(f"  降水予報: {rain_soon[0].precipitation_probability}% ({rain_soon[0].datetime})")
+            lines.append("\n".join(weather_parts))
+
+        # Guest mode
+        if self.is_guest_mode:
+            remaining = int((self._guest_mode_expires - time.time()) / 60)
+            lines.append(f"### ゲストモード: ON (残り{remaining}分)")
 
         return "\n\n".join(lines)
 
