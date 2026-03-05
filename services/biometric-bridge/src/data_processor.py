@@ -6,7 +6,7 @@ from typing import Optional
 import time
 from loguru import logger
 
-from config import FATIGUE_HR_WEIGHT, FATIGUE_SLEEP_WEIGHT, FATIGUE_STRESS_WEIGHT
+from config import FATIGUE_HR_WEIGHT, FATIGUE_SLEEP_WEIGHT, FATIGUE_STRESS_WEIGHT, DEDUP_WINDOW
 
 
 @dataclass
@@ -44,6 +44,56 @@ class DataProcessor:
         self._sleep_cache: Optional[dict] = None
         self._hr_history: list[int] = []  # last N heart rate readings
         self._max_hr_history = 60
+        # Dedup: track recent metric values to suppress dual-path duplicates
+        self._recent: dict[str, float] = {}  # "metric:value" -> timestamp
+
+    def is_duplicate(self, reading: BiometricReading) -> bool:
+        """Check if a reading duplicates recently published data from another path.
+
+        Used for dual-path dedup (Health Connect + Huami API).
+        Returns True if all non-None metrics in the reading match values
+        published within the dedup window.
+        """
+        if DEDUP_WINDOW <= 0:
+            return False
+
+        now = time.time()
+        keys = self._reading_keys(reading)
+        if not keys:
+            return False
+
+        all_dup = all(
+            k in self._recent and (now - self._recent[k]) < DEDUP_WINDOW
+            for k in keys
+        )
+        if all_dup:
+            logger.debug(f"Dedup: skipping duplicate from {reading.provider}")
+        return all_dup
+
+    def record_published(self, reading: BiometricReading):
+        """Record that a reading's metrics were published (for dedup tracking)."""
+        now = time.time()
+        for key in self._reading_keys(reading):
+            self._recent[key] = now
+        # Prune old entries
+        cutoff = now - DEDUP_WINDOW * 2
+        self._recent = {k: v for k, v in self._recent.items() if v > cutoff}
+
+    @staticmethod
+    def _reading_keys(reading: BiometricReading) -> list[str]:
+        """Generate dedup keys from significant metrics in a reading."""
+        keys = []
+        if reading.heart_rate is not None:
+            keys.append(f"hr:{reading.heart_rate}")
+        if reading.steps is not None:
+            keys.append(f"steps:{reading.steps}")
+        if reading.spo2 is not None:
+            keys.append(f"spo2:{reading.spo2}")
+        if reading.sleep_duration_minutes is not None:
+            keys.append(f"sleep:{reading.sleep_duration_minutes}")
+        if reading.stress_level is not None:
+            keys.append(f"stress:{reading.stress_level}")
+        return keys
 
     def process(self, reading: BiometricReading) -> BiometricReading:
         """Normalize and enrich a biometric reading."""
