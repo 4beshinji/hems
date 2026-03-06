@@ -4,10 +4,8 @@ Tests for PowerModeManager and RuleEngine.evaluate_critical().
 import time
 from unittest.mock import patch
 
-import pytest
 from world_model.data_classes import (
-    BiometricState, HeartRateData, SleepData, SpO2Data,
-    ZoneState, OccupancyData, EnvironmentData,
+    ZoneState,
 )
 
 
@@ -479,7 +477,6 @@ class TestLLMCallThrottling:
         assert mgr.allow_llm_call()
 
     def test_allow_llm_first_call_in_low_power(self, world_model):
-        from low_power_mode import LOW_POWER_LLM_COOLDOWN
         mgr = _make_manager()
         world_model.biometric_state.sleep.stage = "deep"
         world_model.biometric_state.sleep.last_update = time.time()

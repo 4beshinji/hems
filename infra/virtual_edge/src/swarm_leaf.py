@@ -13,14 +13,13 @@ import os
 for _p in ["/edge_lib", os.path.join(os.path.dirname(__file__), "..", "..", "..", "edge", "lib")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
-from swarm.message import (
+from swarm.message import (  # noqa: E402
     encode, decode,
     encode_sensor_report, encode_heartbeat, encode_register,
     encode_wake_notify, decode_command,
     MSG_SENSOR_REPORT, MSG_HEARTBEAT, MSG_REGISTER, MSG_WAKE_NOTIFY, MSG_ACK,
     MSG_COMMAND, MSG_CONFIG,
-    CH_TEMPERATURE, CH_HUMIDITY, CH_PIR_MOTION, CH_DOOR, CH_BATTERY_MV,
-    CH_ILLUMINANCE,
+    CH_TEMPERATURE, CH_HUMIDITY, CH_PIR_MOTION, CH_DOOR, CH_ILLUMINANCE,
     HW_ESP32, HW_ATTINY,
     CAP_RELAY,
 )

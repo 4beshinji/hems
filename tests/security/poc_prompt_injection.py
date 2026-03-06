@@ -102,7 +102,7 @@ def test_injection():
             print(f"[PUBLISHED] {test['description']}")
             print(f"  Topic: {test['topic']}")
             print(f"  Payload snippet: {payload_str[:80]}...")
-            print(f"  NOTE: Check Brain logs for LLM context inclusion")
+            print("  NOTE: Check Brain logs for LLM context inclusion")
             print()
         except Exception as e:
             print(f"[ERROR] {test['description']}: {e}\n")

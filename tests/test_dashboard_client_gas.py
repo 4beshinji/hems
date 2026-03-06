@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from world_model.data_classes import (
-    GASState, CalendarEvent, GoogleTask, GmailLabel, FreeSlot,
+    CalendarEvent, GoogleTask, GmailLabel, FreeSlot,
 )
 
 

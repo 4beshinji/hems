@@ -1,6 +1,5 @@
 
 import machine
-import time
 
 def scan_i2c():
     print("Starting I2C Scan...")
@@ -26,7 +25,7 @@ def scan_i2c():
             else:
                 pass
                 # print(f"Checked SDA={sda}, SCL={scl}: No devices")
-        except Exception as e:
+        except Exception:
             pass
             
     print("Scan complete. No devices found.")

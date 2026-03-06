@@ -15,14 +15,13 @@ import os
 for _p in ["/edge_lib", os.path.join(os.path.dirname(__file__), "..", "..", "..", "edge", "lib")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
-from swarm.message import (
+from swarm.message import (  # noqa: E402
     decode, decode_sensor_report, decode_heartbeat, decode_register,
     decode_wake_notify, encode, encode_command,
     MSG_SENSOR_REPORT, MSG_HEARTBEAT, MSG_REGISTER, MSG_WAKE_NOTIFY,
     MSG_COMMAND, MSG_ACK,
-    CHANNEL_NAMES, CAPABILITY_NAMES,
 )
-from device import VirtualDevice
+from device import VirtualDevice  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

@@ -3,7 +3,6 @@
 # Ported for MicroPython by robert-hh
 
 import time
-import math
 from micropython import const
 try:
     import struct
@@ -109,8 +108,10 @@ class BME680:
         var6 = (var4 * var5) / 2
         calc_hum = (((var3 + var6) / 1024) * 1000) / 4096
         calc_hum /= 1000
-        if calc_hum > 100: calc_hum = 100
-        if calc_hum < 0: calc_hum = 0
+        if calc_hum > 100:
+            calc_hum = 100
+        if calc_hum < 0:
+            calc_hum = 0
         return calc_hum
 
     @property

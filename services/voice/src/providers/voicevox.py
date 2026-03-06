@@ -3,7 +3,6 @@ VOICEVOX TTS Provider — Docker-based Japanese speech synthesis.
 """
 import os
 import aiohttp
-from loguru import logger
 from tts_provider import TTSProvider, AudioResult
 
 VOICEVOX_URL = os.getenv("VOICEVOX_URL", "http://voicevox:50021")

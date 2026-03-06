@@ -12,7 +12,7 @@ def blink(n=3):
             time.sleep(0.1)
             led.value(0)
             time.sleep(0.1)
-    except:
+    except Exception:
         pass
 
 def scan_i2c():

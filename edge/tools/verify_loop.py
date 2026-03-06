@@ -25,7 +25,7 @@ def verify_loop():
             uart.write(b'\xff\x01\x86\x00\x00\x00\x00\x00\x79')
             # Don't wait long, just check
             
-        except Exception as e:
+        except Exception:
             # print(f"Exc: {e}")
             pass
         

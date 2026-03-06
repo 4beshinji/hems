@@ -2,9 +2,9 @@
 
 import time
 try:
-    import struct
+    import struct  # noqa: F401 — needed at runtime on some MicroPython ports
 except ImportError:
-    import ustruct as struct
+    pass
 
 # Default I2C addresses (ADDR pin low = 0x44, ADDR pin high = 0x45)
 KNOWN_ADDRESSES = (0x44, 0x45)

@@ -1,7 +1,6 @@
 """
 Tests for Home Assistant device data classes.
 """
-import time
 from world_model.data_classes import (
     LightState, ClimateState, CoverState, HomeDevicesState, Event,
 )
@@ -9,19 +8,19 @@ from world_model.data_classes import (
 
 class TestLightState:
     def test_default_values(self):
-        l = LightState()
-        assert l.entity_id == ""
-        assert l.on is False
-        assert l.brightness == 0
-        assert l.color_temp == 0
-        assert l.last_update == 0
+        lt = LightState()
+        assert lt.entity_id == ""
+        assert lt.on is False
+        assert lt.brightness == 0
+        assert lt.color_temp == 0
+        assert lt.last_update == 0
 
     def test_custom_values(self):
-        l = LightState(entity_id="light.living_room", on=True, brightness=200, color_temp=300)
-        assert l.entity_id == "light.living_room"
-        assert l.on is True
-        assert l.brightness == 200
-        assert l.color_temp == 300
+        lt = LightState(entity_id="light.living_room", on=True, brightness=200, color_temp=300)
+        assert lt.entity_id == "light.living_room"
+        assert lt.on is True
+        assert lt.brightness == 200
+        assert lt.color_temp == 300
 
 
 class TestClimateState:
@@ -88,7 +87,7 @@ class TestHomeDevicesState:
         hd.lights["light.a"] = LightState(entity_id="light.a", on=True, brightness=200)
         hd.lights["light.b"] = LightState(entity_id="light.b", on=False)
 
-        on_lights = [l for l in hd.lights.values() if l.on]
-        off_lights = [l for l in hd.lights.values() if not l.on]
+        on_lights = [lt for lt in hd.lights.values() if lt.on]
+        off_lights = [lt for lt in hd.lights.values() if not lt.on]
         assert len(on_lights) == 1
         assert len(off_lights) == 1

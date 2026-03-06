@@ -30,7 +30,7 @@ try:
         decode_wake_notify, encode, encode_command,
         MSG_SENSOR_REPORT, MSG_HEARTBEAT, MSG_REGISTER, MSG_WAKE_NOTIFY,
         MSG_COMMAND, MSG_ACK,
-        CHANNEL_NAMES,
+        CHANNEL_NAMES,  # noqa: F401
     )
 except ImportError:
     import sys
@@ -40,7 +40,6 @@ except ImportError:
         decode_wake_notify, encode, encode_command,
         MSG_SENSOR_REPORT, MSG_HEARTBEAT, MSG_REGISTER, MSG_WAKE_NOTIFY,
         MSG_COMMAND, MSG_ACK,
-        CHANNEL_NAMES,
     )
 
 

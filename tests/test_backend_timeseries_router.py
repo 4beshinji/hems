@@ -5,7 +5,7 @@ Requires sqlalchemy to be installed (pip install sqlalchemy aiosqlite).
 import pytest
 
 try:
-    import sqlalchemy
+    import sqlalchemy  # noqa: F401
     HAS_SQLALCHEMY = True
 except ImportError:
     HAS_SQLALCHEMY = False
@@ -35,7 +35,6 @@ def client():
         del sys.modules["routers.timeseries"]
 
     import database
-    from models import TimeSeriesPoint
 
     from fastapi import FastAPI
     from routers.timeseries import router

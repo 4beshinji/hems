@@ -8,17 +8,13 @@ import time
 import logging
 from typing import Optional
 from .data_classes import (
-    ZoneState, EnvironmentData, OccupancyData, Event,
+    ZoneState, OccupancyData, Event,
     PCState, CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
     ServicesState, ServiceStatusData,
     KnowledgeState,
     GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
     HomeDevicesState, LightState, ClimateState, CoverState, BinarySensorState, HASensorState,
-    WeatherState, WeatherForecast,
-    BiometricState, HeartRateData, SleepData, ActivityData, StressData, FatigueData, SpO2Data,
-    HRVData, BodyTemperatureData, RespiratoryRateData, ScreenTimeData,
-    ShoppingState, ShoppingItemData,
-    PhysicalSpace, DigitalSpace, UserState,
+    BiometricState, HeartRateData, StressData, PhysicalSpace, DigitalSpace, UserState,
 )
 from .sensor_fusion import SensorFusion
 
@@ -106,10 +102,6 @@ class WorldModel:
         # Prevents repeated task creation for slow-changing conditions.
         self._suppressed_alerts: dict[tuple, float] = {}
 
-        # Guest mode: temporarily pause non-critical automations
-        self._guest_mode: bool = False
-        self._guest_mode_expires: float = 0
-
     # --- Backward-compatible property accessors ---
     # These delegate to domain objects so existing code works unchanged.
 
@@ -168,32 +160,6 @@ class WorldModel:
     @biometric_state.setter
     def biometric_state(self, value: BiometricState):
         self.user.biometrics = value
-
-    # --- Shopping ---
-
-    @property
-    def shopping_state(self) -> ShoppingState:
-        return self.digital.shopping_state
-
-    # --- Guest mode ---
-
-    @property
-    def is_guest_mode(self) -> bool:
-        if self._guest_mode and time.time() > self._guest_mode_expires:
-            self._guest_mode = False
-            logger.info("ゲストモード期限切れ — 自動解除")
-        return self._guest_mode
-
-    def set_guest_mode(self, enabled: bool, duration_hours: float = 4):
-        self._guest_mode = enabled
-        self._guest_mode_expires = time.time() + duration_hours * 3600 if enabled else 0
-        logger.info("ゲストモード%s (期限: %.1f時間)", "ON" if enabled else "OFF", duration_hours if enabled else 0)
-
-    # --- Weather ---
-
-    @property
-    def weather(self) -> WeatherState:
-        return self.physical.weather
 
     def suppress_alert(self, zone_id: str, alert_type: str, duration: float = None):
         """Suppress an alert for a zone after a task has been created for it.
@@ -317,10 +283,6 @@ class WorldModel:
         # hems/gas/* topics (GAS bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "gas":
             self._update_gas_state(parts[2:], payload)
-
-        # hems/shopping/* topics
-        elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "shopping":
-            self._handle_shopping_message(parts[2], payload)
 
         # hems/personal/* topics (Phase 2 — data-bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "personal":
@@ -583,18 +545,6 @@ class WorldModel:
                 data=payload,
             ))
 
-    def _handle_shopping_message(self, event_type: str, payload: dict):
-        """Handle hems/shopping/* MQTT events (added, updated, purchased)."""
-        ss = self.shopping_state
-        ss.last_update = time.time()
-        ss.add_event(Event(
-            event_type=f"shopping_{event_type}",
-            description=f"買い物リスト: {payload.get('name', '')} ({event_type})",
-            severity=0,
-            zone="",
-            data=payload,
-        ))
-
     def _update_gas_state(self, path_parts: list[str], payload: dict):
         """Handle hems/gas/* topics from GAS bridge."""
         if not path_parts:
@@ -709,7 +659,7 @@ class WorldModel:
         if not iso_str:
             return 0
         try:
-            from datetime import datetime, timezone
+            from datetime import datetime
             # Handle Z suffix and various formats
             s = iso_str.replace("Z", "+00:00")
             dt = datetime.fromisoformat(s)
@@ -975,29 +925,6 @@ class WorldModel:
             if changed and existing is not None:
                 self._handle_binary_sensor_event(hd, entity_id, new_state, prev_state,
                                                   hd.binary_sensors[entity_id].device_class)
-        elif domain == "weather":
-            w = self.physical.weather
-            w.condition = payload.get("state", payload.get("condition", w.condition))
-            if "temperature" in payload:
-                w.temperature = float(payload["temperature"])
-            if "humidity" in payload:
-                w.humidity = float(payload["humidity"])
-            if "wind_speed" in payload:
-                w.wind_speed = float(payload["wind_speed"])
-            forecasts = payload.get("forecast", [])
-            if forecasts:
-                w.forecast = [
-                    WeatherForecast(
-                        datetime=f.get("datetime", ""),
-                        condition=f.get("condition", ""),
-                        temperature=float(f.get("temperature", 0)),
-                        precipitation_probability=int(f.get("precipitation_probability", 0)),
-                        wind_speed=float(f.get("wind_speed", 0)),
-                    )
-                    for f in forecasts[:12]
-                ]
-            w.last_update = now
-            return
         elif domain == "sensor":
             try:
                 raw_val = payload.get("state", payload.get("value", 0))
@@ -1017,17 +944,6 @@ class WorldModel:
             )
             if device_class == "power":
                 self._check_power_thresholds(hd, entity_id, value, prev_value)
-
-            # Route environment sensors to zone environment for dashboard display
-            _ENV_CLASS_TO_CHANNEL = {
-                "temperature": "temperature",
-                "humidity": "humidity",
-                "carbon_dioxide": "co2",
-            }
-            channel = _ENV_CLASS_TO_CHANNEL.get(device_class)
-            if channel and value:
-                zone_id = path_parts[0]
-                self._update_sensor(zone_id, channel, value)
 
     def _handle_binary_sensor_event(self, hd, entity_id: str, new_state: bool,
                                      prev_state: bool, device_class: str):
@@ -1150,17 +1066,17 @@ class WorldModel:
         hd = self.home_devices
         if hd.bridge_connected:
             home_parts = ["### スマートホーム"]
-            lights_on = [l for l in hd.lights.values() if l.on]
-            lights_off = [l for l in hd.lights.values() if not l.on]
+            lights_on = [lt for lt in hd.lights.values() if lt.on]
+            lights_off = [lt for lt in hd.lights.values() if not lt.on]
             if lights_on:
-                for l in lights_on:
-                    name = l.entity_id.split(".")[-1] if "." in l.entity_id else l.entity_id
-                    pct = int(l.brightness / 255 * 100) if l.brightness else 100
+                for lt in lights_on:
+                    name = lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id
+                    pct = int(lt.brightness / 255 * 100) if lt.brightness else 100
                     home_parts.append(f"  照明: {name} ON({pct}%)")
             if lights_off:
                 names = ", ".join(
-                    l.entity_id.split(".")[-1] if "." in l.entity_id else l.entity_id
-                    for l in lights_off
+                    lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id
+                    for lt in lights_off
                 )
                 home_parts.append(f"  照明: {names} OFF")
 
@@ -1218,26 +1134,6 @@ class WorldModel:
             if not hd.bridge_connected:
                 home_parts.append("  ⚠ HAブリッジ: 切断中")
             lines.append("\n".join(home_parts))
-
-        # Weather
-        w = self.physical.weather
-        if w.last_update > 0:
-            condition_ja = {
-                "sunny": "晴れ", "clear-night": "晴れ", "cloudy": "曇り",
-                "partlycloudy": "曇り時々晴れ", "rainy": "雨", "pouring": "大雨",
-                "snowy": "雪", "windy": "強風", "fog": "霧", "lightning": "雷",
-            }
-            cond = condition_ja.get(w.condition, w.condition)
-            weather_parts = [f"### 天気: {cond} {w.temperature:.0f}°C 湿度{w.humidity:.0f}%"]
-            rain_soon = [f for f in w.forecast[:4] if f.precipitation_probability > 50]
-            if rain_soon:
-                weather_parts.append(f"  降水予報: {rain_soon[0].precipitation_probability}% ({rain_soon[0].datetime})")
-            lines.append("\n".join(weather_parts))
-
-        # Guest mode
-        if self.is_guest_mode:
-            remaining = int((self._guest_mode_expires - time.time()) / 60)
-            lines.append(f"### ゲストモード: ON (残り{remaining}分)")
 
         return "\n\n".join(lines)
 
@@ -1316,15 +1212,6 @@ class WorldModel:
                 last = ks.recent_changes[-1]
                 kb_parts.append(f"  最終変更: {last['title']}")
             lines.append("\n".join(kb_parts))
-
-        # Shopping list
-        ss = self.shopping_state
-        if ss.pending_count > 0:
-            shop_parts = [f"### 買い物リスト ({ss.pending_count}件)"]
-            due = ss.due_items
-            if due:
-                shop_parts.append(f"  期限到来: {', '.join(i.name for i in due[:5])}")
-            lines.append("\n".join(shop_parts))
 
         return "\n\n".join(lines)
 

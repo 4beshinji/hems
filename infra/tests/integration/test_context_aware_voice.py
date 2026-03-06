@@ -8,7 +8,6 @@ with the completion voice contextually linked to the task.
 """
 
 import requests
-import time
 import os
 import sys
 
@@ -64,13 +63,13 @@ def test_dual_voice_generation():
             if response.status_code == 200:
                 result = response.json()
                 
-                print(f"✓ Dual voice generated successfully!")
-                print(f"\n  📢 Announcement:")
+                print("✓ Dual voice generated successfully!")
+                print("\n  📢 Announcement:")
                 print(f"     Text: {result['announcement_text']}")
                 print(f"     URL:  {result['announcement_audio_url']}")
                 print(f"     Duration: {result['announcement_duration']}s")
                 
-                print(f"\n  ✅ Completion:")
+                print("\n  ✅ Completion:")
                 print(f"     Text: {result['completion_text']}")
                 print(f"     URL:  {result['completion_audio_url']}")
                 print(f"     Duration: {result['completion_duration']}s")
@@ -79,13 +78,13 @@ def test_dual_voice_generation():
                 completion = result['completion_text']
                 if task['title'] in ['掃除機をかける', '掃除']:
                     if '気持ち' in completion or 'きれい' in completion or '清潔' in completion:
-                        print(f"\n  🎯 Contextual link detected! (cleaning-related response)")
+                        print("\n  🎯 Contextual link detected! (cleaning-related response)")
                 elif 'コーヒー' in task['title']:
                     if 'コーヒー' in completion or '飲める' in completion:
-                        print(f"\n  🎯 Contextual link detected! (coffee-related response)")
+                        print("\n  🎯 Contextual link detected! (coffee-related response)")
                 elif '用紙' in task['title'] or 'プリンター' in task['title']:
                     if '作業' in completion or 'スムーズ' in completion or '印刷' in completion:
-                        print(f"\n  🎯 Contextual link detected! (work-related response)")
+                        print("\n  🎯 Contextual link detected! (work-related response)")
                 
                 # Download audio files
                 announcement_url = f"{VOICE_SERVICE_URL}{result['announcement_audio_url']}"
@@ -102,7 +101,7 @@ def test_dual_voice_generation():
                 with open(completion_file, "wb") as f:
                     f.write(comp_resp.content)
                 
-                print(f"\n  💾 Audio files saved:")
+                print("\n  💾 Audio files saved:")
                 print(f"     Announcement: {announcement_file}")
                 print(f"     Completion:   {completion_file}")
                 
@@ -115,11 +114,11 @@ def test_dual_voice_generation():
             print(f"✗ Error: {e}")
             return False
     
-    print(f"\n" + "=" * 60)
+    print("\n" + "=" * 60)
     print(f"✓ All {len(test_tasks)} tasks tested successfully!")
-    print(f"\n💡 To listen to the audio files, run:")
-    print(f"   aplay /tmp/test_announcement_*.wav")
-    print(f"   aplay /tmp/test_completion_*.wav")
+    print("\n💡 To listen to the audio files, run:")
+    print("   aplay /tmp/test_announcement_*.wav")
+    print("   aplay /tmp/test_completion_*.wav")
     print("=" * 60)
     
     return True
@@ -159,15 +158,15 @@ def test_backend_integration():
             
             # Verify voice data was stored
             if result.get('announcement_audio_url') == task_data['announcement_audio_url']:
-                print(f"  ✓ Announcement audio URL stored correctly")
+                print("  ✓ Announcement audio URL stored correctly")
             if result.get('announcement_text') == task_data['announcement_text']:
-                print(f"  ✓ Announcement text stored correctly")
+                print("  ✓ Announcement text stored correctly")
             if result.get('completion_audio_url') == task_data['completion_audio_url']:
-                print(f"  ✓ Completion audio URL stored correctly")
+                print("  ✓ Completion audio URL stored correctly")
             if result.get('completion_text') == task_data['completion_text']:
-                print(f"  ✓ Completion text stored correctly")
+                print("  ✓ Completion text stored correctly")
             
-            print(f"\n  📋 Task Details:")
+            print("\n  📋 Task Details:")
             print(f"     ID: {result['id']}")
             print(f"     Title: {result['title']}")
             print(f"     Announcement: {result.get('announcement_text', 'N/A')}")

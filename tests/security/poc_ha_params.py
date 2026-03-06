@@ -94,7 +94,7 @@ async def test_ha_params():
                         json=payload,
                     ) as resp:
                         status = resp.status
-                        body = await resp.json()
+                        await resp.json()
 
                         if should_block:
                             if status in (400, 422, 403):

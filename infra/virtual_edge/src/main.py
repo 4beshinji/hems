@@ -1,6 +1,5 @@
 
 import os
-import sys
 import time
 import logging
 import json
@@ -126,7 +125,7 @@ def main():
         try:
             client.connect(MQTT_BROKER, MQTT_PORT, 60)
             break
-        except:
+        except Exception:
             logger.warning("Waiting for MQTT...")
             time.sleep(2)
 

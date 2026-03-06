@@ -1,7 +1,6 @@
 """
 Tests for RuleEngine PC rules.
 """
-import pytest
 from world_model.data_classes import GPUData, DiskData, DiskPartition
 
 

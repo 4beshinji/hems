@@ -1,5 +1,4 @@
 """Tests for occupancy activity/posture data in WorldModel LLM context."""
-import pytest
 from world_model.data_classes import OccupancyData
 
 

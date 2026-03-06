@@ -231,10 +231,10 @@ def print_result(r: BenchResult):
 
 
 def run_benchmark(url: str, model: str):
-    print(f"\nHEMS LLM Benchmark")
+    print("\nHEMS LLM Benchmark")
     print(f"  Target:  {url}")
     print(f"  Model:   {model}")
-    print(f"  GPU:     RX 9700 (gfx1201, RDNA4)")
+    print("  GPU:     RX 9700 (gfx1201, RDNA4)")
 
     # ── Phase 0: Warmup ──
     print_header("Phase 0: Warmup (1 request)")
@@ -330,7 +330,7 @@ def run_benchmark(url: str, model: str):
         for r in errors:
             print(f"    - {r.scenario}: {r.error}")
     else:
-        print(f"  Errors: 0")
+        print("  Errors: 0")
 
     print(f"\n  Total requests: {len(all_results)}")
     print()

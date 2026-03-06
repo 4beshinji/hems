@@ -41,8 +41,6 @@ _brain_src = _project_root() / "services" / "brain" / "src"
 sys.path.insert(0, str(_brain_src))
 
 from character_loader import (  # noqa: E402
-    CharacterConfig,
-    _deep_merge,
     _dict_to_config,
     _load_yaml_file,
     _resolve_inheritance,

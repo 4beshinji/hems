@@ -2,7 +2,6 @@
 Microsoft Edge TTS Provider — free cloud TTS.
 """
 import io
-from loguru import logger
 from tts_provider import TTSProvider, AudioResult
 
 VOICE_MAP = {
@@ -41,7 +40,7 @@ class EdgeTTSProvider(TTSProvider):
 
     async def is_available(self) -> bool:
         try:
-            import edge_tts
+            import edge_tts  # noqa: F401
             return True
         except ImportError:
             return False

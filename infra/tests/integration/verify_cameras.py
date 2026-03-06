@@ -14,7 +14,6 @@
 # ///
 
 import cv2
-import httpx
 import re
 from rich.console import Console
 from rich.table import Table
@@ -24,7 +23,7 @@ import logging
 
 # Suppress YOLO logging
 logging.getLogger("ultralytics").setLevel(logging.ERROR)
-import torch
+import torch  # noqa: E402
 
 SCAN_FILE = "scan_final.txt"
 TIMEOUT = 3.0
@@ -96,9 +95,9 @@ def main():
     if torch.cuda.is_available():
          console.print(f"[green]Using GPU: {torch.cuda.get_device_name(0)}[/green]")
     else:
-         console.print(f"[yellow]Using CPU[/yellow]")
+         console.print("[yellow]Using CPU[/yellow]")
 
-    console.print(f"[bold blue]Loading YOLOv8n model...[/bold blue]")
+    console.print("[bold blue]Loading YOLOv8n model...[/bold blue]")
     try:
         model = YOLO("yolov8n.pt")
     except Exception as e:

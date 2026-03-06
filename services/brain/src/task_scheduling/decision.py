@@ -5,8 +5,6 @@ Dispatch decision logic — simplified for single-user home.
 
 def should_dispatch(task: dict, world_model) -> bool:
     """Decide if a queued task should be dispatched now."""
-    zone = task.get("zone", "")
-
     # Always dispatch critical tasks
     if task.get("urgency", 0) >= 4:
         return True

@@ -3,7 +3,6 @@ Camera source management — MCP (ESP32 MQTT) and Stream (RTSP/HTTP) cameras.
 """
 import asyncio
 import base64
-import time
 import uuid
 from abc import ABC, abstractmethod
 

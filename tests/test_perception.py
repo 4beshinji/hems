@@ -4,13 +4,12 @@ Tests for HEMS Perception Service.
 Covers: Detector, ActivityTracker, CameraManager, MQTT topic compliance,
 and WorldModel integration.
 """
-import asyncio
 import json
 import sys
 import time
 import types
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -26,7 +25,7 @@ for _mod_name in ("cv2", "ultralytics"):
 # Import perception modules using importlib to avoid polluting sys.modules.
 # Multiple services share module names (e.g., mqtt_publisher, config) so we
 # must not let perception's versions shadow openclaw-bridge's.
-import importlib.util as _ilu
+import importlib.util as _ilu  # noqa: E402
 
 _PERCEP_SRC = Path(__file__).resolve().parent.parent / "services" / "perception" / "src"
 

@@ -2,7 +2,7 @@
 Tests for Zigbee binary sensor / HA sensor data classes.
 """
 from world_model.data_classes import (
-    BinarySensorState, HASensorState, HomeDevicesState, Event,
+    BinarySensorState, HASensorState, HomeDevicesState,
 )
 
 

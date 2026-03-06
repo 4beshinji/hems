@@ -2,8 +2,6 @@
 Tests for Zigbee sensor rules in RuleEngine.
 """
 import time
-from unittest.mock import patch
-from datetime import datetime
 
 import pytest
 from rule_engine import RuleEngine

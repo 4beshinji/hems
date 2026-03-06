@@ -2,8 +2,7 @@
 Tests for WorldModel Zigbee binary_sensor/sensor MQTT processing,
 event generation, and LLM context display.
 """
-import pytest
-from world_model.data_classes import BinarySensorState, HASensorState, LightState
+from world_model.data_classes import BinarySensorState, HASensorState
 
 
 class TestBinarySensorMQTT:

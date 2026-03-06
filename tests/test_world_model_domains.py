@@ -1,7 +1,6 @@
 """
 Tests for WorldModel tri-domain facade pattern and backward-compatible property accessors.
 """
-import pytest
 
 from world_model.data_classes import (
     PhysicalSpace, DigitalSpace, UserState,
@@ -9,7 +8,7 @@ from world_model.data_classes import (
     PCState, ServicesState, GASState, KnowledgeState,
     BiometricState, HeartRateData, SleepData, ActivityData,
     StressData, FatigueData, SpO2Data,
-    CPUData, MemoryData, GPUData, DiskData,
+    CPUData,
 )
 
 

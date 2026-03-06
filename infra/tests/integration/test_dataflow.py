@@ -313,7 +313,7 @@ async def test_task_not_duplicate_different_zone(client):
     await client.post("/tasks/", json=task1)
     await client.post("/tasks/", json=task2)
 
-    r = await client.get("/tasks/")
+    await client.get("/tasks/")
     # Stage1 dedup matches title but location (None) differs from None — actually
     # both have location=None so Stage1 will match on title+location(None).
     # Let's set different locations to avoid Stage1 match

@@ -7,14 +7,13 @@ No WiFi needed — wired connection to Hub.
 
 import json
 import sys
-import time
 
 sys.path.insert(0, "/lib")
 
-from machine import Pin, ADC
+from machine import ADC
 from swarm.leaf import SwarmLeaf
 from swarm.transport_uart import UARTTransport
-from swarm.message import CH_TEMPERATURE, CH_HUMIDITY, HW_PICO
+from swarm.message import CH_TEMPERATURE, HW_PICO
 
 
 # ── Config ───────────────────────────────────────────────────

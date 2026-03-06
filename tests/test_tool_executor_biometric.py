@@ -2,7 +2,7 @@
 Tests for ToolExecutor biometric tool handlers.
 """
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from world_model.data_classes import (

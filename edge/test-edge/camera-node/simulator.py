@@ -42,7 +42,7 @@ class CameraNodeSimulator:
             
             req_id = request.get("id", "unknown")
             resolution = request.get("resolution", "VGA")
-            quality = request.get("quality", 10)
+            _quality = request.get("quality", 10)
             
             # ダミー画像生成
             image = self.generate_dummy_image(resolution)
@@ -116,7 +116,7 @@ class CameraNodeSimulator:
     
     def run(self):
         """メインループ"""
-        print(f"=== Camera Node Simulator ===")
+        print("=== Camera Node Simulator ===")
         print(f"Device ID: {self.device_id}")
         print(f"Broker: {self.broker}:{self.port}")
         

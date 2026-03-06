@@ -1,7 +1,6 @@
 """
 Tests for PCState and related dataclasses.
 """
-import time
 from world_model.data_classes import (
     CPUData, MemoryData, GPUData, DiskPartition, DiskData,
     ProcessInfo, PCState, Event,

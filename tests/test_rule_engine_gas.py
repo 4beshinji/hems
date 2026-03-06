@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from world_model.data_classes import (
-    GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel,
+    CalendarEvent, GoogleTask, GmailLabel,
     DriveFile, SheetData,
 )
 

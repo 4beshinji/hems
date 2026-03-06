@@ -2,10 +2,10 @@
 Tests for ToolExecutor PC tool handlers.
 """
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from world_model.data_classes import CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo
+from world_model.data_classes import CPUData, MemoryData, DiskData, DiskPartition, ProcessInfo
 
 
 class TestGetPCStatus:

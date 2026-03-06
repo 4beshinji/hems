@@ -566,8 +566,8 @@ class ToolExecutor:
         status = {
             "bridge_connected": hd.bridge_connected,
             "lights": {
-                eid: {"on": l.on, "brightness": l.brightness}
-                for eid, l in hd.lights.items()
+                eid: {"on": lt.on, "brightness": lt.brightness}
+                for eid, lt in hd.lights.items()
             },
             "climates": {
                 eid: {"mode": c.mode, "target_temp": c.target_temp, "current_temp": c.current_temp}

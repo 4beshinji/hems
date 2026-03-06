@@ -4,10 +4,6 @@ Tests for DashboardClient.push_biometric_snapshot.
 from unittest.mock import MagicMock
 
 import pytest
-from world_model.data_classes import (
-    BiometricState, HeartRateData, SleepData, ActivityData,
-    StressData, FatigueData, SpO2Data,
-)
 
 
 class TestPushBiometricSnapshot:

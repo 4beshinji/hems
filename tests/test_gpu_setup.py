@@ -1,18 +1,15 @@
 """
 Tests for HEMS GPU auto-detection and setup script.
 """
-import os
 import sys
-import textwrap
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import patch
 
-import pytest
 
 # Import gpu_setup from infra/scripts
 _scripts_dir = str(Path(__file__).resolve().parent.parent / "infra" / "scripts")
 sys.path.insert(0, _scripts_dir)
-import gpu_setup
+import gpu_setup  # noqa: E402
 
 sys.path.remove(_scripts_dir)
 

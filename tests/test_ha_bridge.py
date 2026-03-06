@@ -5,7 +5,7 @@ import sys
 import importlib
 import importlib.util
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 _ha_src = str(Path(__file__).resolve().parent.parent / "services" / "ha-bridge" / "src")

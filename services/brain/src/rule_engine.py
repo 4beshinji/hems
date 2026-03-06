@@ -11,8 +11,7 @@ from datetime import datetime, timezone
 from loguru import logger
 from world_model.world_model import (
     CO2_HIGH, CO2_CRITICAL, TEMP_HIGH, TEMP_LOW, PC_GPU_TEMP_HIGH, PC_DISK_HIGH,
-    SEDENTARY_MINUTES, HUMIDITY_HIGH, HUMIDITY_LOW, SPO2_LOW,
-    HRV_LOW, BODY_TEMP_HIGH, RESPIRATORY_RATE_HIGH, SCREEN_TIME_ALERT_MINUTES,
+    SEDENTARY_MINUTES, HUMIDITY_HIGH, HUMIDITY_LOW, HRV_LOW, BODY_TEMP_HIGH, RESPIRATORY_RATE_HIGH, SCREEN_TIME_ALERT_MINUTES,
     POWER_IDLE_WATTS, PM25_HIGH,
 )
 
@@ -21,7 +20,7 @@ TEMP_CRITICAL_HIGH = float(os.getenv("HEMS_THRESHOLD_TEMP_CRITICAL_HIGH", "40.0"
 TEMP_CRITICAL_LOW = float(os.getenv("HEMS_THRESHOLD_TEMP_CRITICAL_LOW", "5.0"))
 SPO2_CRITICAL_LOW = int(os.getenv("HEMS_THRESHOLD_SPO2_CRITICAL_LOW", "88"))
 HR_CRITICAL_SLEEP = int(os.getenv("HEMS_THRESHOLD_HR_CRITICAL_SLEEP", "150"))
-from schedule_learner import ScheduleLearner
+from schedule_learner import ScheduleLearner  # noqa: E402
 
 
 GPU_TYPE = os.getenv("GPU_TYPE", "none")  # amd | nvidia | none
@@ -562,7 +561,7 @@ class RuleEngine:
                         and occ.posture_status == "static"
                         and occ.posture_duration_sec > 600):
                     # Check if any lights are on
-                    lights_on = [eid for eid, l in hd.lights.items() if l.on]
+                    lights_on = [eid for eid, lt in hd.lights.items() if lt.on]
                     if lights_on and self._check_cooldown_daily(f"ha_sleep_detect_{zone_id}", now):
                         for eid in lights_on:
                             actions.append({
@@ -642,7 +641,7 @@ class RuleEngine:
                 if (occ.count > 0
                         and occ.activity_class in ("low", "moderate", "high")
                         and self._check_cooldown_daily(f"ha_wake_detect_{zone_id}", now)):
-                    lights_off = [eid for eid, l in hd.lights.items() if not l.on]
+                    lights_off = [eid for eid, lt in hd.lights.items() if not lt.on]
                     if lights_off:
                         for eid in lights_off:
                             actions.append({
@@ -738,7 +737,7 @@ class RuleEngine:
         if (hd.bridge_connected
                 and bio.sleep.stage in ("deep", "light", "rem")
                 and self._check_cooldown_daily("bio_sleep_lights", now)):
-            lights_on = [eid for eid, l in hd.lights.items() if l.on]
+            lights_on = [eid for eid, lt in hd.lights.items() if lt.on]
             if lights_on:
                 for eid in lights_on:
                     actions.append({
@@ -844,8 +843,8 @@ class RuleEngine:
                     and occ.last_update > 0
                     and now - occ.last_update < 300):
                 hd = world_model.home_devices
-                lights_on = [eid for eid, l in hd.lights.items()
-                             if l.on and zone_id in eid]
+                lights_on = [eid for eid, lt in hd.lights.items()
+                             if lt.on and zone_id in eid]
                 if lights_on and self._check_cooldown(f"percep_empty_lights_{zone_id}", now):
                     for eid in lights_on:
                         actions.append({
@@ -951,7 +950,7 @@ class RuleEngine:
                                 "tone": "neutral",
                             },
                         })
-                        lights_off = [lid for lid, l in hd.lights.items() if not l.on]
+                        lights_off = [lid for lid, lt in hd.lights.items() if not lt.on]
                         for lid in lights_off:
                             actions.append({
                                 "tool": "control_light",
@@ -967,7 +966,7 @@ class RuleEngine:
                                 "tone": "neutral",
                             },
                         })
-                        lights_on = [lid for lid, l in hd.lights.items() if l.on]
+                        lights_on = [lid for lid, lt in hd.lights.items() if lt.on]
                         for lid in lights_on:
                             actions.append({
                                 "tool": "control_light",

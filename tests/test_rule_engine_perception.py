@@ -81,8 +81,6 @@ class TestEmptyRoomDetection:
 
         actions = engine.evaluate(world_model)
         # Perception empty-room rule should not fire when room is occupied
-        percep_light_off = [a for a in actions if a.get("tool") == "control_light"
-                            and "living_room" in a.get("args", {}).get("entity_id", "")]
         # Filter to only perception-based light off actions (associated with "空室" speak)
         empty_speaks = [a for a in actions if "空室" in a.get("args", {}).get("message", "")]
         assert len(empty_speaks) == 0

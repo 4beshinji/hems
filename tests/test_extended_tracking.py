@@ -9,11 +9,7 @@ Tests for extended tracking features:
 """
 import time
 import json
-import os
-from datetime import datetime
-from unittest.mock import patch, MagicMock
 
-import pytest
 
 
 # ===== SensorFusion Bug Fix =====

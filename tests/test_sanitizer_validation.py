@@ -7,7 +7,7 @@ device command safety limits, write_note path traversal, HA controls
 """
 import time
 import pytest
-from sanitizer import Sanitizer, sanitize_llm_text
+from sanitizer import sanitize_llm_text
 
 
 # ── sanitize_llm_text ────────────────────────────────────────────

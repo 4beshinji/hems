@@ -2,7 +2,6 @@
 Tests for WorldModel service state integration — MQTT routing, LLM context, events.
 """
 import time
-import pytest
 from world_model.data_classes import Event
 
 

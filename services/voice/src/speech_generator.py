@@ -3,7 +3,6 @@ LLM-powered speech text generator — character-aware.
 """
 import aiohttp
 import os
-import random
 from loguru import logger
 from models import Task
 

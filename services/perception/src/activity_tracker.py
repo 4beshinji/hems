@@ -4,10 +4,9 @@ Uses COCO 17-keypoint skeleton from YOLOv11-pose.
 """
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
-from loguru import logger
 
 # COCO keypoint indices
 NOSE = 0

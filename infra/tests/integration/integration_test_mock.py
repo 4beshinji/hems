@@ -2,7 +2,6 @@
 import asyncio
 import json
 import random
-from typing import Dict, Any
 
 # Mock MQTT Client
 class MockMQTT:

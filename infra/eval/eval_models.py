@@ -882,7 +882,7 @@ def warmup(api_url: str, model: str):
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             resp.read()
-        log(f"  Warmup done.")
+        log("  Warmup done.")
     except Exception as e:
         log(f"  Warmup failed (non-fatal): {e}")
 
@@ -928,7 +928,7 @@ def run_evaluation(
                 # Refresh list
                 available_models = ollama_list_models(api_url)
             else:
-                log(f"  Model already available locally.")
+                log("  Model already available locally.")
         else:
             if available_models and model not in available_models:
                 log(f"  SKIP (--no-pull): {model} not available locally.")
@@ -958,8 +958,6 @@ def run_evaluation(
             log(f"  [{sid}] {scenario['name']} ({scenario['description']})")
 
             for run_num in range(done + 1, runs + 1):
-                t_start = time.perf_counter()
-
                 raw_result = call_llm(api_url, model, sid, scenario)
                 latency_ms = raw_result.get("latency_ms", 0)
 
@@ -1028,7 +1026,7 @@ def run_evaluation(
     log(f"{'='*60}")
     log(f"Evaluation complete. {completed_count}/{total_runs} results recorded.")
     log(f"Results in: {RESULTS_DIR}/")
-    log(f"Run 'python3 infra/eval/eval_report.py' to generate comparison report.")
+    log("Run 'python3 infra/eval/eval_report.py' to generate comparison report.")
 
 
 # ── CLI ──

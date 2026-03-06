@@ -1,6 +1,5 @@
 
 import machine
-import time
 print('I2C Scan Start on D4(22), D5(23)...')
 try:
     # Use SoftI2C and lower frequency for stability

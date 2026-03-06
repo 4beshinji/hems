@@ -269,7 +269,7 @@ def test_3_temperature_reaction(client):
         print(f"    New task: ID={temp_task['id']} \"{temp_task['title']}\"")
         return result(True, "Brain created task for temperature alert")
     elif voice_response:
-        print(f"    Voice event found for temperature")
+        print("    Voice event found for temperature")
         return result(True, "Brain reacted via speak tool")
     elif brain_aware:
         return result(True, "Brain acknowledged temperature in reasoning/speak")
@@ -278,8 +278,8 @@ def test_3_temperature_reaction(client):
         print(f"    {len(new_tasks)} new task(s) created")
         return result(True, f"Brain reacted with {len(new_tasks)} new task(s)")
     else:
-        print(f"    No new tasks or voice events detected")
-        print(f"    Hint: docker logs hems-brain --tail 30")
+        print("    No new tasks or voice events detected")
+        print("    Hint: docker logs hems-brain --tail 30")
         return result(False, "No reaction to 38C temperature")
 
 
@@ -305,7 +305,7 @@ def test_4_audio_accessibility():
         else:
             print(f"    Announcement audio: fetch failed or too small ({size} bytes)")
     else:
-        print(f"    No announcement_audio_url on task")
+        print("    No announcement_audio_url on task")
 
     # Completion audio
     comp_url = task.get("completion_audio_url")
@@ -318,7 +318,7 @@ def test_4_audio_accessibility():
         else:
             print(f"    Completion audio: fetch failed or too small ({size} bytes)")
     else:
-        print(f"    No completion_audio_url on task")
+        print("    No completion_audio_url on task")
 
     if total == 0:
         return result(False, "No audio URLs to test (voice not configured?)")
@@ -403,7 +403,7 @@ def test_6_task_lifecycle():
         if accept_url:
             checks += 1
         else:
-            print(f"    No audio_url returned from synthesize")
+            print("    No audio_url returned from synthesize")
     except Exception as e:
         print(f"    Synthesize failed: {e}")
 
@@ -443,7 +443,7 @@ def test_7_dedup_and_cleanup(client):
     print(f"    Tasks: {count_before} -> {count_after} (env tasks: {len(env_tasks)})")
 
     # Cleanup: complete all test tasks
-    print(f"\n    [Cleanup] Completing all test tasks...")
+    print("\n    [Cleanup] Completing all test tasks...")
     for t in active_after:
         try:
             complete_task(t["id"])
@@ -452,7 +452,7 @@ def test_7_dedup_and_cleanup(client):
             pass
 
     # Restore normal sensor values
-    print(f"    [Cleanup] Restoring normal sensor values...")
+    print("    [Cleanup] Restoring normal sensor values...")
     publish_mqtt(client, "office/main/sensor/env_01/temperature", {"value": 22.0})
     publish_mqtt(client, "office/main/sensor/co2_01/co2", {"value": 500})
 

@@ -1,7 +1,6 @@
 """
 Tests for WorldModel GAS state integration (MQTT routing + LLM context).
 """
-import pytest
 
 
 class TestWorldModelGASRouting:

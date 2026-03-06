@@ -1,7 +1,6 @@
 """
 Tests for WorldModel Home Assistant topic processing.
 """
-import pytest
 
 
 class TestWorldModelHomeDevices:

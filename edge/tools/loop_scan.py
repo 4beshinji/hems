@@ -30,7 +30,7 @@ def scan_loop():
                 else:
                     # print(f".", end="") # minimal output
                     pass
-            except Exception as e:
+            except Exception:
                 pass
         
         if not found_any:

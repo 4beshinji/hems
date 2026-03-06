@@ -5,7 +5,6 @@ Captures frames from MCP/stream cameras, runs YOLOv11s-pose inference,
 classifies posture/activity, and publishes to MQTT for Brain consumption.
 """
 import asyncio
-import time
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI

@@ -11,7 +11,6 @@ This script tests:
 
 import requests
 import time
-from datetime import datetime, timedelta
 import sys
 
 BACKEND_URL = "http://localhost:8000"
@@ -79,7 +78,7 @@ def test_reminder_endpoint():
         print("✗ Failed to mark as reminded")
         return False
     
-    print(f"  ✓ Task marked as reminded")
+    print("  ✓ Task marked as reminded")
     print(f"  → last_reminded_at: {updated_task.get('last_reminded_at')}")
     
     # Verify timestamp was updated
@@ -162,11 +161,11 @@ def test_manual_reminder_generation():
     
     # Check if they're different
     if text1 != text2:
-        print(f"\n  ✓ Texts are different (LLM variety working)")
-        print(f"  → This confirms reminders will sound fresh each time")
+        print("\n  ✓ Texts are different (LLM variety working)")
+        print("  → This confirms reminders will sound fresh each time")
     else:
-        print(f"\n  ⚠ Texts are identical")
-        print(f"  → LLM might be using low temperature or deterministic mode")
+        print("\n  ⚠ Texts are identical")
+        print("  → LLM might be using low temperature or deterministic mode")
     
     # Both contain full information?
     essential_info = [task.get('title'), task.get('location'), str(task.get('bounty_gold'))]
@@ -175,11 +174,11 @@ def test_manual_reminder_generation():
     missing_reminder = [info for info in essential_info if info and info not in text2]
     
     if not missing_first and not missing_reminder:
-        print(f"  ✓ Both announcements contain full task info")
-        print(f"    (title, location, bounty)")
+        print("  ✓ Both announcements contain full task info")
+        print("    (title, location, bounty)")
         return True
     else:
-        print(f"  ⚠ Some essential info missing:")
+        print("  ⚠ Some essential info missing:")
         if missing_first:
             print(f"    First: {missing_first}")
         if missing_reminder:
@@ -193,16 +192,16 @@ def test_reminder_service_config():
     print("=" * 60)
     
     print("\n→ Expected configuration:")
-    print(f"  • REMINDER_INTERVAL: 60 minutes (default)")
-    print(f"  • REMINDER_COOLDOWN: 30 minutes (default)")
-    print(f"  • CHECK_INTERVAL: 300 seconds (5 min)")
+    print("  • REMINDER_INTERVAL: 60 minutes (default)")
+    print("  • REMINDER_COOLDOWN: 30 minutes (default)")
+    print("  • CHECK_INTERVAL: 300 seconds (5 min)")
     
     print("\n→ How it works:")
-    print(f"  1. Brain checks every 5 minutes for tasks needing reminders")
-    print(f"  2. Tasks older than 1 hour get reminded")
-    print(f"  3. Won't remind again for 30 minutes")
-    print(f"  4. Each reminder uses fresh audio generation")
-    print(f"  5. Full task info included every time")
+    print("  1. Brain checks every 5 minutes for tasks needing reminders")
+    print("  2. Tasks older than 1 hour get reminded")
+    print("  3. Won't remind again for 30 minutes")
+    print("  4. Each reminder uses fresh audio generation")
+    print("  5. Full task info included every time")
     
     print("\n  ✓ Configuration documented")
     return True

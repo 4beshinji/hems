@@ -56,7 +56,7 @@ def test_note_writer_directly():
     # Create a file OUTSIDE the vault to check if we can write to it
     outside_dir = tempfile.mkdtemp(prefix="hems_poc_outside_")
 
-    print(f"=== V4: Path Traversal Test ===")
+    print("=== V4: Path Traversal Test ===")
     print(f"Vault: {vault_dir}")
     print(f"Outside: {outside_dir}\n")
 

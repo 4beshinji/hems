@@ -1,8 +1,6 @@
 """
 Tests for WorldModel PC state integration (MQTT routing + thresholds).
 """
-import time
-import pytest
 
 
 class TestWorldModelPCRouting:

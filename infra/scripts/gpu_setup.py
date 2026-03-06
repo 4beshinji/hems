@@ -15,7 +15,6 @@ import argparse
 import os
 import re
 import subprocess
-import sys
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
@@ -210,7 +209,7 @@ def _resolve_amd_devices(card_override: Optional[str] = None) -> tuple[str, str]
 def _detect_hsa_version() -> str:
     """Try to detect appropriate HSA_OVERRIDE_GFX_VERSION."""
     try:
-        out = subprocess.check_output(
+        subprocess.check_output(
             ["rocm-smi", "--showuniqueid"],
             stderr=subprocess.DEVNULL, text=True,
         )
@@ -563,13 +562,13 @@ def interactive_model_select(models: list[dict],
             print(f"\nSelected: {selected}")
             if is_hf:
                 info = HUGGINGFACE_MODELS[selected]
-                print(f"\nThis model requires manual import from HuggingFace:")
-                print(f"  1. Convert to GGUF (if not already available):")
+                print("\nThis model requires manual import from HuggingFace:")
+                print("  1. Convert to GGUF (if not already available):")
                 print(f"     huggingface-cli download {info['hf_repo']}")
-                print(f"  2. Create Ollama Modelfile and import:")
+                print("  2. Create Ollama Modelfile and import:")
                 print(f"     ollama create {selected} -f Modelfile")
             else:
-                print(f"\nAfter starting Ollama, pull the model with:")
+                print("\nAfter starting Ollama, pull the model with:")
                 print(f"  docker exec hems-ollama ollama pull {selected}")
             return selected
     except ValueError:
@@ -610,7 +609,7 @@ def main():
     if args.auto_select:
         selected_model = auto_select_model(gpu.vram_mb)
         if selected_model:
-            print(f"\nPull command:")
+            print("\nPull command:")
             print(f"  docker exec hems-ollama ollama pull {selected_model}")
     elif not args.non_interactive and gpu.vendor != "none":
         selected_model = interactive_model_select(models, gpu.vram_mb)

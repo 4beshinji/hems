@@ -11,7 +11,6 @@ This script verifies:
 """
 
 import requests
-import time
 import os
 import sys
 
@@ -75,7 +74,7 @@ def test_task_announcement():
         
         if response.status_code == 200:
             result = response.json()
-            print(f"   ✓ Task announced successfully!")
+            print("   ✓ Task announced successfully!")
             print(f"   → Generated text: {result.get('text_generated')}")
             print(f"   → Audio URL: {result.get('audio_url')}")
             print(f"   → Duration: {result.get('duration_seconds')}s")
@@ -93,9 +92,9 @@ def test_task_announcement():
                 print(f"   → File size: {len(audio_response.content)} bytes")
                 
                 # Suggest playback command
-                print(f"\n   💡 To listen to the audio, run:")
+                print("\n   💡 To listen to the audio, run:")
                 print(f"      aplay {output_file}")
-                print(f"      # or")
+                print("      # or")
                 print(f"      mpv {output_file}")
                 
                 return True
@@ -127,7 +126,7 @@ def test_feedback_generation():
             
             if response.status_code == 200:
                 result = response.json()
-                print(f"   ✓ Feedback generated!")
+                print("   ✓ Feedback generated!")
                 print(f"   → Text: {result.get('text_generated')}")
                 print(f"   → Duration: {result.get('duration_seconds')}s")
             else:
@@ -186,7 +185,7 @@ def test_variety():
         print("   → This shows LLM is generating varied responses (no caching)")
         return True
     else:
-        print(f"\n   ⚠ All texts were identical")
+        print("\n   ⚠ All texts were identical")
         print("   → LLM might be using low temperature or caching is enabled")
         return False
 

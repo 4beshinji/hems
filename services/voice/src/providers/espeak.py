@@ -4,7 +4,6 @@ espeak-ng TTS Provider — lightweight fallback.
 import asyncio
 import tempfile
 from pathlib import Path
-from loguru import logger
 from tts_provider import TTSProvider, AudioResult
 
 

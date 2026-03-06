@@ -1,8 +1,6 @@
 """Tests for rule engine occupancy/activity rules."""
-import time
 from unittest.mock import patch
 
-import pytest
 from world_model.data_classes import OccupancyData
 
 

@@ -1,7 +1,6 @@
 """
 Tests for Sanitizer validation of Zigbee-related tools.
 """
-import pytest
 
 
 class TestControlSwitchValidation:

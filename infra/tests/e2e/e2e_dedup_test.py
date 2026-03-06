@@ -220,7 +220,7 @@ def main():
     # ========================================
     # Cleanup
     # ========================================
-    print(f"\n[Cleanup] Completing test tasks...")
+    print("\n[Cleanup] Completing test tasks...")
     for t in final_active:
         try:
             complete_task(t["id"])

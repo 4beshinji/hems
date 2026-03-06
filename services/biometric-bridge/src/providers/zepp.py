@@ -2,7 +2,6 @@
 Zepp Cloud API provider — polls historical biometric data from Zepp/Huami cloud.
 Optional supplementary provider for batch sleep/activity data.
 """
-import time
 from loguru import logger
 from data_processor import BiometricReading
 from providers.base import BiometricProvider

@@ -113,7 +113,7 @@ def test2_time_series_hourly():
     resp = api(f"{BACKEND_URL}/sensors/time-series?window=1h")
     assert isinstance(resp, dict), f"Expected dict, got {type(resp)}"
     assert "points" in resp, f"Missing 'points' key: {resp.keys()}"
-    assert "window" in resp, f"Missing 'window' key"
+    assert "window" in resp, "Missing 'window' key"
     assert resp["window"] == "1h", f"Window should be '1h', got '{resp['window']}'"
     assert isinstance(resp["points"], list), \
         f"points should be list, got {type(resp['points'])}"
@@ -230,10 +230,10 @@ def test5_llm_activity_structure():
     required = {"cycles", "total_tool_calls", "avg_duration_sec", "hours"}
     missing = required - set(resp.keys())
     assert not missing, f"Missing keys: {missing}"
-    assert isinstance(resp["cycles"], int), f"cycles should be int"
-    assert isinstance(resp["total_tool_calls"], int), f"total_tool_calls should be int"
+    assert isinstance(resp["cycles"], int), "cycles should be int"
+    assert isinstance(resp["total_tool_calls"], int), "total_tool_calls should be int"
     assert isinstance(resp["avg_duration_sec"], (int, float)), \
-        f"avg_duration_sec should be numeric"
+        "avg_duration_sec should be numeric"
 
 
 def test5_llm_activity_hours_param():
@@ -255,13 +255,13 @@ def test6_latest_nonexistent_zone():
 def test6_time_series_nonexistent():
     resp = api(f"{BACKEND_URL}/sensors/time-series?zone=nonexistent_zone_xyz&window=1h")
     assert isinstance(resp, dict), f"Expected dict, got {type(resp)}"
-    assert resp["points"] == [], f"Expected empty points for fake zone"
+    assert resp["points"] == [], "Expected empty points for fake zone"
 
 
 def test6_events_nonexistent_zone():
     resp = api(f"{BACKEND_URL}/sensors/events?zone=nonexistent_zone_xyz")
     assert isinstance(resp, list), f"Expected list, got {type(resp)}"
-    assert len(resp) == 0, f"Expected empty list for fake zone"
+    assert len(resp) == 0, "Expected empty list for fake zone"
 
 
 # ══════════════════════════════════════════════════════════════

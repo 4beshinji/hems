@@ -14,7 +14,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/", response_model=List[schemas.User])
 async def read_users(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(models.User).where(models.User.is_active == True).offset(skip).limit(limit)
+        select(models.User).where(models.User.is_active.is_(True)).offset(skip).limit(limit)
     )
     return result.scalars().all()
 

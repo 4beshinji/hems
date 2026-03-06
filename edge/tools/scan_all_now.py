@@ -1,6 +1,5 @@
 
 import machine
-import time
 
 def scan_all():
     print("--- COMPREHENSIVE SCAN ---")
@@ -22,7 +21,7 @@ def scan_all():
             if devs:
                 print(f"!!! FOUND: {devs} on SDA={sda}, SCL={scl}")
                 found = True
-        except:
+        except Exception:
             pass
             
     if not found:

@@ -5,10 +5,8 @@ import time
 from datetime import datetime
 from unittest.mock import patch
 
-import pytest
 from world_model.data_classes import (
-    BiometricState, HeartRateData, SleepData, ActivityData,
-    StressData, FatigueData, LightState, HomeDevicesState,
+    LightState,
 )
 
 

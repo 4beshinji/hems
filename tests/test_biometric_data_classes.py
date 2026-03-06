@@ -2,7 +2,6 @@
 Tests for biometric data classes (HeartRateData, SleepData, ActivityData,
 StressData, FatigueData, SpO2Data, BiometricState).
 """
-import time
 from world_model.data_classes import (
     HeartRateData, SleepData, ActivityData, StressData,
     FatigueData, SpO2Data, BiometricState, Event,

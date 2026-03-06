@@ -1,7 +1,6 @@
 """
 Vault indexer — scans Obsidian vault, builds TF-IDF keyword search index.
 """
-import os
 import re
 import math
 import time

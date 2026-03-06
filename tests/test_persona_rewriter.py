@@ -6,7 +6,7 @@ import pytest
 
 from character_loader import CharacterConfig, load_character
 from llm_client import LLMResponse
-from persona_rewriter import PersonaRewriter, PERSONA_REWRITE_CACHE_TTL, _build_persona_prompt
+from persona_rewriter import PersonaRewriter, _build_persona_prompt
 
 
 # ---------------------------------------------------------------------------

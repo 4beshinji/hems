@@ -4,7 +4,6 @@ Tests for ServiceCheckerManager, BaseChecker, and individual checkers.
 import asyncio
 import json
 import time
-from dataclasses import asdict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -319,7 +318,7 @@ class TestServiceCheckerManager:
 
         # Simulate the edge trigger publish (mirrors _checker_loop logic)
         if new_status.unread_count > prev_count:
-            mqtt_pub.publish(f"hems/services/gmail/event", {
+            mqtt_pub.publish("hems/services/gmail/event", {
                 "type": "unread_increased",
                 "name": "gmail",
                 "prev_count": prev_count,

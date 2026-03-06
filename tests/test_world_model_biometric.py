@@ -1,9 +1,6 @@
 """
 Tests for WorldModel biometric state integration — MQTT routing, threshold events, LLM context.
 """
-import time
-import pytest
-from world_model.data_classes import Event
 
 
 class TestWorldModelBiometricRouting:

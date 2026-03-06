@@ -12,7 +12,7 @@ import pytest
 _root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_root / "services" / "brain" / "src"))
 
-import character_loader
+import character_loader  # noqa: E402
 
 
 # ── CharacterConfig properties ───────────────────────────────────
@@ -56,7 +56,7 @@ class TestFindConfigDir:
             env = os.environ.copy()
             env.pop("CONFIG_DIR", None)
             with patch.dict(os.environ, env, clear=True):
-                result = character_loader._find_config_dir()
+                character_loader._find_config_dir()
                 # Should find /config or walk up; either is valid
 
 
@@ -176,7 +176,7 @@ class TestLoadCharacter:
 class TestReloadCharacter:
     def test_reload_clears_cache(self):
         # Load initial character
-        cfg1 = character_loader.load_character()
+        character_loader.load_character()
         # Reload
         cfg2 = character_loader.reload_character()
         assert cfg2 is not None

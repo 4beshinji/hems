@@ -1,12 +1,11 @@
 """
 Tests for DashboardClient.push_pc_snapshot.
 """
-import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from world_model.data_classes import (
-    PCState, CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
+    CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
 )
 
 

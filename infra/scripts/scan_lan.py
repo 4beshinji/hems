@@ -8,7 +8,6 @@
 # ///
 
 import asyncio
-import socket
 import ipaddress
 import httpx
 from bs4 import BeautifulSoup

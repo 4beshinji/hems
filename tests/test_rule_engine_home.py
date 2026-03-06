@@ -8,7 +8,7 @@ import pytest
 from rule_engine import RuleEngine
 from schedule_learner import ScheduleLearner
 from world_model.data_classes import (
-    LightState, ClimateState, CoverState, HomeDevicesState, OccupancyData,
+    LightState, ClimateState, CoverState, OccupancyData,
 )
 
 
