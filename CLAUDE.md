@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**HEMS (Home Environment Management System)** — a personal life management system for a single occupant, forked from SOMS (Symbiotic Office Management System). Combines an LLM "brain" with IoT sensors and plugin-based voice synthesis. The AI has a configurable character personality (YAML-based) and makes real-time decisions about the home environment using sensor data, biometrics, and schedule information.
+**HEMS (Home Environment Management System)** — a personal life management system for a single occupant, forked from SOMS (Symbiotic Office Management System). Combines an LLM "brain" with IoT sensors, plugin-based voice synthesis, and an XP gamification system. The AI has a configurable character personality (YAML-based) and makes real-time decisions about the home environment using sensor data, biometrics, and schedule information.
 
 Forked from SOMS commit `1216952` (2026-02-16).
 
@@ -23,18 +23,13 @@ python infra/scripts/gpu_setup.py
 cd infra && docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
   --profile ollama up -d --build
 # Pull default model (first time only)
-docker exec hems-ollama ollama pull gpt-oss:20b
+docker exec hems-ollama ollama pull qwen3.5
 
 # With local LLM (CPU-only, no GPU override needed)
 docker compose --profile ollama up -d --build
 # Pull default model (first time only)
-docker exec hems-ollama ollama pull gpt-oss:20b
-# Recommended by VRAM:
-#   16GB: gpt-oss:20b (~13GB, 日本語対応, tool calling対応)
-#    8GB: qwen3:8b (Qwen3-Swallow 8B GGUF公開後は切替推奨)
-#   24GB+: hf.co/mradermacher/Qwen-3.5-27B-Derestricted-GGUF:Q6_K
-# 日本語特化: GPT-OSS Swallow RL版 GGUF公開待ち (SFT版はthinking問題あり)
-# VRAM auto-select: python infra/scripts/gpu_setup.py --auto-select
+docker exec hems-ollama ollama pull qwen3.5
+# Lighter alternatives: qwen2.5:7b, llama3.2:3b
 
 # With PostgreSQL (instead of SQLite)
 docker compose --profile postgres up -d --build
@@ -51,14 +46,11 @@ docker compose --profile gas up -d --build
 # With Home Assistant (smart home control)
 docker compose --profile ha up -d --build
 
-# With biometric tracking (Xiaomi Smart Band via Health Connect + Huami API)
+# With biometric tracking (Gadgetbridge smartband)
 docker compose --profile biometric up -d --build
 
 # With perception (camera-based person detection + activity tracking)
 docker compose --profile perception up -d --build
-
-# With SwitchBot (direct API v1.1, no Home Assistant needed)
-docker compose --profile switchbot up -d --build
 
 # With mock LLM (development, no Ollama needed)
 LLM_API_URL=http://mock-llm:8000/v1 LLM_MODEL=mock \
@@ -73,7 +65,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`
+Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`
 
 ### Frontend Development
 
@@ -102,7 +94,6 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | HA Bridge | 8016 | `HEMS_PORT_HA_BRIDGE` | hems-ha-bridge |
 | Biometric Bridge | 8017 | `HEMS_PORT_BIOMETRIC_BRIDGE` | hems-biometric-bridge |
 | Perception | 8018 | `HEMS_PORT_PERCEPTION` | hems-perception |
-| SwitchBot Bridge | 8019 | `HEMS_PORT_SWITCHBOT_BRIDGE` | hems-switchbot-bridge |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -157,10 +148,6 @@ office/{zone}/camera/{camera_id}/status
 office/{zone}/activity/{monitor_id}
 hems/perception/bridge/status
 
-# SwitchBot (direct API v1.1)
-hems/home/{zone}/{domain}/switchbot.{device_id}/state
-hems/switchbot/bridge/status
-
 # Personal data (future: data-bridge)
 hems/personal/calendar/{id}/events
 hems/personal/training/fitness
@@ -168,7 +155,6 @@ hems/system/gpu/utilization
 
 # Brain control
 hems/brain/reload-character
-hems/brain/guest-mode
 ```
 
 ### Brain Service
@@ -180,15 +166,14 @@ hems/brain/guest-mode
 - Alert suppression: prevents duplicate tasks while environment slowly responds
   (e.g., AC cooling after task created — 30min for temp, 10min for CO2)
 - Tri-domain world model: Physical Space (zones, smart home), Digital Space (PC, services, GAS, knowledge), User State (biometrics)
-- 4 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`
+- 6 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`, `get_active_tasks`, `get_device_status`
 - localcraw tools (profile `localcraw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
 - Service monitor tool (when data available): `get_service_status`
 - Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
-- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `control_switch`, `get_home_devices`, `get_sensor_data`, `execute_scene`, `set_guest_mode`, `get_weather`
+- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
-- SwitchBot tools (profile `switchbot`): `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir`
-- Schedule learner (with `ha` or `switchbot` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
-- Automation rules: circadian lighting, absence mode (security lighting), weather integration, guest mode
+- Perception tools (profile `perception`): `get_perception_status`
+- Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
 
 ### localcraw Bridge (profile: `localcraw`)
 
@@ -242,7 +227,7 @@ Validator: `python validate_character.py config/character.yaml`
 
 - Default: SQLite (`aiosqlite`) — zero config
 - Optional: PostgreSQL 16 (`--profile postgres`)
-- Backend: Task, User, VoiceEvent, SystemStats
+- Backend: Task, User, PointLog, VoiceEvent, SystemStats
 - Brain event_store: raw_events, llm_decisions, hourly_aggregates (SOMS-compatible)
 - Retention: 730 days (2 years) for raw_events and llm_decisions
 
@@ -301,10 +286,9 @@ Connects Home Assistant to HEMS for smart home device control and life automatio
   - Publishes to `hems/home/*` MQTT topics
 - **Deploy**: HA running on host or via Docker, configure `HA_URL` + `HA_TOKEN`
 - **Profile**: `docker compose --profile ha up -d --build`
-- **Brain tools**: `control_light`, `control_climate`, `control_cover`, `control_switch`, `get_home_devices`, `get_sensor_data`, `execute_scene`, `set_guest_mode`, `get_weather`
+- **Brain tools**: `control_light`, `control_climate`, `control_cover`, `get_home_devices`
 - **Schedule learner**: learns arrival/departure/wake patterns from occupancy data
-- **Automation rules**: sleep detection → lights off, pre-arrival HVAC, wake-up curtains, circadian lighting, absence mode, weather integration, guest mode
-- **Energy Dashboard**: power sensor data → timeseries store → frontend visualization
+- **Automation rules**: sleep detection → lights off, pre-arrival HVAC, wake-up curtains
 - **Supported devices**: SwitchBot (via HA), Nature Remo (via HA), any HA integration
 - **Safety**: temperature 16-30, brightness 0-255, position 0-100 range validation
 
@@ -315,38 +299,26 @@ HA_TOKEN=your-long-lived-access-token
 HA_BRIDGE_URL=http://ha-bridge:8000
 ```
 
-### Biometric Integration (Xiaomi Smart Band 10)
+### Biometric Integration (Smartband)
 
-Tracks heart rate, sleep, activity, stress, SpO2, and fatigue via Xiaomi Smart Band 10.
-Dual-path data ingestion with automatic deduplication.
+Tracks heart rate, sleep, activity, stress, and fatigue via smartband (Xiaomi Mi Band / Amazfit via Gadgetbridge).
 
-- **biometric-bridge**: Docker service with dual data paths
-  - **Path 1 — Health Connect** (primary): Android companion app reads Health Connect
-    data (written by Mi Fitness app) every 15min → POST to webhook
-  - **Path 2 — Huami API** (fallback): Server-side polling of Xiaomi/Huami cloud API
-    for steps, sleep, HR summary data
-  - Deduplication: suppresses duplicate MQTT publishes when both paths deliver same data
+- **biometric-bridge**: Docker service receiving webhook data from Gadgetbridge app
+  - POST webhook endpoint normalizes device data → MQTT publish
   - Fatigue score computation (weighted: HR 30%, sleep 40%, stress 30%)
+  - Sleep session caching for daily summaries
   - Publishes to `hems/personal/biometrics/*` MQTT topics
-- **Health Connect Companion App**: `apps/healthconnect-companion/` (Android/Kotlin)
-  - Reads HR, SpO2, Sleep, Steps, Calories, HRV from Health Connect
-  - WorkManager periodic sync (15min default, configurable)
-  - HMAC-SHA256 signed webhook POST
-- **Deploy**: Profile `biometric`, install companion app on Android, set bridge URL
-- **Huami token**: `pip install huami-token && huami-token --method xiaomi`
+- **Deploy**: Install Gadgetbridge on phone, configure webhook to `http://<host>:8017/api/biometric/webhook`
+- **Profile**: `docker compose --profile biometric up -d --build`
 - **Brain tools**: `get_biometrics` (current readings), `get_sleep_summary` (last night's sleep)
 - **Brain rules**: 7 rules (high HR/stress/fatigue alerts, sleep quality notification, step goal, sleep detection lights off, fatigue-linked dimming)
 - **Thresholds**: HR > 120, HR < 45, SpO2 < 92, Stress > 80 (configurable via env vars)
+- **World model**: Tri-domain architecture — biometrics in User State domain, threshold crossing events
 
 Configure in `.env`:
 ```bash
 BIOMETRIC_BRIDGE_URL=http://biometric-bridge:8000
-BIOMETRIC_WEBHOOK_SECRET=change_me
-# Huami cloud API (optional fallback)
-HUAMI_ENABLED=true
-HUAMI_AUTH_TOKEN=your_token
-HUAMI_USER_ID=your_user_id
-HUAMI_SERVER_REGION=us
+BIOMETRIC_PROVIDER=gadgetbridge
 ```
 
 ### Perception (Camera Detection + Activity Tracking)
@@ -371,33 +343,6 @@ PERCEPTION_BRIDGE_URL=http://perception:8000
 HEMS_PERCEPTION_CAMERAS=[{"device_id":"cam01","zone":"living_room","type":"mcp"}]
 ```
 
-### SwitchBot Integration (Direct API v1.1)
-
-Direct SwitchBot Cloud API integration, bypassing Home Assistant.
-
-- **switchbot-bridge**: Docker service connecting to SwitchBot API v1.1
-  - HMAC-SHA256 authentication (token + secret)
-  - Polling: fetches device status every 30s → MQTT publish
-  - Webhook: receives SwitchBot push events → MQTT publish
-  - REST API: Brain tool calls → SwitchBot API commands
-  - Publishes to `hems/home/{zone}/{domain}/switchbot.{device_id}/state` (same namespace as HA bridge → WorldModel transparent)
-  - Sensor sub-entities: Meter temp/humidity, Plug Mini power → separate sensor MQTT topics
-- **Deploy**: SwitchBot app → Profile → Preferences → get token + secret
-- **Profile**: `docker compose --profile switchbot up -d --build`
-- **Brain tools**: `get_switchbot_devices` (list all), `control_switchbot` (command), `send_switchbot_ir` (Hub IR remote)
-- **Supported devices**: Bot, Curtain3, Plug Mini, Color Bulb, LED Strip, Ceiling Light, Meter/MeterPro, Motion/Contact/Water Sensor, Hub 2/3 (IR), Blind Tilt, Air Purifier, Humidifier, Lock
-- **IR remote**: Hub 2/3 経由でエアコン・テレビ等の赤外線リモコン操作
-- **Safety**: Command whitelist per domain, brightness/position/colorTemp range validation
-- **Coexistence**: HA bridge と同時使用可。entity_id が `switchbot.{id}` で区別される
-
-Configure in `.env`:
-```bash
-SWITCHBOT_TOKEN=your-switchbot-token
-SWITCHBOT_SECRET=your-switchbot-secret
-SWITCHBOT_BRIDGE_URL=http://switchbot-bridge:8000
-SWITCHBOT_DEVICE_MAP={"DEVICE_ID":{"zone":"living_room","name":"メインライト"}}
-```
-
 ## Tech Stack
 
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x
@@ -412,14 +357,15 @@ SWITCHBOT_DEVICE_MAP={"DEVICE_ID":{"zone":"living_room","name":"メインライ�
 - Configuration via environment variables (`.env`)
 - Source code bind-mounted into containers (changes take effect on restart)
 - Bilingual: English code/comments, Japanese UI/voice/docs
-- No wallet service or gamification — SOMS bounty/XP system removed
+- `xp_reward` (50-500) replaces SOMS `bounty` (500-5000)
+- No wallet service — points integrated into backend
 
 ## Key Differences from SOMS
 
 | SOMS | HEMS |
 |------|------|
 | PostgreSQL required | SQLite default |
-| Wallet (double-entry ledger) | No gamification (removed) |
+| Wallet (double-entry ledger) | Points/XP (backend integrated) |
 | VOICEVOX only | Plugin TTS (5 backends) |
 | Hardcoded personality | YAML character system |
 | Ollama only | OpenAI / Anthropic / Ollama |

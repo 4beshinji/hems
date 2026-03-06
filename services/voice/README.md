@@ -190,10 +190,10 @@ docker compose -f infra/docker-compose.yml up -d voicevox voice-service
 curl http://localhost:50021/version
 
 # Voice Service
-curl http://localhost:8002/
+curl http://localhost:8012/
 
 # リジェクションストック状態
-curl http://localhost:8002/api/voice/rejection/status
+curl http://localhost:8012/api/voice/rejection/status
 ```
 
 ### 3. nginx 経由アクセス (Frontend から)
@@ -249,7 +249,7 @@ Voice Service はフォールバック機能を持っており、LLM が失敗�
 ### リジェクションストックが貯まらない
 ```bash
 # ストック状態を確認
-curl http://localhost:8002/api/voice/rejection/status
+curl http://localhost:8012/api/voice/rejection/status
 
 # Voice Service のログを確認
 docker logs hems-voice | grep -i rejection

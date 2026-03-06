@@ -25,7 +25,7 @@ docker compose up -d --build
 - **プラグイン式 TTS**: espeak / VOICEVOX / Edge TTS (VoiSona Talk・Style-Bert-VITS2 は計画中)
 - **XP ゲーミフィケーション**: タスク完了で XP 獲得
 - **ルールベースフォールバック**: GPU 高負荷時に LLM なしで動作
-- **PC/サービス監視**: Gmail・GitHub 未読数、CPU/GPU メトリクスを LLM に提供 (OpenClaw)
+- **PC/サービス監視**: Gmail・GitHub 未読数、CPU/GPU メトリクスを LLM に提供 (localcraw)
 - **ナレッジストア**: Obsidian vault 連携 — 検索・書込・決定ログ自動記録
 - **Google 連携**: Calendar・Tasks・Gmail・Sheets・Drive (GAS Bridge)
 - **スマートホーム**: Home Assistant 経由の照明/空調/カバー制御 + スケジュール学習
@@ -48,7 +48,7 @@ docker compose up -d --build
 │  (TTS)      │                    │     (dev)         │
 └─────────────┴────────────────────┴───────────────────┘
 
-Optional: voicevox | ollama | postgres | openclaw | obsidian
+Optional: voicevox | ollama | postgres | localcraw | obsidian
          | gas | ha | biometric | perception
 ```
 
@@ -92,8 +92,8 @@ docker compose --profile ollama up -d
 # PostgreSQL (SQLite の代替)
 docker compose --profile postgres up -d
 
-# OpenClaw (PC メトリクス + Gmail/GitHub 監視)
-docker compose --profile openclaw up -d
+# localcraw (PC メトリクス + Gmail/GitHub 監視)
+docker compose --profile localcraw up -d
 
 # Obsidian (ナレッジストア)
 docker compose --profile obsidian up -d
@@ -114,7 +114,7 @@ docker compose --profile perception up -d
 ## Roadmap
 
 - **Phase 1** (完了): Core MVP — Backend + Brain + Voice + Frontend + Character + Alert Suppression
-- **Phase 2** (完了): 外部連携 — OpenClaw, Obsidian, GAS, Home Assistant, Biometric
+- **Phase 2** (完了): 外部連携 — localcraw, Obsidian, GAS, Home Assistant, Biometric
 - **Phase 3** (完了): Perception — カメラ検知・姿勢分類・活動追跡 (YOLOv11s-pose)
 - **Phase 4** (計画中): Advanced TTS — VoiSona Talk, Style-Bert-VITS2
 
