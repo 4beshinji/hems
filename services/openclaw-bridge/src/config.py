@@ -12,7 +12,7 @@ OPENCLAW_GATEWAY_TOKEN = os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER = os.getenv("MQTT_USER", "hems")
-MQTT_PASS = os.getenv("MQTT_PASS", "hems_dev_mqtt")
+MQTT_PASS = os.getenv("MQTT_PASS", "")
 
 METRICS_INTERVAL = int(os.getenv("OPENCLAW_METRICS_INTERVAL", "10"))
 PROCESS_INTERVAL = int(os.getenv("OPENCLAW_PROCESS_INTERVAL", "30"))

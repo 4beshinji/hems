@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_USER = os.getenv("MQTT_USER", "hems")
-MQTT_PASS = os.getenv("MQTT_PASS", "hems_dev_mqtt")
+MQTT_PASS = os.getenv("MQTT_PASS", "")
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -94,7 +94,7 @@ def _task_to_response(task_model: models.Task) -> schemas.Task:
 @router.get("/", response_model=List[schemas.Task])
 async def read_tasks(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
     query = select(models.Task).filter(
-        (models.Task.expires_at == None) | (models.Task.expires_at > func.now())
+        (models.Task.expires_at.is_(None)) | (models.Task.expires_at > func.now())
     ).offset(skip).limit(limit)
     result = await db.execute(query)
     return [_task_to_response(t) for t in result.scalars().all()]
@@ -106,7 +106,7 @@ async def create_task(task: schemas.TaskCreate, db: AsyncSession = Depends(get_d
     query = select(models.Task).filter(
         models.Task.title == task.title,
         models.Task.location == task.location,
-        models.Task.is_completed == False
+        models.Task.is_completed.is_(False)
     )
     result = await db.execute(query)
     existing_task = result.scalars().first()
@@ -115,7 +115,7 @@ async def create_task(task: schemas.TaskCreate, db: AsyncSession = Depends(get_d
     if not existing_task and task.zone and task.task_type:
         query2 = select(models.Task).filter(
             models.Task.zone == task.zone,
-            models.Task.is_completed == False
+            models.Task.is_completed.is_(False)
         )
         result2 = await db.execute(query2)
         candidates = result2.scalars().all()
@@ -238,7 +238,7 @@ async def mark_task_reminded(task_id: int, db: AsyncSession = Depends(get_db)):
 @router.get("/queue", response_model=List[schemas.Task])
 async def get_queued_tasks(db: AsyncSession = Depends(get_db)):
     query = select(models.Task).filter(
-        models.Task.is_queued == True
+        models.Task.is_queued.is_(True)
     ).order_by(models.Task.urgency.desc(), models.Task.created_at)
     result = await db.execute(query)
     return [_task_to_response(t) for t in result.scalars().all()]
@@ -260,14 +260,14 @@ async def dispatch_task(task_id: int, db: AsyncSession = Depends(get_db)):
 @router.get("/stats", response_model=schemas.SystemStatsResponse)
 async def get_task_stats(db: AsyncSession = Depends(get_db)):
     queued_result = await db.execute(
-        select(func.count()).select_from(models.Task).filter(models.Task.is_queued == True)
+        select(func.count()).select_from(models.Task).filter(models.Task.is_queued.is_(True))
     )
     queued_count = queued_result.scalar()
 
     active_result = await db.execute(
         select(func.count()).select_from(models.Task).filter(
-            models.Task.is_completed == False,
-            models.Task.is_queued == False
+            models.Task.is_completed.is_(False),
+            models.Task.is_queued.is_(False)
         )
     )
     active_count = active_result.scalar()
@@ -275,7 +275,7 @@ async def get_task_stats(db: AsyncSession = Depends(get_db)):
     # completed_last_hour — SQLite compatible
     completed_result = await db.execute(
         select(func.count()).select_from(models.Task).filter(
-            models.Task.is_completed == True,
+            models.Task.is_completed.is_(True),
             models.Task.completed_at >= func.datetime("now", "-1 hour")
         )
     )

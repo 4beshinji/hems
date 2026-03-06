@@ -104,7 +104,7 @@ date: {today}
         except (OSError, ValueError) as e:
             raise ValueError(f"Invalid path: {rel_path}") from e
 
-        if not str(full_resolved).startswith(str(vault_resolved) + "/"):
+        if not full_resolved.is_relative_to(vault_resolved):
             logger.warning(f"Path traversal attempt blocked: {rel_path!r} → {full_resolved}")
             raise ValueError(
                 f"Path traversal detected: '{rel_path}' resolves outside vault"

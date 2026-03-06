@@ -115,9 +115,12 @@ async def get_recent_notes(limit: int = 10):
 @app.get("/api/notes/read")
 async def read_note(path: str):
     """Read a specific note by its vault-relative path."""
+    # Path traversal prevention
+    if ".." in path or path.startswith("/"):
+        raise HTTPException(400, "Invalid path: traversal sequences not allowed")
     entry = vault_index.notes.get(path)
     if not entry:
-        raise HTTPException(404, f"Note not found: {path}")
+        raise HTTPException(404, "Note not found")
     return {
         "path": entry.path,
         "title": entry.title,
@@ -134,6 +137,12 @@ async def write_note(req: WriteNoteRequest):
     """Write a note to the vault (HEMS/ directory only)."""
     if len(req.content) > 10000:
         raise HTTPException(400, "Content exceeds 10000 character limit")
+
+    # Path traversal prevention on user-supplied title and category
+    if ".." in req.title or "/" in req.title or req.title.startswith("."):
+        raise HTTPException(400, "Invalid title: must not contain path separators or traversal sequences")
+    if req.category and (".." in req.category or "/" in req.category or req.category.startswith(".")):
+        raise HTTPException(400, "Invalid category: must not contain path separators or traversal sequences")
 
     if req.category:
         rel_path = f"HEMS/{req.category}/{req.title}.md"

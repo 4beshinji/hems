@@ -1,8 +1,6 @@
 """
 Tests for Sanitizer — PC command validation and tool gating.
 """
-import pytest
-from sanitizer import Sanitizer
 
 
 class TestSanitizerPCToolGating:
@@ -42,11 +40,12 @@ class TestSanitizerPCCommandValidation:
         })
         assert result["allowed"] is True
 
-    def test_python_allowed(self, sanitizer):
+    def test_python_blocked(self, sanitizer):
+        """python3 is an arbitrary code execution vector and must be blocked."""
         result = sanitizer.validate_tool_call("run_pc_command", {
             "command": "python3 -c 'print(1+1)'",
         })
-        assert result["allowed"] is True
+        assert result["allowed"] is False
 
     def test_empty_command_blocked(self, sanitizer):
         result = sanitizer.validate_tool_call("run_pc_command", {"command": ""})
@@ -124,12 +123,12 @@ class TestSanitizerPCCommandValidation:
         })
         assert result["allowed"] is False
 
-    def test_safe_rm_in_subdirectory_allowed(self, sanitizer):
-        """rm in a non-root directory should be allowed."""
+    def test_rm_in_subdirectory_blocked(self, sanitizer):
+        """rm is a destructive command and must be blocked even in /tmp."""
         result = sanitizer.validate_tool_call("run_pc_command", {
             "command": "rm /tmp/test.txt",
         })
-        assert result["allowed"] is True
+        assert result["allowed"] is False
 
     def test_safe_systemctl_status_allowed(self, sanitizer):
         """systemctl status should be allowed (not halt/poweroff/reboot)."""

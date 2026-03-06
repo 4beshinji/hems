@@ -152,7 +152,8 @@ async def run_command(req: CommandRequest):
         result = await oc_client.system_run(req.command, cwd=req.cwd, timeout=req.timeout)
         return {"success": True, "result": result}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Operation failed: {e}")
+        raise HTTPException(500, "Internal error")
 
 
 @app.post("/api/pc/notify")
@@ -164,18 +165,23 @@ async def send_notification(req: NotifyRequest):
         result = await oc_client.system_notify(req.title, req.body, req.priority)
         return {"success": True, "result": result}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Operation failed: {e}")
+        raise HTTPException(500, "Internal error")
 
 
 @app.post("/api/pc/browser/navigate")
 async def browser_navigate(req: NavigateRequest):
     if not oc_client.connected:
         raise HTTPException(503, "OpenClaw Gateway not connected")
+    # SSRF prevention: only allow http/https schemes
+    if not req.url.startswith(("http://", "https://")):
+        raise HTTPException(400, "Invalid URL scheme: only http:// and https:// are allowed")
     try:
         result = await oc_client.canvas_navigate(req.url)
         return {"success": True, "result": result}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Operation failed: {e}")
+        raise HTTPException(500, "Internal error")
 
 
 @app.post("/api/pc/browser/eval")
@@ -186,7 +192,8 @@ async def browser_eval(req: EvalRequest):
         result = await oc_client.canvas_eval(req.javascript)
         return {"success": True, "result": result}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Operation failed: {e}")
+        raise HTTPException(500, "Internal error")
 
 
 @app.post("/api/pc/browser/get_url")
@@ -197,7 +204,8 @@ async def browser_get_url():
         result = await oc_client.canvas_get_url()
         return {"success": True, "result": result}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Operation failed: {e}")
+        raise HTTPException(500, "Internal error")
 
 
 @app.post("/api/pc/browser/get_title")
@@ -208,7 +216,8 @@ async def browser_get_title():
         result = await oc_client.canvas_get_title()
         return {"success": True, "result": result}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Operation failed: {e}")
+        raise HTTPException(500, "Internal error")
 
 
 @app.post("/api/pc/process/kill")
@@ -216,11 +225,16 @@ async def kill_process(req: KillRequest):
     """Kill a process by PID."""
     if not oc_client.connected:
         raise HTTPException(503, "OpenClaw Gateway not connected")
+    # Validate PID range to prevent abuse (PID must be positive, non-system)
+    if req.pid < 2 or req.pid > 4194304:
+        raise HTTPException(400, "Invalid PID: must be between 2 and 4194304")
     try:
-        result = await oc_client.system_run(f"kill {req.pid}", timeout=5)
+        # Use str(int()) to guarantee no shell metacharacters can be injected
+        result = await oc_client.system_run(f"kill {int(req.pid)}", timeout=5)
         return {"success": True, "result": result}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Operation failed: {e}")
+        raise HTTPException(500, "Internal error")
 
 
 @app.get("/api/pc/processes")

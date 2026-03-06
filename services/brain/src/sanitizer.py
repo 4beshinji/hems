@@ -35,7 +35,7 @@ _ALLOWED_COMMAND_PATTERNS = [
     (r"^journalctl(\s+-u\s+[\w.\-]+)?(\s+-n\s+\d+)?(\s+--no-pager)?$", "journalctl — log viewer"),
     (r"^docker\s+(ps|stats|logs)(\s+-[a-zA-Z]+)*(\s+[\w\-]+)*$", "docker — container status"),
     (r"^git\s+(status|log|diff|branch)(\s+--\S+)*(\s+[\w./\-]+)*$", "git — VCS status"),
-    (r"^env(\s+\|\s+grep\s+[\w]+)?$", "env — environment variables"),
+    # env command removed: leaks secrets (API keys, tokens, passwords)
     (r"^echo\s+[\w\s.,!?-]+$", "echo — print text (safe chars only)"),
 ]
 _ALLOWED_RES = [(re.compile(p, re.IGNORECASE), desc) for p, desc in _ALLOWED_COMMAND_PATTERNS]
@@ -254,8 +254,8 @@ class Sanitizer:
         return {
             "allowed": False,
             "reason": (
-                f"Command not in allowlist. Permitted: read-only monitoring commands "
-                f"(ls, ps, df, uptime, sensors, nvidia-smi, systemctl status, etc.)"
+                "Command not in allowlist. Permitted: read-only monitoring commands "
+                "(ls, ps, df, uptime, sensors, nvidia-smi, systemctl status, etc.)"
             ),
         }
 
