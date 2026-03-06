@@ -97,6 +97,12 @@ The brain's sanitizer allowlist (`services/brain/src/sanitizer.py`) only validat
 
 ### LOW
 
+#### L0. GAS Bridge Follows HTTP Redirects (Potential SSRF) [Accepted]
+**Location**: `services/gas-bridge/src/gas_client.py:42`
+**Description**: The GAS client uses `allow_redirects=True` which could allow SSRF if the GAS Web App URL is compromised. However, this is required — Google Apps Script Web Apps use 302 redirects as part of normal operation. The URL comes from a trusted env var (`GAS_WEBAPP_URL`), not user input.
+**Severity**: Low (accepted risk — required for GAS integration)
+**Remediation**: None needed. Document that `GAS_WEBAPP_URL` must point to a trusted Google Apps Script deployment.
+
 #### L1. Insecure WebSocket Default URL [Remaining]
 **Location**: `services/openclaw-bridge/src/config.py:9`
 **Description**: Default OpenClaw Gateway URL uses `ws://` (unencrypted). On a LAN this is acceptable, but credentials/commands are sent in plaintext.
