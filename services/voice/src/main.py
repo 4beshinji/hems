@@ -212,7 +212,9 @@ async def generate_feedback(feedback_type: str):
 
 @app.get("/audio/{filename}")
 async def serve_audio(filename: str):
-    path = AUDIO_DIR / filename
+    path = (AUDIO_DIR / filename).resolve()
+    if not str(path).startswith(str(AUDIO_DIR.resolve()) + "/"):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     if not path.exists():
         raise HTTPException(status_code=404, detail="Audio not found")
     return FileResponse(path, media_type="audio/mpeg")
