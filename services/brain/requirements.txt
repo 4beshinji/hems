@@ -2,7 +2,7 @@
 paho-mqtt>=2.0.0
 
 # Async
-aiohttp>=3.9
+aiohttp>=3.13.3
 
 # Database (Event Store)
 sqlalchemy[asyncio]>=2.0
@@ -16,4 +16,4 @@ loguru>=0.7
 
 # HEMS-specific
 anthropic
-pyyaml
+pyyaml>=6.0.1

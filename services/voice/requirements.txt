@@ -1,11 +1,11 @@
-fastapi>=0.109
+fastapi>=0.115.5
 uvicorn[standard]>=0.27
-aiohttp>=3.9
+aiohttp>=3.13.3
 pydantic>=2.5
 loguru>=0.7
-python-multipart>=0.0.18
+python-multipart>=0.0.20
 pydub>=0.25
 
 # HEMS-specific
-pyyaml
+pyyaml>=6.0.1
 edge-tts

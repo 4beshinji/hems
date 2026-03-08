@@ -1,4 +1,4 @@
-fastapi
+fastapi>=0.115.5
 uvicorn[standard]
 paho-mqtt>=2.0
 loguru

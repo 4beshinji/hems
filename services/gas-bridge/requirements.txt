@@ -1,6 +1,6 @@
-fastapi
+fastapi>=0.115.5
 uvicorn[standard]
-aiohttp
+aiohttp>=3.13.3
 paho-mqtt>=2.0
 loguru
 python-dotenv

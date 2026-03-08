@@ -1,8 +1,8 @@
-fastapi
+fastapi>=0.115.5
 uvicorn[standard]
 websockets
 paho-mqtt>=2.0
 loguru
 python-dotenv
 aioimaplib
-aiohttp
+aiohttp>=3.13.3

@@ -1,9 +1,9 @@
-fastapi
+fastapi>=0.115.5
 uvicorn[standard]
 paho-mqtt>=2.0
 loguru
 python-dotenv
-aiohttp
+aiohttp>=3.13.3
 opencv-python-headless
-ultralytics>=8.3
+ultralytics>=8.3.47
 numpy
