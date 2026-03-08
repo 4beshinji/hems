@@ -1,6 +1,6 @@
 fastapi>=0.115.5
-uvicorn[standard]
+uvicorn[standard]>=0.27
 paho-mqtt>=2.0
-loguru
-python-dotenv
-watchdog
+loguru>=0.7
+python-dotenv>=1.0
+watchdog>=4.0

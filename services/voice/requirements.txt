@@ -8,4 +8,4 @@ pydub>=0.25
 
 # HEMS-specific
 pyyaml>=6.0.1
-edge-tts
+edge-tts>=7.0
