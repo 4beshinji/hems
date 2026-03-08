@@ -1,11 +1,11 @@
 fastapi>=0.115.5
-uvicorn[standard]>=0.27
-aiohttp>=3.13.3
-pydantic>=2.5
-loguru>=0.7
+uvicorn[standard]>=0.32.0
+aiohttp>=3.13.0
+pydantic>=2.10.0
+loguru>=0.7.3
 python-multipart>=0.0.20
-pydub>=0.25
+pydub>=0.25.1
 
 # HEMS-specific
-pyyaml>=6.0.1
-edge-tts>=7.0
+pyyaml>=6.0.2
+edge-tts>=7.0.0
