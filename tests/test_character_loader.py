@@ -67,13 +67,13 @@ class TestLoadYamlFile:
     def test_non_dict_yaml_raises(self, tmp_path):
         yaml_file = tmp_path / "list.yaml"
         yaml_file.write_text("- item1\n- item2\n")
-        with pytest.raises(ValueError, match="must be a mapping"):
+        with pytest.raises(ValueError, match="Expected a YAML mapping"):
             character_loader._load_yaml_file(yaml_file)
 
     def test_scalar_yaml_raises(self, tmp_path):
         yaml_file = tmp_path / "scalar.yaml"
         yaml_file.write_text("just a string\n")
-        with pytest.raises(ValueError, match="must be a mapping"):
+        with pytest.raises(ValueError, match="Expected a YAML mapping"):
             character_loader._load_yaml_file(yaml_file)
 
     def test_valid_yaml_returns_dict(self, tmp_path):

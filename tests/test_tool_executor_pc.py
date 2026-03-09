@@ -129,7 +129,7 @@ class TestControlBrowser:
         tool_executor.openclaw_url = "http://bridge:8000"
         result = await tool_executor.execute("control_browser", {"action": "delete_everything"})
         assert result["success"] is False
-        assert "Unknown browser action" in result["error"]
+        assert "not permitted" in result["error"]
 
 
 class TestSendPCNotification:

@@ -26,46 +26,41 @@ PROJECT_ROOT = INFRA_DIR.parent
 OVERRIDE_PATH = INFRA_DIR / "docker-compose.gpu.yml"
 ENV_PATH = PROJECT_ROOT / ".env"
 
-# HuggingFace GGUF repos
-_DERESTRICTED_HF = "hf.co/mradermacher/Qwen-3.5-27B-Derestricted-GGUF"
-_GPT_OSS_SWALLOW_HF = "hf.co/mradermacher/GPT-OSS-Swallow-20B-SFT-v0.1-i1-GGUF"
-
 MODEL_RECOMMENDATIONS = [
     # < 6GB VRAM: CPU-only or low-end GPU
     {"vram_min": 0, "models": [
         "qwen2.5:3b", "llama3.2:3b", "phi3:mini",
     ], "tier": "~4GB", "desc": "Lightweight (2-4B params)"},
-    # 6–8GB VRAM: Qwen3-Swallow 8B (Japanese-enhanced) or general 7-8B
+    # 6–12GB VRAM
     {"vram_min": 6144, "models": [
-        "qwen3:8b",  # Qwen3-Swallow 8B GGUF待ち → qwen3:8b をフォールバック
-        "qwen2.5:7b", "llama3.1:8b",
-    ], "tier": "~8GB", "desc": "Qwen3 8B (日本語対応) / General purpose 7-8B"},
-    # 12–16GB VRAM: GPT-OSS 20B (~13GB, 日本語対応)
-    # Note: GPT-OSS Swallow RL版 GGUF公開後に切替推奨
-    #   (SFT版はthinkingモード問題あり: mradermacher/GPT-OSS-Swallow-20B-SFT-v0.1-i1-GGUF)
+        "qwen2.5:7b", "llama3.1:8b", "mistral:7b",
+    ], "tier": "~8GB", "desc": "General purpose (7-8B params)"},
+    # 12–18GB VRAM
     {"vram_min": 12288, "models": [
-        "gpt-oss:20b", "qwen3:14b",
-    ], "tier": "~14GB", "desc": "GPT-OSS 20B (日本語対応) / Qwen3 14B"},
-    # 16–20GB VRAM: GPT-OSS 20B (余裕) or Derestricted 27B Q4
+        "qwen2.5:14b", "deepseek-r1:14b",
+    ], "tier": "~14GB", "desc": "Strong reasoning (14B params)"},
+    # 15–24GB VRAM: qwen3.5:27b (17GB model; Ollama auto-offloads overflow layers to CPU)
     {"vram_min": 15360, "models": [
-        "gpt-oss:20b",
-        f"{_DERESTRICTED_HF}:Q4_K_M",
-    ], "tier": "~16-20GB", "desc": "GPT-OSS 20B / Derestricted 27B Q4"},
-    # 20–24GB VRAM: Derestricted Q5_K_M (19.5GB) or Q6_K (22.2GB)
-    {"vram_min": 20480, "models": [
-        f"{_DERESTRICTED_HF}:Q6_K",
-        f"{_DERESTRICTED_HF}:Q5_K_M",
-    ], "tier": "~20-24GB", "desc": "Derestricted 27B Q5/Q6 — high quality"},
-    # 24GB+ VRAM: Derestricted Q8_0 (28.7GB) or MoE 35B
+        "qwen3.5:27b",
+    ], "tier": "~16-20GB", "desc": "Qwen3.5 27B — 256K ctx, multilingual"},
+    # 24GB+ VRAM: qwen3.5:35b-a3b MoE (24GB model, 3B active params)
     {"vram_min": 24576, "models": [
-        f"{_DERESTRICTED_HF}:Q8_0",
         "qwen3.5:35b-a3b", "qwen3.5:35b",
-    ], "tier": "~26GB+", "desc": "Derestricted 27B Q8 / Qwen3.5 35B MoE"},
+    ], "tier": "~26GB", "desc": "Qwen3.5 35B MoE — 3B active, 256K ctx"},
     # 80GB+ VRAM: qwen3.5:122b-a10b MoE (81GB model, 10B active params)
     {"vram_min": 81920, "models": [
         "qwen3.5:122b-a10b",
     ], "tier": "~85GB+", "desc": "Qwen3.5 122B MoE — 10B active, 256K ctx"},
 ]
+
+# HuggingFace models requiring manual import via `ollama create`
+HUGGINGFACE_MODELS = {
+    "gpt-oss-swallow:20b": {
+        "hf_repo": "tokyotech-llm/GPT-OSS-Swallow-20B-RL-v0.1",
+        "tier": "~14GB",
+        "desc": "GPT-OSS Swallow 20B (Japanese-enhanced, requires GGUF conversion)",
+    },
+}
 
 
 @dataclass

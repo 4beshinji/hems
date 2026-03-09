@@ -152,7 +152,7 @@ class TestSanitizerPCCommand:
             "run_pc_command", {"command": "rm -rf /home/user"}
         )
         assert validation["allowed"] is False
-        assert "Dangerous" in validation["reason"]
+        assert "not in allowlist" in validation["reason"]
 
     def test_dangerous_rm_rf_space_blocked(self, tool_executor):
         validation = tool_executor.sanitizer.validate_tool_call(
@@ -216,7 +216,7 @@ class TestSanitizerPCCommand:
         tool_executor.openclaw_url = "http://localhost:9000"
         result = await tool_executor.execute("control_browser", {"action": "click"})
         assert result["success"] is False
-        assert "Unknown browser action" in result["error"]
+        assert "not permitted" in result["error"]
 
     @pytest.mark.asyncio
     async def test_send_pc_notification_no_openclaw_url(self, tool_executor):

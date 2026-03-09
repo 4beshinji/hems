@@ -235,36 +235,30 @@ class TestRecommendModels:
         models = gpu_setup.recommend_models(4000)
         assert len(models) == 1
         assert models[0]["tier"] == "~4GB"
-        assert "gemma2:2b" in models[0]["models"]
+        assert "qwen2.5:3b" in models[0]["models"]
 
     def test_8gb_vram(self):
         models = gpu_setup.recommend_models(8192)
         tiers = [m["tier"] for m in models]
         assert "~4GB" in tiers
         assert "~8GB" in tiers
-        assert "~12-16GB" not in tiers
+        assert "~14GB" not in tiers
 
-    def test_8gb_includes_swallow(self):
-        models = gpu_setup.recommend_models(8192)
-        tier_8gb = [m for m in models if m["tier"] == "~8GB"][0]
-        assert "okamototk/llama-swallow:8b" in tier_8gb["models"]
-
-    def test_12gb_includes_gpt_oss(self):
+    def test_12gb_includes_14b(self):
         models = gpu_setup.recommend_models(12288)
-        tier_12 = [m for m in models if m["tier"] == "~12-16GB"][0]
-        assert "gpt-oss:20b" in tier_12["models"]
+        tier_14 = [m for m in models if m["tier"] == "~14GB"][0]
+        assert "qwen2.5:14b" in tier_14["models"]
 
     def test_16gb_vram(self):
         models = gpu_setup.recommend_models(16384)
         tiers = [m["tier"] for m in models]
-        assert "~12-16GB" in tiers
-        assert "~24GB+" not in tiers
+        assert "~16-20GB" in tiers
+        assert "~26GB" not in tiers
 
     def test_24gb_vram(self):
         models = gpu_setup.recommend_models(24576)
         tiers = [m["tier"] for m in models]
-        assert "~24GB+" in tiers
-        assert len(tiers) == 4  # All tiers available
+        assert "~26GB" in tiers
 
     def test_unknown_vram_returns_all(self):
         models = gpu_setup.recommend_models(0)
@@ -281,6 +275,13 @@ class TestMatchingHfModels:
     def test_hf_models_insufficient_vram(self):
         hf = gpu_setup._matching_hf_models(4000)
         assert "gpt-oss-swallow:20b" not in hf
+
+    def test_hf_model_tier_matches_recommendations(self):
+        """Ensure HF model tiers exist in MODEL_RECOMMENDATIONS."""
+        valid_tiers = {t["tier"] for t in gpu_setup.MODEL_RECOMMENDATIONS}
+        for name, info in gpu_setup.HUGGINGFACE_MODELS.items():
+            assert info["tier"] in valid_tiers, \
+                f"HF model {name} has tier {info['tier']} not in {valid_tiers}"
 
     def test_hf_models_unknown_vram_returns_all(self):
         hf = gpu_setup._matching_hf_models(0)
