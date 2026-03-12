@@ -15,7 +15,7 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u ${MQTT_USER_BRAIN:-hems-brain} -P ${MQTT_PASS_BRAIN} -t '$$SYS/broker/version' -C 1 -W 5 2>/dev/null || exit 1"]
+      test: ["CMD-SHELL", "mosquitto_pub -h localhost -p 1883 -u ${MQTT_USER_BRAIN:-hems-brain} -P ${MQTT_PASS_BRAIN} -t hems/healthcheck -m ok -q 0 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -57,6 +57,7 @@ services:
       - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
       - BIOMETRIC_BRIDGE_URL=${BIOMETRIC_BRIDGE_URL:-}
       - PERCEPTION_BRIDGE_URL=${PERCEPTION_BRIDGE_URL:-}
+      - SWITCHBOT_BRIDGE_URL=${SWITCHBOT_BRIDGE_URL:-}
     volumes:
       - ../services/brain/src:/app
       - ../config:/config:ro
@@ -70,7 +71,7 @@ services:
       retries: 3
       start_period: 15s
 
-  # --- Backend (API + Points + DataMart) ---
+  # --- Backend (API + DataMart) ---
   backend:
     build: ../services/backend
     container_name: hems-backend
@@ -140,9 +141,11 @@ services:
     environment:
       - TTS_PROVIDER=${TTS_PROVIDER:-espeak}
       - VOICEVOX_URL=${VOICEVOX_URL:-http://voicevox:50021}
-      - VOISONA_URL=${VOISONA_URL:-}
+      - VOISONA_URL=${VOISONA_URL:-http://192.168.1.173:32766}
       - VOISONA_USERNAME=${VOISONA_USERNAME:-}
       - VOISONA_PASSWORD=${VOISONA_PASSWORD:-}
+      - VOISONA_VOICE_NAME=${VOISONA_VOICE_NAME:-nurse-robot-type-t_ja_JP}
+      - VOISONA_LANGUAGE=${VOISONA_LANGUAGE:-ja_JP}
       - STYLE_BERT_VITS2_URL=${STYLE_BERT_VITS2_URL:-}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
       - LLM_MODEL=${LLM_MODEL:-qwen3.5:27b}
@@ -153,7 +156,6 @@ services:
       - ../services/voice/src:/app
       - ../config:/config:ro
       - hems_audio_data:/app/audio
-      - ${VOISONA_SHARED_DIR:-/tmp/hems-tts}:/tmp/hems-tts
     networks:
       - hems-net
     healthcheck:
@@ -206,7 +208,7 @@ services:
       - TZ=${TZ:-Asia/Tokyo}
       - MQTT_BROKER=mosquitto
       - MQTT_USER=${MQTT_USER_LOCALCRAW:-hems-localcraw}
-      - MQTT_PASS=${MQTT_PASS_LOCALCRAW:?MQTT_PASS_LOCALCRAW is required}
+      - MQTT_PASS=${MQTT_PASS_LOCALCRAW:-}
       - OPENCLAW_METRICS_INTERVAL=${OPENCLAW_METRICS_INTERVAL:-10}
       - OPENCLAW_PROCESS_INTERVAL=${OPENCLAW_PROCESS_INTERVAL:-30}
       - HEMS_GMAIL_ENABLED=${HEMS_GMAIL_ENABLED:-false}
@@ -244,7 +246,7 @@ services:
       - OBSIDIAN_WATCHER_DEBOUNCE=${OBSIDIAN_WATCHER_DEBOUNCE:-2.0}
       - MQTT_BROKER=mosquitto
       - MQTT_USER=${MQTT_USER_OBSIDIAN:-hems-obsidian}
-      - MQTT_PASS=${MQTT_PASS_OBSIDIAN:?MQTT_PASS_OBSIDIAN is required}
+      - MQTT_PASS=${MQTT_PASS_OBSIDIAN:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -281,7 +283,7 @@ services:
       - HEMS_GAS_SHEETS=${HEMS_GAS_SHEETS:-}
       - MQTT_BROKER=mosquitto
       - MQTT_USER=${MQTT_USER_GAS:-hems-gas}
-      - MQTT_PASS=${MQTT_PASS_GAS:?MQTT_PASS_GAS is required}
+      - MQTT_PASS=${MQTT_PASS_GAS:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -323,7 +325,7 @@ services:
       - HEMS_HA_POLL_INTERVAL=${HEMS_HA_POLL_INTERVAL:-30}
       - MQTT_BROKER=mosquitto
       - MQTT_USER=${MQTT_USER_HA:-hems-ha-bridge}
-      - MQTT_PASS=${MQTT_PASS_HA:?MQTT_PASS_HA is required}
+      - MQTT_PASS=${MQTT_PASS_HA:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -351,8 +353,8 @@ services:
     environment:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=${MQTT_USER_BIOMETRIC:-hems-biometric}
-      - MQTT_PASS=${MQTT_PASS_BIOMETRIC:?MQTT_PASS_BIOMETRIC is required}
-      - BIOMETRIC_WEBHOOK_SECRET=${BIOMETRIC_WEBHOOK_SECRET:?BIOMETRIC_WEBHOOK_SECRET is required}
+      - MQTT_PASS=${MQTT_PASS_BIOMETRIC:-}
+      - BIOMETRIC_WEBHOOK_SECRET=${BIOMETRIC_WEBHOOK_SECRET:-}
       - BIOMETRIC_PROVIDER=${BIOMETRIC_PROVIDER:-gadgetbridge}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
@@ -436,7 +438,7 @@ services:
     profiles: ["postgres"]
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-hems}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required when using --profile postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
       - POSTGRES_DB=hems
     ports:
       - "127.0.0.1:${HEMS_PORT_POSTGRES:-5442}:5432"
@@ -465,7 +467,7 @@ services:
     environment:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=${MQTT_USER_PERCEPTION:-hems-perception}
-      - MQTT_PASS=${MQTT_PASS_PERCEPTION:?MQTT_PASS_PERCEPTION is required}
+      - MQTT_PASS=${MQTT_PASS_PERCEPTION:-}
       - HEMS_PERCEPTION_CAMERAS=${HEMS_PERCEPTION_CAMERAS:-[]}
       - HEMS_PERCEPTION_MODEL=${HEMS_PERCEPTION_MODEL:-yolo11s.pt}
       - HEMS_PERCEPTION_POSE_MODEL=${HEMS_PERCEPTION_POSE_MODEL:-yolo11s-pose.pt}
@@ -484,6 +486,39 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  # --- SwitchBot Bridge (Direct SwitchBot API v1.1 integration) ---
+  switchbot-bridge:
+    build: ../services/switchbot-bridge
+    container_name: hems-switchbot-bridge
+    restart: always
+    profiles: ["switchbot"]
+    ports:
+      - "${HEMS_PORT_SWITCHBOT_BRIDGE:-8019}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - SWITCHBOT_TOKEN=${SWITCHBOT_TOKEN:-}
+      - SWITCHBOT_SECRET=${SWITCHBOT_SECRET:-}
+      - SWITCHBOT_DEVICE_MAP=${SWITCHBOT_DEVICE_MAP:-{}}
+      - SWITCHBOT_POLL_INTERVAL=${SWITCHBOT_POLL_INTERVAL:-30}
+      - SWITCHBOT_WEBHOOK_URL=${SWITCHBOT_WEBHOOK_URL:-}
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER_SWITCHBOT:-hems-switchbot}
+      - MQTT_PASS=${MQTT_PASS_SWITCHBOT:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/switchbot-bridge/src:/app
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   hems_mqtt_data:

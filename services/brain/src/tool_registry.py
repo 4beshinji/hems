@@ -9,7 +9,9 @@ Obsidian: search_notes, write_note, get_recent_notes
 def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
               obsidian_enabled: bool = False, ha_enabled: bool = False,
               biometric_enabled: bool = False,
-              perception_enabled: bool = False) -> list:
+              perception_enabled: bool = False,
+              shopping_enabled: bool = False,
+              switchbot_enabled: bool = False) -> list:
     tools = [
         {
             "type": "function",
@@ -21,7 +23,6 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
                     "properties": {
                         "title": {"type": "string", "description": "タスクのタイトル（日本語、簡潔に）"},
                         "description": {"type": "string", "description": "タスクの詳細説明（状況と対応方法を含む）"},
-                        "xp_reward": {"type": "integer", "description": "XP報酬 (50-500)", "minimum": 50, "maximum": 500},
                         "urgency": {"type": "integer", "description": "緊急度 0=延期可 1=低 2=通常 3=高 4=緊急", "minimum": 0, "maximum": 4},
                         "zone": {"type": "string", "description": "ゾーン名 (例: living_room, bedroom)"},
                         "task_type": {
@@ -32,7 +33,7 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
                         "location": {"type": "string", "description": "具体的な場所"},
                         "estimated_duration": {"type": "integer", "description": "推定所要時間（分）", "default": 10},
                     },
-                    "required": ["title", "description", "xp_reward", "urgency", "zone"],
+                    "required": ["title", "description", "urgency", "zone"],
                 },
             },
         },
@@ -136,18 +137,28 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
     if perception_enabled:
         tools.extend(_get_perception_tools())
 
+    if shopping_enabled:
+        tools.extend(_get_shopping_tools())
+
+    if switchbot_enabled:
+        tools.extend(_get_switchbot_tools())
+
     return tools
 
 
 def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = False,
                    obsidian_enabled: bool = False, ha_enabled: bool = False,
                    biometric_enabled: bool = False,
-                   perception_enabled: bool = False) -> list:
+                   perception_enabled: bool = False,
+                   shopping_enabled: bool = False,
+                   switchbot_enabled: bool = False) -> list:
     """Return list of all enabled tool names."""
     return [t["function"]["name"] for t in get_tools(openclaw_enabled, services_enabled,
                                                       obsidian_enabled, ha_enabled,
                                                       biometric_enabled,
-                                                      perception_enabled)]
+                                                      perception_enabled,
+                                                      shopping_enabled,
+                                                      switchbot_enabled)]
 
 
 def _get_service_tools() -> list:
@@ -506,6 +517,119 @@ def _get_biometric_tools() -> list:
                 "parameters": {
                     "type": "object",
                     "properties": {},
+                },
+            },
+        },
+    ]
+
+
+def _get_shopping_tools() -> list:
+    """Shopping list tools."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "add_shopping_item",
+                "description": "買い物リストにアイテムを追加する。「牛乳切れた」などの発言から自動追加する場合にも使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "アイテム名（例: 牛乳, 洗剤）"},
+                        "category": {
+                            "type": "string",
+                            "description": "カテゴリ（食品, 日用品, 消耗品, 飲料, 調味料, 文具）",
+                        },
+                        "quantity": {"type": "integer", "description": "数量", "default": 1},
+                        "unit": {"type": "string", "description": "単位（個, 本, パック, 袋）"},
+                        "store": {"type": "string", "description": "購入する店舗名"},
+                        "price": {"type": "integer", "description": "想定価格（円）"},
+                        "is_recurring": {"type": "boolean", "description": "定期購入フラグ", "default": False},
+                        "recurrence_days": {"type": "integer", "description": "定期購入の間隔（日数）"},
+                        "priority": {
+                            "type": "integer",
+                            "description": "優先度 0=低, 1=通常, 2=高",
+                            "minimum": 0,
+                            "maximum": 2,
+                        },
+                    },
+                    "required": ["name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_shopping_list",
+                "description": "現在の買い物リストを取得する。外出検知時の通知や在庫確認に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "category": {"type": "string", "description": "カテゴリでフィルタ"},
+                        "store": {"type": "string", "description": "店舗でフィルタ"},
+                    },
+                },
+            },
+        },
+    ]
+
+
+def _get_switchbot_tools() -> list:
+    """SwitchBot tools — only included when switchbot-bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_switchbot_devices",
+                "description": "SwitchBotデバイスの一覧と状態を取得する。照明・カーテン・プラグ・センサー等の確認に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "control_switchbot",
+                "description": "SwitchBotデバイスにコマンドを送信する。照明ON/OFF、カーテン開閉、プラグ制御等に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {"type": "string", "description": "SwitchBotデバイスID"},
+                        "command": {
+                            "type": "string",
+                            "description": "コマンド (例: turnOn, turnOff, toggle, setBrightness, setPosition, setColorTemperature, press)",
+                        },
+                        "parameter": {
+                            "type": "string",
+                            "description": "パラメータ (例: brightness=50, position=0,1,80, colorTemp=3500)。不要な場合は省略。",
+                            "default": "default",
+                        },
+                    },
+                    "required": ["device_id", "command"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "send_switchbot_ir",
+                "description": "SwitchBot Hub経由で赤外線コマンドを送信する。エアコン・テレビ等のIRリモコン制御に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {"type": "string", "description": "IRデバイスID（SwitchBotアプリで登録した仮想デバイス）"},
+                        "command": {
+                            "type": "string",
+                            "description": "コマンド (例: turnOn, turnOff, setAll)",
+                        },
+                        "parameter": {
+                            "type": "string",
+                            "description": "パラメータ (例: エアコン setAll の場合 '26,1,3,on' = 温度,モード,風速,電源)",
+                            "default": "default",
+                        },
+                    },
+                    "required": ["device_id", "command"],
                 },
             },
         },

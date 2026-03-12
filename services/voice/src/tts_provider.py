@@ -11,6 +11,7 @@ class AudioResult:
     audio_data: bytes
     format: str = "wav"  # "wav" or "mp3"
     sample_rate: int | None = None
+    duration: float | None = None  # seconds, set by providers that play directly
 
 
 class TTSProvider(ABC):

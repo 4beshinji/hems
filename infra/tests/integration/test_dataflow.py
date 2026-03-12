@@ -6,7 +6,7 @@ Tests the full dashboard data flow without requiring live services:
   3. Task duplicate detection
   4. Time series ingest → query
   5. Voice event creation → recent retrieval
-  6. Task completion with XP award
+  6. Task completion lifecycle
   7. Cross-endpoint consistency (stats reflect task changes)
 """
 import os
@@ -207,7 +207,6 @@ async def test_task_create_and_list(client):
         "title": "Fix air conditioner",
         "description": "Temperature too high",
         "zone": "living_room",
-        "xp_reward": 200,
         "urgency": 3,
         "task_type": ["hvac", "maintenance"],
     }
@@ -215,7 +214,6 @@ async def test_task_create_and_list(client):
     assert r.status_code == 200
     created = r.json()
     assert created["title"] == "Fix air conditioner"
-    assert created["xp_reward"] == 200
     assert created["is_completed"] is False
     task_id = created["id"]
 
@@ -235,7 +233,7 @@ async def test_task_accept_and_complete(client):
     user_id = r.json()["id"]
 
     # Create task
-    r = await client.post("/tasks/", json={"title": "Refill water", "xp_reward": 100})
+    r = await client.post("/tasks/", json={"title": "Refill water"})
     task_id = r.json()["id"]
 
     # Accept
@@ -254,31 +252,20 @@ async def test_task_accept_and_complete(client):
     assert completed["is_completed"] is True
     assert completed["report_status"] == "done"
 
-    # User got XP
-    r = await client.get(f"/users/{user_id}")
-    assert r.json()["points"] == 100
-
-    # Point log created
-    r = await client.get(f"/points/{user_id}")
-    logs = r.json()
-    assert len(logs) == 1
-    assert logs[0]["amount"] == 100
-
 
 @pytest.mark.asyncio
 async def test_task_duplicate_detection_stage1(client):
     """Same title + location → updates instead of creating duplicate."""
-    task = {"title": "Open window", "location": "living_room", "xp_reward": 100}
+    task = {"title": "Open window", "location": "living_room"}
     r1 = await client.post("/tasks/", json=task)
     id1 = r1.json()["id"]
 
-    # Same title+location but different xp → update
-    task2 = {"title": "Open window", "location": "living_room", "xp_reward": 200}
+    # Same title+location → update (dedup)
+    task2 = {"title": "Open window", "location": "living_room"}
     r2 = await client.post("/tasks/", json=task2)
     id2 = r2.json()["id"]
 
     assert id1 == id2  # Same task, not duplicated
-    assert r2.json()["xp_reward"] == 200  # Updated
 
     r = await client.get("/tasks/")
     assert len(r.json()) == 1
@@ -291,7 +278,6 @@ async def test_task_duplicate_detection_stage2(client):
         "title": "Lower temperature",
         "zone": "bedroom",
         "task_type": ["hvac", "comfort"],
-        "xp_reward": 100,
     }
     r1 = await client.post("/tasks/", json=task1)
     id1 = r1.json()["id"]
@@ -301,13 +287,11 @@ async def test_task_duplicate_detection_stage2(client):
         "title": "Fix AC",
         "zone": "bedroom",
         "task_type": ["hvac", "repair"],
-        "xp_reward": 150,
     }
     r2 = await client.post("/tasks/", json=task2)
     id2 = r2.json()["id"]
 
     assert id1 == id2  # Deduped
-    assert r2.json()["xp_reward"] == 150
 
     r = await client.get("/tasks/")
     assert len(r.json()) == 1
@@ -320,13 +304,11 @@ async def test_task_not_duplicate_different_zone(client):
         "title": "Lower temperature",
         "zone": "bedroom",
         "task_type": ["hvac"],
-        "xp_reward": 100,
     }
     task2 = {
         "title": "Lower temperature",
         "zone": "living_room",
         "task_type": ["hvac"],
-        "xp_reward": 100,
     }
     await client.post("/tasks/", json=task1)
     await client.post("/tasks/", json=task2)
@@ -351,7 +333,7 @@ async def test_task_404_on_missing(client):
 @pytest.mark.asyncio
 async def test_task_cannot_accept_completed(client):
     """Cannot accept an already-completed task."""
-    r = await client.post("/tasks/", json={"title": "Done task", "xp_reward": 50})
+    r = await client.post("/tasks/", json={"title": "Done task"})
     task_id = r.json()["id"]
 
     await client.put(f"/tasks/{task_id}/complete", json={})
@@ -371,11 +353,10 @@ async def test_stats_reflect_task_changes(client):
     r = await client.get("/tasks/stats")
     stats = r.json()
     assert stats["tasks_created"] == 0
-    assert stats["total_xp"] == 0
 
     # Create 2 tasks
-    await client.post("/tasks/", json={"title": "Task A", "xp_reward": 100})
-    r = await client.post("/tasks/", json={"title": "Task B", "xp_reward": 200})
+    await client.post("/tasks/", json={"title": "Task A"})
+    r = await client.post("/tasks/", json={"title": "Task B"})
     task_b_id = r.json()["id"]
 
     r = await client.get("/tasks/stats")
@@ -389,7 +370,6 @@ async def test_stats_reflect_task_changes(client):
     r = await client.get("/tasks/stats")
     stats = r.json()
     assert stats["tasks_completed"] == 1
-    assert stats["total_xp"] == 200
     assert stats["tasks_active"] == 1
 
 
@@ -579,7 +559,6 @@ async def test_full_brain_cycle_simulation(client):
         "title": "Ventilate room",
         "description": "CO2 level above 1000ppm",
         "zone": "main",
-        "xp_reward": 150,
         "urgency": 3,
         "task_type": ["ventilation"],
     })
@@ -652,4 +631,3 @@ async def test_full_brain_cycle_simulation(client):
 
     r = await client.get("/tasks/stats")
     assert r.json()["tasks_completed"] == 1
-    assert r.json()["total_xp"] == 150

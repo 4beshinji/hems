@@ -113,7 +113,7 @@ class RuleEngine:
                         "args": {
                             "title": f"{zone_id}の換気",
                             "description": f"CO2濃度が{int(env.co2)}ppmです。窓を開けて換気してください。",
-                            "xp_reward": 100,
+
                             "urgency": 3,
                             "zone": zone_id,
                             "task_type": ["ventilation"],
@@ -242,7 +242,7 @@ class RuleEngine:
                         "args": {
                             "title": f"ディスク容量不足: {p.mount}",
                             "description": f"{p.mount}の使用率が{p.percent:.0f}%です。不要ファイルを削除してください。",
-                            "xp_reward": 100,
+
                             "urgency": 2,
                             "zone": "pc",
                             "task_type": ["maintenance"],
@@ -288,6 +288,9 @@ class RuleEngine:
 
         # --- Perception rules ---
         actions.extend(self._evaluate_perception_rules(world_model, now))
+
+        # --- Shopping list rules ---
+        actions.extend(self._evaluate_shopping_rules(world_model, now))
 
         return actions
 
@@ -432,7 +435,7 @@ class RuleEngine:
                     "args": {
                         "title": f"[Google] {task.title}",
                         "description": f"Google Tasks: {task.notes}" if task.notes else f"Google Tasksから同期: {task.title}",
-                        "xp_reward": 50,
+
                         "urgency": 3 if task.is_overdue else 2,
                         "zone": "home",
                         "task_type": ["google_tasks"],
@@ -460,7 +463,7 @@ class RuleEngine:
                     "args": {
                         "title": "メール整理",
                         "description": f"未読メールが{inbox.unread}通溜まっています。整理してください。",
-                        "xp_reward": 100,
+
                         "urgency": 2,
                         "zone": "home",
                         "task_type": ["email"],
@@ -534,7 +537,7 @@ class RuleEngine:
                     "args": {
                         "title": "週次レビュー",
                         "description": "今週の振り返りと来週の計画を立てましょう。",
-                        "xp_reward": 200,
+
                         "urgency": 2,
                         "zone": "home",
                         "task_type": ["review"],
@@ -912,7 +915,7 @@ class RuleEngine:
                         "args": {
                             "title": f"【緊急】水漏れ検知: {name}",
                             "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
-                            "xp_reward": 200,
+    
                             "urgency": 4,
                             "zone": "home",
                             "task_type": ["water_leak"],
@@ -989,7 +992,7 @@ class RuleEngine:
                             "args": {
                                 "title": "洗濯物を干す",
                                 "description": f"{name}の運転が完了しました。洗濯物を干してください。",
-                                "xp_reward": 100,
+    
                                 "urgency": 2,
                                 "zone": "home",
                                 "task_type": ["laundry"],
@@ -1074,7 +1077,7 @@ class RuleEngine:
                             "args": {
                                 "title": "洗濯物を干す",
                                 "description": "洗濯機の振動が停止しました。洗濯物を干してください。",
-                                "xp_reward": 100,
+    
                                 "urgency": 2,
                                 "zone": "home",
                                 "task_type": ["laundry"],
@@ -1104,7 +1107,7 @@ class RuleEngine:
                         "args": {
                             "title": f"【緊急】水漏れ検知: {name}",
                             "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
-                            "xp_reward": 200, "urgency": 4, "zone": "home",
+                            "urgency": 4, "zone": "home",
                             "task_type": ["water_leak"],
                         },
                     })
@@ -1291,7 +1294,7 @@ class RuleEngine:
                         "description": (
                             f"CO2濃度が{int(env.co2)}ppmです。直ちに換気してください。"
                         ),
-                        "xp_reward": 200,
+
                         "urgency": 4,
                         "zone": zone_id,
                         "task_type": ["ventilation"],
@@ -1349,7 +1352,7 @@ class RuleEngine:
                         "args": {
                             "title": f"【緊急】水漏れ検知: {name}",
                             "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
-                            "xp_reward": 200,
+    
                             "urgency": 4,
                             "zone": "home",
                             "task_type": ["water_leak"],
@@ -1399,5 +1402,48 @@ class RuleEngine:
                     "tone": "alert",
                 },
             })
+
+        return actions
+
+    def _evaluate_shopping_rules(self, wm, now: float) -> list[dict]:
+        """Shopping list rules: recurring due reminders + departure notification."""
+        actions = []
+        shopping = wm.shopping_state
+
+        # Recurring items due for purchase (24h cooldown per item)
+        for item in shopping.due_items:
+            key = f"shopping_due_{item.name}"
+            if self._check_cooldown_daily(key, now):
+                actions.append({
+                    "tool": "speak",
+                    "args": {
+                        "message": f"「{item.name}」がそろそろ必要です。買い物リストを確認してください。",
+                        "zone": "living_room",
+                        "tone": "caring",
+                    },
+                })
+
+        # Departure notification: occupancy drops to 0 with pending items
+        if shopping.pending_count > 0:
+            all_empty = all(
+                z.occupancy.count == 0
+                for z in wm.zones.values()
+                if z.occupancy and z.occupancy.last_update > now - 300
+            )
+            has_recent_zones = any(
+                z.occupancy.last_update > now - 300
+                for z in wm.zones.values()
+                if z.occupancy
+            )
+            if all_empty and has_recent_zones:
+                if self._check_cooldown("shopping_departure", now):
+                    actions.append({
+                        "tool": "speak",
+                        "args": {
+                            "message": f"外出検知。買い物リストに{shopping.pending_count}件のアイテムがあります。",
+                            "zone": "living_room",
+                            "tone": "caring",
+                        },
+                    })
 
         return actions

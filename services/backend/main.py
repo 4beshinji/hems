@@ -49,17 +49,19 @@ app.add_middleware(
 )
 
 from routers import (
-    tasks, voice_events, points, users, zones, pc, services,
+    tasks, voice_events, users, zones, pc, services,
     knowledge, gas, biometric, perception, home, timeseries,
-    character,
+    character, shopping,
 )
+
+# Public endpoints (no auth)
+app.include_router(shopping.public_router)
 
 # All routers require API key authentication.
 _auth = [Depends(verify_api_key)]
 
 app.include_router(tasks.router, dependencies=_auth)
 app.include_router(voice_events.router, dependencies=_auth)
-app.include_router(points.router, dependencies=_auth)
 app.include_router(users.router, dependencies=_auth)
 app.include_router(zones.router, dependencies=_auth)
 app.include_router(pc.router, dependencies=_auth)
@@ -71,6 +73,7 @@ app.include_router(perception.router, dependencies=_auth)
 app.include_router(home.router, dependencies=_auth)
 app.include_router(timeseries.router, dependencies=_auth)
 app.include_router(character.router, dependencies=_auth)
+app.include_router(shopping.router, dependencies=_auth)
 
 
 @app.get("/")

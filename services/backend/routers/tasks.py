@@ -35,7 +35,7 @@ async def _get_or_create_system_stats(db: AsyncSession) -> models.SystemStats:
     result = await db.execute(select(models.SystemStats).filter(models.SystemStats.id == 1))
     stats = result.scalars().first()
     if not stats:
-        stats = models.SystemStats(id=1, total_xp=0, tasks_completed=0, tasks_created=0)
+        stats = models.SystemStats(id=1, tasks_completed=0, tasks_created=0)
         db.add(stats)
         await db.flush()
     return stats
@@ -69,7 +69,6 @@ def _task_to_response(task_model: models.Task) -> schemas.Task:
         title=task_model.title,
         description=task_model.description,
         location=task_model.location,
-        xp_reward=task_model.xp_reward,
         is_completed=task_model.is_completed,
         is_queued=task_model.is_queued,
         created_at=task_model.created_at,
@@ -133,7 +132,6 @@ async def create_task(task: schemas.TaskCreate, db: AsyncSession = Depends(get_d
 
     if existing_task:
         existing_task.description = task.description
-        existing_task.xp_reward = task.xp_reward
         existing_task.expires_at = task.expires_at
         existing_task.task_type = json.dumps(task.task_type) if task.task_type else None
         existing_task.urgency = task.urgency
@@ -155,7 +153,6 @@ async def create_task(task: schemas.TaskCreate, db: AsyncSession = Depends(get_d
         title=task.title,
         description=task.description,
         location=task.location,
-        xp_reward=task.xp_reward,
         expires_at=task.expires_at,
         task_type=json.dumps(task.task_type) if task.task_type else None,
         urgency=task.urgency,
@@ -217,24 +214,7 @@ async def complete_task(
             task.completion_note = body.completion_note[:500]
 
     sys_stats = await _get_or_create_system_stats(db)
-    sys_stats.total_xp += task.xp_reward or 0
     sys_stats.tasks_completed += 1
-
-    # Award points to assigned user
-    if task.assigned_to and task.xp_reward:
-        user_result = await db.execute(
-            select(models.User).filter(models.User.id == task.assigned_to)
-        )
-        user = user_result.scalars().first()
-        if user:
-            user.points += task.xp_reward
-            point_log = models.PointLog(
-                user_id=user.id,
-                amount=task.xp_reward,
-                reason=f"Task completed: {task.title}",
-                task_id=task.id,
-            )
-            db.add(point_log)
 
     await db.commit()
     await db.refresh(task)
@@ -305,7 +285,6 @@ async def get_task_stats(db: AsyncSession = Depends(get_db)):
     await db.commit()
 
     return schemas.SystemStatsResponse(
-        total_xp=sys_stats.total_xp,
         tasks_completed=sys_stats.tasks_completed,
         tasks_created=sys_stats.tasks_created,
         tasks_active=active_count or 0,

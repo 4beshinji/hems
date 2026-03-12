@@ -55,6 +55,13 @@ user hems-localcraw
 topic write  hems/pc/#
 topic write  hems/services/#
 
+# --- SwitchBot Bridge ---
+# Publishes device state to hems/home/# (same namespace as HA bridge)
+# and bridge status to hems/switchbot/#.
+user hems-switchbot
+topic write  hems/home/#
+topic write  hems/switchbot/#
+
 # --- Perception service ---
 # Publishes camera/activity data to office/+/camera/# and office/+/activity/#.
 user hems-perception

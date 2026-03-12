@@ -1,6 +1,6 @@
 import { useState, memo } from 'react'
 import { motion } from 'framer-motion'
-import { CheckCircle, Clock, MapPin, Zap } from 'lucide-react'
+import { CheckCircle, Clock, MapPin } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -32,7 +32,7 @@ const TaskCard = memo(function TaskCard({ task, onComplete, enqueueAudio, audioE
       if (audioEnabled && task.completion_audio_url) {
         enqueueAudio(task.completion_audio_url, AudioPriority.USER_ACTION)
       }
-      toast.success('タスク完了！', { description: `+${task.xp_reward} XP` })
+      toast.success('タスク完了！')
       onComplete()
       setShowDialog(false)
     } catch {
@@ -78,10 +78,7 @@ const TaskCard = memo(function TaskCard({ task, onComplete, enqueueAudio, audioE
               )}
             </div>
 
-            <div className="flex items-center justify-between mt-auto pt-2 border-t border-border">
-              <span className="flex items-center gap-1 text-xp-purple font-bold text-sm">
-                <Zap className="h-4 w-4" />{task.xp_reward} XP
-              </span>
+            <div className="flex items-center justify-end mt-auto pt-2 border-t border-border">
               <Button size="sm" onClick={() => setShowDialog(true)}>
                 Complete
               </Button>

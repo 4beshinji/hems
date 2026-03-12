@@ -46,7 +46,7 @@ class DashboardClient:
             "title": task_data.get("title", ""),
             "description": task_data.get("description", ""),
             "location": task_data.get("location", ""),
-            "xp_reward": task_data.get("xp_reward", 100),
+
             "urgency": task_data.get("urgency", 2),
             "zone": task_data.get("zone", ""),
             "task_type": task_type,
@@ -81,7 +81,7 @@ class DashboardClient:
                 "title": task_data.get("title", ""),
                 "description": task_data.get("description", ""),
                 "location": task_data.get("location", ""),
-                "xp_reward": task_data.get("xp_reward", 100),
+    
                 "urgency": task_data.get("urgency", 2),
                 "zone": task_data.get("zone", ""),
                 "task_type": task_data.get("task_type", []),

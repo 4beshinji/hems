@@ -83,7 +83,7 @@ async def chat_completions(request: Request):
                 _make_tool_call("create_task", {
                     "title": "エアコンをつけてください",
                     "description": "室温が高くなっています。エアコンの電源を入れて室温を下げてください。",
-                    "xp_reward": 100,
+
                     "urgency": 3,
                     "task_type": ["environment", "urgent"],
                 })
@@ -100,7 +100,7 @@ async def chat_completions(request: Request):
                 _make_tool_call("create_task", {
                     "title": "窓を開けて換気してください",
                     "description": "CO2濃度が基準値を超えています。窓を開けて換気してください。",
-                    "xp_reward": 80,
+
                     "urgency": 2,
                     "task_type": ["environment"],
                 })
@@ -117,7 +117,7 @@ async def chat_completions(request: Request):
                 _make_tool_call("create_task", {
                     "title": "加湿器をつけてください",
                     "description": "室内が乾燥しています。加湿器を稼働させてください。",
-                    "xp_reward": 80,
+
                     "urgency": 2,
                     "task_type": ["environment"],
                 })

@@ -9,7 +9,6 @@ class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
     location: Optional[str] = None
-    xp_reward: int = Field(default=100, ge=50, le=500)
     expires_at: Optional[datetime] = None
     task_type: Optional[List[str]] = None
     urgency: int = 2
@@ -26,7 +25,6 @@ class Task(BaseModel):
     title: str
     description: Optional[str] = None
     location: Optional[str] = None
-    xp_reward: int = 100
     is_completed: bool = False
     is_queued: bool = False
     created_at: Optional[datetime] = None
@@ -63,7 +61,6 @@ class TaskAccept(BaseModel):
 # --- SystemStats ---
 
 class SystemStatsResponse(BaseModel):
-    total_xp: int = 0
     tasks_completed: int = 0
     tasks_created: int = 0
     tasks_active: int = 0
@@ -108,28 +105,7 @@ class User(BaseModel):
     id: int
     username: str
     display_name: Optional[str] = None
-    points: int = 0
     is_active: bool = True
-    created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
-
-# --- PointLog ---
-
-class PointLogCreate(BaseModel):
-    amount: int
-    reason: str
-    task_id: Optional[int] = None
-
-
-class PointLog(BaseModel):
-    id: int
-    user_id: int
-    amount: int
-    reason: str
-    task_id: Optional[int] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -162,3 +138,83 @@ class ZoneSnapshot(BaseModel):
 
 class ZonesUpdate(BaseModel):
     zones: List[ZoneSnapshot]
+
+
+# --- Shopping List ---
+
+class ShoppingItemCreate(BaseModel):
+    name: str
+    category: Optional[str] = None
+    quantity: int = 1
+    unit: Optional[str] = None
+    store: Optional[str] = None
+    price: Optional[int] = None
+    is_recurring: bool = False
+    recurrence_days: Optional[int] = None
+    notes: Optional[str] = None
+    priority: int = 1
+    created_by: str = "user"
+
+
+class ShoppingItemUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    quantity: Optional[int] = None
+    unit: Optional[str] = None
+    store: Optional[str] = None
+    price: Optional[int] = None
+    is_recurring: Optional[bool] = None
+    recurrence_days: Optional[int] = None
+    notes: Optional[str] = None
+    priority: Optional[int] = None
+
+
+class ShoppingItem(BaseModel):
+    id: int
+    name: str
+    category: Optional[str] = None
+    quantity: int = 1
+    unit: Optional[str] = None
+    store: Optional[str] = None
+    price: Optional[int] = None
+    is_purchased: bool = False
+    is_recurring: bool = False
+    recurrence_days: Optional[int] = None
+    last_purchased_at: Optional[datetime] = None
+    next_purchase_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    priority: int = 1
+    created_at: Optional[datetime] = None
+    purchased_at: Optional[datetime] = None
+    created_by: str = "user"
+    share_token: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PurchaseHistory(BaseModel):
+    id: int
+    item_name: str
+    category: Optional[str] = None
+    store: Optional[str] = None
+    price: Optional[int] = None
+    quantity: int = 1
+    purchased_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ShoppingStats(BaseModel):
+    total_items: int = 0
+    purchased_items: int = 0
+    pending_items: int = 0
+    total_spent_this_month: int = 0
+    category_breakdown: dict = {}
+
+
+class ShoppingShareResponse(BaseModel):
+    share_url: str
+    token: str
+    items: List[ShoppingItem] = []

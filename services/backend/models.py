@@ -9,7 +9,6 @@ class Task(Base):
     title = Column(String, index=True)
     description = Column(String)
     location = Column(String)
-    xp_reward = Column(Integer, default=100)
     is_completed = Column(Boolean, default=False)
 
     # Intelligent scheduling fields
@@ -50,18 +49,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     display_name = Column(String, nullable=True)
-    points = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
-class PointLog(Base):
-    __tablename__ = "point_logs"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    amount = Column(Integer, nullable=False)
-    reason = Column(String, nullable=False)
-    task_id = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -87,7 +75,39 @@ class TimeSeriesPoint(Base):
 class SystemStats(Base):
     __tablename__ = "system_stats"
     id = Column(Integer, primary_key=True, default=1)
-    total_xp = Column(Integer, default=0)
     tasks_completed = Column(Integer, default=0)
     tasks_created = Column(Integer, default=0)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ShoppingItem(Base):
+    __tablename__ = "shopping_items"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    category = Column(String, nullable=True, index=True)
+    quantity = Column(Integer, default=1)
+    unit = Column(String, nullable=True)
+    store = Column(String, nullable=True)
+    price = Column(Integer, nullable=True)
+    is_purchased = Column(Boolean, default=False)
+    is_recurring = Column(Boolean, default=False)
+    recurrence_days = Column(Integer, nullable=True)
+    last_purchased_at = Column(DateTime(timezone=True), nullable=True)
+    next_purchase_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(String, nullable=True)
+    priority = Column(Integer, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    purchased_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String, default="user")
+    share_token = Column(String, nullable=True, unique=True)
+
+
+class PurchaseHistory(Base):
+    __tablename__ = "purchase_history"
+    id = Column(Integer, primary_key=True, index=True)
+    item_name = Column(String, nullable=False, index=True)
+    category = Column(String, nullable=True)
+    store = Column(String, nullable=True)
+    price = Column(Integer, nullable=True)
+    quantity = Column(Integer, default=1)
+    purchased_at = Column(DateTime(timezone=True), server_default=func.now())

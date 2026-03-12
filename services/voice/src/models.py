@@ -7,7 +7,6 @@ class Task(BaseModel):
     title: str
     description: Optional[str] = None
     location: Optional[str] = None
-    xp_reward: int = 100
     urgency: int = 2
     zone: Optional[str] = None
     task_type: Optional[List[str]] = None
@@ -24,15 +23,17 @@ class TaskAnnounceRequest(BaseModel):
 
 
 class VoiceResponse(BaseModel):
-    audio_url: str
+    audio_url: Optional[str] = None
     text_generated: str
     duration_seconds: float = 0.0
+    played_directly: bool = False
 
 
 class DualVoiceResponse(BaseModel):
-    announcement_audio_url: str
+    announcement_audio_url: Optional[str] = None
     announcement_text: str
     announcement_duration: float = 0.0
-    completion_audio_url: str
+    completion_audio_url: Optional[str] = None
     completion_text: str
     completion_duration: float = 0.0
+    played_directly: bool = False

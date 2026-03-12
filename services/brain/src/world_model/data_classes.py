@@ -550,6 +550,46 @@ class WeatherState:
     last_update: float = 0
 
 
+# --- Shopping List State ---
+
+@dataclass
+class ShoppingItemData:
+    id: int = 0
+    name: str = ""
+    category: str = ""
+    quantity: int = 1
+    unit: str = ""
+    store: str = ""
+    price: int = 0
+    is_recurring: bool = False
+    recurrence_days: int = 0
+    priority: int = 1
+    created_by: str = "user"
+    next_purchase_at: float = 0
+
+
+@dataclass
+class ShoppingState:
+    items: list[ShoppingItemData] = field(default_factory=list)
+    last_update: float = 0
+    events: list[Event] = field(default_factory=list)
+    max_events: int = 20
+
+    def add_event(self, event: Event):
+        self.events.append(event)
+        if len(self.events) > self.max_events:
+            self.events = self.events[-self.max_events:]
+
+    @property
+    def pending_count(self) -> int:
+        return len(self.items)
+
+    @property
+    def due_items(self) -> list[ShoppingItemData]:
+        now = time.time()
+        return [i for i in self.items if i.is_recurring and 0 < i.next_purchase_at <= now]
+
+
 # --- Tri-Domain Facades ---
 
 @dataclass
@@ -562,11 +602,12 @@ class PhysicalSpace:
 
 @dataclass
 class DigitalSpace:
-    """Digital environment domain — PC, services, GAS, knowledge."""
+    """Digital environment domain — PC, services, GAS, knowledge, shopping."""
     pc_state: PCState = field(default_factory=PCState)
     services_state: ServicesState = field(default_factory=ServicesState)
     gas_state: GASState = field(default_factory=GASState)
     knowledge_state: KnowledgeState = field(default_factory=KnowledgeState)
+    shopping_state: ShoppingState = field(default_factory=ShoppingState)
 
 
 @dataclass

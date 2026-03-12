@@ -13,6 +13,7 @@ LOCALCRAW_BRIDGE_URL = os.getenv("LOCALCRAW_BRIDGE_URL", "")
 OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
+SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
 
 _HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
 _AUTH_HEADERS = {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY else {}
@@ -32,6 +33,7 @@ class ToolExecutor:
         self.obsidian_url = OBSIDIAN_BRIDGE_URL
         self.ha_url = HA_BRIDGE_URL
         self.biometric_url = BIOMETRIC_BRIDGE_URL
+        self.switchbot_url = SWITCHBOT_BRIDGE_URL
         self.voice_url = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self.dashboard_api_url = os.getenv("DASHBOARD_API_URL", "http://backend:8000")
 
@@ -100,6 +102,16 @@ class ToolExecutor:
                 return await self._handle_get_sleep_summary(arguments)
             elif tool_name == "get_perception_status":
                 return await self._handle_get_perception_status(arguments)
+            elif tool_name == "add_shopping_item":
+                return await self._handle_add_shopping_item(arguments)
+            elif tool_name == "get_shopping_list":
+                return await self._handle_get_shopping_list(arguments)
+            elif tool_name == "get_switchbot_devices":
+                return await self._handle_get_switchbot_devices(arguments)
+            elif tool_name == "control_switchbot":
+                return await self._handle_control_switchbot(arguments)
+            elif tool_name == "send_switchbot_ir":
+                return await self._handle_send_switchbot_ir(arguments)
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -109,7 +121,6 @@ class ToolExecutor:
     async def _handle_create_task(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Create a task via DashboardClient and register with TaskQueueManager."""
         title = args.get("title", "")
-        xp_reward = args.get("xp_reward", 100)
         urgency = args.get("urgency", 2)
         zone = args.get("zone")
 
@@ -132,7 +143,7 @@ class ToolExecutor:
 
             return {
                 "success": True,
-                "result": f"タスク '{title}' を作成しました (ID: {task_id}, XP報酬: {xp_reward})",
+                "result": f"タスク '{title}' を作成しました (ID: {task_id})",
             }
         else:
             return {"success": False, "error": "タスクの作成に失敗しました"}
@@ -678,6 +689,161 @@ class ToolExecutor:
         if not zones_data:
             return {"success": True, "result": "カメラデータがまだありません"}
         return {"success": True, "result": json.dumps({"zones": zones_data}, ensure_ascii=False)}
+
+    # --- Shopping tools ---
+
+    async def _handle_add_shopping_item(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Add item to shopping list via backend API."""
+        name = args.get("name", "")
+        try:
+            async with self._session.post(
+                f"{self.dashboard_api_url}/shopping/",
+                json={
+                    "name": name,
+                    "category": args.get("category"),
+                    "quantity": args.get("quantity", 1),
+                    "unit": args.get("unit"),
+                    "store": args.get("store"),
+                    "price": args.get("price"),
+                    "is_recurring": args.get("is_recurring", False),
+                    "recurrence_days": args.get("recurrence_days"),
+                    "priority": args.get("priority", 1),
+                    "created_by": "brain",
+                },
+                timeout=aiohttp.ClientTimeout(total=10),
+                headers=_AUTH_HEADERS,
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": f"買い物リストに「{name}」を追加しました"}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_get_shopping_list(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get shopping list from backend API."""
+        params = {}
+        if args.get("category"):
+            params["category"] = args["category"]
+        if args.get("store"):
+            params["store"] = args["store"]
+        try:
+            async with self._session.get(
+                f"{self.dashboard_api_url}/shopping/",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10),
+                headers=_AUTH_HEADERS,
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    if not data:
+                        return {"success": True, "result": "買い物リストは空です"}
+                    items = []
+                    for item in data[:15]:
+                        name = item.get("name", "")
+                        qty = item.get("quantity", 1)
+                        cat = item.get("category", "")
+                        store = item.get("store", "")
+                        price = item.get("price")
+                        parts = [f"- {name}"]
+                        if qty > 1:
+                            unit = item.get("unit", "個")
+                            parts.append(f" x{qty}{unit}")
+                        if cat:
+                            parts.append(f" [{cat}]")
+                        if store:
+                            parts.append(f" @{store}")
+                        if price:
+                            parts.append(f" ¥{price}")
+                        if item.get("is_recurring"):
+                            parts.append(" (定期)")
+                        items.append("".join(parts))
+                    return {"success": True, "result": f"買い物リスト ({len(data)}件):\n" + "\n".join(items)}
+                return {"success": False, "error": f"HTTP {resp.status}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    # --- SwitchBot tools ---
+
+    async def _handle_get_switchbot_devices(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get SwitchBot device list from bridge."""
+        if not self.switchbot_url:
+            return {"success": False, "error": "SwitchBot bridge not configured"}
+        try:
+            async with self._session.get(
+                f"{self.switchbot_url}/api/devices",
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    devices = data.get("devices", [])
+                    ir_devices = data.get("ir_devices", [])
+                    lines = []
+                    for d in devices:
+                        name = d.get("device_name", "")
+                        dtype = d.get("device_type", "")
+                        zone = d.get("zone", "")
+                        did = d.get("device_id", "")
+                        lines.append(f"- {name} ({dtype}) [{zone}] ID:{did}")
+                    for d in ir_devices:
+                        name = d.get("device_name", "")
+                        rtype = d.get("remote_type", "")
+                        did = d.get("device_id", "")
+                        lines.append(f"- {name} (IR:{rtype}) ID:{did}")
+                    summary = f"SwitchBotデバイス ({len(devices)}台 + IR {len(ir_devices)}台):\n"
+                    summary += "\n".join(lines) if lines else "デバイスなし"
+                    return {"success": True, "result": summary}
+                return {"success": False, "error": f"HTTP {resp.status}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_control_switchbot(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Send command to a SwitchBot device via bridge."""
+        if not self.switchbot_url:
+            return {"success": False, "error": "SwitchBot bridge not configured"}
+        device_id = args.get("device_id", "")
+        command = args.get("command", "")
+        parameter = args.get("parameter", "default")
+        try:
+            async with self._session.post(
+                f"{self.switchbot_url}/api/devices/{device_id}/command",
+                json={
+                    "command": command,
+                    "parameter": parameter,
+                    "command_type": "command",
+                },
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": f"SwitchBot {command} -> {device_id}"}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_send_switchbot_ir(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Send IR command via SwitchBot Hub."""
+        if not self.switchbot_url:
+            return {"success": False, "error": "SwitchBot bridge not configured"}
+        device_id = args.get("device_id", "")
+        command = args.get("command", "")
+        parameter = args.get("parameter", "default")
+        try:
+            async with self._session.post(
+                f"{self.switchbot_url}/api/devices/{device_id}/command",
+                json={
+                    "command": command,
+                    "parameter": parameter,
+                    "command_type": "customize",
+                },
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": f"SwitchBot IR {command} -> {device_id}"}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     async def _ha_service_call(self, entity_id: str, service: str,
                                data: dict = None) -> Dict[str, Any]:

@@ -34,7 +34,6 @@ class SpeechGenerator:
 タイトル: {task.title}
 説明: {task.description or '詳細なし'}
 場所: {task.location or '場所不明'}
-XP報酬: {task.xp_reward}XP
 緊急度: {task.urgency}/4
 エリア: {task.zone or '不明'}"""
 
@@ -44,7 +43,7 @@ XP報酬: {task.xp_reward}XP
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
             loc = f"{task.zone or ''}{task.location or ''}".strip() or "指定場所"
-            return f"{urgency_prefix}{loc}で{task.title}をお願いします。{task.xp_reward}XPです。"
+            return f"{urgency_prefix}{loc}で{task.title}をお願いします。"
 
     async def generate_completion_text(self, task: Task) -> str:
         prompt = f"""{self._persona}

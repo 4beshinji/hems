@@ -17,6 +17,7 @@ from .data_classes import (
     WeatherState, WeatherForecast,
     BiometricState, HeartRateData, SleepData, ActivityData, StressData, FatigueData, SpO2Data,
     HRVData, BodyTemperatureData, RespiratoryRateData, ScreenTimeData,
+    ShoppingState, ShoppingItemData,
     PhysicalSpace, DigitalSpace, UserState,
 )
 from .sensor_fusion import SensorFusion
@@ -168,6 +169,12 @@ class WorldModel:
     def biometric_state(self, value: BiometricState):
         self.user.biometrics = value
 
+    # --- Shopping ---
+
+    @property
+    def shopping_state(self) -> ShoppingState:
+        return self.digital.shopping_state
+
     # --- Guest mode ---
 
     @property
@@ -310,6 +317,10 @@ class WorldModel:
         # hems/gas/* topics (GAS bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "gas":
             self._update_gas_state(parts[2:], payload)
+
+        # hems/shopping/* topics
+        elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "shopping":
+            self._handle_shopping_message(parts[2], payload)
 
         # hems/personal/* topics (Phase 2 — data-bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "personal":
@@ -571,6 +582,18 @@ class WorldModel:
                 severity=0,
                 data=payload,
             ))
+
+    def _handle_shopping_message(self, event_type: str, payload: dict):
+        """Handle hems/shopping/* MQTT events (added, updated, purchased)."""
+        ss = self.shopping_state
+        ss.last_update = time.time()
+        ss.add_event(Event(
+            event_type=f"shopping_{event_type}",
+            description=f"買い物リスト: {payload.get('name', '')} ({event_type})",
+            severity=0,
+            zone="",
+            data=payload,
+        ))
 
     def _update_gas_state(self, path_parts: list[str], payload: dict):
         """Handle hems/gas/* topics from GAS bridge."""
@@ -1282,6 +1305,15 @@ class WorldModel:
                 last = ks.recent_changes[-1]
                 kb_parts.append(f"  最終変更: {last['title']}")
             lines.append("\n".join(kb_parts))
+
+        # Shopping list
+        ss = self.shopping_state
+        if ss.pending_count > 0:
+            shop_parts = [f"### 買い物リスト ({ss.pending_count}件)"]
+            due = ss.due_items
+            if due:
+                shop_parts.append(f"  期限到来: {', '.join(i.name for i in due[:5])}")
+            lines.append("\n".join(shop_parts))
 
         return "\n\n".join(lines)
 

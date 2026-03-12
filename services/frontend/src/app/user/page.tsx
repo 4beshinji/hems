@@ -4,7 +4,6 @@ import SleepCard from '@/components/user/SleepCard'
 import StressCard from '@/components/user/StressCard'
 import ActivityCard from '@/components/user/ActivityCard'
 import BodyMetricsCard from '@/components/user/BodyMetricsCard'
-import XPPanel from '@/components/user/XPPanel'
 import { fetchBiometric } from '@/lib/api'
 
 export default function UserPage() {
@@ -42,9 +41,6 @@ export default function UserPage() {
           バイオメトリクスデータなし — biometric bridge が接続されていません
         </p>
       )}
-      <section>
-        <XPPanel />
-      </section>
     </div>
   )
 }

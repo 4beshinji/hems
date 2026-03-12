@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+aiohttp
+paho-mqtt>=2.0
+loguru
+python-dotenv

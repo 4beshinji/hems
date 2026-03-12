@@ -42,7 +42,6 @@ class TaskQueueManager:
                     title=t.get("title", ""),
                     urgency=t.get("urgency", 2),
                     zone=t.get("zone", ""),
-                    xp_reward=t.get("xp_reward", 100),
                 )
                 queued.append((qt.compute_priority(), qt))
 

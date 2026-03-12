@@ -17,7 +17,6 @@ interface Props {
   onToggleAudio: () => void
   darkModePreference: DarkModePreference
   onCycleDarkMode: () => void
-  totalXp?: number
 }
 
 export default function AppSidebar({
@@ -25,7 +24,6 @@ export default function AppSidebar({
   onToggleAudio,
   darkModePreference,
   onCycleDarkMode,
-  totalXp,
 }: Props) {
   const DarkModeIcon = darkModePreference === 'dark' ? Moon :
     darkModePreference === 'light' ? Sun : Gauge
@@ -64,11 +62,6 @@ export default function AppSidebar({
 
       <div className="p-3 space-y-2">
         <Separator />
-        {totalXp != null && (
-          <div className="flex items-center gap-2 px-3 py-2 text-sm">
-            <span className="font-bold text-xp-purple">{totalXp} XP</span>
-          </div>
-        )}
         <div className="flex gap-1 px-1">
           <Button
             variant="ghost"

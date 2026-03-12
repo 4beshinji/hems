@@ -3,7 +3,7 @@
 HEMS Phase 1 Integration Test Suite
 
 Tests all services end-to-end:
-  1. Backend API: task CRUD, users, points, voice events, stats, duplicate detection
+  1. Backend API: task CRUD, users, voice events, stats, duplicate detection
   2. Voice Service: synthesize, announce, announce_with_completion, feedback, audio serving
   3. Brain: cognitive cycle via MQTT sensor input, event store
   4. Frontend: nginx proxy to backend + voice + audio
@@ -137,7 +137,6 @@ def test_tasks(user_id: int):
     task_data = {
         "title": "テスト換気タスク",
         "description": "CO2が高いので換気してください",
-        "xp_reward": 150,
         "urgency": 3,
         "zone": "living_room",
         "task_type": ["environment"],
@@ -163,7 +162,6 @@ def test_tasks(user_id: int):
     task_data2 = {
         "title": "テスト: 加湿器をつける",
         "description": "湿度が低い",
-        "xp_reward": 80,
         "urgency": 1,
         "zone": "bedroom",
     }
@@ -175,7 +173,6 @@ def test_tasks(user_id: int):
     dup_data = {
         "title": "別のタイトルだが同ゾーン同タイプ",
         "description": "same zone and type",
-        "xp_reward": 200,
         "zone": "living_room",
         "task_type": ["environment"],
     }
@@ -209,7 +206,6 @@ def test_tasks(user_id: int):
     test("Task stats endpoint", status == 200 and isinstance(stats, dict),
          detail=str(stats)[:100])
     test("Stats tasks_completed >= 1", stats.get("tasks_completed", 0) >= 1)
-    test("Stats total_xp > 0", stats.get("total_xp", 0) > 0)
 
     # Remind
     status, reminded = _req("PUT", f"{BASE_BACKEND}/tasks/{task2_id}/reminded")
@@ -219,43 +215,10 @@ def test_tasks(user_id: int):
 
 
 # ============================================================
-# 4. Backend: Points
-# ============================================================
-def test_points(user_id: int, task_id: int):
-    print("\n=== 4. Backend: Points ===")
-
-    if not user_id:
-        test("Points test (skipped, no user)", False)
-        return
-
-    # Check point log was created by task completion
-    status, logs = _req("GET", f"{BASE_BACKEND}/points/{user_id}")
-    test("Point history for user",
-         status == 200 and isinstance(logs, list),
-         detail=f"status={status}, len={len(logs) if isinstance(logs, list) else '?'}")
-
-    has_task_points = any(l.get("task_id") == task_id for l in logs) if isinstance(logs, list) else False
-    test("Task completion created point log", has_task_points,
-         detail=f"looking for task_id={task_id}")
-
-    # Grant additional points
-    status, granted = _req("POST", f"{BASE_BACKEND}/points/{user_id}/grant", {
-        "amount": 50, "reason": "テストボーナス",
-    })
-    test("Grant points", status == 200 and granted.get("amount") == 50)
-
-    # Check user balance updated
-    status, user = _req("GET", f"{BASE_BACKEND}/users/{user_id}")
-    test("User points updated",
-         status == 200 and user.get("points", 0) >= 150,
-         detail=f"points={user.get('points')}")
-
-
-# ============================================================
-# 5. Backend: Voice Events
+# 4. Backend: Voice Events
 # ============================================================
 def test_voice_events():
-    print("\n=== 5. Backend: Voice Events ===")
+    print("\n=== 4. Backend: Voice Events ===")
 
     status, evt = _req("POST", f"{BASE_BACKEND}/voice_events/", {
         "message": "テスト音声イベント",
@@ -271,10 +234,10 @@ def test_voice_events():
 
 
 # ============================================================
-# 6. Voice Service: TTS
+# 5. Voice Service: TTS
 # ============================================================
 def test_voice_service():
-    print("\n=== 6. Voice Service: TTS ===")
+    print("\n=== 5. Voice Service: TTS ===")
 
     # Synthesize
     status, synth = _req("POST", f"{BASE_VOICE}/api/voice/synthesize", {
@@ -299,7 +262,6 @@ def test_voice_service():
             "id": 99,
             "title": "テスト: 部屋の掃除",
             "description": "リビングの掃除をしてください",
-            "xp_reward": 200,
             "urgency": 2,
             "zone": "living_room",
         }
@@ -313,7 +275,6 @@ def test_voice_service():
             "id": 100,
             "title": "テスト: ゴミ出し",
             "description": "ゴミ袋を集積所に出してください",
-            "xp_reward": 100,
             "urgency": 1,
             "zone": "kitchen",
         }
@@ -332,10 +293,10 @@ def test_voice_service():
 
 
 # ============================================================
-# 7. Frontend: nginx proxy
+# 6. Frontend: nginx proxy
 # ============================================================
 def test_frontend_proxy():
-    print("\n=== 7. Frontend: Nginx Proxy ===")
+    print("\n=== 6. Frontend: Nginx Proxy ===")
 
     # /api/ -> backend
     status, tasks = _req("GET", f"{BASE_FRONTEND}/api/tasks/")
@@ -363,10 +324,10 @@ def test_frontend_proxy():
 
 
 # ============================================================
-# 8. Mock LLM
+# 7. Mock LLM
 # ============================================================
 def test_mock_llm():
-    print("\n=== 8. Mock LLM ===")
+    print("\n=== 7. Mock LLM ===")
 
     # Brain mode (with tools) — high CO2
     status, resp = _req("POST", f"{BASE_MOCK_LLM}/v1/chat/completions", {
@@ -385,7 +346,7 @@ def test_mock_llm():
     # Voice mode (no tools) — task announcement
     status, resp2 = _req("POST", f"{BASE_MOCK_LLM}/v1/chat/completions", {
         "messages": [
-            {"role": "user", "content": "以下のタスクのアナウンスを作成:\nタイトル: テスト\nXP: 100"},
+            {"role": "user", "content": "以下のタスクのアナウンスを作成:\nタイトル: テスト"},
         ],
     })
     test("Mock LLM text gen mode", status == 200)
@@ -395,10 +356,10 @@ def test_mock_llm():
 
 
 # ============================================================
-# 9. Brain E2E: MQTT → cognitive cycle → task creation
+# 8. Brain E2E: MQTT → cognitive cycle → task creation
 # ============================================================
 def test_brain_e2e():
-    print("\n=== 9. Brain E2E ===")
+    print("\n=== 8. Brain E2E ===")
 
     # Get current task count
     status, tasks_before = _req("GET", f"{BASE_BACKEND}/tasks/")
@@ -441,10 +402,10 @@ def test_brain_e2e():
 
 
 # ============================================================
-# 10. Character system: hot-reload
+# 9. Character system: hot-reload
 # ============================================================
 def test_character_reload():
-    print("\n=== 10. Character Hot-Reload ===")
+    print("\n=== 9. Character Hot-Reload ===")
 
     # Send reload command via MQTT
     mqtt_pub("hems/brain/reload-character", {"action": "reload"})
@@ -461,10 +422,10 @@ def test_character_reload():
 
 
 # ============================================================
-# 11. Event Store: data written
+# 10. Event Store: data written
 # ============================================================
 def test_event_store():
-    print("\n=== 11. Event Store ===")
+    print("\n=== 10. Event Store ===")
 
     # Check if SQLite DB exists and has data
     result = subprocess.run(
@@ -516,7 +477,6 @@ if __name__ == "__main__":
     test_health()
     user_id = test_users()
     task_id, task2_id = test_tasks(user_id)
-    test_points(user_id, task_id)
     test_voice_events()
     test_voice_service()
     test_frontend_proxy()

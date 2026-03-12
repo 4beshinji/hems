@@ -105,7 +105,6 @@ export default function AppLayout() {
   }, [tasksQuery.data, isEnabled, enqueue])
 
   const activeTasks = tasksQuery.data?.filter((t: TaskData) => !t.is_completed).length ?? 0
-  const totalXp = statsQuery.data?.total_xp
 
   const toggleAudio = useCallback(() => setAudioEnabled(v => !v), [])
 
@@ -116,7 +115,6 @@ export default function AppLayout() {
         onToggleAudio={toggleAudio}
         darkModePreference={darkModePreference}
         onCycleDarkMode={cycleDarkMode}
-        totalXp={totalXp}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
@@ -124,7 +122,6 @@ export default function AppLayout() {
           onToggleAudio={toggleAudio}
           darkModePreference={darkModePreference}
           onCycleDarkMode={cycleDarkMode}
-          totalXp={totalXp}
         />
         <main className="flex-1 p-4 lg:p-6 pb-20 lg:pb-6">
           <Outlet context={{

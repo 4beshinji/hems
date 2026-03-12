@@ -142,10 +142,6 @@ class Sanitizer:
         if not title or len(title) > 200:
             return {"allowed": False, "reason": "Invalid title"}
 
-        xp = args.get("xp_reward", 100)
-        if not isinstance(xp, (int, float)) or not (50 <= xp <= 500):
-            return {"allowed": False, "reason": f"xp_reward {xp} out of range (50-500)"}
-
         urgency = args.get("urgency", 2)
         if isinstance(urgency, (int, float)) and not (0 <= urgency <= 4):
             logger.warning(f"REJECTED: Urgency {urgency} out of range 0-4")

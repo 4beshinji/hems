@@ -49,6 +49,14 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: 'dashboard',
+        element: (
+          <Suspense fallback={<LoadingState />}>
+            <DashboardPage />
+          </Suspense>
+        ),
+      },
+      {
         path: 'physical',
         element: (
           <Suspense fallback={<LoadingState />}>

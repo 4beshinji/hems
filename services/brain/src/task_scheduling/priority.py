@@ -21,7 +21,6 @@ class QueuedTask:
     urgency: int = 2
     zone: str = ""
     task_type: list = None
-    xp_reward: int = 100
     estimated_duration: int = 10
     created_at: float = 0
 

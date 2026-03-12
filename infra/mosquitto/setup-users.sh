@@ -33,6 +33,7 @@ SERVICES=(
     hems-obsidian
     hems-localcraw
     hems-perception
+    hems-switchbot
     hems-iot
 )
 

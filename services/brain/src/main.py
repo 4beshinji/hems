@@ -46,6 +46,8 @@ BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
 BIOMETRIC_ENABLED = bool(BIOMETRIC_BRIDGE_URL)
 PERCEPTION_BRIDGE_URL = os.getenv("PERCEPTION_BRIDGE_URL", "")
 PERCEPTION_ENABLED = bool(PERCEPTION_BRIDGE_URL)
+SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
+SWITCHBOT_ENABLED = bool(SWITCHBOT_BRIDGE_URL)
 
 SCHEDULE_STATE_PATH = os.getenv("SCHEDULE_STATE_PATH", "/app/data/schedule_learner_state.json")
 
@@ -108,6 +110,12 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return f"agent={args.get('agent_id', '')}, tool={args.get('tool_name', '')}"
     elif tool_name == "get_active_tasks":
         return "active_tasks"
+    elif tool_name == "get_switchbot_devices":
+        return "switchbot_devices"
+    elif tool_name == "control_switchbot":
+        return f"device={args.get('device_id', '')}, cmd={args.get('command', '')}"
+    elif tool_name == "send_switchbot_ir":
+        return f"ir_device={args.get('device_id', '')}, cmd={args.get('command', '')}"
     return str(args)[:50]
 
 
@@ -122,7 +130,7 @@ class Brain:
         self.device_registry = DeviceRegistry()
         self.event_writer: EventWriter | None = None
         self.character = load_character()
-        self.schedule_learner = ScheduleLearner() if (HA_ENABLED or BIOMETRIC_ENABLED) else None
+        self.schedule_learner = ScheduleLearner() if (HA_ENABLED or BIOMETRIC_ENABLED or SWITCHBOT_ENABLED) else None
         self.rule_engine = RuleEngine(schedule_learner=self.schedule_learner)
         self.power_mode_manager = PowerModeManager()
 
@@ -380,6 +388,7 @@ class Brain:
             ha_enabled=HA_ENABLED,
             biometric_enabled=BIOMETRIC_ENABLED,
             perception_enabled=PERCEPTION_ENABLED,
+            switchbot_enabled=SWITCHBOT_ENABLED,
         )
         user_content = f"## 現在の自宅状態\n{llm_context}"
 
@@ -432,7 +441,9 @@ class Brain:
         tools = get_tools(openclaw_enabled=OPENCLAW_ENABLED, services_enabled=services_enabled,
                           obsidian_enabled=OBSIDIAN_ENABLED, ha_enabled=HA_ENABLED,
                           biometric_enabled=BIOMETRIC_ENABLED,
-                          perception_enabled=PERCEPTION_ENABLED)
+                          perception_enabled=PERCEPTION_ENABLED,
+                          shopping_enabled=True,
+                          switchbot_enabled=SWITCHBOT_ENABLED)
 
         tool_call_history = []
         speak_count = 0
@@ -725,6 +736,10 @@ class Brain:
                 logger.info(f"Perception integration enabled (bridge={PERCEPTION_BRIDGE_URL})")
             else:
                 logger.info("Perception integration disabled (PERCEPTION_BRIDGE_URL not set)")
+            if SWITCHBOT_ENABLED:
+                logger.info(f"SwitchBot integration enabled (bridge={SWITCHBOT_BRIDGE_URL})")
+            else:
+                logger.info("SwitchBot integration disabled (SWITCHBOT_BRIDGE_URL not set)")
             # Load persisted schedule learner state
             self._load_schedule_state()
 

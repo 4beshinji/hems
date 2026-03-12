@@ -72,9 +72,16 @@ async def root():
     return {"service": "HEMS Voice", "tts": tts_provider.name if tts_provider else "none"}
 
 
+
 @app.post("/api/voice/synthesize", response_model=VoiceResponse)
 async def synthesize_text(req: SynthesizeRequest):
     result = await tts_provider.synthesize(req.text, voice=req.tone or "neutral")
+    if not result.audio_data:
+        return VoiceResponse(
+            text_generated=req.text,
+            duration_seconds=result.duration or 0.0,
+            played_directly=True,
+        )
     fname = f"speak_{uuid.uuid4()}.mp3"
     await _save_audio(result, AUDIO_DIR / fname)
     return VoiceResponse(audio_url=f"/audio/{fname}", text_generated=req.text, duration_seconds=_estimate_duration(result))
@@ -84,6 +91,12 @@ async def synthesize_text(req: SynthesizeRequest):
 async def announce_task(req: TaskAnnounceRequest):
     text = await speech_gen.generate_speech_text(req.task)
     result = await tts_provider.synthesize(text, voice="neutral")
+    if not result.audio_data:
+        return VoiceResponse(
+            text_generated=text,
+            duration_seconds=result.duration or 0.0,
+            played_directly=True,
+        )
     fname = f"task_{uuid.uuid4()}.mp3"
     await _save_audio(result, AUDIO_DIR / fname)
     return VoiceResponse(audio_url=f"/audio/{fname}", text_generated=text, duration_seconds=_estimate_duration(result))
@@ -95,6 +108,15 @@ async def announce_with_completion(req: TaskAnnounceRequest):
     comp_text = await speech_gen.generate_completion_text(req.task)
     ann_result = await tts_provider.synthesize(ann_text, voice="neutral")
     comp_result = await tts_provider.synthesize(comp_text, voice="happy")
+    direct = not ann_result.audio_data
+    if direct:
+        return DualVoiceResponse(
+            announcement_text=ann_text,
+            announcement_duration=ann_result.duration or 0.0,
+            completion_text=comp_text,
+            completion_duration=comp_result.duration or 0.0,
+            played_directly=True,
+        )
     ann_fname = f"ann_{uuid.uuid4()}.mp3"
     comp_fname = f"comp_{uuid.uuid4()}.mp3"
     await _save_audio(ann_result, AUDIO_DIR / ann_fname)
@@ -111,6 +133,12 @@ async def announce_with_completion(req: TaskAnnounceRequest):
 async def generate_feedback(feedback_type: str):
     text = await speech_gen.generate_feedback(feedback_type)
     result = await tts_provider.synthesize(text, voice="neutral")
+    if not result.audio_data:
+        return VoiceResponse(
+            text_generated=text,
+            duration_seconds=result.duration or 0.0,
+            played_directly=True,
+        )
     fname = f"fb_{uuid.uuid4()}.mp3"
     await _save_audio(result, AUDIO_DIR / fname)
     return VoiceResponse(audio_url=f"/audio/{fname}", text_generated=text, duration_seconds=_estimate_duration(result))

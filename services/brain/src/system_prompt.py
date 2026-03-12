@@ -9,7 +9,8 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
                          obsidian_enabled: bool = False,
                          ha_enabled: bool = False,
                          biometric_enabled: bool = False,
-                         perception_enabled: bool = False) -> dict:
+                         perception_enabled: bool = False,
+                         switchbot_enabled: bool = False) -> dict:
     """Build system message with safety rules + character personality.
 
     Args:
@@ -20,6 +21,7 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
         ha_enabled: Whether Home Assistant smart home tools are available.
         biometric_enabled: Whether biometric tools are available.
         perception_enabled: Whether perception (camera) tools are available.
+        switchbot_enabled: Whether SwitchBot direct API tools are available.
     """
 
     # Base safety rules (NOT overridable by character)
@@ -28,8 +30,7 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 
 ## 行動原則
 1. **安全第一**: 人の健康・安全に関わる問題は最優先で対応する
-2. **コスト意識**: XP報酬は難易度に応じて設定する（簡単:50-100、中程度:100-300、重労働:300-500）
-3. **重複回避**: タスク作成前にget_active_tasksで既存タスクを確認し、類似タスクがあれば作成しない
+2. **重複回避**: タスク作成前にget_active_tasksで既存タスクを確認し、類似タスクがあれば作成しない
 4. **段階的対応**: まず状況を確認し、必要な場合のみアクションを取る
 5. **プライバシー**: 個人を特定する情報は扱わない
 
@@ -84,7 +85,7 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 
 ## ツール使用ルール
 - speak: 短い通知（70文字以内）。tone: neutral/caring/humorous/alert
-- create_task: ダッシュボードにタスク作成。xp_reward: 50-500
+- create_task: ダッシュボードにタスク作成
 - get_zone_status: ゾーンの詳細状態を確認
 - get_active_tasks: 重複防止のため、タスク作成前に確認すること
 - get_device_status: デバイス状態を確認。コマンド失敗時や事前確認に使用
@@ -190,6 +191,23 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 - 睡眠品質50未満の朝 → speakで体調を気遣う（tone: caring）
 - 歩数が目標達成 → speakでお祝い（tone: humorous）
 - バイオメトリクスデータがない場合は無視する（エラーにしない）"""
+
+    if switchbot_enabled:
+        base += """
+
+## SwitchBot（直接API連携）
+- get_switchbot_devices: SwitchBotデバイスの一覧と状態を取得
+- control_switchbot: デバイスにコマンド送信（turnOn/turnOff/toggle/setBrightness/setPosition/setColorTemperature/press）
+- send_switchbot_ir: Hub経由で赤外線リモコンコマンドを送信（エアコン・テレビ等）
+
+## SwitchBot制御ルール
+- device_idはSwitchBotアプリで確認できるデバイスIDを使用する
+- 照明の明るさは0-100（SwitchBot独自、HAの0-255とは異なる）
+- カーテンのposition: 0=閉、100=全開
+- 色温度: 2700-6500K（SwitchBot独自）
+- IR（赤外線）リモコン: send_switchbot_irを使用。エアコンsetAllは '温度,モード,風速,電源' 形式
+- SwitchBotセンサー（Meter、Contact、Motion等）のデータはWorldModelに自動統合される
+- SwitchBotとHA両方のデバイスが存在する場合、entity_idのプレフィックスで区別する（switchbot.xxx vs light.xxx）"""
 
     # Character injection
     if character:
