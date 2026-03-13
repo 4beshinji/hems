@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 import time
 
+from loguru import logger
+
 from config import FATIGUE_HR_WEIGHT, FATIGUE_SLEEP_WEIGHT, FATIGUE_STRESS_WEIGHT, DEDUP_WINDOW
 
 

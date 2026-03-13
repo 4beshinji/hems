@@ -23,6 +23,9 @@ HR_CRITICAL_SLEEP = int(os.getenv("HEMS_THRESHOLD_HR_CRITICAL_SLEEP", "150"))
 from schedule_learner import ScheduleLearner  # noqa: E402
 
 
+# Biometric stale data detection (minutes without update before alerting)
+BIOMETRIC_STALE_MINUTES = int(os.getenv("HEMS_BIOMETRIC_STALE_MINUTES", "30"))
+
 GPU_TYPE = os.getenv("GPU_TYPE", "none")  # amd | nvidia | none
 GPU_HIGH_LOAD_THRESHOLD = int(os.getenv("GPU_HIGH_LOAD_THRESHOLD", "80"))
 
@@ -664,6 +667,21 @@ class RuleEngine:
         actions = []
         bio = world_model.biometric_state
         hour = datetime.now().hour
+
+        # 0. Stale biometric data alert
+        if (bio.bridge_connected
+                and bio.last_update > 0
+                and (now - bio.last_update) > BIOMETRIC_STALE_MINUTES * 60
+                and self._check_cooldown("bio_stale_data", now)):
+            stale_minutes = int((now - bio.last_update) / 60)
+            actions.append({
+                "tool": "speak",
+                "args": {
+                    "message": f"バイオメトリクスデータが{stale_minutes}分間更新されていません。スマートバンドの接続を確認してください。",
+                    "zone": "home",
+                    "tone": "alert",
+                },
+            })
 
         # 1. High heart rate alert
         if (bio.heart_rate.bpm is not None and bio.heart_rate.bpm > 120

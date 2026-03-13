@@ -1,23 +1,99 @@
 """
-Biometric data — in-memory store updated by Brain snapshots (biometric-bridge integration).
+Biometric data — persisted to DB, updated by Brain snapshots (biometric-bridge integration).
 """
-from fastapi import APIRouter
+import random
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends
+from sqlalchemy import select, desc, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_db
+from models import BiometricReading
 
 router = APIRouter(prefix="/biometric", tags=["biometric"])
 
-# In-memory store: brain pushes snapshots every ~30s
-_bio_store: dict = {}
+# Run retention cleanup roughly every 100 writes
+_write_count = 0
+_RETENTION_DAYS = 90
+_CLEANUP_INTERVAL = 100
 
 
 @router.get("/")
-async def get_biometric():
+async def get_biometric(db: AsyncSession = Depends(get_db)):
     """Get latest biometric data."""
-    return _bio_store if _bio_store else {"status": "no_data"}
+    result = await db.execute(
+        select(BiometricReading).order_by(desc(BiometricReading.recorded_at)).limit(1)
+    )
+    reading = result.scalar_one_or_none()
+    if not reading:
+        return {"status": "no_data"}
+    return _reading_to_dict(reading)
+
+
+@router.get("/history")
+async def get_biometric_history(
+    hours: int = 24,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get biometric history for the given time window."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    result = await db.execute(
+        select(BiometricReading)
+        .where(BiometricReading.recorded_at >= cutoff)
+        .order_by(BiometricReading.recorded_at)
+    )
+    readings = result.scalars().all()
+    return [_reading_to_dict(r) for r in readings]
 
 
 @router.post("/snapshot")
-async def update_biometric(data: dict):
+async def update_biometric(data: dict, db: AsyncSession = Depends(get_db)):
     """Receive biometric snapshot from Brain (called every cognitive cycle)."""
-    _bio_store.clear()
-    _bio_store.update(data)
+    reading = BiometricReading(
+        provider=data.get("provider", "unknown"),
+        heart_rate=data.get("heart_rate"),
+        resting_heart_rate=data.get("resting_heart_rate"),
+        spo2=data.get("spo2"),
+        steps=data.get("steps"),
+        calories=data.get("calories"),
+        active_minutes=data.get("active_minutes"),
+        stress_level=data.get("stress_level"),
+        fatigue_score=data.get("fatigue_score"),
+        sleep_duration_minutes=data.get("sleep_duration_minutes"),
+        sleep_quality_score=data.get("sleep_quality_score"),
+        hrv_ms=data.get("hrv_ms"),
+        body_temperature=data.get("body_temperature"),
+        respiratory_rate=data.get("respiratory_rate"),
+    )
+    db.add(reading)
+    await db.commit()
+
+    # Periodic retention cleanup
+    global _write_count
+    _write_count += 1
+    if _write_count >= _CLEANUP_INTERVAL:
+        _write_count = random.randint(0, 10)  # jitter to avoid thundering herd
+        cutoff = datetime.now(timezone.utc) - timedelta(days=_RETENTION_DAYS)
+        await db.execute(
+            delete(BiometricReading).where(BiometricReading.recorded_at < cutoff)
+        )
+        await db.commit()
+
     return {"updated": True}
+
+
+def _reading_to_dict(reading: BiometricReading) -> dict:
+    result = {"provider": reading.provider}
+    if reading.recorded_at:
+        result["recorded_at"] = reading.recorded_at.isoformat()
+    for col in (
+        "heart_rate", "resting_heart_rate", "spo2", "steps", "calories",
+        "active_minutes", "stress_level", "fatigue_score",
+        "sleep_duration_minutes", "sleep_quality_score",
+        "hrv_ms", "body_temperature", "respiratory_rate",
+    ):
+        val = getattr(reading, col, None)
+        if val is not None:
+            result[col] = val
+    return result

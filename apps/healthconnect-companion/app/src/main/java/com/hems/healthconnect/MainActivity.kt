@@ -87,41 +87,67 @@ class MainActivity : AppCompatActivity() {
             }
 
             try {
+                val dao = HemsDatabase.getInstance(this@MainActivity).pendingReadingDao()
+
                 val data = withContext(Dispatchers.IO) {
                     reader.readLatest()
                 }
 
+                // Always queue locally first
+                withContext(Dispatchers.IO) {
+                    dao.insert(PendingReadingEntity(payloadJson = data.toString()))
+                }
+
                 if (!settings.isConfigured) {
-                    binding.tvStatus.text = "Bridge URL not configured"
+                    val pending = withContext(Dispatchers.IO) { dao.pendingCount() }
+                    binding.tvStatus.text = "Queued ($pending pending) — Bridge URL not configured"
                     return@launch
                 }
 
-                val success = withContext(Dispatchers.IO) {
+                // Try to flush all pending
+                val (sent, remaining) = withContext(Dispatchers.IO) {
                     val client = HemsBridgeClient(settings.bridgeUrl, settings.webhookSecret)
-                    client.postReading(data)
+                    val pending = dao.getOldest(50)
+                    val sentList = mutableListOf<PendingReadingEntity>()
+                    for (entity in pending) {
+                        try {
+                            val payload = org.json.JSONObject(entity.payloadJson)
+                            if (client.postReading(payload)) sentList.add(entity) else break
+                        } catch (_: Exception) { break }
+                    }
+                    if (sentList.isNotEmpty()) dao.delete(sentList)
+                    Pair(sentList.size, dao.pendingCount())
                 }
 
-                if (success) {
-                    settings.lastSyncTimestamp = System.currentTimeMillis()
-                    settings.lastSyncStatus = "success"
-                    updateStatus()
-                    Toast.makeText(this@MainActivity, "Sync OK (${data.length()} fields)", Toast.LENGTH_SHORT).show()
-                } else {
-                    binding.tvStatus.text = "Bridge returned error"
-                }
+                settings.lastSyncTimestamp = System.currentTimeMillis()
+                settings.lastSyncStatus = if (remaining == 0) "success" else "partial: $remaining pending"
+                updateStatus()
+                Toast.makeText(this@MainActivity, "Sent $sent, $remaining pending", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                binding.tvStatus.text = "Error: ${e.message}"
+                binding.tvStatus.text = "Error: ${e.message} (data queued locally)"
             }
         }
     }
 
     private fun updateStatus() {
         val ts = settings.lastSyncTimestamp
-        if (ts > 0) {
+        val statusText = if (ts > 0) {
             val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-            binding.tvStatus.text = getString(R.string.status_success, fmt.format(Date(ts)))
+            getString(R.string.status_success, fmt.format(Date(ts)))
         } else {
-            binding.tvStatus.text = getString(R.string.status_idle)
+            getString(R.string.status_idle)
+        }
+
+        // Show queue count in background
+        lifecycleScope.launch {
+            val pending = withContext(Dispatchers.IO) {
+                HemsDatabase.getInstance(this@MainActivity).pendingReadingDao().pendingCount()
+            }
+            binding.tvStatus.text = if (pending > 0) {
+                "$statusText (queue: $pending)"
+            } else {
+                statusText
+            }
         }
     }
 }

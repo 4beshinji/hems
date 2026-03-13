@@ -24,6 +24,7 @@ from config import (
     HUAMI_SERVER_REGION, HUAMI_POLL_INTERVAL,
 )
 from mqtt_publisher import MQTTPublisher
+from send_queue import SendQueue
 from data_processor import DataProcessor, BiometricReading
 from providers.gadgetbridge import GadgetbridgeProvider
 from providers.zepp import ZeppProvider
@@ -74,6 +75,7 @@ async def _verify_webhook_signature(request: Request) -> bytes:
 
 # Module-level state
 mqtt_pub: MQTTPublisher | None = None
+send_queue: SendQueue = SendQueue()
 processor = DataProcessor()
 gadgetbridge = GadgetbridgeProvider()
 huami: HuamiProvider | None = None
@@ -81,11 +83,16 @@ zepp: ZeppProvider | None = None
 _tasks: list[asyncio.Task] = []
 
 
+def _mqtt_publish(topic: str, data: dict, retain: bool = True):
+    """Publish to MQTT; enqueue to SQLite if broker is unreachable."""
+    if mqtt_pub and mqtt_pub.publish(topic, data, retain=retain):
+        return
+    # MQTT unavailable — queue for later
+    asyncio.get_event_loop().create_task(send_queue.enqueue(topic, data, retain))
+
+
 def _publish_reading(reading: BiometricReading):
     """Publish individual metric topics from a reading, with deduplication."""
-    if not mqtt_pub:
-        return
-
     # Dual-path dedup: skip if same data was recently published
     if processor.is_duplicate(reading):
         return
@@ -97,22 +104,22 @@ def _publish_reading(reading: BiometricReading):
         data = {"bpm": reading.heart_rate}
         if reading.resting_heart_rate is not None:
             data["resting_bpm"] = reading.resting_heart_rate
-        mqtt_pub.publish(f"{prefix}/heart_rate", data)
+        _mqtt_publish(f"{prefix}/heart_rate", data)
 
     if reading.spo2 is not None:
-        mqtt_pub.publish(f"{prefix}/spo2", {"percent": reading.spo2})
+        _mqtt_publish(f"{prefix}/spo2", {"percent": reading.spo2})
 
     if reading.steps is not None:
         data = {"count": reading.steps}
         if reading.steps_goal is not None:
             data["daily_goal"] = reading.steps_goal
-        mqtt_pub.publish(f"{prefix}/steps", data)
+        _mqtt_publish(f"{prefix}/steps", data)
 
     if reading.stress_level is not None:
         category = "relaxed" if reading.stress_level < 25 else \
                    "normal" if reading.stress_level < 50 else \
                    "moderate" if reading.stress_level < 75 else "high"
-        mqtt_pub.publish(f"{prefix}/stress", {
+        _mqtt_publish(f"{prefix}/stress", {
             "level": reading.stress_level, "category": category,
         })
 
@@ -134,7 +141,7 @@ def _publish_reading(reading: BiometricReading):
             sleep_data["sleep_start_ts"] = reading.sleep_start_ts
         if reading.sleep_end_ts is not None:
             sleep_data["sleep_end_ts"] = reading.sleep_end_ts
-        mqtt_pub.publish(f"{prefix}/sleep", sleep_data)
+        _mqtt_publish(f"{prefix}/sleep", sleep_data)
         processor.update_sleep_summary(reading)
 
     if reading.activity_level is not None or reading.calories is not None:
@@ -147,21 +154,21 @@ def _publish_reading(reading: BiometricReading):
             activity_data["active_minutes"] = reading.active_minutes
         if reading.steps is not None:
             activity_data["steps"] = reading.steps
-        mqtt_pub.publish(f"{prefix}/activity", activity_data)
+        _mqtt_publish(f"{prefix}/activity", activity_data)
 
     if reading.hrv_ms is not None:
-        mqtt_pub.publish(f"{prefix}/hrv", {"rmssd_ms": reading.hrv_ms})
+        _mqtt_publish(f"{prefix}/hrv", {"rmssd_ms": reading.hrv_ms})
 
     if reading.body_temperature is not None:
-        mqtt_pub.publish(f"{prefix}/body_temperature", {"celsius": reading.body_temperature})
+        _mqtt_publish(f"{prefix}/body_temperature", {"celsius": reading.body_temperature})
 
     if reading.respiratory_rate is not None:
-        mqtt_pub.publish(f"{prefix}/respiratory_rate", {"breaths_per_minute": reading.respiratory_rate})
+        _mqtt_publish(f"{prefix}/respiratory_rate", {"breaths_per_minute": reading.respiratory_rate})
 
     # Compute and publish fatigue
     fatigue = processor.compute_fatigue()
     if fatigue["score"] > 0:
-        mqtt_pub.publish(f"{prefix}/fatigue", fatigue)
+        _mqtt_publish(f"{prefix}/fatigue", fatigue)
 
     # Record published metrics for dedup
     processor.record_published(reading)
@@ -170,16 +177,30 @@ def _publish_reading(reading: BiometricReading):
 async def _bridge_status_loop():
     """Periodically publish bridge status."""
     while True:
-        if mqtt_pub:
-            providers = [BIOMETRIC_PROVIDER]
-            if huami and huami._running:
-                providers.append("huami")
-            mqtt_pub.publish(f"{MQTT_TOPIC_PREFIX}/bridge/status", {
-                "connected": True,
-                "provider": BIOMETRIC_PROVIDER,
-                "active_providers": providers,
-            })
+        providers = [BIOMETRIC_PROVIDER]
+        if huami and huami._running:
+            providers.append("huami")
+        _mqtt_publish(f"{MQTT_TOPIC_PREFIX}/bridge/status", {
+            "connected": True,
+            "provider": BIOMETRIC_PROVIDER,
+            "active_providers": providers,
+        })
         await asyncio.sleep(60)
+
+
+async def _flush_queue_loop():
+    """Periodically flush queued MQTT messages when broker reconnects."""
+    while True:
+        try:
+            if mqtt_pub and mqtt_pub.connected:
+                flushed = await send_queue.flush(mqtt_pub)
+                if flushed > 0:
+                    remaining = await send_queue.pending_count()
+                    if remaining > 0:
+                        logger.info(f"Queue: {remaining} messages still pending")
+        except Exception as e:
+            logger.error(f"Queue flush error: {e}")
+        await asyncio.sleep(10)
 
 
 async def _huami_poll_loop():
@@ -216,12 +237,13 @@ async def _zepp_poll_loop():
 async def lifespan(app: FastAPI):
     global mqtt_pub, huami, zepp
 
+    await send_queue.init()
+
     mqtt_pub = MQTTPublisher(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS)
     try:
         mqtt_pub.connect()
     except Exception as e:
-        logger.error(f"MQTT connect failed: {e}")
-        mqtt_pub = None
+        logger.error(f"MQTT connect failed: {e} — messages will be queued")
 
     await gadgetbridge.start()
 
@@ -241,6 +263,7 @@ async def lifespan(app: FastAPI):
         _tasks.append(asyncio.create_task(_zepp_poll_loop()))
 
     _tasks.append(asyncio.create_task(_bridge_status_loop()))
+    _tasks.append(asyncio.create_task(_flush_queue_loop()))
 
     logger.info(f"Biometric Bridge started (provider={BIOMETRIC_PROVIDER}, huami={HUAMI_ENABLED})")
     yield
@@ -254,6 +277,7 @@ async def lifespan(app: FastAPI):
     await gadgetbridge.stop()
     if mqtt_pub:
         mqtt_pub.disconnect()
+    await send_queue.close()
 
 
 app = FastAPI(title="HEMS Biometric Bridge", lifespan=lifespan)
@@ -264,7 +288,15 @@ async def health():
     providers = [BIOMETRIC_PROVIDER]
     if huami and huami._running:
         providers.append("huami")
-    return {"status": "ok", "provider": BIOMETRIC_PROVIDER, "active_providers": providers}
+    pending = await send_queue.pending_count()
+    mqtt_connected = mqtt_pub.connected if mqtt_pub else False
+    return {
+        "status": "ok",
+        "provider": BIOMETRIC_PROVIDER,
+        "active_providers": providers,
+        "mqtt_connected": mqtt_connected,
+        "queue_pending": pending,
+    }
 
 
 @app.post("/api/biometric/webhook")

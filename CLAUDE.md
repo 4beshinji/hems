@@ -46,11 +46,14 @@ docker compose --profile gas up -d --build
 # With Home Assistant (smart home control)
 docker compose --profile ha up -d --build
 
-# With biometric tracking (Gadgetbridge smartband)
+# With biometric tracking (smartband/smartwatch: Xiaomi Smart Band, CMF Watch Pro 2, etc.)
 docker compose --profile biometric up -d --build
 
 # With perception (camera-based person detection + activity tracking)
 docker compose --profile perception up -d --build
+
+# With SwitchBot (direct SwitchBot API, no HA required)
+docker compose --profile switchbot up -d --build
 
 # With mock LLM (development, no Ollama needed)
 LLM_API_URL=http://mock-llm:8000/v1 LLM_MODEL=mock \
@@ -65,7 +68,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`
+Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`
 
 ### Frontend Development
 
@@ -94,6 +97,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | HA Bridge | 8016 | `HEMS_PORT_HA_BRIDGE` | hems-ha-bridge |
 | Biometric Bridge | 8017 | `HEMS_PORT_BIOMETRIC_BRIDGE` | hems-biometric-bridge |
 | Perception | 8018 | `HEMS_PORT_PERCEPTION` | hems-perception |
+| SwitchBot Bridge | 8019 | `HEMS_PORT_SWITCHBOT_BRIDGE` | hems-switchbot-bridge |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -153,8 +157,20 @@ hems/personal/calendar/{id}/events
 hems/personal/training/fitness
 hems/system/gpu/utilization
 
+# Shopping list
+hems/shopping/{added,updated,purchased}
+
+# SwitchBot (direct API bridge)
+hems/switchbot/{device_id}/state
+hems/switchbot/bridge/status
+
+# Weather (weather-bridge)
+hems/weather/{current,forecast,alerts}
+hems/weather/bridge/status
+
 # Brain control
 hems/brain/reload-character
+hems/brain/guest-mode
 ```
 
 ### Brain Service
@@ -165,14 +181,17 @@ hems/brain/reload-character
 - Event store data mart (SOMS-compatible schema)
 - Alert suppression: prevents duplicate tasks while environment slowly responds
   (e.g., AC cooling after task created — 30min for temp, 10min for CO2)
-- Tri-domain world model: Physical Space (zones, smart home), Digital Space (PC, services, GAS, knowledge), User State (biometrics)
+- Tri-domain world model: Physical Space (zones, smart home, weather), Digital Space (PC, services, GAS, knowledge, shopping), User State (biometrics, screen time)
 - 6 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`, `get_active_tasks`, `get_device_status`
 - localcraw tools (profile `localcraw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
 - Service monitor tool (when data available): `get_service_status`
 - Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
 - HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`
+- System tools (with `ha`): `set_guest_mode`, `get_weather`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
 - Perception tools (profile `perception`): `get_perception_status`
+- Shopping tools (always enabled): `add_shopping_item`, `get_shopping_list`
+- SwitchBot tools (profile `switchbot`): `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir`
 - Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
 
 ### localcraw Bridge (profile: `localcraw`)
@@ -199,8 +218,7 @@ TTSProvider ABC with backends:
 - `espeak` — espeak-ng (default fallback, no GPU)
 - `voicevox` — VOICEVOX Docker (profile: voicevox)
 - `edge-tts` — Microsoft Edge TTS (cloud, free)
-- `voisona` — VoiSona Talk (host app, Phase 4)
-- `style-bert-vits2` — Local API (Phase 4)
+- `voisona` — VoiSona Talk (host app)
 
 ### AI Character System
 
@@ -218,7 +236,7 @@ cp config/character.yaml.example config/character.yaml
 # Hot-reload: mosquitto_pub -t hems/brain/reload-character -m reload
 ```
 
-Templates: `ena` (default), `tsundere`, `gentle-senpai`, `butler`, `default`
+Templates: `ena` (default), `tsundere`, `gentle-senpai`, `butler`, `nurserobo-typet`, `default`
 Validator: `python validate_character.py config/character.yaml`
          `python validate_character.py --all`   # validate all templates
          `python validate_character.py --list`  # list available templates
@@ -227,7 +245,7 @@ Validator: `python validate_character.py config/character.yaml`
 
 - Default: SQLite (`aiosqlite`) — zero config
 - Optional: PostgreSQL 16 (`--profile postgres`)
-- Backend: Task, User, PointLog, VoiceEvent, SystemStats
+- Backend: Task, User, VoiceEvent, SystemStats, ShoppingItem, PurchaseHistory
 - Brain event_store: raw_events, llm_decisions, hourly_aggregates (SOMS-compatible)
 - Retention: 730 days (2 years) for raw_events and llm_decisions
 
@@ -257,7 +275,7 @@ Bridges Google services (Calendar, Tasks, Gmail, Sheets, Drive) to HEMS via GAS 
   - Drive: recent files every 600s
 - **Deploy**: Deploy GAS as Web App, configure `GAS_WEBAPP_URL` + `GAS_API_KEY`
 - **Profile**: `docker compose --profile gas up -d --build`
-- **Brain rules**: 13 rules (meeting reminders, morning briefing, overdue alerts, task sync, etc.)
+- **Brain rules**: meeting reminders, morning briefing, evening summary, overdue alerts, task sync, unread Gmail alerts, etc.
 - **GAS Quota**: ~1,100 calls/day with defaults (quota limit: 20,000/day)
 
 ### Obsidian Integration (Knowledge Store)
@@ -286,9 +304,10 @@ Connects Home Assistant to HEMS for smart home device control and life automatio
   - Publishes to `hems/home/*` MQTT topics
 - **Deploy**: HA running on host or via Docker, configure `HA_URL` + `HA_TOKEN`
 - **Profile**: `docker compose --profile ha up -d --build`
-- **Brain tools**: `control_light`, `control_climate`, `control_cover`, `get_home_devices`
+- **Brain tools**: `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`
+- **System tools** (always with HA): `set_guest_mode`, `get_weather`
 - **Schedule learner**: learns arrival/departure/wake patterns from occupancy data
-- **Automation rules**: sleep detection → lights off, pre-arrival HVAC, wake-up curtains
+- **Automation rules**: sleep detection → lights off, pre-arrival HVAC, wake-up curtains, circadian lighting, guest mode filtering
 - **Supported devices**: SwitchBot (via HA), Nature Remo (via HA), any HA integration
 - **Safety**: temperature 16-30, brightness 0-255, position 0-100 range validation
 
@@ -301,7 +320,7 @@ HA_BRIDGE_URL=http://ha-bridge:8000
 
 ### Biometric Integration (Smartband)
 
-Tracks heart rate, sleep, activity, stress, and fatigue via smartband (Xiaomi Mi Band / Amazfit via Gadgetbridge).
+Tracks heart rate, sleep, activity, stress, and fatigue via smartband/smartwatch (Xiaomi Smart Band, Amazfit, CMF Watch Pro 2) via Health Connect or Huami cloud API.
 
 - **biometric-bridge**: Docker service receiving webhook data from Gadgetbridge app
   - POST webhook endpoint normalizes device data → MQTT publish
@@ -343,12 +362,54 @@ PERCEPTION_BRIDGE_URL=http://perception:8000
 HEMS_PERCEPTION_CAMERAS=[{"device_id":"cam01","zone":"living_room","type":"mcp"}]
 ```
 
+### SwitchBot Integration (Direct API)
+
+Controls SwitchBot devices directly via SwitchBot API (HA不要).
+
+- **switchbot-bridge**: Docker service polling SwitchBot Cloud API
+  - Device state polling + MQTT publish
+  - REST API for brain tool calls → SwitchBot API commands
+  - IR remote support via Hub (AC, TV, etc.)
+  - Publishes to `hems/switchbot/*` MQTT topics
+- **Deploy**: Get token/secret from SwitchBot app, configure device map
+- **Profile**: `docker compose --profile switchbot up -d --build`
+- **Brain tools**: `get_switchbot_devices`, `control_switchbot` (turnOn/turnOff/toggle/setBrightness/setPosition/setColorTemperature/press), `send_switchbot_ir` (Hub IR commands)
+
+Configure in `.env`:
+```bash
+SWITCHBOT_BRIDGE_URL=http://switchbot-bridge:8000
+SWITCHBOT_TOKEN=your-switchbot-token
+SWITCHBOT_SECRET=your-switchbot-secret
+SWITCHBOT_DEVICE_MAP={}
+```
+
+### Shopping List
+
+Built-in shopping list with brain integration.
+
+- **Backend**: CRUD API for shopping items with purchase history
+- **Database**: `ShoppingItem`, `PurchaseHistory` models
+- **Brain tools**: `add_shopping_item`, `get_shopping_list` (always enabled)
+- **Brain rules**: recurring items due reminder, departure notification with pending items
+- **MQTT**: `hems/shopping/{added,updated,purchased}`
+- **World model**: `ShoppingState` in Digital Space (due items, pending count)
+
+### Weather Integration (weather-bridge)
+
+Weather data from JMA (気象庁) or OpenWeatherMap.
+
+- **weather-bridge**: Service polling weather APIs → MQTT publish
+  - Providers: JMA (free, default), OpenWeatherMap
+  - Publishes to `hems/weather/{current,forecast,alerts}` MQTT topics
+- **Brain rules**: rain window detection, hot forecast notification
+- **World model**: `WeatherState` in Physical Space
+
 ## Tech Stack
 
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion
 - **LLM**: OpenAI / Anthropic / Ollama (multi-provider)
-- **TTS**: Plugin-based (espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk, Style-Bert-VITS2)
+- **TTS**: Plugin-based (espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk)
 - **Infra**: Docker Compose, Mosquitto MQTT, SQLite / PostgreSQL
 
 ## Code Conventions
@@ -366,7 +427,7 @@ HEMS_PERCEPTION_CAMERAS=[{"device_id":"cam01","zone":"living_room","type":"mcp"}
 |------|------|
 | PostgreSQL required | SQLite default |
 | Wallet (double-entry ledger) | Points/XP (backend integrated) |
-| VOICEVOX only | Plugin TTS (5 backends) |
+| VOICEVOX only | Plugin TTS (4 backends) |
 | Hardcoded personality | YAML character system |
 | Ollama only | OpenAI / Anthropic / Ollama |
 | 11 services | 7 core + optional profiles |

@@ -4,3 +4,4 @@ paho-mqtt>=2.1.0
 loguru>=0.7.3
 python-dotenv>=1.0.1
 aiohttp>=3.13.0
+aiosqlite>=0.20.0

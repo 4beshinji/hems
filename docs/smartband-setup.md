@@ -1,17 +1,30 @@
-# Xiaomi Smart Band 10 セットアップガイド
+# スマートバンド セットアップガイド
 
-Xiaomi Smart Band 10 を HEMS に接続し、心拍数・SpO2・睡眠・歩数・ストレス等のヘルスデータをリアルタイムで取得するための手順。
+スマートバンド / スマートウォッチを HEMS に接続し、心拍数・SpO2・睡眠・歩数・ストレス等のヘルスデータをリアルタイムで取得するための手順。
+
+## 対応デバイス
+
+| デバイス | コンパニオンアプリ | Health Connect | クラウド API | 備考 |
+|---------|-------------------|:--------------:|:----------:|------|
+| Xiaomi Smart Band 8/9/10 | Mi Fitness | o | o (Huami) | デュアルパス対応 |
+| Amazfit (各モデル) | Mi Fitness / Zepp | o | o (Huami) | デュアルパス対応 |
+| **CMF Watch Pro 2** | **CMF Watch** | **o** | - | Health Connect パスのみ |
+
+すべてのデバイスは **Health Connect** 経由 (パスA) で HEMS に接続可能。
+Xiaomi / Amazfit デバイスは追加で **Huami クラウド API** (パスB) も利用可能。
 
 ## 目次
 
+- [対応デバイス](#対応デバイス)
 - [概要](#概要)
-- [必要なもの](#必要なもの)
-- [Step 1: Smart Band 10 の初期設定](#step-1-smart-band-10-の初期設定)
-- [Step 2: HEMS biometric-bridge の起動](#step-2-hems-biometric-bridge-の起動)
-- [Step 3: データ取得パスの構成](#step-3-データ取得パスの構成)
+- [デバイス別セットアップ](#デバイス別セットアップ)
+  - [Xiaomi Smart Band 10](#xiaomi-smart-band-10)
+  - [CMF Watch Pro 2](#cmf-watch-pro-2)
+- [HEMS biometric-bridge の起動](#hems-biometric-bridge-の起動)
+- [データ取得パスの構成](#データ取得パスの構成)
   - [パス A: Health Connect コンパニオンアプリ (推奨)](#パス-a-health-connect-コンパニオンアプリ-推奨)
-  - [パス B: Huami クラウド API (サーバーサイド)](#パス-b-huami-クラウド-api-サーバーサイド)
-- [Step 4: 動作確認](#step-4-動作確認)
+  - [パス B: Huami クラウド API (Xiaomi/Amazfit のみ)](#パス-b-huami-クラウド-api-xiaomiamazfit-のみ)
+- [動作確認](#動作確認)
 - [取得できるデータ一覧](#取得できるデータ一覧)
 - [アーキテクチャ](#アーキテクチャ)
 - [トラブルシューティング](#トラブルシューティング)
@@ -23,31 +36,35 @@ Xiaomi Smart Band 10 を HEMS に接続し、心拍数・SpO2・睡眠・歩数�
 
 HEMS はデュアルパスアーキテクチャでバンドデータを取得する:
 
-| パス | 経路 | 遅延 | 必要なもの |
-|------|------|------|-----------|
-| **A: Health Connect** (推奨) | Band → Mi Fitness → Health Connect → コンパニオンアプリ → biometric-bridge | ~15分 | Android 14+ スマホ |
-| **B: Huami API** (補助) | Band → Mi Fitness → Huami クラウド → biometric-bridge | ~15分 | huami-token (初回のみ) |
+| パス | 経路 | 遅延 | 必要なもの | 対応デバイス |
+|------|------|------|-----------|-------------|
+| **A: Health Connect** (推奨) | Band → コンパニオンアプリ → Health Connect → HEMS コンパニオン → biometric-bridge | ~15分 | Android 14+ スマホ | 全デバイス |
+| **B: Huami API** (補助) | Band → Mi Fitness → Huami クラウド → biometric-bridge | ~15分 | huami-token (初回のみ) | Xiaomi / Amazfit のみ |
 
 両パスを同時に有効化可能。重複データは自動的に除去される (5分ウィンドウ)。
 片方だけでも運用できる。
 
-## 必要なもの
+---
+
+## デバイス別セットアップ
+
+### Xiaomi Smart Band 10
+
+#### 必要なもの
 
 - **Xiaomi Smart Band 10** (Standard Edition: 約6,280円 / Ceramic Edition: 約8,680円)
 - **Android スマートフォン** (Android 14 以上推奨、Health Connect 対応)
 - **Mi Fitness アプリ** (Google Play からインストール)
 - **HEMS サーバー** (Docker Compose 稼働中)
 
-## Step 1: Smart Band 10 の初期設定
-
-### 1.1 Mi Fitness アプリのインストール
+#### 1. Mi Fitness アプリのインストール
 
 1. Google Play から **Mi Fitness** (Xiaomi公式) をインストール
 2. Xiaomi アカウントでログイン (未作成なら新規作成)
 3. アプリ内で **「デバイスを追加」** → **Xiaomi Smart Band 10** を選択
 4. 画面の指示に従い Bluetooth ペアリングを完了
 
-### 1.2 Health Connect の有効化
+#### 2. Health Connect の有効化
 
 Mi Fitness が Health Connect にデータを書き込むよう設定する:
 
@@ -65,7 +82,7 @@ Mi Fitness が Health Connect にデータを書き込むよう設定する:
 >
 > **設定** → **アプリ** → **Mi Fitness** → **バッテリー** → **制限なし**
 
-### 1.3 測定の自動化設定
+#### 3. 測定の自動化設定
 
 Mi Fitness アプリでバンドの自動測定を有効化:
 
@@ -76,9 +93,78 @@ Mi Fitness アプリでバンドの自動測定を有効化:
    - ストレスモニタリング: **オン**
    - 睡眠モニタリング: **オン** (睡眠呼吸品質含む)
 
-## Step 2: HEMS biometric-bridge の起動
+---
 
-### 2.1 .env の設定
+### CMF Watch Pro 2
+
+#### 必要なもの
+
+- **CMF Watch Pro 2** (Nothing サブブランド、約8,800円)
+- **Android スマートフォン** (Android 14 以上推奨、Health Connect 対応)
+- **CMF Watch アプリ** (Google Play からインストール)
+- **HEMS サーバー** (Docker Compose 稼働中)
+
+#### 1. CMF Watch アプリのインストール
+
+1. Google Play から **CMF Watch** (Nothing公式) をインストール
+2. Nothing アカウントでログイン (未作成なら新規作成)
+3. アプリ内で **「デバイスを追加」** → **CMF Watch Pro 2** を選択
+4. 画面の指示に従い Bluetooth ペアリングを完了
+
+#### 2. Health Connect の有効化
+
+CMF Watch アプリが Health Connect にデータを書き込むよう設定する:
+
+1. CMF Watch アプリを開く
+2. **プロフィール** → **Health Connect** (または **サードパーティ連携**)
+3. 連携を有効化し、以下の項目を許可:
+   - 心拍数 (Heart Rate)
+   - 血中酸素濃度 (SpO2)
+   - 睡眠 (Sleep)
+   - 歩数 (Steps)
+   - 消費カロリー (Calories)
+
+> **注意**: CMF Watch アプリもバックグラウンド同期が途切れることがある。
+> Android の設定でバッテリー最適化から除外すること。
+>
+> **設定** → **アプリ** → **CMF Watch** → **バッテリー** → **制限なし**
+
+#### 3. 測定の自動化設定
+
+CMF Watch アプリでウォッチの自動測定を有効化:
+
+1. CMF Watch → **デバイス管理** → CMF Watch Pro 2
+2. **ヘルスモニタリング**:
+   - 心拍数の継続モニタリング: **オン**
+   - 血中酸素の自動測定: **オン**
+   - ストレスモニタリング: **オン**
+   - 睡眠モニタリング: **オン**
+
+#### 4. データ取得パス
+
+CMF Watch Pro 2 は **Health Connect パス (パスA) のみ** 対応。
+Huami クラウド API (パスB) は使用不可。
+
+```
+CMF Watch Pro 2
+    ↓ (Bluetooth)
+CMF Watch アプリ
+    ↓ (自動同期)
+Health Connect (Android OS)
+    ↓ (15分ごとに読み取り)
+HEMS Health コンパニオンアプリ
+    ↓ (HTTPS POST + HMAC署名)
+biometric-bridge webhook
+    ↓ (MQTT publish)
+HEMS Brain
+```
+
+> **CMF Watch Pro 2 の特徴**: GPS 内蔵、1.32" AMOLED、BLE 5.3、IP68防水。
+> Xiaomi Smart Band に比べディスプレイが大きく、スマートウォッチ型の操作感。
+
+## HEMS biometric-bridge の起動
+
+### .env の設定
 
 ```bash
 # .env に追記
@@ -92,21 +178,21 @@ BIOMETRIC_WEBHOOK_SECRET=$(openssl rand -hex 32)
 # HUAMI_USER_ID=...
 ```
 
-### 2.2 biometric プロファイルで起動
+### biometric プロファイルで起動
 
 ```bash
 cd infra
 docker compose --profile biometric up -d --build
 ```
 
-### 2.3 疎通確認
+### 疎通確認
 
 ```bash
 curl http://localhost:8017/health
 # → {"status":"ok","provider":"gadgetbridge","active_providers":["gadgetbridge"]}
 ```
 
-## Step 3: データ取得パスの構成
+## データ取得パスの構成
 
 ### パス A: Health Connect コンパニオンアプリ (推奨)
 
@@ -139,9 +225,9 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 #### A.3 動作フロー
 
 ```
-Xiaomi Smart Band 10
+スマートバンド / スマートウォッチ
     ↓ (Bluetooth)
-Mi Fitness アプリ
+コンパニオンアプリ (Mi Fitness / CMF Watch 等)
     ↓ (自動同期)
 Health Connect (Android OS)
     ↓ (15分ごとに読み取り)
@@ -154,10 +240,12 @@ HEMS Brain
 
 ---
 
-### パス B: Huami クラウド API (サーバーサイド)
+### パス B: Huami クラウド API (Xiaomi/Amazfit のみ)
 
 HEMS サーバーが Huami クラウド API を直接ポーリングしてデータを取得する。
 スマホ不要 (Mi Fitness でバンドと同期済みであること)。
+
+> **注意**: このパスは Xiaomi / Amazfit デバイスのみ対応。CMF Watch Pro 2 等は Health Connect パス (パスA) を使用すること。
 
 #### B.1 認証トークンの取得
 
@@ -232,7 +320,7 @@ biometric-bridge (HuamiProvider)
 HEMS Brain
 ```
 
-## Step 4: 動作確認
+## 動作確認
 
 ### ヘルスデータの確認
 
@@ -285,20 +373,24 @@ hems/personal/biometrics/huami/heart_rate {"bpm":72,"resting_bpm":60}
 `o*` = デバイスとAPIバージョンによる。Smart Band 10 は対応。
 疲労スコアは心拍数・睡眠・ストレスから biometric-bridge が算出する派生指標。
 
+**CMF Watch Pro 2**: Health Connect (パスA) 経由で心拍数・SpO2・歩数・睡眠・カロリーを取得可能。
+ストレスは CMF Watch アプリ内で確認可能だが、Health Connect への書き込みはアプリバージョンによる。
+
 ## アーキテクチャ
 
 ```
 ┌─────────────────────────────┐
-│    Xiaomi Smart Band 10     │
+│  スマートバンド / ウォッチ    │
 │  HR / SpO2 / Sleep / Steps  │
 └──────────┬──────────────────┘
            │ Bluetooth
            ▼
 ┌─────────────────────────────┐
-│      Mi Fitness アプリ       │
-│      (Android スマホ)        │
+│  コンパニオンアプリ           │
+│  (Mi Fitness / CMF Watch)   │
+│  (Android スマホ)            │
 └──────┬──────────────┬───────┘
-       │              │
+       │              │ (Xiaomi/Amazfit のみ)
        ▼              ▼
 ┌────────────┐  ┌──────────────┐
 │  Health    │  │ Huami Cloud  │
@@ -353,6 +445,14 @@ cd infra && docker compose --profile biometric up -d --build
 - Mi Fitness アプリでバンドと最新データを同期済みか確認
 - `HUAMI_SERVER_REGION` が正しいか確認 (アカウント地域と一致)
 - Huami API はクラウド同期後のデータを返すため、Mi Fitness アプリの同期完了を待つ
+
+### CMF Watch のデータが Health Connect に来ない
+
+1. CMF Watch アプリのバッテリー最適化を「制限なし」に設定
+2. CMF Watch アプリの Health Connect 連携が有効か確認
+3. Health Connect アプリ → CMF Watch → 共有データの項目がすべて許可されているか確認
+4. CMF Watch アプリを一度開いてウォッチと手動同期を実行
+5. CMF Watch アプリを最新バージョンにアップデート (古いバージョンは Health Connect 非対応の場合あり)
 
 ### コンパニオンアプリの同期が止まる
 

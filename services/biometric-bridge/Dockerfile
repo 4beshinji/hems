@@ -3,6 +3,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && addgroup --system appgroup && adduser --system --ingroup appgroup appuser \
+    && mkdir -p /app/data \
     && chown -R appuser:appgroup /app
 COPY src/ .
 USER appuser

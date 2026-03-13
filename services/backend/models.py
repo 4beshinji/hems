@@ -111,3 +111,23 @@ class PurchaseHistory(Base):
     price = Column(Integer, nullable=True)
     quantity = Column(Integer, default=1)
     purchased_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class BiometricReading(Base):
+    __tablename__ = "biometric_readings"
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(String, nullable=False, index=True)
+    heart_rate = Column(Integer, nullable=True)
+    resting_heart_rate = Column(Integer, nullable=True)
+    spo2 = Column(Integer, nullable=True)
+    steps = Column(Integer, nullable=True)
+    calories = Column(Integer, nullable=True)
+    active_minutes = Column(Integer, nullable=True)
+    stress_level = Column(Integer, nullable=True)
+    fatigue_score = Column(Integer, nullable=True)
+    sleep_duration_minutes = Column(Integer, nullable=True)
+    sleep_quality_score = Column(Integer, nullable=True)
+    hrv_ms = Column(Integer, nullable=True)
+    body_temperature = Column(Float, nullable=True)
+    respiratory_rate = Column(Integer, nullable=True)
+    recorded_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
