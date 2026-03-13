@@ -15,6 +15,7 @@ class LLMResponse:
 
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # openai | anthropic
+LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", "0")) or None  # Ollama context window override
 
 
 class LLMClient:
@@ -23,6 +24,7 @@ class LLMClient:
         self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
         self.session = session
         self.provider = LLM_PROVIDER
+        self.num_ctx = LLM_NUM_CTX
 
     async def chat(self, messages: list, tools: list = None, *,
                    temperature: float | None = None,
@@ -50,6 +52,9 @@ class LLMClient:
             payload["temperature"] = temperature
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        # Ollama-specific: limit context window to control KV cache VRAM usage
+        if self.num_ctx and self.provider == "ollama":
+            payload["options"] = {"num_ctx": self.num_ctx}
 
         try:
             async with self.session.post(url, json=payload, timeout=120) as resp:

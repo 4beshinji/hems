@@ -27,10 +27,11 @@ async def create_voice_event(event: schemas.VoiceEventCreate, db: AsyncSession =
 
 @router.get("/recent", response_model=List[schemas.VoiceEvent])
 async def get_recent_voice_events(db: AsyncSession = Depends(get_db)):
-    max_age = datetime.now(timezone.utc) - timedelta(minutes=5)
+    max_age = datetime.now(timezone.utc) - timedelta(hours=24)
     result = await db.execute(
         select(models.VoiceEvent)
         .where(models.VoiceEvent.created_at >= max_age)
         .order_by(models.VoiceEvent.created_at.desc())
+        .limit(50)
     )
     return result.scalars().all()

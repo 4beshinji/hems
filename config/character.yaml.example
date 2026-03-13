@@ -140,7 +140,7 @@ speaking_style:
 voice:
   # TTS backend to use
   # Type: string
-  # Options: "voicevox" (currently the only supported backend)
+  # Options: "voicevox", "voisona", "espeak", "edge-tts"
   backend: "voicevox"
 
   # VOICEVOX-specific settings
@@ -169,6 +169,29 @@ voice:
     # Intonation strength multiplier (0.0 - 2.0, default: 1.0)
     # Type: float
     intonation_scale: 1.0
+
+  # VoiSona Talk settings (used when backend: "voisona")
+  # See docs/voisona-talk-setup.md for full API parameter reference.
+  # voisona:
+  #   # Base parameters (defaults for all tones)
+  #   speed: 1.0           # 0.2 – 5.0 (話速)
+  #   pitch: 0             # -600 – 600 (cent)
+  #   volume: 0            # -8 – 8 (dB)
+  #   intonation: 1.0      # 0 – 2 (抑揚)
+  #   huskiness: 0         # -20 – 20 (ハスキー度)
+  #   alp: 0               # -1 – 1 (声の年齢感)
+  #   # Per-tone overrides
+  #   tones:
+  #     neutral:
+  #       style_weights: [1.0, 0.0, 0.0, 0.0, 0.0]  # スタイル補間ウェイト
+  #     caring:
+  #       style_weights: [0.4, 0.3, 0.0, 0.0, 0.3]
+  #       speed: 0.85
+  #       huskiness: 5
+  #     alert:
+  #       style_weights: [0.2, 0.0, 0.5, 0.3, 0.0]
+  #       speed: 1.05
+  #       volume: 1.5
 
 # ---------------------------------------------------------------------------
 # prompt_templates: LLM prompt customization

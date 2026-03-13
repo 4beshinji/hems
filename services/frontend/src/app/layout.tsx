@@ -7,7 +7,7 @@ import BottomNav from '@/components/layout/BottomNav'
 import Header from '@/components/layout/Header'
 import { useDarkMode } from '@/hooks/use-dark-mode'
 import { useAudioQueue, AudioPriority } from '@/audio'
-import { fetchStats, fetchZones, fetchVoiceEvents, fetchTasks } from '@/lib/api'
+import { fetchZones, fetchVoiceEvents, fetchTasks } from '@/lib/api'
 import type { VoiceEvent, TaskData } from '@/lib/types'
 
 const MAX_PLAYED_IDS = 500
@@ -46,12 +46,6 @@ export default function AppLayout() {
   const zonesQuery = useQuery({
     queryKey: ['zones'],
     queryFn: fetchZones,
-    refetchInterval: 10000,
-  })
-
-  const statsQuery = useQuery({
-    queryKey: ['stats'],
-    queryFn: fetchStats,
     refetchInterval: 10000,
   })
 
@@ -123,7 +117,7 @@ export default function AppLayout() {
           darkModePreference={darkModePreference}
           onCycleDarkMode={cycleDarkMode}
         />
-        <main className="flex-1 p-4 lg:p-6 pb-20 lg:pb-6">
+        <main className="flex-1 flex flex-col p-4 lg:p-6 pb-20 lg:pb-6 min-h-0">
           <Outlet context={{
             audioEnabled: isEnabled,
             enqueueAudio: enqueue,

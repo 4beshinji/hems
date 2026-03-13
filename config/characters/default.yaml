@@ -50,6 +50,30 @@ voice:
     speed_scale: 1.0
     pitch_scale: 0.0
     intonation_scale: 1.0
+  voisona:
+    speed: 0.95
+    pitch: 0
+    volume: 0
+    intonation: 0.85
+    huskiness: 3
+    alp: 0.15
+    tones:
+      neutral:
+        style_weights: [1.0, 0.0, 0.0, 0.0, 0.0]
+      caring:
+        style_weights: [0.4, 0.3, 0.0, 0.0, 0.3]
+        speed: 0.85
+        intonation: 0.7
+        huskiness: 5
+      humorous:
+        style_weights: [0.4, 0.6, 0.0, 0.0, 0.0]
+        speed: 1.0
+        pitch: 30
+      alert:
+        style_weights: [0.2, 0.0, 0.5, 0.3, 0.0]
+        speed: 1.05
+        intonation: 1.2
+        volume: 1.5
 
 prompt_templates:
   system_prompt_override: null

@@ -38,7 +38,7 @@ services:
       - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-qwen3.5:27b}
+      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -58,6 +58,9 @@ services:
       - BIOMETRIC_BRIDGE_URL=${BIOMETRIC_BRIDGE_URL:-}
       - PERCEPTION_BRIDGE_URL=${PERCEPTION_BRIDGE_URL:-}
       - SWITCHBOT_BRIDGE_URL=${SWITCHBOT_BRIDGE_URL:-}
+      - AMBIENT_SPEAK_ENABLED=${AMBIENT_SPEAK_ENABLED:-true}
+      - AMBIENT_SPEAK_INTERVAL=${AMBIENT_SPEAK_INTERVAL:-300}
+      - LLM_NUM_CTX=${LLM_NUM_CTX:-}
     volumes:
       - ../services/brain/src:/app
       - ../config:/config:ro
@@ -148,7 +151,7 @@ services:
       - VOISONA_LANGUAGE=${VOISONA_LANGUAGE:-ja_JP}
       - STYLE_BERT_VITS2_URL=${STYLE_BERT_VITS2_URL:-}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-qwen3.5:27b}
+      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
       - CHARACTER=${CHARACTER:-}
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}
@@ -410,8 +413,9 @@ services:
 
   # Pulls LLM_MODEL on startup (one-shot). Re-run after changing LLM_MODEL.
   # VRAM-based model selection: run `python infra/scripts/gpu_setup.py --auto-select`
-  #   Tiers: ~4GB→qwen2.5:3b  ~8GB→qwen2.5:7b  ~14GB→qwen2.5:14b
-  #          ~20GB→qwen3.5:27b  ~26GB→qwen3.5:35b-a3b  ~85GB+→qwen3.5:122b-a10b
+  #   Default: ArliAI Qwen-3.5-27B-Derestricted (via mradermacher GGUF)
+  #   Tiers: ~4GB→qwen2.5:3b  ~14GB→Derestricted:Q3_K_M  ~16GB→:Q4_K_M
+  #          ~20GB→:Q6_K  ~26GB→:Q8_0  ~85GB+→qwen3.5:122b-a10b
   ollama-pull:
     image: ollama/ollama
     container_name: hems-ollama-pull
@@ -422,7 +426,7 @@ services:
         condition: service_healthy
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - LLM_MODEL=${LLM_MODEL:-qwen3.5:27b}
+      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
     entrypoint: ["/bin/sh", "-c"]
     command: ["ollama pull $${LLM_MODEL}"]
     volumes:

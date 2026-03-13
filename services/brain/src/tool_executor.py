@@ -216,7 +216,7 @@ class ToolExecutor:
             try:
                 async with self._session.post(
                     f"{self.voice_url}/api/voice/synthesize",
-                    json={"text": message},
+                    json={"text": message, "tone": tone},
                     timeout=aiohttp.ClientTimeout(total=60),
                 ) as resp:
                     if resp.status == 200:

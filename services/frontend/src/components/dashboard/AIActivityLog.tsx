@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, memo } from 'react'
+import { memo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { MessageSquare } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -46,27 +46,11 @@ function EventRow({ event }: { event: VoiceEvent }) {
 }
 
 const AIActivityLog = memo(function AIActivityLog() {
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const [autoScroll, setAutoScroll] = useState(true)
-
   const { data: events } = useQuery({
     queryKey: ['voiceEvents'],
     queryFn: fetchVoiceEvents,
     refetchInterval: 3000,
   })
-
-  // Auto-scroll to bottom when new events arrive
-  useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [events, autoScroll])
-
-  const handleScroll = () => {
-    if (!scrollRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
-    setAutoScroll(scrollHeight - scrollTop - clientHeight < 40)
-  }
 
   return (
     <Card className="flex flex-col h-full">
@@ -77,11 +61,7 @@ const AIActivityLog = memo(function AIActivityLog() {
         </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 min-h-0">
-        <div
-          ref={scrollRef}
-          onScroll={handleScroll}
-          className="h-full max-h-[500px] overflow-y-auto"
-        >
+        <div className="h-full overflow-y-auto">
           {!events || events.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">
               まだ発話はありません

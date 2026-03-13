@@ -116,10 +116,29 @@ def validate_file(filepath: Path, verbose: bool = False) -> list[str]:
         _print_field("Expressiveness", f"{config.personality.expressiveness}/4")
         print()
         _print_field("Voice Backend", config.voice.backend)
-        _print_field("Default Speaker", config.voice.voicevox.speakers.get("default"))
-        _print_field("Speed", config.voice.voicevox.speed_scale)
-        _print_field("Pitch", config.voice.voicevox.pitch_scale)
-        _print_field("Intonation", config.voice.voicevox.intonation_scale)
+        if config.voice.backend == "voisona":
+            vs = config.voice.voisona
+            _print_field("VoiSona Speed", vs.speed)
+            _print_field("VoiSona Pitch", vs.pitch)
+            _print_field("VoiSona Intonation", vs.intonation)
+            _print_field("VoiSona Huskiness", vs.huskiness)
+            _print_field("VoiSona Alp", vs.alp)
+            if vs.tones:
+                _print_field("VoiSona Tones", ", ".join(vs.tones.keys()))
+                for tname, tcfg in vs.tones.items():
+                    parts = []
+                    if tcfg.style_weights:
+                        parts.append(f"weights={tcfg.style_weights}")
+                    for attr in ("speed", "pitch", "volume", "intonation", "huskiness", "alp"):
+                        v = getattr(tcfg, attr)
+                        if v is not None:
+                            parts.append(f"{attr}={v}")
+                    _print_field(f"  {tname}", ", ".join(parts) if parts else "(defaults)", indent=4)
+        else:
+            _print_field("Default Speaker", config.voice.voicevox.speakers.get("default"))
+            _print_field("Speed", config.voice.voicevox.speed_scale)
+            _print_field("Pitch", config.voice.voicevox.pitch_scale)
+            _print_field("Intonation", config.voice.voicevox.intonation_scale)
 
         if config.speaking_style.vocabulary.catchphrase:
             print()

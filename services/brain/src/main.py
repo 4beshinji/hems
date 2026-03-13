@@ -28,6 +28,7 @@ from schedule_learner import ScheduleLearner
 from low_power_mode import PowerModeManager
 from persona_rewriter import PersonaRewriter
 from event_store import init_db, EventWriter, HourlyAggregator
+from ambient_speaker import AmbientSpeaker
 
 load_dotenv()
 
@@ -141,6 +142,8 @@ class Brain:
         self.task_reminder = None
         self.tool_executor = None
 
+        self.ambient_speaker: AmbientSpeaker | None = None
+
         self._cycle_triggered = asyncio.Event()
         self._last_event_count: dict[str, int] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -168,6 +171,8 @@ class Brain:
             self.character = reload_character()
             if self.persona_rewriter:
                 self.persona_rewriter.update_character(self.character)
+            if self.ambient_speaker:
+                self.ambient_speaker.character = self.character
             return
 
         if msg.topic == "hems/brain/guest-mode":
@@ -221,7 +226,7 @@ class Brain:
             current["__knowledge__"] = len(self.world_model.knowledge_state.events)
         if GAS_ENABLED:
             current["__gas__"] = len(self.world_model.gas_state.events)
-        if HA_ENABLED:
+        if HA_ENABLED or SWITCHBOT_ENABLED:
             current["__home__"] = len(self.world_model.home_devices.events)
         if BIOMETRIC_ENABLED:
             current["__biometric__"] = len(self.world_model.biometric_state.events)
@@ -256,6 +261,8 @@ class Brain:
             for action in self.rule_engine.evaluate_critical(self.world_model):
                 result = await self.tool_executor.execute(action["tool"], action["args"])
                 total_tool_calls += 1
+                if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
+                    self.ambient_speaker.record_speak(action["args"].get("message", ""))
                 self._action_history.append({
                     "time": time.time(), "tool": action["tool"],
                     "summary": _summarize_action(action["tool"], action["args"]),
@@ -291,6 +298,8 @@ class Brain:
                         )
                     result = await self.tool_executor.execute(action["tool"], action["args"])
                     total_tool_calls += 1
+                    if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
+                        self.ambient_speaker.record_speak(action["args"].get("message", ""))
                     self._action_history.append({
                         "time": time.time(), "tool": action["tool"],
                         "summary": _summarize_action(action["tool"], action["args"]),
@@ -316,6 +325,8 @@ class Brain:
                     )
                 result = await self.tool_executor.execute(action["tool"], action["args"])
                 total_tool_calls += 1
+                if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
+                    self.ambient_speaker.record_speak(action["args"].get("message", ""))
                 self._action_history.append({
                     "time": time.time(), "tool": action["tool"],
                     "summary": _summarize_action(action["tool"], action["args"]),
@@ -533,6 +544,8 @@ class Brain:
                         break
                 else:
                     consecutive_errors = 0
+                    if tool_name == "speak" and self.ambient_speaker:
+                        self.ambient_speaker.record_speak(arguments.get("message", ""))
                     if tool_name == "create_task":
                         self._suppress_alert_for_task(arguments)
 
@@ -711,6 +724,10 @@ class Brain:
                 task_queue=self.task_queue, session=session,
                 device_registry=self.device_registry,
             )
+            self.ambient_speaker = AmbientSpeaker(
+                llm_client=self.llm, world_model=self.world_model,
+                character=self.character,
+            )
             asyncio.create_task(self.task_reminder.run_periodic_check())
             if OPENCLAW_ENABLED:
                 logger.info(f"localcraw integration enabled (bridge={LOCALCRAW_BRIDGE_URL})")
@@ -769,6 +786,23 @@ class Brain:
                         self._schedule_save_counter = 0
                 except Exception as e:
                     logger.error(f"Cognitive cycle error: {e}")
+
+                # Ambient speech: periodic contextual utterances (doubles as VoiSona health check)
+                try:
+                    if self.ambient_speaker and self.ambient_speaker.should_speak():
+                        action = await self.ambient_speaker.generate()
+                        if action and self.tool_executor:
+                            result = await self.tool_executor.execute(action["tool"], action["args"])
+                            if result.get("success"):
+                                self.ambient_speaker.record_speak(action["args"].get("message", ""))
+                                logger.info(f"Ambient speak: {action['args'].get('message', '')[:40]}")
+                            self._action_history.append({
+                                "time": time.time(), "tool": action["tool"],
+                                "summary": _summarize_action(action["tool"], action["args"]),
+                                "success": result.get("success", True),
+                            })
+                except Exception as e:
+                    logger.warning(f"Ambient speech error: {e}")
 
 
 if __name__ == "__main__":

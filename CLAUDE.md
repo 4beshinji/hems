@@ -23,13 +23,18 @@ python infra/scripts/gpu_setup.py
 cd infra && docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
   --profile ollama up -d --build
 # Pull default model (first time only)
-docker exec hems-ollama ollama pull qwen3.5
+docker exec hems-ollama ollama pull gpt-oss:20b
 
 # With local LLM (CPU-only, no GPU override needed)
 docker compose --profile ollama up -d --build
 # Pull default model (first time only)
-docker exec hems-ollama ollama pull qwen3.5
-# Lighter alternatives: qwen3.5:27b, qwen2.5:7b, llama3.2:3b
+docker exec hems-ollama ollama pull gpt-oss:20b
+# Recommended by VRAM:
+#   16GB: gpt-oss:20b (~13GB, 日本語対応, tool calling対応)
+#    8GB: qwen3:8b (Qwen3-Swallow 8B GGUF公開後は切替推奨)
+#   24GB+: hf.co/mradermacher/Qwen-3.5-27B-Derestricted-GGUF:Q6_K
+# 日本語特化: GPT-OSS Swallow RL版 GGUF公開待ち (SFT版はthinking問題あり)
+# VRAM auto-select: python infra/scripts/gpu_setup.py --auto-select
 
 # With PostgreSQL (instead of SQLite)
 docker compose --profile postgres up -d --build

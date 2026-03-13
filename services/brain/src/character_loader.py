@@ -118,9 +118,34 @@ class VoicevoxConfig:
 
 
 @dataclass
+class VoisonaToneConfig:
+    """Per-tone VoiSona parameter overrides."""
+    style_weights: list[float] | None = None
+    speed: float | None = None
+    pitch: float | None = None
+    volume: float | None = None
+    intonation: float | None = None
+    huskiness: float | None = None
+    alp: float | None = None
+
+
+@dataclass
+class VoisonaConfig:
+    """VoiSona Talk TTS configuration."""
+    speed: float = 1.0
+    pitch: float = 0.0
+    volume: float = 0.0
+    intonation: float = 1.0
+    huskiness: float = 0.0
+    alp: float = 0.0
+    tones: dict[str, VoisonaToneConfig] = field(default_factory=dict)
+
+
+@dataclass
 class VoiceConfig:
     backend: str = "voicevox"
     voicevox: VoicevoxConfig = field(default_factory=VoicevoxConfig)
+    voisona: VoisonaConfig = field(default_factory=VoisonaConfig)
 
 
 @dataclass
@@ -314,9 +339,33 @@ def _dict_to_config(data: dict[str, Any]) -> CharacterConfig:
         intonation_scale=voicevox_data.get("intonation_scale", 1.0),
     )
 
+    voisona_data = voice_data.get("voisona", {})
+    voisona_tones: dict[str, VoisonaToneConfig] = {}
+    for tone_name, tone_cfg in voisona_data.get("tones", {}).items():
+        if isinstance(tone_cfg, dict):
+            voisona_tones[tone_name] = VoisonaToneConfig(
+                style_weights=tone_cfg.get("style_weights"),
+                speed=tone_cfg.get("speed"),
+                pitch=tone_cfg.get("pitch"),
+                volume=tone_cfg.get("volume"),
+                intonation=tone_cfg.get("intonation"),
+                huskiness=tone_cfg.get("huskiness"),
+                alp=tone_cfg.get("alp"),
+            )
+    voisona = VoisonaConfig(
+        speed=voisona_data.get("speed", 1.0),
+        pitch=voisona_data.get("pitch", 0.0),
+        volume=voisona_data.get("volume", 0.0),
+        intonation=voisona_data.get("intonation", 1.0),
+        huskiness=voisona_data.get("huskiness", 0.0),
+        alp=voisona_data.get("alp", 0.0),
+        tones=voisona_tones,
+    )
+
     voice = VoiceConfig(
         backend=voice_data.get("backend", "voicevox"),
         voicevox=voicevox,
+        voisona=voisona,
     )
 
     prompt_templates = PromptTemplatesConfig(
@@ -522,6 +571,7 @@ _SCHEMA: dict[str, dict[str, Any]] = {
         "fields": {
             "backend": {"type": str},
             "voicevox": {"type": dict},
+            "voisona": {"type": dict},
         },
     },
     "prompt_templates": {
@@ -635,5 +685,69 @@ def validate_character_data(data: dict[str, Any]) -> list[str]:
                         f"'voice.voicevox.{fname}' must be a number, "
                         f"got {type(val).__name__}"
                     )
+
+    # Validate voice.voisona parameters
+    voisona = data.get("voice", {}).get("voisona", {})
+    if isinstance(voisona, dict):
+        _voisona_ranges: dict[str, tuple[float, float]] = {
+            "speed": (0.2, 5.0),
+            "pitch": (-600, 600),
+            "volume": (-8, 8),
+            "intonation": (0, 2),
+            "huskiness": (-20, 20),
+            "alp": (-1, 1),
+        }
+
+        def _check_voisona_param(
+            prefix: str, key: str, val: object,
+        ) -> None:
+            if key not in _voisona_ranges:
+                return
+            lo, hi = _voisona_ranges[key]
+            if isinstance(val, (int, float)):
+                if val < lo or val > hi:
+                    errors.append(
+                        f"'{prefix}.{key}' must be between {lo} and {hi}, got {val}"
+                    )
+            else:
+                errors.append(
+                    f"'{prefix}.{key}' must be a number, got {type(val).__name__}"
+                )
+
+        # Check base parameters
+        for pname in _voisona_ranges:
+            if pname in voisona:
+                _check_voisona_param("voice.voisona", pname, voisona[pname])
+
+        # Check per-tone overrides
+        tones = voisona.get("tones", {})
+        if isinstance(tones, dict):
+            for tone_name, tone_cfg in tones.items():
+                if not isinstance(tone_cfg, dict):
+                    errors.append(
+                        f"'voice.voisona.tones.{tone_name}' must be a mapping"
+                    )
+                    continue
+                prefix = f"voice.voisona.tones.{tone_name}"
+                for pname in _voisona_ranges:
+                    if pname in tone_cfg:
+                        _check_voisona_param(prefix, pname, tone_cfg[pname])
+                # Validate style_weights
+                sw = tone_cfg.get("style_weights")
+                if sw is not None:
+                    if not isinstance(sw, list):
+                        errors.append(
+                            f"'{prefix}.style_weights' must be a list"
+                        )
+                    else:
+                        for i, w in enumerate(sw):
+                            if not isinstance(w, (int, float)):
+                                errors.append(
+                                    f"'{prefix}.style_weights[{i}]' must be a number"
+                                )
+                            elif w < 0 or w > 1:
+                                errors.append(
+                                    f"'{prefix}.style_weights[{i}]' must be between 0 and 1, got {w}"
+                                )
 
     return errors

@@ -203,3 +203,82 @@ Brain speak tool → voice-service /api/voice/synthesize
   （`audio_url=null`なのでenqueueされない）
 - 音声はVMのSPICE出力経由でホストスピーカーから鳴る
 - virt-manager のコンソール接続が必須（SPICE音声転送のため）
+
+## キャラクターYAMLとの連携
+
+キャラクター YAML の `voice.voisona` セクションで、VoiSona Talk API の全パラメータをトーン別に制御できる。
+
+### パラメータ一覧
+
+| パラメータ | 範囲 | デフォルト | 説明 |
+|-----------|------|-----------|------|
+| `speed` | 0.2 – 5.0 | 1.0 | 話速 |
+| `pitch` | -600 – 600 | 0 | ピッチ (cent) |
+| `volume` | -8 – 8 | 0 | 音量 (dB) |
+| `intonation` | 0 – 2 | 1.0 | 抑揚スケール |
+| `huskiness` | -20 – 20 | 0 | ハスキー度（息混じり感） |
+| `alp` | -1 – 1 | 0 | 声の年齢感 (alpha) |
+| `style_weights` | [0–1, ...] | [1,0,0,0,0] | スタイル補間ウェイト |
+
+### style_weights
+
+ナースロボ＿タイプTのスタイル名（`GET /voices/nurse-robot-type-t_ja_JP/{version}`）:
+
+| インデックス | スタイル名 |
+|------------|-----------|
+| 0 | Normal |
+| 1 | Happy |
+| 2 | Angry |
+| 3 | Sad |
+| 4 | Smol |
+
+例: `[0.4, 0.3, 0.0, 0.0, 0.3]` = Normal 40% + Happy 30% + Smol 30%
+
+### キャラクターYAML例
+
+```yaml
+voice:
+  backend: "voisona"
+  voisona:
+    # ベースパラメータ（全トーン共通のデフォルト）
+    speed: 0.95
+    intonation: 0.85
+    huskiness: 3
+    alp: 0.15
+    # トーン別オーバーライド
+    tones:
+      neutral:
+        style_weights: [1.0, 0.0, 0.0, 0.0, 0.0]
+      caring:
+        style_weights: [0.4, 0.3, 0.0, 0.0, 0.3]
+        speed: 0.85
+        huskiness: 5
+      alert:
+        style_weights: [0.2, 0.0, 0.5, 0.3, 0.0]
+        speed: 1.05
+        volume: 1.5
+```
+
+### パラメータの適用フロー
+
+```
+Brain speak tool (tone="caring")
+  → tool_executor: POST /api/voice/synthesize {text, tone}
+    → VoisonaProvider._build_params("caring", speed=1.0)
+      1. base params from YAML (speed=0.95, huskiness=3, ...)
+      2. tone override (caring: speed=0.85, huskiness=5, style_weights=[...])
+      3. runtime speed multiplier
+      4. clamp to API limits
+      5. remove defaults → minimal global_parameters
+    → POST /api/talk/v1/speech-syntheses {global_parameters: {...}}
+```
+
+### バリデーション
+
+```bash
+# 単体
+python validate_character.py config/characters/nurserobo-typet.yaml -v
+
+# 全テンプレート
+python validate_character.py --all
+```

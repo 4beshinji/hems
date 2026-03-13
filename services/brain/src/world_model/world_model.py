@@ -1018,6 +1018,17 @@ class WorldModel:
             if device_class == "power":
                 self._check_power_thresholds(hd, entity_id, value, prev_value)
 
+            # Route environment sensors to zone environment for dashboard display
+            _ENV_CLASS_TO_CHANNEL = {
+                "temperature": "temperature",
+                "humidity": "humidity",
+                "carbon_dioxide": "co2",
+            }
+            channel = _ENV_CLASS_TO_CHANNEL.get(device_class)
+            if channel and value:
+                zone_id = path_parts[0]
+                self._update_sensor(zone_id, channel, value)
+
     def _handle_binary_sensor_event(self, hd, entity_id: str, new_state: bool,
                                      prev_state: bool, device_class: str):
         """Generate events for binary sensor state transitions."""

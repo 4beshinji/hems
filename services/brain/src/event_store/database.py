@@ -142,5 +142,19 @@ async def init_db() -> AsyncEngine | None:
             if stmt:
                 await conn.execute(text(stmt))
 
+        # Migrate old schema: cycle_duration → cycle_duration_sec, add world_state_snapshot
+        if not is_postgres:
+            cols = [r[1] for r in await conn.execute(text("PRAGMA table_info(llm_decisions)"))]
+            if "cycle_duration" in cols and "cycle_duration_sec" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE llm_decisions RENAME COLUMN cycle_duration TO cycle_duration_sec"
+                ))
+                logger.info("Migrated llm_decisions: cycle_duration → cycle_duration_sec")
+            if "world_state_snapshot" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE llm_decisions ADD COLUMN world_state_snapshot TEXT DEFAULT '{}'"
+                ))
+                logger.info("Migrated llm_decisions: added world_state_snapshot")
+
     logger.info(f"Event store initialized ({'PostgreSQL' if is_postgres else 'SQLite'})")
     return _engine

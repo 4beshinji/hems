@@ -1,4 +1,5 @@
 """HEMS Voice Service — Plugin-based TTS with character awareness."""
+import asyncio
 import io
 import os
 import uuid
@@ -22,6 +23,8 @@ AUDIO_DIR.mkdir(exist_ok=True)
 character_config = {}
 tts_provider = None
 speech_gen = None
+_health_task: asyncio.Task | None = None
+_last_health: dict = {"healthy": True, "state": "starting"}
 
 
 def _load_character() -> dict:
@@ -54,14 +57,67 @@ async def _save_audio(result: AudioResult, filepath: Path):
         filepath.write_bytes(result.audio_data)
 
 
+async def _voisona_health_loop():
+    """Passive health monitor for VoiSona TTS provider.
+
+    Instead of sending probe synthesis requests ("テスト"), this loop monitors
+    the time since last successful synthesis. The brain's AmbientSpeaker sends
+    periodic contextual speech that doubles as an implicit health check.
+    If no synthesis has succeeded within the threshold, VoiSona is flagged as
+    potentially degraded.
+    """
+    global _last_health
+    from providers.voisona import HEALTH_CHECK_INTERVAL, HEALTH_SLOW_THRESHOLD
+    STALE_THRESHOLD = HEALTH_CHECK_INTERVAL * 3  # no synthesis for 15min → degraded
+    await asyncio.sleep(60)  # initial grace period
+    while True:
+        try:
+            if hasattr(tts_provider, "_last_synth_duration"):
+                # Check API reachability
+                reachable = await tts_provider.is_available()
+                if not reachable:
+                    tts_provider._healthy = False
+                    _last_health = {
+                        "healthy": False, "wall_seconds": 0,
+                        "state": "unreachable", "detail": "VoiSona API unreachable",
+                    }
+                    logger.warning("VoiSona health: API unreachable")
+                elif tts_provider._last_synth_duration > HEALTH_SLOW_THRESHOLD:
+                    _last_health = {
+                        "healthy": True, "wall_seconds": tts_provider._last_synth_duration,
+                        "state": "slow", "detail": f"Last synthesis took {tts_provider._last_synth_duration:.1f}s",
+                    }
+                    logger.info(f"VoiSona health: slow ({tts_provider._last_synth_duration:.1f}s)")
+                else:
+                    _last_health = {
+                        "healthy": tts_provider._healthy,
+                        "wall_seconds": tts_provider._last_synth_duration,
+                        "state": "ok" if tts_provider._healthy else "degraded",
+                        "detail": "",
+                    }
+                    if tts_provider._healthy:
+                        logger.debug(f"VoiSona health OK (last synth {tts_provider._last_synth_duration:.1f}s)")
+                    else:
+                        logger.warning("VoiSona health: degraded (last synthesis failed)")
+        except Exception as e:
+            logger.error(f"VoiSona health check error: {e}")
+            _last_health = {"healthy": False, "state": "error", "detail": str(e)}
+        await asyncio.sleep(HEALTH_CHECK_INTERVAL)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global character_config, tts_provider, speech_gen
+    global character_config, tts_provider, speech_gen, _health_task
     character_config = _load_character()
     tts_provider = create_provider(character_config=character_config)
     speech_gen = SpeechGenerator(character_config=character_config)
     logger.info(f"TTS provider: {tts_provider.name}")
+    if tts_provider.name == "voisona":
+        _health_task = asyncio.create_task(_voisona_health_loop())
+        logger.info("VoiSona health check started (every 5min)")
     yield
+    if _health_task:
+        _health_task.cancel()
 
 
 app = FastAPI(title="HEMS Voice Service", lifespan=lifespan)
@@ -70,6 +126,16 @@ app = FastAPI(title="HEMS Voice Service", lifespan=lifespan)
 @app.get("/")
 async def root():
     return {"service": "HEMS Voice", "tts": tts_provider.name if tts_provider else "none"}
+
+
+@app.get("/api/voice/health")
+async def health():
+    """Detailed health status including VoiSona probe results."""
+    base = {"service": "HEMS Voice", "tts": tts_provider.name if tts_provider else "none"}
+    if tts_provider and hasattr(tts_provider, "healthy"):
+        base["tts_healthy"] = tts_provider.healthy
+        base["last_health_check"] = _last_health
+    return base
 
 
 
