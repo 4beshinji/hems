@@ -3,6 +3,7 @@ Tool executor — routes tool calls through sanitizer to handlers.
 Forked from SOMS: extended with PC tools (OpenClaw), Obsidian tools, and
 adaptive device timeout + queued response handling.
 """
+import asyncio
 import json
 import os
 from typing import Dict, Any
@@ -13,6 +14,7 @@ LOCALCRAW_BRIDGE_URL = os.getenv("LOCALCRAW_BRIDGE_URL", "")
 OBSIDIAN_BRIDGE_URL = os.getenv("OBSIDIAN_BRIDGE_URL", "")
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
+PERCEPTION_BRIDGE_URL = os.getenv("PERCEPTION_BRIDGE_URL", "")
 SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
 
 _HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
@@ -33,6 +35,7 @@ class ToolExecutor:
         self.obsidian_url = OBSIDIAN_BRIDGE_URL
         self.ha_url = HA_BRIDGE_URL
         self.biometric_url = BIOMETRIC_BRIDGE_URL
+        self.perception_url = PERCEPTION_BRIDGE_URL
         self.switchbot_url = SWITCHBOT_BRIDGE_URL
         self.voice_url = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self.dashboard_api_url = os.getenv("DASHBOARD_API_URL", "http://backend:8000")
@@ -102,6 +105,8 @@ class ToolExecutor:
                 return await self._handle_get_sleep_summary(arguments)
             elif tool_name == "get_perception_status":
                 return await self._handle_get_perception_status(arguments)
+            elif tool_name == "describe_scene":
+                return await self._handle_describe_scene(arguments)
             elif tool_name == "add_shopping_item":
                 return await self._handle_add_shopping_item(arguments)
             elif tool_name == "get_shopping_list":
@@ -689,6 +694,52 @@ class ToolExecutor:
         if not zones_data:
             return {"success": True, "result": "カメラデータがまだありません"}
         return {"success": True, "result": json.dumps({"zones": zones_data}, ensure_ascii=False)}
+
+    async def _handle_describe_scene(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze camera scene via VLM (on-demand). Uses cached data if recent."""
+        zone_id = args.get("zone_id", "")
+        custom_prompt = args.get("prompt", "")
+
+        # Check cached VLM data in world_model (if <60s old and no custom prompt)
+        if not custom_prompt:
+            for zid, zone in self.world_model.zones.items():
+                if zone_id and zid != zone_id:
+                    continue
+                occ = zone.occupancy
+                import time as _time
+                if occ.vlm_last_update > 0 and _time.time() - occ.vlm_last_update < 60:
+                    data = {
+                        "zone": zid,
+                        "description": occ.scene_description,
+                        "objects": occ.scene_objects,
+                        "scene_type": occ.scene_type,
+                        "anomalies": occ.scene_anomalies,
+                        "cached": True,
+                    }
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+
+        # On-demand request to perception service
+        if not self.perception_url:
+            return {"success": False, "error": "Perception bridge not configured"}
+        try:
+            async with self._session.post(
+                f"{self.perception_url}/api/perception/vlm/analyze",
+                json={
+                    "zone_id": zone_id or None,
+                    "prompt": custom_prompt or None,
+                },
+                timeout=aiohttp.ClientTimeout(total=45),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    if data.get("error"):
+                        return {"success": False, "error": data["error"]}
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except asyncio.TimeoutError:
+            return {"success": False, "error": "VLM分析がタイムアウトしました"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     # --- Shopping tools ---
 

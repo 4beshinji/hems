@@ -492,6 +492,26 @@ def _get_perception_tools() -> list:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "describe_scene",
+                "description": "カメラ映像をVLMで分析しシーン詳細を取得する。部屋の状態、物体、異常を詳細に把握したい場合に使用。VLMは応答に数秒かかるため頻繁に呼ばないこと。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone_id": {
+                            "type": "string",
+                            "description": "ゾーンID（省略時: 全ゾーン）",
+                        },
+                        "prompt": {
+                            "type": "string",
+                            "description": "カスタム質問（省略時: 一般的なシーン説明）",
+                        },
+                    },
+                },
+            },
+        },
     ]
 
 

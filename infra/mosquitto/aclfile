@@ -64,10 +64,12 @@ topic write  hems/switchbot/#
 
 # --- Perception service ---
 # Publishes camera/activity data to office/+/camera/# and office/+/activity/#.
+# VLM results published to hems/perception/vlm/#.
 user hems-perception
 topic write  office/+/camera/#
 topic write  office/+/activity/#
 topic write  hems/perception/#
+topic read   hems/perception/vlm/request
 
 # --- IoT sensor devices (zone sensors, MCP agents) ---
 # Sensors publish to office/{zone}/sensor/# and respond on mcp/+/response/#.

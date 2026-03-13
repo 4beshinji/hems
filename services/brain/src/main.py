@@ -103,6 +103,8 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return "sleep_summary"
     elif tool_name == "get_perception_status":
         return "perception_status"
+    elif tool_name == "describe_scene":
+        return f"zone={args.get('zone_id', 'all')}"
     elif tool_name == "set_guest_mode":
         return f"enabled={args.get('enabled', '')}, hours={args.get('duration_hours', '')}"
     elif tool_name == "get_weather":
@@ -313,6 +315,27 @@ class Brain:
                 logger.debug("[低消費電力] %sモード: ルール未発火 — LLMスキップ", pm["mode"])
                 await self._push_all_snapshots()
                 return
+
+        # Rule-based fallback when VLM heavy model is using VRAM
+        if self.world_model.vlm_model_swap_active:
+            logger.info("VLM heavy model active — using rule-based mode")
+            for action in self.rule_engine.evaluate(self.world_model):
+                if action["tool"] == "speak" and self.persona_rewriter:
+                    action["args"]["message"] = await self.persona_rewriter.rewrite(
+                        action["args"].get("message", ""),
+                        tone=action["args"].get("tone", "neutral"),
+                    )
+                result = await self.tool_executor.execute(action["tool"], action["args"])
+                total_tool_calls += 1
+                if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
+                    self.ambient_speaker.record_speak(action["args"].get("message", ""))
+                self._action_history.append({
+                    "time": time.time(), "tool": action["tool"],
+                    "summary": _summarize_action(action["tool"], action["args"]),
+                    "success": result.get("success", True),
+                })
+            await self._push_all_snapshots()
+            return
 
         # Rule-based fallback when GPU is busy
         if self.rule_engine.should_use_rules():

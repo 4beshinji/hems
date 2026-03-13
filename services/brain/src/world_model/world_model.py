@@ -98,6 +98,9 @@ class WorldModel:
         self._sensor_fusions: dict[str, SensorFusion] = {}
         self.event_writer = None  # Set by Brain if event_store is available
 
+        # VLM model swap coordination flag — brain skips LLM calls when True
+        self.vlm_model_swap_active: bool = False
+
         # Alert suppression: {(zone_id, alert_type): expiry_timestamp}
         # Prevents repeated task creation for slow-changing conditions.
         self._suppressed_alerts: dict[tuple, float] = {}
@@ -283,6 +286,10 @@ class WorldModel:
         # hems/gas/* topics (GAS bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "gas":
             self._update_gas_state(parts[2:], payload)
+
+        # hems/perception/vlm/* topics (VLM scene analysis)
+        elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "perception":
+            self._update_vlm(parts[2:], payload)
 
         # hems/personal/* topics (Phase 2 — data-bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "personal":
@@ -666,6 +673,63 @@ class WorldModel:
             return dt.timestamp()
         except (ValueError, TypeError):
             return 0
+
+    def _update_vlm(self, path_parts: list[str], payload: dict):
+        """Handle hems/perception/* topics (VLM scene analysis + model swap)."""
+        if not path_parts:
+            return
+
+        # hems/perception/vlm/{zone} — scene analysis result
+        if len(path_parts) >= 2 and path_parts[0] == "vlm" and path_parts[1] != "model_swap" and path_parts[1] != "status":
+            zone_id = path_parts[1]
+            zone = self._get_zone(zone_id)
+            now = time.time()
+
+            description = _sanitize_text(payload.get("description", ""), 500)
+            objects = payload.get("objects", [])
+            scene_type = payload.get("scene_type", "unknown")
+            anomalies = payload.get("anomalies", [])
+
+            # Sanitize list items
+            if isinstance(objects, list):
+                objects = [_sanitize_text(str(o), 50) for o in objects[:20]]
+            else:
+                objects = []
+            if isinstance(anomalies, list):
+                anomalies = [_sanitize_text(str(a), 50) for a in anomalies[:10]]
+            else:
+                anomalies = []
+
+            zone.occupancy.scene_description = description
+            zone.occupancy.scene_objects = objects
+            zone.occupancy.scene_type = _sanitize_text(str(scene_type), 30)
+            zone.occupancy.scene_anomalies = anomalies
+            zone.occupancy.vlm_last_update = now
+
+            # Generate events for anomalies
+            if anomalies:
+                zone.add_event(Event(
+                    event_type="vlm_anomaly",
+                    description=f"VLM検知: {', '.join(anomalies[:3])}",
+                    severity=1,
+                    zone=zone_id,
+                    data={
+                        "anomalies": anomalies,
+                        "description": description[:200],
+                        "model": payload.get("model", ""),
+                        "tier": payload.get("tier", ""),
+                    },
+                ))
+
+        # hems/perception/vlm/model_swap — VRAM coordination
+        elif len(path_parts) >= 2 and path_parts[0] == "vlm" and path_parts[1] == "model_swap":
+            status = payload.get("status", "")
+            if status == "heavy_loading":
+                self.vlm_model_swap_active = True
+                logger.info("VLM model swap: heavy model loading — brain entering rule-only mode")
+            elif status == "ready":
+                self.vlm_model_swap_active = False
+                logger.info("VLM model swap: ready — brain resuming LLM mode")
 
     def _update_personal(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/* topics."""
@@ -1059,6 +1123,12 @@ class WorldModel:
                 if zone.occupancy.posture != "unknown":
                     duration_min = int(zone.occupancy.posture_duration_sec / 60)
                     parts.append(f"  姿勢: {zone.occupancy.posture} ({duration_min}分)")
+                # VLM scene data (if recent, <5min)
+                if zone.occupancy.vlm_last_update > 0 and time.time() - zone.occupancy.vlm_last_update < 300:
+                    if zone.occupancy.scene_description:
+                        parts.append(f"  シーン: {zone.occupancy.scene_description[:100]}")
+                    if zone.occupancy.scene_anomalies:
+                        parts.append(f"  異常検知: {', '.join(zone.occupancy.scene_anomalies[:3])}")
 
             lines.append("\n".join(parts))
 

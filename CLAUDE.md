@@ -147,10 +147,14 @@ hems/personal/biometrics/{provider}/stress
 hems/personal/biometrics/{provider}/fatigue
 hems/personal/biometrics/bridge/status
 
-# Perception (camera detection + activity tracking)
+# Perception (camera detection + activity tracking + VLM)
 office/{zone}/camera/{camera_id}/status
 office/{zone}/activity/{monitor_id}
 hems/perception/bridge/status
+hems/perception/vlm/{zone}
+hems/perception/vlm/status
+hems/perception/vlm/model_swap
+hems/perception/vlm/request
 
 # Personal data (future: data-bridge)
 hems/personal/calendar/{id}/events
@@ -189,7 +193,7 @@ hems/brain/guest-mode
 - HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`
 - System tools (with `ha`): `set_guest_mode`, `get_weather`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
-- Perception tools (profile `perception`): `get_perception_status`
+- Perception tools (profile `perception`): `get_perception_status`, `describe_scene` (VLM on-demand scene analysis)
 - Shopping tools (always enabled): `add_shopping_item`, `get_shopping_list`
 - SwitchBot tools (profile `switchbot`): `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir`
 - Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
@@ -340,9 +344,10 @@ BIOMETRIC_BRIDGE_URL=http://biometric-bridge:8000
 BIOMETRIC_PROVIDER=gadgetbridge
 ```
 
-### Perception (Camera Detection + Activity Tracking)
+### Perception (Camera Detection + Activity Tracking + VLM Scene Analysis)
 
-Camera-based person detection and posture/activity tracking using YOLOv11s-pose.
+Camera-based person detection and posture/activity tracking using YOLOv11s-pose,
+with optional VLM (Vision Language Model) integration via Ollama for scene understanding.
 
 - **perception**: Docker service with YOLOv11s-pose inference pipeline
   - Captures frames from MCP (ESP32 MQTT) or stream (RTSP/HTTP) cameras
@@ -350,9 +355,17 @@ Camera-based person detection and posture/activity tracking using YOLOv11s-pose.
   - Posture classification (standing/sitting/lying/walking) from COCO 17 keypoints
   - Activity level (0.0-1.0) with EMA smoothing + tiered pose buffer
   - Publishes to `office/{zone}/camera/{cam_id}/status` and `office/{zone}/activity/{cam_id}`
+- **VLM integration** (optional, requires `--profile ollama` + `VLM_ENABLED=true`):
+  - Dual-model strategy: light (moondream ~1.8B) for routine scans, heavy (minicpm-v ~3B) for events
+  - Adaptive frequency: 30min routine → event-boosted (1-5min) → quiet decay (up to 2hr)
+  - Event-triggered boost: YOLO detects person enter/leave → heavy VLM for detailed analysis
+  - Model swap coordination: heavy VLM evicts brain LLM; brain falls back to rule-based mode during swap (~10-30s)
+  - On-demand analysis via brain `describe_scene` tool
+  - Publishes to `hems/perception/vlm/{zone}`, `hems/perception/vlm/status`, `hems/perception/vlm/model_swap`
 - **Deploy**: Configure cameras in `HEMS_PERCEPTION_CAMERAS` env var (JSON array)
 - **Profile**: `docker compose --profile perception up -d --build`
-- **Brain integration**: WorldModel receives occupancy + activity data via MQTT, Rule Engine triggers sedentary alerts and sleep detection
+- **Brain integration**: WorldModel receives occupancy + activity + VLM scene data via MQTT, Rule Engine triggers sedentary alerts, sleep detection, and VLM anomaly alerts
+- **Brain tools**: `get_perception_status`, `describe_scene` (VLM on-demand)
 - **Privacy**: RAM-only processing, no image storage, person class only (no face recognition), all local
 - **GPU**: Optional GPU acceleration (auto-detected by `gpu_setup.py`), CPU fallback
 
@@ -360,6 +373,10 @@ Configure in `.env`:
 ```bash
 PERCEPTION_BRIDGE_URL=http://perception:8000
 HEMS_PERCEPTION_CAMERAS=[{"device_id":"cam01","zone":"living_room","type":"mcp"}]
+# VLM (requires --profile ollama)
+VLM_ENABLED=true
+VLM_LIGHT_MODEL=moondream
+VLM_HEAVY_MODEL=minicpm-v
 ```
 
 ### SwitchBot Integration (Direct API)

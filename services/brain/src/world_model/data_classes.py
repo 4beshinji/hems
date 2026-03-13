@@ -44,6 +44,12 @@ class OccupancyData:
     posture: str = "unknown"               # "standing"|"sitting"|"lying"|"walking"|"unknown"
     posture_duration_sec: float = 0.0      # Current posture duration (seconds)
     posture_status: str = "unknown"        # "changing"|"mostly_static"|"static"
+    # VLM scene analysis data
+    scene_description: str = ""
+    scene_objects: list[str] = field(default_factory=list)
+    scene_type: str = "unknown"
+    scene_anomalies: list[str] = field(default_factory=list)
+    vlm_last_update: float = 0
 
 
 @dataclass

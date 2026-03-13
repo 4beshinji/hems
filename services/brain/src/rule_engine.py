@@ -915,6 +915,21 @@ class RuleEngine:
                     },
                 })
 
+            # 5. VLM anomaly detected (recent, <120s)
+            if (occ.scene_anomalies
+                    and occ.vlm_last_update > 0
+                    and now - occ.vlm_last_update < 120
+                    and self._check_cooldown(f"percep_vlm_anomaly_{zone_id}", now)):
+                anomaly_text = "、".join(occ.scene_anomalies[:3])
+                actions.append({
+                    "tool": "speak",
+                    "args": {
+                        "message": f"カメラで異常を検知しました: {anomaly_text}。確認をお願いします。",
+                        "zone": zone_id,
+                        "tone": "alert",
+                    },
+                })
+
         return actions
 
     def _evaluate_zigbee_sensor_rules(self, world_model, now: float) -> list[dict]:

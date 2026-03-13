@@ -168,13 +168,20 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 
 ## パーセプション（カメラ検知）
 - get_perception_status: カメラから在室人数・姿勢・活動レベルを取得する
+- describe_scene: カメラ映像をVLMで分析し、部屋の詳細な状態を取得する（物体、環境、異常検知）
 
 ## パーセプション対応ルール
 - 座位30分以上 → speakでストレッチを促す（tone: caring）
 - 空室なのに照明/空調ON → 自動消灯・停止（HA連携時）
 - 日中の横臥10分以上 → speakで体調確認（tone: caring）
 - 活動レベル急落（15分以上停滞） → speakで様子確認
-- パーセプションデータがない場合は無視する"""
+- VLM異常検知 → speakで状況報告
+- パーセプションデータがない場合は無視する
+
+## VLM使用ルール
+- describe_sceneは応答に数秒かかるため、必要な場合のみ使用する
+- 異常イベント検知時や状況の詳細把握が必要な場合に使用する
+- 通常のルーチンチェックでは自動VLMスキャン結果（シーン情報）を活用する"""
 
     if biometric_enabled:
         base += """
