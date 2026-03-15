@@ -1,5 +1,5 @@
 """
-LLM Client for HEMS Brain — supports OpenAI-compatible and Anthropic APIs.
+LLM Client for HEMS Brain — supports OpenAI-compatible, Ollama native, and Anthropic APIs.
 """
 import os
 import json
@@ -14,8 +14,7 @@ class LLMResponse:
     error: str | None = None
 
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # openai | anthropic
-LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", "0")) or None  # Ollama context window override
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # openai | anthropic | ollama
 
 
 class LLMClient:
@@ -24,7 +23,6 @@ class LLMClient:
         self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
         self.session = session
         self.provider = LLM_PROVIDER
-        self.num_ctx = LLM_NUM_CTX
 
     async def chat(self, messages: list, tools: list = None, *,
                    temperature: float | None = None,
@@ -33,14 +31,79 @@ class LLMClient:
             return await self._chat_anthropic(messages, tools,
                                               temperature=temperature,
                                               max_tokens=max_tokens)
+        if self.provider == "ollama":
+            return await self._chat_ollama(messages, tools,
+                                           temperature=temperature,
+                                           max_tokens=max_tokens)
         return await self._chat_openai(messages, tools,
                                        temperature=temperature,
                                        max_tokens=max_tokens)
 
+    async def _chat_ollama(self, messages: list, tools: list = None, *,
+                           temperature: float | None = None,
+                           max_tokens: int | None = None) -> LLMResponse:
+        """Ollama native API — supports think, num_ctx, and tool calling."""
+        # Strip /v1 suffix to get base URL for native API
+        base_url = self.api_url.rstrip("/")
+        if base_url.endswith("/v1"):
+            base_url = base_url[:-3]
+        url = f"{base_url}/api/chat"
+
+        # Convert OpenAI tool format to Ollama format (same structure)
+        ollama_tools = None
+        if tools:
+            ollama_tools = tools
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "think": False,  # Disable thinking mode to avoid wasted tokens
+        }
+        if ollama_tools:
+            payload["tools"] = ollama_tools
+        if temperature is not None:
+            payload["options"] = payload.get("options", {})
+            payload["options"]["temperature"] = temperature
+        if max_tokens is not None:
+            payload["options"] = payload.get("options", {})
+            payload["options"]["num_predict"] = max_tokens
+
+        try:
+            async with self.session.post(url, json=payload, timeout=120) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    return LLMResponse(error=f"Ollama HTTP {resp.status}: {text[:200]}")
+
+                data = await resp.json()
+                msg = data.get("message", {})
+
+                tool_calls = []
+                for tc in msg.get("tool_calls", []):
+                    func = tc.get("function", {})
+                    args = func.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except json.JSONDecodeError:
+                            args = {}
+                    tool_calls.append({
+                        "id": tc.get("id", f"call_{len(tool_calls)}"),
+                        "function": {"name": func.get("name", ""), "arguments": args},
+                    })
+
+                return LLMResponse(
+                    content=msg.get("content", "") or "",
+                    tool_calls=tool_calls,
+                )
+        except Exception as e:
+            logger.error(f"Ollama API error: {e}")
+            return LLMResponse(error=str(e))
+
     async def _chat_openai(self, messages: list, tools: list = None, *,
                            temperature: float | None = None,
                            max_tokens: int | None = None) -> LLMResponse:
-        """OpenAI-compatible API (works with Ollama, mock-llm, OpenAI)."""
+        """OpenAI-compatible API (works with mock-llm, OpenAI)."""
         url = f"{self.api_url}/chat/completions"
         payload = {
             "model": self.model,
@@ -52,9 +115,6 @@ class LLMClient:
             payload["temperature"] = temperature
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-        # Ollama-specific: limit context window to control KV cache VRAM usage
-        if self.num_ctx and self.provider == "ollama":
-            payload["options"] = {"num_ctx": self.num_ctx}
 
         try:
             async with self.session.post(url, json=payload, timeout=120) as resp:
