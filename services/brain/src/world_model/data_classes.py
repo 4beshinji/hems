@@ -575,6 +575,22 @@ class ShoppingItemData:
 
 
 @dataclass
+class NewsState:
+    daily_summary: str = ""
+    daily_chunks: list[str] = field(default_factory=list)
+    daily_timestamp: float = 0
+    urgent_articles: list[dict] = field(default_factory=list)
+    bridge_connected: bool = False
+    events: list[Event] = field(default_factory=list)
+    max_events: int = 20
+
+    def add_event(self, event: Event):
+        self.events.append(event)
+        if len(self.events) > self.max_events:
+            self.events = self.events[-self.max_events:]
+
+
+@dataclass
 class ShoppingState:
     items: list[ShoppingItemData] = field(default_factory=list)
     last_update: float = 0
@@ -608,12 +624,13 @@ class PhysicalSpace:
 
 @dataclass
 class DigitalSpace:
-    """Digital environment domain — PC, services, GAS, knowledge, shopping."""
+    """Digital environment domain — PC, services, GAS, knowledge, shopping, news."""
     pc_state: PCState = field(default_factory=PCState)
     services_state: ServicesState = field(default_factory=ServicesState)
     gas_state: GASState = field(default_factory=GASState)
     knowledge_state: KnowledgeState = field(default_factory=KnowledgeState)
     shopping_state: ShoppingState = field(default_factory=ShoppingState)
+    news_state: NewsState = field(default_factory=NewsState)
 
 
 @dataclass

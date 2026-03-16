@@ -71,6 +71,11 @@ topic write  office/+/activity/#
 topic write  hems/perception/#
 topic read   hems/perception/vlm/request
 
+# --- News Bridge ---
+# Publishes news summaries and alerts to hems/news/#.
+user hems-news
+topic write  hems/news/#
+
 # --- IoT sensor devices (zone sensors, MCP agents) ---
 # Sensors publish to office/{zone}/sensor/# and respond on mcp/+/response/#.
 # Use a shared credential for all IoT devices.

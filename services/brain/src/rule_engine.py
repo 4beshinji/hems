@@ -546,6 +546,22 @@ class RuleEngine:
                     },
                 })
 
+        # Urgent news notification
+        if hasattr(world_model, 'news_state'):
+            ns = world_model.news_state
+            for article in ns.urgent_articles:
+                url_key = article.get("url", "")[:50]
+                if url_key and self._check_cooldown(f"news_urgent_{url_key}", now):
+                    title = article.get("title", "")[:50]
+                    actions.append({
+                        "tool": "speak",
+                        "args": {
+                            "message": f"速報です。{title}",
+                            "zone": "home",
+                            "tone": "alert",
+                        },
+                    })
+
         return actions
 
     def _evaluate_home_rules(self, world_model, now: float) -> list[dict]:

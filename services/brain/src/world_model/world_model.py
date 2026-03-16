@@ -15,6 +15,7 @@ from .data_classes import (
     GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
     HomeDevicesState, LightState, ClimateState, CoverState, BinarySensorState, HASensorState,
     BiometricState, HeartRateData, StressData, PhysicalSpace, DigitalSpace, UserState,
+    NewsState,
 )
 from .sensor_fusion import SensorFusion
 
@@ -164,6 +165,14 @@ class WorldModel:
     def biometric_state(self, value: BiometricState):
         self.user.biometrics = value
 
+    @property
+    def news_state(self) -> NewsState:
+        return self.digital.news_state
+
+    @news_state.setter
+    def news_state(self, value: NewsState):
+        self.digital.news_state = value
+
     def suppress_alert(self, zone_id: str, alert_type: str, duration: float = None):
         """Suppress an alert for a zone after a task has been created for it.
 
@@ -290,6 +299,10 @@ class WorldModel:
         # hems/perception/vlm/* topics (VLM scene analysis)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "perception":
             self._update_vlm(parts[2:], payload)
+
+        # hems/news/* topics (news-bridge)
+        elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "news":
+            self._update_news_state(parts[2], payload)
 
         # hems/personal/* topics (Phase 2 — data-bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "personal":
@@ -744,6 +757,44 @@ class WorldModel:
         # hems/personal/biometrics/{provider}/{metric}
         elif category == "biometrics" and len(path_parts) >= 2:
             self._update_biometric_state(path_parts[1:], payload)
+
+    def _update_news_state(self, sub_topic: str, payload: dict):
+        """Handle hems/news/* topics from news-bridge."""
+        ns = self.news_state
+
+        if sub_topic == "daily":
+            ns.daily_summary = payload.get("summary", "")
+            ns.daily_chunks = payload.get("chunks", [])
+            ns.daily_timestamp = payload.get("timestamp", time.time())
+            ns.add_event(Event(
+                event_type="news_daily",
+                description=f"日次ニュースサマリ更新 ({payload.get('article_count', 0)}件)",
+                severity=0,
+            ))
+
+        elif sub_topic == "urgent":
+            article = {
+                "title": _sanitize_text(payload.get("title", ""), 100),
+                "summary": _sanitize_text(payload.get("summary", ""), 300),
+                "score": payload.get("score", 0),
+                "source": payload.get("source", ""),
+                "url": payload.get("url", ""),
+                "timestamp": payload.get("timestamp", time.time()),
+            }
+            ns.urgent_articles.append(article)
+            # Keep only recent 10 urgent articles
+            if len(ns.urgent_articles) > 10:
+                ns.urgent_articles = ns.urgent_articles[-10:]
+            ns.add_event(Event(
+                event_type="news_urgent",
+                description=f"速報: {article['title'][:50]}",
+                severity=1,
+                data=article,
+            ))
+
+        elif sub_topic == "bridge":
+            # hems/news/bridge/status
+            ns.bridge_connected = payload.get("connected", False)
 
     def _update_biometric_state(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/biometrics/* topics from biometric bridge."""
@@ -1282,6 +1333,22 @@ class WorldModel:
                 last = ks.recent_changes[-1]
                 kb_parts.append(f"  最終変更: {last['title']}")
             lines.append("\n".join(kb_parts))
+
+        # News state
+        ns = self.news_state
+        if ns.bridge_connected or ns.daily_timestamp > 0:
+            news_parts = ["### ニュース"]
+            if ns.daily_timestamp > 0:
+                from datetime import datetime as _dt
+                ts_str = _dt.fromtimestamp(ns.daily_timestamp).strftime("%H:%M")
+                news_parts.append(f"  最終サマリ: {ts_str} ({len(ns.daily_chunks)}カテゴリ)")
+            if ns.urgent_articles:
+                recent = [a for a in ns.urgent_articles if time.time() - a.get("timestamp", 0) < 3600]
+                if recent:
+                    news_parts.append(f"  速報: {len(recent)}件 (直近1時間)")
+            if not ns.bridge_connected:
+                news_parts.append("  ⚠ ニュースブリッジ: 切断中")
+            lines.append("\n".join(news_parts))
 
         return "\n\n".join(lines)
 

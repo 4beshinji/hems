@@ -29,6 +29,7 @@ from low_power_mode import PowerModeManager
 from persona_rewriter import PersonaRewriter
 from event_store import init_db, EventWriter, HourlyAggregator
 from ambient_speaker import AmbientSpeaker
+from event_automation import EventAutomation
 
 load_dotenv()
 
@@ -49,6 +50,8 @@ PERCEPTION_BRIDGE_URL = os.getenv("PERCEPTION_BRIDGE_URL", "")
 PERCEPTION_ENABLED = bool(PERCEPTION_BRIDGE_URL)
 SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
 SWITCHBOT_ENABLED = bool(SWITCHBOT_BRIDGE_URL)
+NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
+NEWS_ENABLED = bool(NEWS_BRIDGE_URL)
 
 SCHEDULE_STATE_PATH = os.getenv("SCHEDULE_STATE_PATH", "/app/data/schedule_learner_state.json")
 
@@ -119,6 +122,8 @@ def _summarize_action(tool_name: str, args: dict) -> str:
         return f"device={args.get('device_id', '')}, cmd={args.get('command', '')}"
     elif tool_name == "send_switchbot_ir":
         return f"ir_device={args.get('device_id', '')}, cmd={args.get('command', '')}"
+    elif tool_name == "get_news_summary":
+        return "news_summary"
     return str(args)[:50]
 
 
@@ -145,6 +150,7 @@ class Brain:
         self.tool_executor = None
 
         self.ambient_speaker: AmbientSpeaker | None = None
+        self.event_automation: EventAutomation | None = None
 
         self._cycle_triggered = asyncio.Event()
         self._last_event_count: dict[str, int] = {}
@@ -204,6 +210,30 @@ class Brain:
             if sleep_end > 0:
                 self.schedule_learner.record_sleep_from_biometrics(sleep_start, sleep_end)
 
+        # Wake-up detection for EventAutomation
+        if self.event_automation:
+            # Biometric sleep end → wake_up
+            if "biometrics" in topic and "/sleep" in topic:
+                sleep_end = payload.get("sleep_end_ts", 0)
+                if sleep_end > 0:
+                    if self._loop:
+                        asyncio.run_coroutine_threadsafe(
+                            self.event_automation.trigger("wake_up"), self._loop
+                        )
+
+            # Camera: person detected in morning hours (5:00-10:00)
+            from datetime import datetime as _dt
+            parts = topic.split("/")
+            hour = _dt.now().hour
+            if (5 <= hour < 10 and len(parts) >= 5
+                    and parts[0] == "office" and parts[2] == "camera"):
+                count = payload.get("person_count", payload.get("count", 0))
+                if int(count) > 0:
+                    if self._loop:
+                        asyncio.run_coroutine_threadsafe(
+                            self.event_automation.trigger("wake_up"), self._loop
+                        )
+
         if self.event_writer:
             parts = topic.split("/")
             if len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
@@ -232,6 +262,8 @@ class Brain:
             current["__home__"] = len(self.world_model.home_devices.events)
         if BIOMETRIC_ENABLED:
             current["__biometric__"] = len(self.world_model.biometric_state.events)
+        if NEWS_ENABLED:
+            current["__news__"] = len(self.world_model.news_state.events)
         if current != self._last_event_count:
             self._last_event_count = current
             self._cycle_triggered.set()
@@ -477,7 +509,8 @@ class Brain:
                           biometric_enabled=BIOMETRIC_ENABLED,
                           perception_enabled=PERCEPTION_ENABLED,
                           shopping_enabled=True,
-                          switchbot_enabled=SWITCHBOT_ENABLED)
+                          switchbot_enabled=SWITCHBOT_ENABLED,
+                          news_enabled=NEWS_ENABLED)
 
         tool_call_history = []
         speak_count = 0
@@ -751,6 +784,17 @@ class Brain:
                 llm_client=self.llm, world_model=self.world_model,
                 character=self.character,
             )
+            if NEWS_ENABLED:
+                self.event_automation = EventAutomation(
+                    tool_executor=self.tool_executor,
+                    world_model=self.world_model,
+                    llm_client=self.llm,
+                    character=self.character,
+                )
+                self.event_automation.set_session(session)
+                logger.info(f"News integration enabled (bridge={NEWS_BRIDGE_URL})")
+            else:
+                logger.info("News integration disabled (NEWS_BRIDGE_URL not set)")
             asyncio.create_task(self.task_reminder.run_periodic_check())
             if OPENCLAW_ENABLED:
                 logger.info(f"localcraw integration enabled (bridge={LOCALCRAW_BRIDGE_URL})")
@@ -826,6 +870,13 @@ class Brain:
                             })
                 except Exception as e:
                     logger.warning(f"Ambient speech error: {e}")
+
+                # Event automation: check scheduled events
+                try:
+                    if self.event_automation:
+                        await self.event_automation.check_scheduled()
+                except Exception as e:
+                    logger.warning(f"Event automation error: {e}")
 
 
 if __name__ == "__main__":

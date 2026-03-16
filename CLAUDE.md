@@ -55,6 +55,9 @@ docker compose --profile perception up -d --build
 # With SwitchBot (direct SwitchBot API, no HA required)
 docker compose --profile switchbot up -d --build
 
+# With news briefing (RSS + Ollama summarizer, requires --profile ollama)
+docker compose --profile news --profile ollama up -d --build
+
 # With mock LLM (development, no Ollama needed)
 LLM_API_URL=http://mock-llm:8000/v1 LLM_MODEL=mock \
   docker compose --profile mock up -d --build
@@ -68,7 +71,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`
+Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `news`
 
 ### Frontend Development
 
@@ -98,6 +101,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Biometric Bridge | 8017 | `HEMS_PORT_BIOMETRIC_BRIDGE` | hems-biometric-bridge |
 | Perception | 8018 | `HEMS_PORT_PERCEPTION` | hems-perception |
 | SwitchBot Bridge | 8019 | `HEMS_PORT_SWITCHBOT_BRIDGE` | hems-switchbot-bridge |
+| News Bridge | 8021 | `HEMS_PORT_NEWS_BRIDGE` | hems-news-bridge |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -168,6 +172,11 @@ hems/shopping/{added,updated,purchased}
 hems/switchbot/{device_id}/state
 hems/switchbot/bridge/status
 
+# News (news-bridge)
+hems/news/daily
+hems/news/urgent
+hems/news/bridge/status
+
 # Weather (weather-bridge)
 hems/weather/{current,forecast,alerts}
 hems/weather/bridge/status
@@ -194,9 +203,11 @@ hems/brain/guest-mode
 - System tools (with `ha`): `set_guest_mode`, `get_weather`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
 - Perception tools (profile `perception`): `get_perception_status`, `describe_scene` (VLM on-demand scene analysis)
+- News tools (profile `news`): `get_news_summary`
 - Shopping tools (always enabled): `add_shopping_item`, `get_shopping_list`
 - SwitchBot tools (profile `switchbot`): `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir`
 - Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
+- Event automation (with `news` profile): event→action mapping (wake_up/arrival/departure/scheduled → news_briefing/morning_greeting/weather_report)
 
 ### localcraw Bridge (profile: `localcraw`)
 
@@ -420,6 +431,37 @@ Weather data from JMA (気象庁) or OpenWeatherMap.
   - Publishes to `hems/weather/{current,forecast,alerts}` MQTT topics
 - **Brain rules**: rain window detection, hot forecast notification
 - **World model**: `WeatherState` in Physical Space
+
+### News Integration (news-bridge)
+
+RSS news fetcher + Ollama summarizer + urgency detection with event-driven voice briefings.
+
+- **news-bridge**: Docker service (Python/FastAPI) polling RSS feeds and generating Ollama-powered summaries
+  - Sources: NHK (国内+国際) + BBC World + Guardian World (configurable)
+  - Daily summary: generated at configurable time (default 07:30) + on startup
+  - Urgent news: 5-minute polling, urgency score 0.8+ triggers MQTT alert
+  - Overseas articles translated to Japanese via Ollama
+  - Publishes to `hems/news/{daily,urgent}` MQTT topics
+- **Deploy**: Requires `--profile ollama` for summarization
+- **Profile**: `docker compose --profile news --profile ollama up -d --build`
+- **Brain tools**: `get_news_summary`
+- **Brain rules**: urgent news speak notification
+- **World model**: `NewsState` in Digital Space
+
+### Event Automation
+
+Configurable event→action mapping for automated voice briefings.
+
+- **Events**: `wake_up` (biometric sleep end or morning camera detection), `arrival`, `departure`, `scheduled` (cron-like time)
+- **Actions**: `morning_greeting` (LLM-generated), `news_briefing` (from news-bridge), `weather_report` (from world model)
+- **Default**: wake_up → morning_greeting + news_briefing + weather_report
+- **Configuration**: `EVENT_AUTOMATIONS` env var (JSON array)
+
+Configure in `.env`:
+```bash
+NEWS_BRIDGE_URL=http://news-bridge:8000
+EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_briefing","weather_report"]},{"event":"scheduled","time":"12:00","actions":["news_briefing"]}]'
+```
 
 ## Tech Stack
 

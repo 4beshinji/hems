@@ -11,7 +11,8 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
               biometric_enabled: bool = False,
               perception_enabled: bool = False,
               shopping_enabled: bool = False,
-              switchbot_enabled: bool = False) -> list:
+              switchbot_enabled: bool = False,
+              news_enabled: bool = False) -> list:
     tools = [
         {
             "type": "function",
@@ -143,6 +144,9 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
     if switchbot_enabled:
         tools.extend(_get_switchbot_tools())
 
+    if news_enabled:
+        tools.extend(_get_news_tools())
+
     return tools
 
 
@@ -151,14 +155,16 @@ def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = Fals
                    biometric_enabled: bool = False,
                    perception_enabled: bool = False,
                    shopping_enabled: bool = False,
-                   switchbot_enabled: bool = False) -> list:
+                   switchbot_enabled: bool = False,
+                   news_enabled: bool = False) -> list:
     """Return list of all enabled tool names."""
     return [t["function"]["name"] for t in get_tools(openclaw_enabled, services_enabled,
                                                       obsidian_enabled, ha_enabled,
                                                       biometric_enabled,
                                                       perception_enabled,
                                                       shopping_enabled,
-                                                      switchbot_enabled)]
+                                                      switchbot_enabled,
+                                                      news_enabled)]
 
 
 def _get_service_tools() -> list:
@@ -587,6 +593,23 @@ def _get_shopping_tools() -> list:
                         "category": {"type": "string", "description": "カテゴリでフィルタ"},
                         "store": {"type": "string", "description": "店舗でフィルタ"},
                     },
+                },
+            },
+        },
+    ]
+
+
+def _get_news_tools() -> list:
+    """News tools — only included when news-bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_news_summary",
+                "description": "最新のニュースサマリを取得する。ユーザーがニュースを尋ねた場合や、ニュース速報の詳細を確認する場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
                 },
             },
         },

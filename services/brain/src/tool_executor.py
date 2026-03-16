@@ -16,6 +16,7 @@ HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
 PERCEPTION_BRIDGE_URL = os.getenv("PERCEPTION_BRIDGE_URL", "")
 SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
+NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 
 _HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
 _AUTH_HEADERS = {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY else {}
@@ -37,6 +38,7 @@ class ToolExecutor:
         self.biometric_url = BIOMETRIC_BRIDGE_URL
         self.perception_url = PERCEPTION_BRIDGE_URL
         self.switchbot_url = SWITCHBOT_BRIDGE_URL
+        self.news_url = NEWS_BRIDGE_URL
         self.voice_url = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self.dashboard_api_url = os.getenv("DASHBOARD_API_URL", "http://backend:8000")
 
@@ -117,6 +119,8 @@ class ToolExecutor:
                 return await self._handle_control_switchbot(arguments)
             elif tool_name == "send_switchbot_ir":
                 return await self._handle_send_switchbot_ir(arguments)
+            elif tool_name == "get_news_summary":
+                return await self._handle_get_news_summary(arguments)
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -813,6 +817,44 @@ class ToolExecutor:
                 return {"success": False, "error": f"HTTP {resp.status}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    # --- News tools ---
+
+    async def _handle_get_news_summary(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Get latest news summary from world model cache or news-bridge API."""
+        ns = self.world_model.news_state
+
+        # Try cached data first
+        if ns.daily_timestamp > 0:
+            import time as _time
+            age_min = int((_time.time() - ns.daily_timestamp) / 60)
+            result = {
+                "summary": ns.daily_summary,
+                "chunks": ns.daily_chunks,
+                "article_count": len(ns.daily_chunks),
+                "age_minutes": age_min,
+            }
+            if ns.urgent_articles:
+                recent = [a for a in ns.urgent_articles if _time.time() - a.get("timestamp", 0) < 3600]
+                if recent:
+                    result["urgent"] = recent
+            return {"success": True, "result": json.dumps(result, ensure_ascii=False)}
+
+        # Fallback: query news-bridge API
+        if self.news_url and self._session:
+            try:
+                async with self._session.get(
+                    f"{self.news_url}/api/news/latest",
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    data = await resp.json()
+                    if resp.status == 200:
+                        return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                    return {"success": False, "error": f"HTTP {resp.status}"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+        return {"success": True, "result": "ニュースデータがまだありません"}
 
     # --- SwitchBot tools ---
 

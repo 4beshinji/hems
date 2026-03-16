@@ -15,6 +15,7 @@ from pydub import AudioSegment
 from models import SynthesizeRequest, TaskAnnounceRequest, VoiceResponse, DualVoiceResponse
 from provider_factory import create_provider
 from speech_generator import SpeechGenerator
+from text_processor import TextProcessor
 from tts_provider import AudioResult
 
 AUDIO_DIR = Path("/app/audio")
@@ -23,6 +24,7 @@ AUDIO_DIR.mkdir(exist_ok=True)
 character_config = {}
 tts_provider = None
 speech_gen = None
+text_processor = TextProcessor()
 _health_task: asyncio.Task | None = None
 _last_health: dict = {"healthy": True, "state": "starting"}
 
@@ -141,7 +143,8 @@ async def health():
 
 @app.post("/api/voice/synthesize", response_model=VoiceResponse)
 async def synthesize_text(req: SynthesizeRequest):
-    result = await tts_provider.synthesize(req.text, voice=req.tone or "neutral")
+    processed_text = text_processor.process(req.text)
+    result = await tts_provider.synthesize(processed_text, voice=req.tone or "neutral")
     if not result.audio_data:
         return VoiceResponse(
             text_generated=req.text,
