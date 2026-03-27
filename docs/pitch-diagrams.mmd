@@ -1,0 +1,65 @@
+%% HEMS アーキテクチャ図 (Mermaid)
+%% Mermaid Live Editor, GitHub, Notion, Obsidian 等に貼り付けて使用
+
+%% === 図1: 三空間統合アーキテクチャ ===
+
+---
+title: HEMS 三空間統合アーキテクチャ
+---
+graph TB
+    subgraph Physical["実空間"]
+        ENV["BME680 / CO2<br>温湿度・気圧・VOC"]
+        PIR["赤外線 PIR<br>動体検知"]
+        MMWAVE["24GHz mmWave<br>存在+微動"]
+        YOLO["YOLOv11s-pose<br>姿勢・骨格"]
+        VLM["VLM<br>シーン理解"]
+        BIO["スマートバンド<br>心拍/睡眠/疲労"]
+        SMARTHOME["HA / SwitchBot<br>照明・空調・カバー"]
+    end
+
+    subgraph Digital["個人電子空間"]
+        PC["localcraw<br>CPU/GPU/メモリ"]
+        OBS["Obsidian<br>ナレッジベース"]
+        BROWSER["ブラウザ状態"]
+        SHOP["買い物リスト"]
+    end
+
+    subgraph Internet["インターネット"]
+        GAS["GAS Bridge<br>Calendar/Gmail/Tasks"]
+        NEWS["News Bridge<br>RSS + Ollama要約"]
+        WEATHER["Weather Bridge<br>JMA / OWM"]
+        GH["GitHub 通知"]
+    end
+
+    ENV --> MQTT
+    PIR --> MQTT
+    MMWAVE --> MQTT
+    YOLO --> MQTT
+    VLM --> MQTT
+    BIO --> MQTT
+    SMARTHOME --> MQTT
+    PC --> MQTT
+    OBS --> MQTT
+    BROWSER --> MQTT
+    SHOP --> MQTT
+    GAS --> MQTT
+    NEWS --> MQTT
+    WEATHER --> MQTT
+    GH --> MQTT
+
+    MQTT["MQTT Bus"] --> BRAIN
+
+    subgraph BRAIN["Brain 認知エンジン"]
+        LLM["LLM ReAct<br>5反復/30秒"]
+        RULES["ルールエンジン<br>フォールバック"]
+        WM["ワールドモデル<br>三空間統合"]
+        TOOLS["33 ツール"]
+        LLM <--> WM
+        RULES <--> WM
+        WM <--> TOOLS
+    end
+
+    BRAIN --> |照明・空調| SMARTHOME
+    BRAIN --> |音声通知| VOICE["Voice TTS"]
+    BRAIN --> |タスク生成| BACKEND["Backend API"]
+    BRAIN --> |PC操作| PC

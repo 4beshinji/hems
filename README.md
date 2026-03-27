@@ -1,7 +1,7 @@
 # HEMS — Home Environment Management System
 
 個人生活統合管理システム。LLM/ルールベースの「頭脳」と IoT センサー、プラグイン式音声合成、
-AI キャラクターシステムを組み合わせた、独居者向けパーソナル AI アシスタント基盤。
+AI キャラクターシステムを組み合わせた、個人・家庭向けパーソナル AI アシスタント基盤。
 
 [SOMS](https://github.com/...) (commit `1216952`) からのフォーク。
 
@@ -27,6 +27,7 @@ docker compose up -d --build
 - **プラグイン式 TTS**: espeak / VOICEVOX / Edge TTS / VoiSona Talk
 - **XP ゲーミフィケーション**: タスク完了で XP 獲得 (50-500)
 - **買い物リスト**: Brain 統合のショッピング管理 + 購入履歴 + MQTT通知
+- **イベント自動化**: wake_up / arrival / departure / scheduled → ニュース・天気・挨拶を自動実行
 - **データマート**: SOMS 互換の event_store — raw_events / llm_decisions / hourly_aggregates (730日保持)
 
 ### 外部連携
@@ -37,11 +38,13 @@ docker compose up -d --build
 - **スマートホーム** (HA): 照明/空調/カバー/スイッチ/センサー/シーン + スケジュール学習
 - **SwitchBot** (直接API): HA不要のデバイス制御 + IR リモート (Hub経由)
 - **天気** (weather-bridge): JMA (気象庁) / OpenWeatherMap — 降雨・猛暑アラート
+- **ニュース** (news-bridge): RSS + Ollama 要約 — 日次ブリーフィング + 緊急ニュース検知 + イベント駆動音声通知
 
 ### バイオメトリクス・パーセプション
 
 - **バイオメトリクス**: Gadgetbridge webhook — 心拍/SpO2/睡眠/ストレス/疲労スコア/HRV/体温/呼吸数
 - **カメラ知覚**: YOLOv11s-pose — 在室検知・姿勢分類 (立位/座位/臥位/歩行)・活動追跡
+- **VLM シーン理解**: moondream / minicpm-v — 適応的頻度制御 + イベント駆動ブースト + オンデマンド分析
 
 ### エッジデバイス
 
@@ -64,7 +67,7 @@ docker compose up -d --build
 └──────────────┴─────────────────────┴─────────────────────┘
 
 Profiles:  voicevox | ollama | postgres | localcraw | obsidian
-           gas | ha | biometric | perception | switchbot
+           gas | ha | biometric | perception | switchbot | news
 ```
 
 ### Brain ツール一覧 (30+)
@@ -79,8 +82,9 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 | スマートホーム | `control_light`, `control_climate`, `control_cover`, `control_switch`, `get_home_devices`, `get_sensor_data`, `execute_scene` | ha |
 | システム | `set_guest_mode`, `get_weather` | ha |
 | バイオ | `get_biometrics`, `get_sleep_summary` | biometric |
-| カメラ | `get_perception_status` | perception |
+| カメラ | `get_perception_status`, `describe_scene` | perception |
 | SwitchBot | `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir` | switchbot |
+| ニュース | `get_news_summary` | news |
 
 ### サービスポート
 
@@ -97,6 +101,7 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 | Biometric | 8017 | hems-biometric-bridge |
 | Perception | 8018 | hems-perception |
 | SwitchBot | 8019 | hems-switchbot-bridge |
+| News Bridge | 8021 | hems-news-bridge |
 | VOICEVOX | 50031 | hems-voicevox |
 | Ollama | 11444 | hems-ollama |
 | PostgreSQL | 5442 | hems-postgres |
@@ -168,6 +173,9 @@ docker compose --profile perception up -d
 # SwitchBot (直接API制御 — HA不要)
 docker compose --profile switchbot up -d
 
+# News (RSS + Ollama ニュース要約 — ollama 必須)
+docker compose --profile news --profile ollama up -d
+
 # 複数プロファイル組み合わせ
 docker compose --profile ha --profile biometric --profile switchbot up -d
 ```
@@ -219,7 +227,8 @@ pnpm build    # tsc -b && vite build
 - **Phase 2** (完了): 外部連携 — localcraw, Obsidian, GAS, Home Assistant, Biometric
 - **Phase 3** (完了): Perception — カメラ検知・姿勢分類・活動追跡 (YOLOv11s-pose)
 - **Phase 4** (完了): IoT拡張 — SwitchBot直接統合, Weather Bridge, 買い物リスト, Edge Swarm
-- **Phase 5** (進行中): Advanced TTS — VoiSona Talk 実装済み, Style-Bert-VITS2 計画中
+- **Phase 5** (完了): 知覚・情報統合 — VLM シーン理解, ニュースブリーフィング, イベント自動化, Ollama ネイティブ API
+- **Phase 6** (進行中): Advanced TTS — VoiSona Talk 実装済み, Style-Bert-VITS2 計画中
 
 ## License
 

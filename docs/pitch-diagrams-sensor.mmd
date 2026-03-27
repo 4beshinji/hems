@@ -1,0 +1,32 @@
+%% HEMS センサースタック図 (Mermaid)
+%% 各モダリティの補完関係を可視化
+
+---
+title: センサースタック — 6モダリティの補完関係
+---
+graph LR
+    subgraph Sensors["センサー入力"]
+        ENV["環境<br>BME680/CO2"]
+        PIR["赤外線<br>PIR"]
+        MW["ミリ波<br>24GHz"]
+        CAM["映像<br>YOLOv11s"]
+        VLM["映像+言語<br>VLM"]
+        BIO["生体<br>スマートバンド"]
+    end
+
+    ENV -->|空気質・気圧| WM
+    PIR -->|動体| WM
+    MW -->|存在・微動| WM
+    CAM -->|人数・姿勢| WM
+    VLM -->|状況の文脈| WM
+    BIO -->|身体内部| WM
+
+    WM["ワールドモデル<br>統合状態"] --> BRAIN["Brain<br>判断"]
+    BRAIN --> ACT["アクション<br>照明/空調/音声/タスク"]
+
+    PIR -. "静止体は検知不可" .-> MW
+    MW -. "何をしているかは不明" .-> CAM
+    CAM -. "数値では文脈が取れない" .-> VLM
+
+    style VLM fill:#1e3a5f,stroke:#60a5fa,color:#e0e0e0
+    style BRAIN fill:#1e3a5f,stroke:#60a5fa,color:#e0e0e0
