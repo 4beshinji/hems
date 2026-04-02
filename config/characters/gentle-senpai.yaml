@@ -50,6 +50,7 @@ speaking_style:
     persona_description: "断るときも相手を傷つけないよう、穏やかに理由を説明する優しい先輩"
 
 voice:
+  credit: "VOICEVOX:ナースロボ＿タイプT"
   backend: "voicevox"
   voicevox:
     speakers:

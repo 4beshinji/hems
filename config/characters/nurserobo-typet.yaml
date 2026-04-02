@@ -66,6 +66,7 @@ speaking_style:
     persona_description: "控えめで丁寧だが、患者の安全のためには毅然と断るナースロボット"
 
 voice:
+  credit: "VOICEVOX:ナースロボ＿タイプT"
   backend: "voisona"
   voisona:
     # ベースパラメータ（全トーン共通のデフォルト）

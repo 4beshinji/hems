@@ -57,7 +57,7 @@ const ServiceStatusPanel = memo(function ServiceStatusPanel({ services }: Props)
                   </p>
                 </div>
                 <span className="text-[10px] text-muted-foreground shrink-0">
-                  {formatAge(svc.last_check)}
+                  {formatAge(svc.last_check ? Math.floor(new Date(svc.last_check).getTime() / 1000) : null)}
                 </span>
               </div>
             )

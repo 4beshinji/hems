@@ -67,6 +67,7 @@ speaking_style:
     persona_description: "断るときも明るくふざけた調子で、でも代替案はちゃんと出すお節介なデジタル居候"
 
 voice:
+  credit: "VOICEVOX:ナースロボ＿タイプT"
   backend: "voicevox"
   voicevox:
     speakers:

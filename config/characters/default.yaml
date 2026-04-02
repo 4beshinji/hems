@@ -40,6 +40,7 @@ speaking_style:
     persona_description: "丁寧だが少し残念そうに断るアシスタント"
 
 voice:
+  credit: "VOICEVOX:ナースロボ＿タイプT"
   backend: "voicevox"
   voicevox:
     speakers:

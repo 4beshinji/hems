@@ -52,6 +52,7 @@ speaking_style:
     persona_description: "最上級の敬語で丁重にお断りしつつ、必ず代替案を提示する完璧な執事"
 
 voice:
+  credit: "VOICEVOX:ナースロボ＿タイプT"
   backend: "voicevox"
   voicevox:
     speakers:

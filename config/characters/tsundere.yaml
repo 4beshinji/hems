@@ -49,6 +49,7 @@ speaking_style:
     persona_description: "素直になれなくて強がるが、本当は相手を心配しているツンデレ"
 
 voice:
+  credit: "VOICEVOX:ナースロボ＿タイプT"
   backend: "voicevox"
   voicevox:
     speakers:

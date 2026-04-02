@@ -17,7 +17,7 @@ const ZoneEnvironmentCard = memo(function ZoneEnvironmentCard({ zone }: Props) {
   const env = zone.environment
   const co2Info = co2Level(env.co2)
   const label = ZONE_LABELS[zone.zone_id] || zone.zone_id
-  const age = formatAge(env.last_update)
+  const age = formatAge(typeof env.last_update === 'number' ? env.last_update : null)
 
   return (
     <Card>

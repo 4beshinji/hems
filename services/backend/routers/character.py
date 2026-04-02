@@ -58,7 +58,7 @@ def _load_character_identity() -> dict[str, Any]:
                 with open(tmpl_path, "r", encoding="utf-8") as f:
                     base = yaml.safe_load(f) or {}
                 # Merge: data overrides base
-                for key in ("identity", "personality"):
+                for key in ("identity", "personality", "voice"):
                     if key in data:
                         base_section = base.get(key, {})
                         base_section.update(data[key])
@@ -67,11 +67,13 @@ def _load_character_identity() -> dict[str, Any]:
 
         identity = data.get("identity", {})
         personality = data.get("personality", {})
+        voice = data.get("voice", {})
         return {
             "name": identity.get("name", defaults["name"]),
             "archetype": personality.get("archetype", defaults["archetype"]),
             "first_person": identity.get("first_person", defaults["first_person"]),
             "second_person": identity.get("second_person", defaults["second_person"]),
+            "voice_credit": voice.get("credit"),
         }
     except Exception as e:
         logger.warning("Failed to load character identity: %s", e)

@@ -6,6 +6,7 @@ import AppSidebar from '@/components/layout/AppSidebar'
 import BottomNav from '@/components/layout/BottomNav'
 import Header from '@/components/layout/Header'
 import { useDarkMode } from '@/hooks/use-dark-mode'
+import { useCharacterTheme } from '@/hooks/use-character-theme'
 import { useAudioQueue, AudioPriority } from '@/audio'
 import { fetchZones, fetchVoiceEvents, fetchTasks } from '@/lib/api'
 import type { VoiceEvent, TaskData } from '@/lib/types'
@@ -66,6 +67,7 @@ export default function AppLayout() {
   const primaryZone = zonesQuery.data?.[0]
   const currentLux = primaryZone?.environment?.light
   const { preference: darkModePreference, cycle: cycleDarkMode } = useDarkMode(currentLux)
+  const { cycleTheme: cycleCharacterTheme, isSecretActive, activeConfig } = useCharacterTheme()
 
   // Play new voice events
   useEffect(() => {
@@ -109,6 +111,9 @@ export default function AppLayout() {
         onToggleAudio={toggleAudio}
         darkModePreference={darkModePreference}
         onCycleDarkMode={cycleDarkMode}
+        secretThemeActive={isSecretActive}
+        secretThemeConfig={activeConfig}
+        onCycleSecretTheme={cycleCharacterTheme}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
@@ -116,6 +121,8 @@ export default function AppLayout() {
           onToggleAudio={toggleAudio}
           darkModePreference={darkModePreference}
           onCycleDarkMode={cycleDarkMode}
+          secretThemeActive={isSecretActive}
+          secretThemeConfig={activeConfig}
         />
         <main className="flex-1 flex flex-col p-4 lg:p-6 pb-20 lg:pb-6 min-h-0">
           <Outlet context={{

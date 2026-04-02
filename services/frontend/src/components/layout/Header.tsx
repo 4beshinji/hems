@@ -2,6 +2,7 @@ import { useLocation } from 'react-router'
 import { Volume2, VolumeX, Sun, Moon, Gauge } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { DarkModePreference } from '@/hooks/use-dark-mode'
+import type { CharacterThemeConfig } from '@/lib/character-themes'
 
 const ROUTE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -15,6 +16,8 @@ interface Props {
   onToggleAudio: () => void
   darkModePreference: DarkModePreference
   onCycleDarkMode: () => void
+  secretThemeActive?: boolean
+  secretThemeConfig?: CharacterThemeConfig | null
 }
 
 export default function Header({
@@ -22,6 +25,8 @@ export default function Header({
   onToggleAudio,
   darkModePreference,
   onCycleDarkMode,
+  secretThemeActive,
+  secretThemeConfig,
 }: Props) {
   const location = useLocation()
   const title = ROUTE_TITLES[location.pathname] || 'HEMS'
@@ -31,7 +36,12 @@ export default function Header({
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-14 border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 px-4 lg:px-6">
-      <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+      <h1 className="text-lg font-semibold text-foreground">
+        {secretThemeActive && secretThemeConfig && (
+          <span className="text-xs text-primary/50 mr-1">{secretThemeConfig.accentSymbol}</span>
+        )}
+        {title}
+      </h1>
       <div className="flex items-center gap-2">
         <div className="lg:hidden flex gap-1">
           <Button variant="ghost" size="icon" onClick={onToggleAudio} aria-label="オーディオ切替" className="h-9 w-9">

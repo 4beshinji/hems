@@ -54,10 +54,10 @@ const GASPanel = memo(function GASPanel({ gas }: Props) {
               events.slice(0, 6).map((ev, i) => (
                 <p
                   key={ev.id || i}
-                  className={`text-xs py-1 truncate ${isEventSoon(ev.start) ? 'text-destructive font-medium' : 'text-foreground'}`}
+                  className={`text-xs py-1 truncate ${ev.start && isEventSoon(ev.start) ? 'text-destructive font-medium' : 'text-foreground'}`}
                 >
                   <span className="text-muted-foreground mr-2">
-                    {ev.is_all_day ? '終日' : formatTime(ev.start)}
+                    {ev.is_all_day ? '終日' : formatTime(ev.start ?? '')}
                   </span>
                   {ev.title}
                 </p>
