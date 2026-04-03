@@ -17,6 +17,7 @@ BIOMETRIC_BRIDGE_URL = os.getenv("BIOMETRIC_BRIDGE_URL", "")
 PERCEPTION_BRIDGE_URL = os.getenv("PERCEPTION_BRIDGE_URL", "")
 SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
+KNOWLEDGE_BRIDGE_URL = os.getenv("KNOWLEDGE_BRIDGE_URL", "")
 
 _HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
 _AUTH_HEADERS = {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY else {}
@@ -39,6 +40,7 @@ class ToolExecutor:
         self.perception_url = PERCEPTION_BRIDGE_URL
         self.switchbot_url = SWITCHBOT_BRIDGE_URL
         self.news_url = NEWS_BRIDGE_URL
+        self.knowledge_url = KNOWLEDGE_BRIDGE_URL
         self.voice_url = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self.dashboard_api_url = os.getenv("DASHBOARD_API_URL", "http://backend:8000")
 
@@ -121,6 +123,12 @@ class ToolExecutor:
                 return await self._handle_send_switchbot_ir(arguments)
             elif tool_name == "get_news_summary":
                 return await self._handle_get_news_summary(arguments)
+            elif tool_name == "search_knowledge":
+                return await self._handle_search_knowledge(arguments)
+            elif tool_name == "get_knowledge_sources":
+                return await self._handle_get_knowledge_sources(arguments)
+            elif tool_name == "read_knowledge_document":
+                return await self._handle_read_knowledge_document(arguments)
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -934,6 +942,61 @@ class ToolExecutor:
                 data = await resp.json()
                 if resp.status == 200:
                     return {"success": True, "result": f"SwitchBot IR {command} -> {device_id}"}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    # --- Knowledge tools ---
+
+    async def _handle_search_knowledge(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.knowledge_url:
+            return {"success": False, "error": "Knowledge bridge not configured"}
+        try:
+            async with self._session.post(
+                f"{self.knowledge_url}/api/knowledge/search",
+                json={
+                    "query": args.get("query", ""),
+                    "source": args.get("source"),
+                    "doc_type": args.get("doc_type"),
+                    "tags": args.get("tags"),
+                    "max_results": args.get("max_results", 5),
+                },
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_get_knowledge_sources(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.knowledge_url:
+            return {"success": False, "error": "Knowledge bridge not configured"}
+        try:
+            async with self._session.get(
+                f"{self.knowledge_url}/api/knowledge/sources",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_read_knowledge_document(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.knowledge_url:
+            return {"success": False, "error": "Knowledge bridge not configured"}
+        try:
+            async with self._session.get(
+                f"{self.knowledge_url}/api/knowledge/read",
+                params={"source": args.get("source", ""), "path": args.get("path", "")},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
                 return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
         except Exception as e:
             return {"success": False, "error": str(e)}

@@ -113,6 +113,27 @@ class PurchaseHistory(Base):
     purchased_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, index=True)
+    role = Column(String, nullable=False)          # "user" | "assistant"
+    content = Column(String, nullable=False)
+    audio_url = Column(String, nullable=True)
+    tool_calls_json = Column(String, nullable=True)
+    metadata_json = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class BiometricReading(Base):
     __tablename__ = "biometric_readings"
     id = Column(Integer, primary_key=True, index=True)

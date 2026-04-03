@@ -218,3 +218,54 @@ class ShoppingShareResponse(BaseModel):
     share_url: str
     token: str
     items: List[ShoppingItem] = []
+
+
+# --- Chat ---
+
+class ChatMessageSend(BaseModel):
+    content: str
+    conversation_id: Optional[int] = None
+
+
+class ChatMessage(BaseModel):
+    id: int
+    conversation_id: int
+    role: str
+    content: str
+    audio_url: Optional[str] = None
+    tool_calls_json: Optional[str] = None
+    metadata_json: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ChatResponse(BaseModel):
+    user_message: ChatMessage
+    assistant_message: ChatMessage
+    conversation_id: int
+
+
+class ConversationSummary(BaseModel):
+    id: int
+    title: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    last_message: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ConversationDetail(BaseModel):
+    id: int
+    title: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    messages: List[ChatMessage] = []
+
+    class Config:
+        from_attributes = True

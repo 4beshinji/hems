@@ -51,7 +51,7 @@ app.add_middleware(
 from routers import (  # noqa: E402
     tasks, voice_events, users, zones, pc, services,
     knowledge, gas, biometric, perception, home, timeseries,
-    character, shopping,
+    character, shopping, chat,
 )
 
 # All routers require API key authentication.
@@ -71,6 +71,7 @@ app.include_router(home.router, dependencies=_auth)
 app.include_router(timeseries.router, dependencies=_auth)
 app.include_router(character.router, dependencies=_auth)
 app.include_router(shopping.router, dependencies=_auth)
+app.include_router(chat.router, dependencies=_auth)
 
 
 @app.get("/")

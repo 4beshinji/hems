@@ -19,8 +19,8 @@ from task_scheduling import TaskQueueManager
 from task_reminder import TaskReminder
 from dashboard_client import DashboardClient
 from tool_executor import ToolExecutor
-from tool_registry import get_tools
-from system_prompt import build_system_message
+from tool_registry import get_tools, get_chat_tools
+from system_prompt import build_system_message, build_chat_system_message
 from device_registry import DeviceRegistry
 from character_loader import load_character, reload_character
 from rule_engine import RuleEngine
@@ -52,6 +52,12 @@ SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
 SWITCHBOT_ENABLED = bool(SWITCHBOT_BRIDGE_URL)
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 NEWS_ENABLED = bool(NEWS_BRIDGE_URL)
+KNOWLEDGE_BRIDGE_URL = os.getenv("KNOWLEDGE_BRIDGE_URL", "")
+KNOWLEDGE_ENABLED = bool(KNOWLEDGE_BRIDGE_URL)
+
+HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
+CHAT_SERVER_PORT = int(os.getenv("BRAIN_CHAT_PORT", "8080"))
+CHAT_MAX_ITERATIONS = 3
 
 SCHEDULE_STATE_PATH = os.getenv("SCHEDULE_STATE_PATH", "/app/data/schedule_learner_state.json")
 
@@ -455,6 +461,7 @@ class Brain:
             biometric_enabled=BIOMETRIC_ENABLED,
             perception_enabled=PERCEPTION_ENABLED,
             switchbot_enabled=SWITCHBOT_ENABLED,
+            knowledge_enabled=KNOWLEDGE_ENABLED,
         )
         user_content = f"## 現在の自宅状態\n{llm_context}"
 
@@ -510,7 +517,8 @@ class Brain:
                           perception_enabled=PERCEPTION_ENABLED,
                           shopping_enabled=True,
                           switchbot_enabled=SWITCHBOT_ENABLED,
-                          news_enabled=NEWS_ENABLED)
+                          news_enabled=NEWS_ENABLED,
+                          knowledge_enabled=KNOWLEDGE_ENABLED)
 
         tool_call_history = []
         speak_count = 0
@@ -635,6 +643,123 @@ class Brain:
             asyncio.create_task(self._write_decision_log(cycle_actions))
 
         logger.info(f"Cycle: iter={iteration}, tools={total_tool_calls}, elapsed={elapsed:.1f}s")
+
+    # --- Chat server handlers ---
+
+    async def _chat_health(self, request):
+        from aiohttp import web as aio_web
+        return aio_web.json_response({"status": "ok"})
+
+    async def _handle_chat(self, request):
+        """Handle user chat query via agentic RAG with read-only tools."""
+        from aiohttp import web as aio_web
+        import secrets as _secrets
+
+        # Auth check
+        auth = request.headers.get("Authorization", "")
+        if HEMS_API_KEY and not _secrets.compare_digest(auth, f"Bearer {HEMS_API_KEY}"):
+            return aio_web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+        except Exception:
+            return aio_web.json_response({"error": "Invalid JSON"}, status=400)
+
+        history = data.get("messages", [])
+        user_message = data.get("user_message", "").strip()
+        if not user_message:
+            return aio_web.json_response({"error": "Empty message"}, status=400)
+
+        # Build chat-specific system prompt with world context
+        world_context = self.world_model.get_llm_context()
+        system_msg = build_chat_system_message(
+            character=self.character,
+            world_context=world_context,
+            obsidian_enabled=OBSIDIAN_ENABLED,
+            knowledge_enabled=KNOWLEDGE_ENABLED,
+            ha_enabled=HA_ENABLED,
+            biometric_enabled=BIOMETRIC_ENABLED,
+            perception_enabled=PERCEPTION_ENABLED,
+            news_enabled=NEWS_ENABLED,
+        )
+
+        # Build LLM messages
+        llm_messages = [system_msg]
+        for msg in history:
+            llm_messages.append({"role": msg["role"], "content": msg["content"]})
+        llm_messages.append({"role": "user", "content": user_message})
+
+        # Get chat tools (read-only subset)
+        services_enabled = bool(self.world_model.services_state.services)
+        tools = get_chat_tools(
+            openclaw_enabled=OPENCLAW_ENABLED,
+            services_enabled=services_enabled,
+            obsidian_enabled=OBSIDIAN_ENABLED,
+            ha_enabled=HA_ENABLED,
+            biometric_enabled=BIOMETRIC_ENABLED,
+            perception_enabled=PERCEPTION_ENABLED,
+            switchbot_enabled=SWITCHBOT_ENABLED,
+            news_enabled=NEWS_ENABLED,
+            knowledge_enabled=KNOWLEDGE_ENABLED,
+        )
+
+        # ReAct loop (max 3 iterations for chat)
+        tool_calls_log = []
+        response_content = ""
+
+        for iteration in range(1, CHAT_MAX_ITERATIONS + 1):
+            response = await self.llm.chat(llm_messages, tools)
+            if response.error:
+                logger.warning(f"Chat LLM error: {response.error}")
+                return aio_web.json_response(
+                    {"error": f"LLM error: {response.error}"}, status=500,
+                )
+
+            if not response.tool_calls:
+                response_content = response.content or ""
+                break
+
+            # Process tool calls
+            assistant_msg = {"role": "assistant", "content": response.content or ""}
+            assistant_msg["tool_calls"] = [
+                {"id": tc["id"], "type": "function",
+                 "function": {"name": tc["function"]["name"],
+                              "arguments": json.dumps(tc["function"]["arguments"], ensure_ascii=False)}}
+                for tc in response.tool_calls
+            ]
+            llm_messages.append(assistant_msg)
+
+            for tc in response.tool_calls:
+                tool_name = tc["function"]["name"]
+                arguments = tc["function"]["arguments"]
+                result = await self.tool_executor.execute(tool_name, arguments)
+
+                llm_messages.append({
+                    "role": "tool", "tool_call_id": tc["id"],
+                    "content": str(result.get("result") or result.get("error", "")),
+                })
+
+                tool_calls_log.append({
+                    "tool": tool_name,
+                    "summary": _summarize_action(tool_name, arguments),
+                    "success": result.get("success", True),
+                })
+
+                logger.debug(f"Chat tool: {tool_name}({_summarize_action(tool_name, arguments)}) "
+                             f"→ {'ok' if result['success'] else 'err'}")
+
+        # Get character name for display
+        char_name = None
+        if self.character:
+            identity = getattr(self.character, "identity", None)
+            if identity:
+                char_name = getattr(identity, "name", None)
+
+        return aio_web.json_response({
+            "content": response_content,
+            "tool_calls": tool_calls_log,
+            "character_name": char_name,
+        })
 
     async def _push_all_snapshots(self):
         """Push all domain snapshots to backend for frontend consumption."""
@@ -824,8 +949,23 @@ class Brain:
                 logger.info(f"SwitchBot integration enabled (bridge={SWITCHBOT_BRIDGE_URL})")
             else:
                 logger.info("SwitchBot integration disabled (SWITCHBOT_BRIDGE_URL not set)")
+            if KNOWLEDGE_ENABLED:
+                logger.info(f"Knowledge integration enabled (bridge={KNOWLEDGE_BRIDGE_URL})")
+            else:
+                logger.info("Knowledge integration disabled (KNOWLEDGE_BRIDGE_URL not set)")
             # Load persisted schedule learner state
             self._load_schedule_state()
+
+            # Start internal chat HTTP server
+            from aiohttp import web as aio_web
+            chat_app = aio_web.Application()
+            chat_app.router.add_post("/chat", self._handle_chat)
+            chat_app.router.add_get("/health", self._chat_health)
+            chat_runner = aio_web.AppRunner(chat_app)
+            await chat_runner.setup()
+            chat_site = aio_web.TCPSite(chat_runner, "0.0.0.0", CHAT_SERVER_PORT)
+            await chat_site.start()
+            logger.info(f"Brain chat server started on :{CHAT_SERVER_PORT}")
 
             logger.info("HEMS Brain running (ReAct mode)...")
 

@@ -3,6 +3,7 @@ OpenAI function-calling tool definitions for HEMS Brain.
 Base: create_task, send_device_command, get_zone_status, speak, get_active_tasks, get_device_status
 localcraw: get_pc_status, run_pc_command, control_browser, send_pc_notification
 Obsidian: search_notes, write_note, get_recent_notes
+Knowledge: search_knowledge, get_knowledge_sources, read_knowledge_document
 """
 
 
@@ -12,7 +13,8 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
               perception_enabled: bool = False,
               shopping_enabled: bool = False,
               switchbot_enabled: bool = False,
-              news_enabled: bool = False) -> list:
+              news_enabled: bool = False,
+              knowledge_enabled: bool = False) -> list:
     tools = [
         {
             "type": "function",
@@ -147,7 +149,46 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
     if news_enabled:
         tools.extend(_get_news_tools())
 
+    if knowledge_enabled:
+        tools.extend(_get_knowledge_tools())
+
     return tools
+
+
+def get_chat_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
+                   obsidian_enabled: bool = False, ha_enabled: bool = False,
+                   biometric_enabled: bool = False,
+                   perception_enabled: bool = False,
+                   switchbot_enabled: bool = False,
+                   news_enabled: bool = False,
+                   knowledge_enabled: bool = False) -> list:
+    """Return read-only tool subset for conversational chat.
+
+    Excludes action tools: create_task, speak, send_device_command, control_*,
+    write_note, add_shopping_item, run_pc_command, etc.
+    """
+    # Read-only tool names allowed in chat
+    _CHAT_ALLOWED = {
+        "get_zone_status", "get_active_tasks", "get_device_status",
+        "get_pc_status", "get_service_status",
+        "search_notes", "get_recent_notes",
+        "get_home_devices", "get_sensor_data", "get_weather",
+        "get_biometrics", "get_sleep_summary",
+        "get_perception_status",
+        "get_shopping_list",
+        "get_switchbot_devices",
+        "get_news_summary",
+        "search_knowledge", "get_knowledge_sources", "read_knowledge_document",
+    }
+
+    all_tools = get_tools(
+        openclaw_enabled=openclaw_enabled, services_enabled=services_enabled,
+        obsidian_enabled=obsidian_enabled, ha_enabled=ha_enabled,
+        biometric_enabled=biometric_enabled, perception_enabled=perception_enabled,
+        shopping_enabled=True, switchbot_enabled=switchbot_enabled,
+        news_enabled=news_enabled, knowledge_enabled=knowledge_enabled,
+    )
+    return [t for t in all_tools if t["function"]["name"] in _CHAT_ALLOWED]
 
 
 def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = False,
@@ -156,7 +197,8 @@ def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = Fals
                    perception_enabled: bool = False,
                    shopping_enabled: bool = False,
                    switchbot_enabled: bool = False,
-                   news_enabled: bool = False) -> list:
+                   news_enabled: bool = False,
+                   knowledge_enabled: bool = False) -> list:
     """Return list of all enabled tool names."""
     return [t["function"]["name"] for t in get_tools(openclaw_enabled, services_enabled,
                                                       obsidian_enabled, ha_enabled,
@@ -164,7 +206,8 @@ def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = Fals
                                                       perception_enabled,
                                                       shopping_enabled,
                                                       switchbot_enabled,
-                                                      news_enabled)]
+                                                      news_enabled,
+                                                      knowledge_enabled)]
 
 
 def _get_service_tools() -> list:
@@ -673,6 +716,64 @@ def _get_switchbot_tools() -> list:
                         },
                     },
                     "required": ["device_id", "command"],
+                },
+            },
+        },
+    ]
+
+
+def _get_knowledge_tools() -> list:
+    """Knowledge base tools — only included when knowledge-bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_knowledge",
+                "description": "研究ノート・論文・コードなど外部ナレッジソースを横断検索する。判断に研究コンテキストが必要な場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "検索キーワード"},
+                        "source": {"type": "string", "description": "ソース名でフィルタ（例: 'pws'）"},
+                        "doc_type": {
+                            "type": "string",
+                            "enum": ["markdown", "python", "json", "text", "pdf", "docx", "csv", "html"],
+                            "description": "ドキュメント種別フィルタ",
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "タグフィルター",
+                        },
+                        "max_results": {"type": "integer", "description": "最大結果数", "default": 5, "maximum": 20},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_knowledge_sources",
+                "description": "利用可能なナレッジソース一覧と統計を取得する。何が検索可能か確認する場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_knowledge_document",
+                "description": "特定のナレッジドキュメントを読み込む。search_knowledgeの結果から詳細を確認する場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "source": {"type": "string", "description": "ソース名"},
+                        "path": {"type": "string", "description": "ドキュメントパス"},
+                    },
+                    "required": ["source", "path"],
                 },
             },
         },

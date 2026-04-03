@@ -754,6 +754,10 @@ class WorldModel:
         if category == "notes" and len(path_parts) >= 2:
             self._update_knowledge_state(path_parts[1], payload)
 
+        # hems/personal/knowledge/* (Knowledge bridge)
+        elif category == "knowledge" and len(path_parts) >= 2:
+            self._update_external_knowledge_state(path_parts[1], payload)
+
         # hems/personal/biometrics/{provider}/{metric}
         elif category == "biometrics" and len(path_parts) >= 2:
             self._update_biometric_state(path_parts[1:], payload)
@@ -1121,6 +1125,36 @@ class WorldModel:
                 data=payload,
             ))
 
+    def _update_external_knowledge_state(self, msg_type: str, payload: dict):
+        """Handle hems/personal/knowledge/stats and hems/personal/knowledge/changed."""
+        from world_model.data_classes import KnowledgeSourceInfo
+        ks = self.knowledge_state
+
+        if msg_type == "stats":
+            ks.external_bridge_connected = True
+            ks.external_total_docs = payload.get("total_docs", 0)
+            sources = payload.get("sources", [])
+            ks.external_sources = [
+                KnowledgeSourceInfo(
+                    name=s.get("name", ""),
+                    doc_count=s.get("doc_count", 0),
+                    type_counts=s.get("type_counts", {}),
+                )
+                for s in sources
+            ]
+
+        elif msg_type == "changed":
+            ks.external_bridge_connected = True
+            title = _sanitize_text(payload.get("title", ""), 100)
+            source = _sanitize_text(payload.get("source", ""), 50)
+            action = _sanitize_text(payload.get("action", ""), 30)
+            ks.add_event(Event(
+                event_type="knowledge_changed",
+                description=f"外部ナレッジ変更: {source}/{title} ({action})",
+                severity=0,
+                data=payload,
+            ))
+
     def get_llm_context(self) -> str:
         """Build text context for LLM from current world state (tri-domain)."""
         sections = []
@@ -1333,6 +1367,14 @@ class WorldModel:
                 last = ks.recent_changes[-1]
                 kb_parts.append(f"  最終変更: {last['title']}")
             lines.append("\n".join(kb_parts))
+
+        # External knowledge sources
+        if ks.external_bridge_connected:
+            ek_parts = ["### 外部ナレッジ"]
+            ek_parts.append(f"  総ドキュメント数: {ks.external_total_docs}")
+            for src in ks.external_sources:
+                ek_parts.append(f"  ソース({src.name}): {src.doc_count}件")
+            lines.append("\n".join(ek_parts))
 
         # News state
         ns = self.news_state

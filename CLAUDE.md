@@ -58,6 +58,9 @@ docker compose --profile switchbot up -d --build
 # With news briefing (RSS + Ollama summarizer, requires --profile ollama)
 docker compose --profile news --profile ollama up -d --build
 
+# With knowledge ingestion (multi-format document loader)
+docker compose --profile knowledge up -d --build
+
 # With mock LLM (development, no Ollama needed)
 LLM_API_URL=http://mock-llm:8000/v1 LLM_MODEL=mock \
   docker compose --profile mock up -d --build
@@ -71,7 +74,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `news`
+Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `news`, `knowledge`
 
 ### Frontend Development
 
@@ -102,6 +105,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Perception | 8018 | `HEMS_PORT_PERCEPTION` | hems-perception |
 | SwitchBot Bridge | 8019 | `HEMS_PORT_SWITCHBOT_BRIDGE` | hems-switchbot-bridge |
 | News Bridge | 8021 | `HEMS_PORT_NEWS_BRIDGE` | hems-news-bridge |
+| Knowledge Bridge | 8022 | `HEMS_PORT_KNOWLEDGE_BRIDGE` | hems-knowledge-bridge |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -177,6 +181,10 @@ hems/news/daily
 hems/news/urgent
 hems/news/bridge/status
 
+# Knowledge (knowledge-bridge)
+hems/personal/knowledge/changed
+hems/personal/knowledge/stats
+
 # Weather (weather-bridge)
 hems/weather/{current,forecast,alerts}
 hems/weather/bridge/status
@@ -204,6 +212,7 @@ hems/brain/guest-mode
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
 - Perception tools (profile `perception`): `get_perception_status`, `describe_scene` (VLM on-demand scene analysis)
 - News tools (profile `news`): `get_news_summary`
+- Knowledge tools (profile `knowledge`): `search_knowledge`, `get_knowledge_sources`, `read_knowledge_document`
 - Shopping tools (always enabled): `add_shopping_item`, `get_shopping_list`
 - SwitchBot tools (profile `switchbot`): `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir`
 - Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
@@ -447,6 +456,53 @@ RSS news fetcher + Ollama summarizer + urgency detection with event-driven voice
 - **Brain tools**: `get_news_summary`
 - **Brain rules**: urgent news speak notification
 - **World model**: `NewsState` in Digital Space
+
+### Knowledge Bridge (Multi-format document ingestion)
+
+Read-only multi-format document ingestion from external directories with hybrid search.
+
+- **knowledge-bridge**: Docker service with watchdog file monitoring
+  - Plugin-based loaders: Markdown (.md), Python (.py), JSON (.json), Text (.txt/.yaml/.toml/.rst), PDF (.pdf), DOCX (.docx), CSV (.csv), HTML (.html)
+  - **Hybrid search**: 3-way Reciprocal Rank Fusion (RRF)
+    - BM25 (keyword): body text scoring via rank_bm25
+    - Vector (semantic): Ollama embedding cosine similarity (optional, requires `--profile ollama`)
+    - Title boost: separate BM25 on titles for precise name matching
+  - Graceful degradation: BM25 + Title when Ollama unavailable
+  - Embedding cache: disk-persisted, only re-embeds changed documents
+  - Watches for file changes, publishes to `hems/personal/knowledge/*` MQTT topics
+  - REST API for search, read, list sources, reindex
+- **Deploy**: Mount source directories read-only, configure sources via JSON env var
+- **Profile**: `docker compose --profile knowledge up -d --build`
+- **Brain tools**: `search_knowledge` (cross-source search), `get_knowledge_sources`, `read_knowledge_document`
+- **Read-only**: No write-back to source directories (enforced at Docker mount level)
+- **World model**: `KnowledgeState.external_sources` in Digital Space
+
+Configure in `.env`:
+```bash
+KNOWLEDGE_BRIDGE_URL=http://knowledge-bridge:8000
+KNOWLEDGE_SOURCE_PWS=/path/to/pws
+KNOWLEDGE_SOURCES=[{"name":"pws","path":"/sources/pws","extensions":[".md",".py",".json",".pdf"]}]
+# Vector search (optional, requires --profile ollama)
+EMBEDDING_URL=http://ollama:11434
+EMBEDDING_MODEL=nomic-embed-text
+```
+
+### Chat (Personalized Conversational AI)
+
+Interactive chat with the AI character via the dashboard. Uses agentic RAG with read-only tools.
+
+- **Brain chat server**: Internal aiohttp.web server (:8080) alongside the MQTT cognitive loop
+  - Separate ReAct loop for chat (max 3 iterations, read-only tools only)
+  - Chat-specific system prompt with character personality + world context
+  - Tools: search_knowledge, search_notes, get_biometrics, get_zone_status, get_weather, etc.
+- **Backend chat router**: `/chat/` REST API — message persistence (Conversation/Message tables), Brain proxy, optional TTS
+  - Sliding window: last 20 messages sent to Brain as conversation context
+  - Auto-TTS: responses under 100 chars are synthesized via voice-service
+- **Frontend ChatPanel**: Replaces AIActivityLog on dashboard
+  - Unified timeline: chat messages + voice events
+  - Text input + Speech-to-Text (Web Speech API, Chrome/Edge)
+  - Optimistic UI with typing indicator
+  - Audio playback via AudioQueue
 
 ### Event Automation
 

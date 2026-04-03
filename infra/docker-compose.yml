@@ -59,6 +59,7 @@ services:
       - PERCEPTION_BRIDGE_URL=${PERCEPTION_BRIDGE_URL:-}
       - SWITCHBOT_BRIDGE_URL=${SWITCHBOT_BRIDGE_URL:-}
       - NEWS_BRIDGE_URL=${NEWS_BRIDGE_URL:-}
+      - KNOWLEDGE_BRIDGE_URL=${KNOWLEDGE_BRIDGE_URL:-}
       - AMBIENT_SPEAK_ENABLED=${AMBIENT_SPEAK_ENABLED:-true}
       - AMBIENT_SPEAK_INTERVAL=${AMBIENT_SPEAK_INTERVAL:-300}
       - EVENT_AUTOMATIONS=${EVENT_AUTOMATIONS:-}
@@ -97,6 +98,8 @@ services:
       - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
       - CHARACTER=${CHARACTER:-}
       - CHARACTER_FILE=${CHARACTER_FILE:-}
+      - BRAIN_CHAT_URL=${BRAIN_CHAT_URL:-http://brain:8080}
+      - VOICE_SERVICE_URL=${VOICE_SERVICE_URL:-http://voice-service:8000}
     volumes:
       - ../services/backend:/app
       - ../config:/config:ro
@@ -573,6 +576,44 @@ services:
       retries: 3
       start_period: 10s
 
+  # --- Knowledge Bridge (Multi-format document ingestion, read-only) ---
+  knowledge-bridge:
+    build: ../services/knowledge-bridge
+    container_name: hems-knowledge-bridge
+    restart: always
+    profiles: ["knowledge"]
+    ports:
+      - "${HEMS_PORT_KNOWLEDGE_BRIDGE:-8022}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - KNOWLEDGE_SOURCES=${KNOWLEDGE_SOURCES:-[]}
+      - KNOWLEDGE_WATCHER_DEBOUNCE=${KNOWLEDGE_WATCHER_DEBOUNCE:-3.0}
+      - KNOWLEDGE_MAX_SEARCH_RESULTS=${KNOWLEDGE_MAX_SEARCH_RESULTS:-20}
+      - EMBEDDING_URL=${EMBEDDING_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - EMBEDDING_CACHE_DIR=/app/data/embeddings
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-32}
+      - RRF_K=${RRF_K:-60}
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER_KNOWLEDGE:-hems-knowledge}
+      - MQTT_PASS=${MQTT_PASS_KNOWLEDGE:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/knowledge-bridge/src:/app
+      - ${KNOWLEDGE_SOURCE_PWS:-/tmp/hems-knowledge-pws}:/sources/pws:ro
+      - hems_knowledge_data:/app/data
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
 volumes:
   hems_mqtt_data:
   hems_mqtt_log:
@@ -580,6 +621,7 @@ volumes:
   hems_brain_data:
   hems_audio_data:
   hems_pg_data:
+  hems_knowledge_data:
   ollama_models:
   hems_perception_models:
 

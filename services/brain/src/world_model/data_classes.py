@@ -158,7 +158,13 @@ class ServicesState:
             self.events = self.events[-self.max_events:]
 
 
-# --- Knowledge State (Obsidian integration) ---
+# --- Knowledge State (Obsidian integration + external knowledge) ---
+
+@dataclass
+class KnowledgeSourceInfo:
+    name: str = ""
+    doc_count: int = 0
+    type_counts: dict = field(default_factory=dict)
 
 @dataclass
 class KnowledgeState:
@@ -169,6 +175,10 @@ class KnowledgeState:
     events: list[Event] = field(default_factory=list)
     max_events: int = 20
     max_recent: int = 5
+    # External knowledge (knowledge-bridge)
+    external_sources: list[KnowledgeSourceInfo] = field(default_factory=list)
+    external_bridge_connected: bool = False
+    external_total_docs: int = 0
 
     def add_event(self, event: Event):
         self.events.append(event)

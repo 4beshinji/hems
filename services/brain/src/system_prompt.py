@@ -10,7 +10,8 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
                          ha_enabled: bool = False,
                          biometric_enabled: bool = False,
                          perception_enabled: bool = False,
-                         switchbot_enabled: bool = False) -> dict:
+                         switchbot_enabled: bool = False,
+                         knowledge_enabled: bool = False) -> dict:
     """Build system message with safety rules + character personality.
 
     Args:
@@ -22,6 +23,7 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
         biometric_enabled: Whether biometric tools are available.
         perception_enabled: Whether perception (camera) tools are available.
         switchbot_enabled: Whether SwitchBot direct API tools are available.
+        knowledge_enabled: Whether external knowledge tools are available.
     """
 
     # Base safety rules (NOT overridable by character)
@@ -199,6 +201,20 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 - 歩数が目標達成 → speakでお祝い（tone: humorous）
 - バイオメトリクスデータがない場合は無視する（エラーにしない）"""
 
+    if knowledge_enabled:
+        base += """
+
+## 外部ナレッジベース（knowledge-bridge連携）
+- search_knowledge: 研究ノート・論文・コードなど外部ソースを横断検索。判断に研究コンテキストが必要な時に使用
+- get_knowledge_sources: 利用可能なナレッジソース一覧と統計を取得
+- read_knowledge_document: 検索結果から特定ドキュメントの詳細を読み込む
+
+## 外部ナレッジベース使用ルール
+- 読み取り専用（書き込み不可）
+- オンデマンド検索のみ（自動注入しない）
+- Obsidianとは別の外部ソース（研究ノート、コード、論文メタデータ等）
+- 検索は具体的なキーワードで。doc_typeやsourceでフィルタを活用する"""
+
     if switchbot_enabled:
         base += """
 
@@ -217,73 +233,139 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 - SwitchBotとHA両方のデバイスが存在する場合、entity_idのプレフィックスで区別する（switchbot.xxx vs light.xxx）"""
 
     # Character injection
-    if character:
-        # Check for full override first (advanced users only)
-        templates = getattr(character, "prompt_templates", None)
-        if templates:
-            override = getattr(templates, "system_prompt_override", None)
-            if override:
-                return {"role": "system", "content": override}
-
-        identity = getattr(character, "identity", None)
-        personality = getattr(character, "personality", None)
-        speaking = getattr(character, "speaking_style", None)
-
-        char_section = "\n\n## キャラクター設定"
-
-        if identity:
-            name = getattr(identity, "name", None)
-            if name:
-                char_section += f"\n- 名前: {name}"
-                reading = getattr(identity, "name_reading", None)
-                if reading:
-                    char_section += f"（{reading}）"
-
-            first_person = getattr(identity, "first_person", None)
-            if first_person:
-                char_section += f"\n- 一人称: {first_person}"
-
-            second_person = getattr(identity, "second_person", None)
-            if second_person:
-                char_section += f"\n- 二人称: {second_person}"
-
-        if personality:
-            archetype = getattr(personality, "archetype", None)
-            if archetype:
-                char_section += f"\n- 性格: {archetype}"
-
-            traits = getattr(personality, "traits", [])
-            if traits:
-                char_section += f"\n- 特徴: {', '.join(traits)}"
-
-            notes = getattr(personality, "behavioral_notes", None)
-            if notes:
-                char_section += f"\n- 行動指針:\n{notes}"
-
-            formality = getattr(personality, "formality", None)
-            if formality is not None:
-                levels = {0: "ため口", 1: "カジュアル敬語", 2: "標準敬語", 3: "丁寧語", 4: "最敬語"}
-                char_section += f"\n- 敬語レベル: {levels.get(formality, '標準')}"
-
-        if speaking:
-            endings = getattr(speaking, "endings", None)
-            if endings:
-                char_section += "\n- 文末パターン:"
-                for f in dc_fields(endings):
-                    patterns = getattr(endings, f.name, [])
-                    if patterns:
-                        char_section += f"\n  - {f.name}: {', '.join(patterns[:3])}"
-
-            vocab = getattr(speaking, "vocabulary", None)
-            if vocab:
-                avoid = getattr(vocab, "avoid", [])
-                if avoid:
-                    char_section += f"\n- 禁止語彙: {', '.join(avoid)}"
-
-                catchphrase = getattr(vocab, "catchphrase", None)
-                if catchphrase:
-                    char_section += f"\n- 決め台詞: {catchphrase}"
-
-        base += char_section
+    base += _build_character_section(character)
 
     return {"role": "system", "content": base}
+
+
+def build_chat_system_message(character=None, world_context: str = "",
+                              obsidian_enabled: bool = False,
+                              knowledge_enabled: bool = False,
+                              ha_enabled: bool = False,
+                              biometric_enabled: bool = False,
+                              perception_enabled: bool = False,
+                              news_enabled: bool = False) -> dict:
+    """Build system message for conversational chat (separate from automation).
+
+    Chat-specific: conversational tone, read-only tools, no autonomous actions.
+    """
+    # Character name for greeting
+    char_name = "HEMS"
+    if character:
+        identity = getattr(character, "identity", None)
+        if identity:
+            char_name = getattr(identity, "name", None) or "HEMS"
+
+    base = f"""あなたは{char_name}です。ユーザーと直接対話しています。
+
+## 役割
+- ユーザーの質問に丁寧に答える
+- 自宅の環境データ、ナレッジベース、生体データを参照して回答する
+- 必要に応じてツールで情報を検索してから回答する
+
+## 対話ルール
+- 自然な会話口調で答える（キャラクター設定に従う）
+- 事実ベースで回答し、不確かな情報は明示する
+- 簡潔に答える（200字以内目安、複雑な質問は長くてもよい）
+- ツールは情報取得のみに使用する（タスク作成・デバイス操作・音声通知は行わない）
+- 検索結果を引用する場合、出典（ソース名、パス）を添える"""
+
+    if world_context:
+        base += f"\n\n## 現在の自宅状態\n{world_context}"
+
+    # Tool availability hints
+    tool_hints = []
+    if knowledge_enabled:
+        tool_hints.append("search_knowledge: 外部ナレッジ検索（研究ノート・論文・コード）")
+    if obsidian_enabled:
+        tool_hints.append("search_notes: Obsidianノート検索")
+    if biometric_enabled:
+        tool_hints.append("get_biometrics/get_sleep_summary: 生体データ")
+    if ha_enabled:
+        tool_hints.append("get_zone_status/get_weather: 環境・天気データ")
+    if perception_enabled:
+        tool_hints.append("get_perception_status: カメラ検知データ")
+    if news_enabled:
+        tool_hints.append("get_news_summary: 最新ニュース")
+
+    if tool_hints:
+        base += "\n\n## 利用可能なツール\n" + "\n".join(f"- {h}" for h in tool_hints)
+
+    # Character injection
+    base += _build_character_section(character)
+
+    return {"role": "system", "content": base}
+
+
+def _build_character_section(character) -> str:
+    """Build character personality section for system prompt injection."""
+    if not character:
+        return ""
+
+    # Check for full override first (advanced users only)
+    templates = getattr(character, "prompt_templates", None)
+    if templates:
+        override = getattr(templates, "system_prompt_override", None)
+        if override:
+            return ""  # Override handled at caller level
+
+    identity = getattr(character, "identity", None)
+    personality = getattr(character, "personality", None)
+    speaking = getattr(character, "speaking_style", None)
+
+    char_section = "\n\n## キャラクター設定"
+
+    if identity:
+        name = getattr(identity, "name", None)
+        if name:
+            char_section += f"\n- 名前: {name}"
+            reading = getattr(identity, "name_reading", None)
+            if reading:
+                char_section += f"（{reading}）"
+
+        first_person = getattr(identity, "first_person", None)
+        if first_person:
+            char_section += f"\n- 一人称: {first_person}"
+
+        second_person = getattr(identity, "second_person", None)
+        if second_person:
+            char_section += f"\n- 二人称: {second_person}"
+
+    if personality:
+        archetype = getattr(personality, "archetype", None)
+        if archetype:
+            char_section += f"\n- 性格: {archetype}"
+
+        traits = getattr(personality, "traits", [])
+        if traits:
+            char_section += f"\n- 特徴: {', '.join(traits)}"
+
+        notes = getattr(personality, "behavioral_notes", None)
+        if notes:
+            char_section += f"\n- 行動指針:\n{notes}"
+
+        formality = getattr(personality, "formality", None)
+        if formality is not None:
+            levels = {0: "ため口", 1: "カジュアル敬語", 2: "標準敬語", 3: "丁寧語", 4: "最敬語"}
+            char_section += f"\n- 敬語レベル: {levels.get(formality, '標準')}"
+
+    if speaking:
+        endings = getattr(speaking, "endings", None)
+        if endings:
+            char_section += "\n- 文末パターン:"
+            for f in dc_fields(endings):
+                patterns = getattr(endings, f.name, [])
+                if patterns:
+                    char_section += f"\n  - {f.name}: {', '.join(patterns[:3])}"
+
+        vocab = getattr(speaking, "vocabulary", None)
+        if vocab:
+            avoid = getattr(vocab, "avoid", [])
+            if avoid:
+                char_section += f"\n- 禁止語彙: {', '.join(avoid)}"
+
+            catchphrase = getattr(vocab, "catchphrase", None)
+            if catchphrase:
+                char_section += f"\n- 決め台詞: {catchphrase}"
+
+    return char_section
