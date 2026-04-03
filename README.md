@@ -22,6 +22,7 @@ docker compose up -d --build
 ### コア機能
 
 - **ReAct 認知ループ**: 30秒サイクル・最大5イテレーションの LLM 推論 + ルールベースフォールバック
+- **パーソナライズドチャット**: ダッシュボード上でAIキャラクターと直接対話 — 音声入力 (STT) 対応、ナレッジ検索・生体データ等を活用した RAG 回答
 - **アラート抑制**: タスク作成後の重複生成を防止 (温度30分・CO2 10分)
 - **AI キャラクター**: YAML 定義の人格 (5テンプレート) + ホットリロード
 - **プラグイン式 TTS**: espeak / VOICEVOX / Edge TTS / VoiSona Talk
@@ -34,6 +35,7 @@ docker compose up -d --build
 
 - **PC/サービス監視** (localcraw): CPU/GPU/メモリ/ディスク + Gmail・GitHub 未読エッジトリガー
 - **ナレッジストア** (Obsidian): vault 連携 — 検索・書込・決定ログ自動記録
+- **外部ナレッジ** (knowledge-bridge): マルチフォーマット文書取込 (MD/Python/JSON/PDF/DOCX/CSV/HTML) — BM25+ベクトル+タイトルブーストのハイブリッド検索 (3-way RRF)
 - **Google 連携** (GAS): Calendar・Tasks・Gmail・Sheets・Drive
 - **スマートホーム** (HA): 照明/空調/カバー/スイッチ/センサー/シーン + スケジュール学習
 - **SwitchBot** (直接API): HA不要のデバイス制御 + IR リモート (Hub経由)
@@ -60,7 +62,8 @@ docker compose up -d --build
 ├──────────────┬──────────┬──────────┬─────────────────────┤
 │  mosquitto   │  brain   │ backend  │      frontend       │
 │  (MQTT)      │  (ReAct/ │ (API+XP+ │  (React/Tailwind)   │
-│              │  Rule)   │ Shopping)│                     │
+│              │  Rule/   │ Shopping+│                     │
+│              │  Chat)   │ Chat)    │                     │
 ├──────────────┼──────────┴──────────┼─────────────────────┤
 │ voice-service│                     │      mock-llm       │
 │  (TTS×4)     │                     │      (dev)          │
@@ -68,9 +71,10 @@ docker compose up -d --build
 
 Profiles:  voicevox | ollama | postgres | localcraw | obsidian
            gas | ha | biometric | perception | switchbot | news
+           knowledge
 ```
 
-### Brain ツール一覧 (30+)
+### Brain ツール一覧 (35+)
 
 | カテゴリ | ツール | Profile |
 |---------|--------|---------|
@@ -78,7 +82,8 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 | 買い物 | `add_shopping_item`, `get_shopping_list` | 常時 |
 | PC | `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification` | localcraw |
 | サービス | `get_service_status` | localcraw |
-| ナレッジ | `search_notes`, `write_note`, `get_recent_notes` | obsidian |
+| ナレッジ (Obsidian) | `search_notes`, `write_note`, `get_recent_notes` | obsidian |
+| ナレッジ (外部) | `search_knowledge`, `get_knowledge_sources`, `read_knowledge_document` | knowledge |
 | スマートホーム | `control_light`, `control_climate`, `control_cover`, `control_switch`, `get_home_devices`, `get_sensor_data`, `execute_scene` | ha |
 | システム | `set_guest_mode`, `get_weather` | ha |
 | バイオ | `get_biometrics`, `get_sleep_summary` | biometric |
@@ -102,12 +107,49 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 | Perception | 8018 | hems-perception |
 | SwitchBot | 8019 | hems-switchbot-bridge |
 | News Bridge | 8021 | hems-news-bridge |
+| Knowledge Bridge | 8022 | hems-knowledge-bridge |
 | VOICEVOX | 50031 | hems-voicevox |
 | Ollama | 11444 | hems-ollama |
 | PostgreSQL | 5442 | hems-postgres |
 | MQTT | 1893 | hems-mqtt |
 
 ポートは `HEMS_PORT_*` 環境変数でカスタマイズ可能。
+
+## Chat (パーソナライズドAI対話)
+
+ダッシュボード上でAIキャラクターと直接対話。テキスト入力 + 音声入力 (Web Speech API) 対応。
+
+```
+ユーザー → Backend (永続化) → Brain Chat Server (:8080)
+  └─ LLM ReAct (読み取り専用ツール: search_knowledge, get_biometrics, etc.)
+  └─ キャラクター人格に基づいた回答生成
+  └─ 短い応答は自動音声合成 (TTS)
+```
+
+- **3-way ReAct**: BrainがLLMにtools付きで会話し、ナレッジ・生体・環境データを参照
+- **スライディングウィンドウ**: 直近20メッセージを会話コンテキストに保持
+- **統合タイムライン**: チャットメッセージと音声イベントを時系列で統合表示
+
+## Knowledge Bridge (ナレッジ取込)
+
+外部ディレクトリからの読み取り専用・マルチフォーマット文書取込。
+
+```bash
+# .env
+KNOWLEDGE_SOURCE_PWS=/path/to/pws
+KNOWLEDGE_SOURCES=[{"name":"pws","path":"/sources/pws","extensions":[".md",".py",".json",".pdf"]}]
+
+# ベクトル検索を有効にする場合 (requires --profile ollama)
+EMBEDDING_URL=http://ollama:11434
+EMBEDDING_MODEL=nomic-embed-text
+
+docker compose --profile knowledge up -d --build
+```
+
+- **8種ローダー**: Markdown, Python (.py AST), JSON, Text, PDF (pdfplumber), DOCX, CSV, HTML
+- **ハイブリッド検索**: BM25 (キーワード) + Vector (Ollama embedding) + Title boost → 3-way RRF
+- **Ollama 不在時**: BM25 + Title の2-way に自動降格
+- **埋め込みキャッシュ**: ディスク永続化、変更ドキュメントのみ再埋め込み
 
 ## AI Character System
 
@@ -176,8 +218,11 @@ docker compose --profile switchbot up -d
 # News (RSS + Ollama ニュース要約 — ollama 必須)
 docker compose --profile news --profile ollama up -d
 
+# Knowledge (外部ドキュメント取込 — ベクトル検索は ollama 推奨)
+docker compose --profile knowledge up -d
+
 # 複数プロファイル組み合わせ
-docker compose --profile ha --profile biometric --profile switchbot up -d
+docker compose --profile ha --profile biometric --profile switchbot --profile knowledge up -d
 ```
 
 ## Frontend
@@ -186,7 +231,7 @@ React 19 + TypeScript + Tailwind CSS 4 + TanStack Query + Framer Motion
 
 | ページ | 内容 |
 |--------|------|
-| Dashboard | タスク一覧、XP、直近の Brain 判断、音声イベント |
+| Dashboard | AIチャット、タスク一覧、XP、音声イベント統合タイムライン |
 | Physical | ゾーン環境 (温湿度/CO2)、デバイス状態、天気、エネルギー |
 | Digital | PC メトリクス、サービス状態、GAS、Obsidian、買い物リスト |
 | User | プロフィール、バイオメトリクス、設定 |
@@ -206,6 +251,7 @@ pnpm build    # tsc -b && vite build
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion |
 | LLM | OpenAI / Anthropic / Ollama (マルチプロバイダー) |
 | TTS | espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk |
+| Search | BM25 (rank_bm25) + Vector (Ollama embedding + numpy) + RRF |
 | DB | SQLite (default) / PostgreSQL 16 |
 | Infra | Docker Compose, Mosquitto MQTT |
 | Edge | MicroPython (ESP32), SensorSwarm バイナリプロトコル |
@@ -228,7 +274,9 @@ pnpm build    # tsc -b && vite build
 - **Phase 3** (完了): Perception — カメラ検知・姿勢分類・活動追跡 (YOLOv11s-pose)
 - **Phase 4** (完了): IoT拡張 — SwitchBot直接統合, Weather Bridge, 買い物リスト, Edge Swarm
 - **Phase 5** (完了): 知覚・情報統合 — VLM シーン理解, ニュースブリーフィング, イベント自動化, Ollama ネイティブ API
-- **Phase 6** (進行中): Advanced TTS — VoiSona Talk 実装済み, Style-Bert-VITS2 計画中
+- **Phase 6** (完了): Advanced TTS — VoiSona Talk
+- **Phase 7** (完了): ナレッジ・対話 — knowledge-bridge (ハイブリッド検索), パーソナライズドチャット, STT
+- **Phase 8** (計画中): SSEストリーミング応答, コマンドモード (チャットからデバイス操作), 会話サマリ圧縮, ユーザープロファイル学習
 
 ## License
 
