@@ -16,7 +16,7 @@ function MetricCard({
   sub,
 }: {
   to: string
-  icon: React.ElementType
+  icon: React.ComponentType<{ className?: string }>
   iconColor: string
   label: string
   value: string

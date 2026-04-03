@@ -25,6 +25,8 @@ docker compose up -d --build
 - **パーソナライズドチャット**: ダッシュボード上でAIキャラクターと直接対話 — 音声入力 (STT) 対応、ナレッジ検索・生体データ等を活用した RAG 回答
 - **アラート抑制**: タスク作成後の重複生成を防止 (温度30分・CO2 10分)
 - **AI キャラクター**: YAML 定義の人格 (5テンプレート) + ホットリロード
+- **VRM アバター**: 3D アバター表示 (hidden / panel / overlay の3モード)、発話連動モーション
+- **Ambient Speaker**: 5分間隔でセンサーデータに基づく自然な一言を自動生成・発話
 - **プラグイン式 TTS**: espeak / VOICEVOX / Edge TTS / VoiSona Talk
 - **XP ゲーミフィケーション**: タスク完了で XP 獲得 (50-500)
 - **買い物リスト**: Brain 統合のショッピング管理 + 購入履歴 + MQTT通知
@@ -62,7 +64,7 @@ docker compose up -d --build
 ├──────────────┬──────────┬──────────┬─────────────────────┤
 │  mosquitto   │  brain   │ backend  │      frontend       │
 │  (MQTT)      │  (ReAct/ │ (API+XP+ │  (React/Tailwind)   │
-│              │  Rule/   │ Shopping+│                     │
+│              │  Rule/   │ Shopping+│      +VRM           │
 │              │  Chat)   │ Chat)    │                     │
 ├──────────────┼──────────┴──────────┼─────────────────────┤
 │ voice-service│                     │      mock-llm       │
@@ -78,7 +80,7 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 
 | カテゴリ | ツール | Profile |
 |---------|--------|---------|
-| 基本 | `create_task`, `speak`, `get_active_tasks`, `get_zone_status`, `get_device_status`, `send_device_command` | 常時 |
+| 基本 | `create_task`, `speak`*, `get_active_tasks`, `get_zone_status`, `get_device_status`, `send_device_command` | 常時 |
 | 買い物 | `add_shopping_item`, `get_shopping_list` | 常時 |
 | PC | `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification` | localcraw |
 | サービス | `get_service_status` | localcraw |
@@ -90,6 +92,8 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 | カメラ | `get_perception_status`, `describe_scene` | perception |
 | SwitchBot | `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir` | switchbot |
 | ニュース | `get_news_summary` | news |
+
+\* `speak` は MotionRetriever により発話内容・トーンに基づいてアバターモーションを自動選択
 
 ### サービスポート
 
@@ -179,6 +183,29 @@ mosquitto_pub -h localhost -u hems -P hems_dev_mqtt \
 
 バリデーション: `python validate_character.py --all`
 
+## VRM Avatar System
+
+3D アバターを Dashboard に表示する機能。モデルファイルを配置するだけで動作する。
+
+```bash
+# VRM モデルを配置 (必須)
+cp your-character.vrm services/frontend/public/models/avatar.vrm
+
+# 表示モード切替 (ヘッダーのアバターボタン)
+# hidden → panel (サイドパネル) → overlay (画面オーバーレイ) → hidden
+```
+
+| 機能 | 説明 |
+|------|------|
+| モード | hidden / panel / overlay (localStorage に永続化) |
+| モーション | 発話時に `motions.yaml` から BM25+トーン親和性でジェスチャー自動選択 |
+| リップシンク | 音声波形解析による口パク同期 |
+| アイドル | 無操作時の自然なランダムモーション + 視線放浪 |
+| フォールバック | VRM 未配置時はプレースホルダーを表示 |
+
+**モーション定義** (`config/motions.yaml`): 10種類のジェスチャー (挨拶・反応・警告・感情・提案)。
+YAML に追加するだけで MotionRetriever が自動的に選択候補に組み込む。
+
 ## Optional Profiles
 
 ```bash
@@ -188,8 +215,12 @@ docker compose --profile voicevox up -d
 
 # Ollama (ローカル LLM — GPU自動検出)
 python infra/scripts/gpu_setup.py   # docker-compose.gpu.yml 生成
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d
+docker exec hems-ollama ollama pull qwen3.5   # 初回のみ
+
+# Ollama (CPU のみ)
 docker compose --profile ollama up -d
-# → .env: LLM_API_URL=http://ollama:11434/v1
+docker exec hems-ollama ollama pull qwen3.5
 
 # PostgreSQL (SQLite の代替)
 docker compose --profile postgres up -d
@@ -221,6 +252,7 @@ docker compose --profile news --profile ollama up -d
 # Knowledge (外部ドキュメント取込 — ベクトル検索は ollama 推奨)
 docker compose --profile knowledge up -d
 
+
 # 複数プロファイル組み合わせ
 docker compose --profile ha --profile biometric --profile switchbot --profile knowledge up -d
 ```
@@ -231,7 +263,7 @@ React 19 + TypeScript + Tailwind CSS 4 + TanStack Query + Framer Motion
 
 | ページ | 内容 |
 |--------|------|
-| Dashboard | AIチャット、タスク一覧、XP、音声イベント統合タイムライン |
+| Dashboard | アバター、AIチャット、タスク一覧、XP、音声イベント統合タイムライン |
 | Physical | ゾーン環境 (温湿度/CO2)、デバイス状態、天気、エネルギー |
 | Digital | PC メトリクス、サービス状態、GAS、Obsidian、買い物リスト |
 | User | プロフィール、バイオメトリクス、設定 |
@@ -249,6 +281,7 @@ pnpm build    # tsc -b && vite build
 |----|------|
 | Backend | Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion |
+| 3D Avatar | Three.js, React Three Fiber, @pixiv/three-vrm |
 | LLM | OpenAI / Anthropic / Ollama (マルチプロバイダー) |
 | TTS | espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk |
 | Search | BM25 (rank_bm25) + Vector (Ollama embedding + numpy) + RRF |
@@ -260,6 +293,9 @@ pnpm build    # tsc -b && vite build
 
 | ドキュメント | 内容 |
 |-------------|------|
+| [avatar-setup.md](docs/avatar-setup.md) | VRM アバター配置・モーション追加・リップシンク |
+| [shopping-list.md](docs/shopping-list.md) | 買い物リスト — API 操作・定期購入・外出連携 |
+| [event-automation.md](docs/event-automation.md) | イベント自動化 — 起床/帰宅/定時トリガー設定 |
 | [SMART_HOME_SETUP.md](docs/SMART_HOME_SETUP.md) | Home Assistant + HEMS 統合セットアップ |
 | [smart-home-device-guide.md](docs/smart-home-device-guide.md) | マルチプロトコルデバイス総合ガイド |
 | [sensor-purchasing-guide-jp.md](docs/sensor-purchasing-guide-jp.md) | センサー購入ガイド (技適準拠・Amazon.co.jp) |

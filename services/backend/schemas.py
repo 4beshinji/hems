@@ -75,6 +75,7 @@ class VoiceEventCreate(BaseModel):
     audio_url: str
     zone: Optional[str] = None
     tone: str = "neutral"
+    motion_id: Optional[str] = None
 
 
 class VoiceEvent(BaseModel):
@@ -83,6 +84,7 @@ class VoiceEvent(BaseModel):
     audio_url: str
     zone: Optional[str] = None
     tone: str = "neutral"
+    motion_id: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:

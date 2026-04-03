@@ -5,6 +5,7 @@ export interface VoiceEvent {
   audio_url: string
   zone?: string | null
   tone: string
+  motion_id?: string | null
   character_name?: string | null
   created_at?: string | null
 }

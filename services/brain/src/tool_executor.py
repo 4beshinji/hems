@@ -44,6 +44,14 @@ class ToolExecutor:
         self.voice_url = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self.dashboard_api_url = os.getenv("DASHBOARD_API_URL", "http://backend:8000")
 
+        # Motion retriever for avatar gesture selection
+        try:
+            from motion_retriever import MotionRetriever
+            self.motion_retriever = MotionRetriever()
+        except Exception as e:
+            logger.warning(f"Motion retriever init failed: {e}")
+            self.motion_retriever = None
+
     async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool call with sanitizer validation.
 
@@ -227,7 +235,15 @@ class ToolExecutor:
         zone = args.get("zone", "")
         tone = args.get("tone", "neutral")
 
-        # 1. Call voice service to synthesize text directly
+        # 1. Select avatar motion via serendipity retriever
+        motion_id = None
+        if self.motion_retriever:
+            try:
+                motion_id = self.motion_retriever.select(message, tone)
+            except Exception as e:
+                logger.warning(f"Motion retriever error: {e}")
+
+        # 2. Call voice service to synthesize text directly
         audio_url = None
         if self._session:
             try:
@@ -244,7 +260,7 @@ class ToolExecutor:
             except Exception as e:
                 logger.warning(f"Voice synthesize error: {e}")
 
-            # 2. Record voice event in dashboard backend
+            # 3. Record voice event in dashboard backend
             try:
                 await self._session.post(
                     f"{self.dashboard_api_url}/voice-events/",
@@ -253,6 +269,7 @@ class ToolExecutor:
                         "audio_url": audio_url or "",
                         "zone": zone,
                         "tone": tone,
+                        "motion_id": motion_id,
                     },
                     timeout=aiohttp.ClientTimeout(total=10),
                     headers=_AUTH_HEADERS,
@@ -271,6 +288,7 @@ class ToolExecutor:
         return {
             "success": True,
             "result": f"「{message}」を音声で通知しました",
+            "motion_id": motion_id,
         }
 
     async def _handle_get_active_tasks(self) -> Dict[str, Any]:

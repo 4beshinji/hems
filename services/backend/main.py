@@ -23,6 +23,16 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created/verified")
+
+    # Lightweight column migration for existing SQLite DBs
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        for col in ["motion_id"]:
+            try:
+                await conn.execute(text(f"ALTER TABLE voice_events ADD COLUMN {col} VARCHAR"))
+                logger.info(f"Added {col} column to voice_events")
+            except Exception:
+                pass  # Column already exists
     yield
 
 

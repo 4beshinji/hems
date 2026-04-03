@@ -1,10 +1,12 @@
+import { audioAnalyser } from './AudioAnalyser'
+
 export enum AudioPriority {
   USER_ACTION = 0,
   ANNOUNCEMENT = 1,
   VOICE_EVENT = 2,
 }
 
-interface QueueItem { url: string; priority: AudioPriority }
+interface QueueItem { url: string; priority: AudioPriority; tone?: string; motionId?: string }
 type Listener = () => void
 
 class AudioQueue {
@@ -23,9 +25,9 @@ class AudioQueue {
     this.emit()
   }
 
-  enqueue = (url: string, priority: AudioPriority = AudioPriority.VOICE_EVENT) => {
+  enqueue = (url: string, priority: AudioPriority = AudioPriority.VOICE_EVENT, tone?: string, motionId?: string) => {
     if (!this.enabled) return
-    const item = { url, priority }
+    const item = { url, priority, tone, motionId }
     let inserted = false
     for (let i = 0; i < this.queue.length; i++) {
       if (this.queue[i].priority > priority) { this.queue.splice(i, 0, item); inserted = true; break }
@@ -50,6 +52,7 @@ class AudioQueue {
     this.emit()
     const audio = new Audio(item.url)
     this.currentAudio = audio
+    audioAnalyser.connectSource(audio, item.tone, item.motionId)
     const done = () => { this.currentAudio = null; this.playing = false; this.playNext() }
     audio.addEventListener('ended', done)
     audio.addEventListener('error', done)

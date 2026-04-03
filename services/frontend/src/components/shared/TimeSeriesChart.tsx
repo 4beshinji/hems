@@ -85,7 +85,7 @@ export default function TimeSeriesChart({
             <YAxis tick={{ fontSize: 10 }} width={40} />
             <Tooltip
               labelFormatter={(v) => formatTime(v as number)}
-              formatter={(v) => [`${(Number(v) || 0).toFixed(1)}${unit}`, label || metric]}
+              formatter={(v) => [`${Number(v ?? 0).toFixed(1)}${unit}`, label || metric]}
             />
             <Line
               type="monotone"

@@ -82,8 +82,8 @@ The brain's sanitizer allowlist (`services/brain/src/sanitizer.py`) only validat
 **Remediation**: Return generic error messages in HTTP responses; log full exceptions server-side only.
 
 #### M4. Backend IDOR — No Resource Ownership Checks [Remaining]
-**Location**: `services/backend/routers/tasks.py` (accept/complete/dispatch endpoints), `services/backend/routers/points.py` (grant endpoint)
-**Description**: Task and point endpoints don't validate that the authenticated user owns the resource. Any valid API key holder can accept, complete, or dispatch any task, and grant arbitrary points to any user. Mitigated in the current single-occupant design but would become a privilege escalation vector if multi-user support is ever added.
+**Location**: `services/backend/routers/tasks.py` (accept/complete/dispatch endpoints)
+**Description**: Task endpoints don't validate that the authenticated user owns the resource. Any valid API key holder can accept, complete, or dispatch any task. Mitigated in the current single-occupant design but would become a privilege escalation vector if multi-user support is ever added.
 **Severity**: Medium (Low in current single-user context)
 **Remediation**: Add ownership validation if multi-user support is planned.
 

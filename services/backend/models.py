@@ -60,6 +60,7 @@ class VoiceEvent(Base):
     audio_url = Column(String)
     zone = Column(String, nullable=True)
     tone = Column(String, default="neutral")
+    motion_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

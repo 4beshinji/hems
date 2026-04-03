@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { Outlet } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
@@ -7,9 +7,12 @@ import BottomNav from '@/components/layout/BottomNav'
 import Header from '@/components/layout/Header'
 import { useDarkMode } from '@/hooks/use-dark-mode'
 import { useCharacterTheme } from '@/hooks/use-character-theme'
+import { useAvatarMode } from '@/hooks/use-avatar-mode'
 import { useAudioQueue, AudioPriority } from '@/audio'
 import { fetchZones, fetchVoiceEvents, fetchTasks } from '@/lib/api'
 import type { VoiceEvent, TaskData } from '@/lib/types'
+
+const AvatarContainer = lazy(() => import('@/components/vrm/AvatarContainer'))
 
 const MAX_PLAYED_IDS = 500
 const TRIM_TO = 50
@@ -37,6 +40,7 @@ export default function AppLayout() {
   const queryClient = useQueryClient()
   const [audioEnabled, setAudioEnabled] = useState(false)
   const { enqueue, isEnabled } = useAudioQueue(audioEnabled)
+  const { mode: avatarMode, cycle: cycleAvatarMode, setMode: setAvatarMode } = useAvatarMode()
   useKioskMode()
 
   // Track played IDs with useRef to avoid re-renders
@@ -74,7 +78,7 @@ export default function AppLayout() {
     if (!isEnabled || !voiceEventsQuery.data) return
     for (const ev of voiceEventsQuery.data) {
       if (!playedVoiceIds.current.has(ev.id) && ev.audio_url) {
-        enqueue(ev.audio_url, AudioPriority.VOICE_EVENT)
+        enqueue(ev.audio_url, AudioPriority.VOICE_EVENT, ev.tone, ev.motion_id ?? undefined)
         playedVoiceIds.current.add(ev.id)
       }
     }
@@ -103,6 +107,7 @@ export default function AppLayout() {
   const activeTasks = tasksQuery.data?.filter((t: TaskData) => !t.is_completed).length ?? 0
 
   const toggleAudio = useCallback(() => setAudioEnabled(v => !v), [])
+  const hideAvatar = useCallback(() => setAvatarMode('hidden'), [setAvatarMode])
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -114,6 +119,8 @@ export default function AppLayout() {
         secretThemeActive={isSecretActive}
         secretThemeConfig={activeConfig}
         onCycleSecretTheme={cycleCharacterTheme}
+        avatarMode={avatarMode}
+        onCycleAvatarMode={cycleAvatarMode}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
@@ -123,6 +130,8 @@ export default function AppLayout() {
           onCycleDarkMode={cycleDarkMode}
           secretThemeActive={isSecretActive}
           secretThemeConfig={activeConfig}
+          avatarMode={avatarMode}
+          onCycleAvatarMode={cycleAvatarMode}
         />
         <main className="flex-1 flex flex-col p-4 lg:p-6 pb-20 lg:pb-6 min-h-0">
           <Outlet context={{
@@ -130,10 +139,16 @@ export default function AppLayout() {
             enqueueAudio: enqueue,
             queryClient,
             voiceEvents: voiceEventsQuery.data as VoiceEvent[] | undefined,
+            avatarMode,
           }} />
         </main>
       </div>
       <BottomNav activeTasks={activeTasks} />
+      {avatarMode !== 'hidden' && (
+        <Suspense fallback={null}>
+          <AvatarContainer mode={avatarMode} onClose={hideAvatar} />
+        </Suspense>
+      )}
       <Toaster position="bottom-right" richColors />
     </div>
   )
@@ -143,11 +158,14 @@ export default function AppLayout() {
 import { useOutletContext } from 'react-router'
 import type { QueryClient } from '@tanstack/react-query'
 
+import type { AvatarMode } from '@/hooks/use-avatar-mode'
+
 interface AppContext {
   audioEnabled: boolean
-  enqueueAudio: (url: string, priority: AudioPriority) => void
+  enqueueAudio: (url: string, priority: AudioPriority, tone?: string) => void
   queryClient: QueryClient
   voiceEvents?: VoiceEvent[]
+  avatarMode: AvatarMode
 }
 
 export function useAppContext() {

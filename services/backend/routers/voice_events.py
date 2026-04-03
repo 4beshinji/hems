@@ -18,6 +18,7 @@ async def create_voice_event(event: schemas.VoiceEventCreate, db: AsyncSession =
         audio_url=event.audio_url,
         zone=event.zone,
         tone=event.tone,
+        motion_id=event.motion_id,
     )
     db.add(db_event)
     await db.commit()

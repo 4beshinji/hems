@@ -1,11 +1,12 @@
 import { useRef, useCallback } from 'react'
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Thermometer, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge } from 'lucide-react'
+import { LayoutDashboard, Thermometer, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import type { DarkModePreference } from '@/hooks/use-dark-mode'
 import type { CharacterThemeConfig } from '@/lib/character-themes'
+import type { AvatarMode } from '@/hooks/use-avatar-mode'
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -13,6 +14,12 @@ const NAV_ITEMS = [
   { to: '/digital', icon: Monitor, label: 'Digital Space' },
   { to: '/user', icon: Heart, label: 'User State' },
 ] as const
+
+const AVATAR_MODE_LABELS: Record<AvatarMode, string> = {
+  hidden: '非表示',
+  panel: 'パネル',
+  overlay: 'オーバーレイ',
+}
 
 interface Props {
   audioEnabled: boolean
@@ -22,6 +29,8 @@ interface Props {
   secretThemeActive?: boolean
   secretThemeConfig?: CharacterThemeConfig | null
   onCycleSecretTheme?: () => void
+  avatarMode: AvatarMode
+  onCycleAvatarMode: () => void
 }
 
 export default function AppSidebar({
@@ -32,6 +41,8 @@ export default function AppSidebar({
   secretThemeActive,
   secretThemeConfig,
   onCycleSecretTheme,
+  avatarMode,
+  onCycleAvatarMode,
 }: Props) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -112,6 +123,18 @@ export default function AppSidebar({
           >
             <DarkModeIcon className="h-4 w-4" />
             <span className="text-xs">{darkModeLabel}</span>
+          </Button>
+        </div>
+        <div className="flex gap-1 px-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCycleAvatarMode}
+            aria-label={`アバター: ${AVATAR_MODE_LABELS[avatarMode]}`}
+            className="h-9 gap-1.5"
+          >
+            <User className="h-4 w-4" />
+            <span className="text-xs">{AVATAR_MODE_LABELS[avatarMode]}</span>
           </Button>
         </div>
       </div>

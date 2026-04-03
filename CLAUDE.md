@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**HEMS (Home Environment Management System)** — a personal life management system for a single occupant, forked from SOMS (Symbiotic Office Management System). Combines an LLM "brain" with IoT sensors, plugin-based voice synthesis, and an XP gamification system. The AI has a configurable character personality (YAML-based) and makes real-time decisions about the home environment using sensor data, biometrics, and schedule information.
+**HEMS (Home Environment Management System)** — a personal life management system for a single occupant, forked from SOMS (Symbiotic Office Management System). Combines an LLM "brain" with IoT sensors, plugin-based voice synthesis, and a VRM 3D avatar system. The AI has a configurable character personality (YAML-based) and makes real-time decisions about the home environment using sensor data, biometrics, and schedule information.
 
 Forked from SOMS commit `1216952` (2026-02-16).
 
@@ -202,7 +202,9 @@ hems/brain/guest-mode
 - Event store data mart (SOMS-compatible schema)
 - Alert suppression: prevents duplicate tasks while environment slowly responds
   (e.g., AC cooling after task created — 30min for temp, 10min for CO2)
+- Ambient Speaker: generates natural one-line speech every 5 minutes based on sensor data
 - Tri-domain world model: Physical Space (zones, smart home, weather), Digital Space (PC, services, GAS, knowledge, shopping), User State (biometrics, screen time)
+- MotionRetriever: selects avatar motion via BM25 + tone affinity + usage decay + novelty (serendipity scoring), loaded from `config/motions.yaml`
 - 6 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`, `get_active_tasks`, `get_device_status`
 - localcraw tools (profile `localcraw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
 - Service monitor tool (when data available): `get_service_status`
@@ -523,6 +525,7 @@ EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_brief
 
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion
+- **3D Avatar**: Three.js, React Three Fiber, @pixiv/three-vrm
 - **LLM**: OpenAI / Anthropic / Ollama (multi-provider)
 - **TTS**: Plugin-based (espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk)
 - **Infra**: Docker Compose, Mosquitto MQTT, SQLite / PostgreSQL
@@ -533,15 +536,13 @@ EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_brief
 - Configuration via environment variables (`.env`)
 - Source code bind-mounted into containers (changes take effect on restart)
 - Bilingual: English code/comments, Japanese UI/voice/docs
-- `xp_reward` (50-500) replaces SOMS `bounty` (500-5000)
-- No wallet service — points integrated into backend
 
 ## Key Differences from SOMS
 
 | SOMS | HEMS |
 |------|------|
 | PostgreSQL required | SQLite default |
-| Wallet (double-entry ledger) | Points/XP (backend integrated) |
+| Wallet (double-entry ledger) | No points system |
 | VOICEVOX only | Plugin TTS (4 backends) |
 | Hardcoded personality | YAML character system |
 | Ollama only | OpenAI / Anthropic / Ollama |

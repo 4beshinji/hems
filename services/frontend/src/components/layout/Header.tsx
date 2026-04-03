@@ -1,8 +1,10 @@
 import { useLocation } from 'react-router'
-import { Volume2, VolumeX, Sun, Moon, Gauge } from 'lucide-react'
+import { Volume2, VolumeX, Sun, Moon, Gauge, User } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { DarkModePreference } from '@/hooks/use-dark-mode'
 import type { CharacterThemeConfig } from '@/lib/character-themes'
+import type { AvatarMode } from '@/hooks/use-avatar-mode'
 
 const ROUTE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -18,6 +20,8 @@ interface Props {
   onCycleDarkMode: () => void
   secretThemeActive?: boolean
   secretThemeConfig?: CharacterThemeConfig | null
+  avatarMode: AvatarMode
+  onCycleAvatarMode: () => void
 }
 
 export default function Header({
@@ -27,6 +31,8 @@ export default function Header({
   onCycleDarkMode,
   secretThemeActive,
   secretThemeConfig,
+  avatarMode,
+  onCycleAvatarMode,
 }: Props) {
   const location = useLocation()
   const title = ROUTE_TITLES[location.pathname] || 'HEMS'
@@ -49,6 +55,15 @@ export default function Header({
           </Button>
           <Button variant="ghost" size="icon" onClick={onCycleDarkMode} aria-label="テーマ切替" className="h-9 w-9">
             <DarkModeIcon className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onCycleAvatarMode}
+            aria-label="アバター切替"
+            className={cn('h-9 w-9', avatarMode !== 'hidden' && 'text-primary')}
+          >
+            <User className="h-4 w-4" />
           </Button>
         </div>
       </div>

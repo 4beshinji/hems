@@ -1,0 +1,80 @@
+motions:
+  - id: greeting_wave
+    file: greeting_wave.vrma
+    name: 手を振る挨拶
+    description: 軽く手を振って挨拶する。朝の声かけ、帰宅時の出迎え、歓迎に適切。
+    tags: [挨拶, 手振り, 歓迎, おはよう, おかえり]
+    duration: 2.5
+    category: greeting
+
+  - id: nod_agree
+    file: nod_agree.vrma
+    name: うなずき
+    description: 軽くうなずいて同意や確認を示す。タスク完了報告、指示受領時に使用。
+    tags: [同意, 確認, 了解, うなずき, 報告]
+    duration: 1.5
+    category: reaction
+
+  - id: point_alert
+    file: point_alert.vrma
+    name: 注意喚起の指さし
+    description: 前方を指さして注意を促す。温度異常、CO2上昇、緊急通知に使用。
+    tags: [警告, 注意, アラート, 異常, 危険]
+    duration: 2.0
+    category: alert
+
+  - id: thinking_pose
+    file: thinking_pose.vrma
+    name: 考え中
+    description: 顎に手を当てて考える仕草。提案やアドバイスを述べる際に使用。
+    tags: [思考, 提案, アドバイス, 考慮, ヒント]
+    duration: 2.0
+    category: gesture
+
+  - id: celebrate
+    file: celebrate.vrma
+    name: お祝い
+    description: 両手を上げて喜ぶ。タスク完了祝い、目標達成、良いニュースに使用。
+    tags: [祝い, 達成, 完了, やった, 成功]
+    duration: 2.5
+    category: emote
+
+  - id: bow_polite
+    file: bow_polite.vrma
+    name: お辞儀
+    description: 丁寧にお辞儀する。お礼、謝罪、丁寧な挨拶に使用。
+    tags: [お辞儀, 礼儀, ありがとう, すみません, 丁寧]
+    duration: 2.0
+    category: greeting
+
+  - id: shrug_confused
+    file: shrug_confused.vrma
+    name: 肩をすくめる
+    description: 肩をすくめて困惑を示す。不明な状況、データ不足、予想外の結果に使用。
+    tags: [困惑, 不明, わからない, 予想外, 疑問]
+    duration: 1.8
+    category: reaction
+
+  - id: stretch_suggest
+    file: stretch_suggest.vrma
+    name: ストレッチ促し
+    description: 両腕を伸ばしてストレッチを促す。長時間座位、休憩提案に使用。
+    tags: [ストレッチ, 休憩, 座りすぎ, 健康, 運動]
+    duration: 3.0
+    category: gesture
+
+  - id: wave_goodbye
+    file: wave_goodbye.vrma
+    name: 見送り
+    description: 手を振って見送る。外出時、おやすみ、別れの挨拶に使用。
+    tags: [見送り, バイバイ, おやすみ, いってらっしゃい, 別れ]
+    duration: 2.5
+    category: greeting
+
+  - id: surprise_react
+    file: surprise_react.vrma
+    name: 驚き
+    description: 驚いた反応を示す。予想外のデータ、急な変化、ニュース速報に使用。
+    tags: [驚き, びっくり, 急変, ニュース, 予想外]
+    duration: 1.5
+    category: reaction
