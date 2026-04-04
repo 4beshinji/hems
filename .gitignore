@@ -11,7 +11,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 !edge/lib/
 lib64/
 parts/
@@ -62,6 +62,14 @@ infra/docker-compose.gpu.yml
 /data/
 /models/
 /logs/
+
+# VRM avatar & motions (user-provided assets — see docs/avatar-setup.md)
+services/frontend/public/models/avatar.vrm
+services/frontend/public/models/motions/*.vrma
+!services/frontend/public/models/.gitkeep
+!services/frontend/public/models/motions/.gitkeep
+*.vrm
+*.zip
 /infra/mosquitto/data/
 /infra/mosquitto/log/
 *.pt

@@ -16,17 +16,17 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-4">
       <div className="grid gap-4 lg:grid-cols-3 flex-1 min-h-0">
-        {/* Left: Avatar Panel + Chat (2/3 on desktop) */}
+        {/* Left: Chat (2/3 on desktop) */}
         <div className="lg:col-span-2 min-h-0 flex flex-col gap-4">
-          {avatarMode === 'panel' && <div id="avatar-panel-slot" />}
           <div className="flex-1 min-h-0">
             <ChatPanel />
           </div>
         </div>
-        {/* Right: Key Metrics + Tasks (1/3 on desktop) */}
+        {/* Right: Key Metrics + Tasks + Avatar (1/3 on desktop) */}
         <div className="space-y-4 min-h-0 overflow-y-auto">
           <KeyMetricsSummary />
           <ActiveTaskList />
+          {avatarMode === 'panel' && <div id="avatar-panel-slot" />}
         </div>
       </div>
       {character?.voice_credit && (

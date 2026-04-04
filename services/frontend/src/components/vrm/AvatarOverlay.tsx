@@ -9,8 +9,8 @@ interface Props {
   onClose: () => void
 }
 
-const AVATAR_W = 160
-const AVATAR_H = 240
+const AVATAR_W = 420
+const AVATAR_H = 840
 
 export default function AvatarOverlay({ onClose }: Props) {
   const { update } = useWandering()
@@ -42,7 +42,6 @@ export default function AvatarOverlay({ onClose }: Props) {
           top,
           width: AVATAR_W,
           height: AVATAR_H,
-          transform: `scaleX(${pos.facing})`,
           pointerEvents: 'auto',
         }}
         onMouseEnter={handleMouseEnter}
@@ -51,7 +50,7 @@ export default function AvatarOverlay({ onClose }: Props) {
         {/* Close button — visible on hover */}
         <div
           className="absolute -top-2 right-0 z-10 transition-opacity duration-200"
-          style={{ opacity: hovered ? 1 : 0, transform: `scaleX(${pos.facing})` }}
+          style={{ opacity: hovered ? 1 : 0 }}
         >
           <Button
             variant="ghost"
@@ -64,14 +63,13 @@ export default function AvatarOverlay({ onClose }: Props) {
           </Button>
         </div>
         {/* Avatar with walk bounce */}
-        <div
-          className="w-full h-full"
-          style={pos.phase === 'walking' ? {
-            animation: 'avatar-bounce 0.4s ease-in-out infinite',
-          } : undefined}
-        >
+        <div className="w-full h-full">
           <Suspense fallback={null}>
-            <VrmCanvas className="w-full h-full" />
+            <VrmCanvas
+              className="w-full h-full"
+              walkPhase={pos.phase}
+              facing={pos.facing}
+            />
           </Suspense>
         </div>
       </div>

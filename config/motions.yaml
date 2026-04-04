@@ -1,66 +1,68 @@
 motions:
+  # --- VRoid official motion pack (pixiv) ---
   - id: greeting_wave
     file: greeting_wave.vrma
     name: 手を振る挨拶
     description: 軽く手を振って挨拶する。朝の声かけ、帰宅時の出迎え、歓迎に適切。
     tags: [挨拶, 手振り, 歓迎, おはよう, おかえり]
-    duration: 2.5
+    duration: 3.0
     category: greeting
 
-  - id: nod_agree
-    file: nod_agree.vrma
-    name: うなずき
-    description: 軽くうなずいて同意や確認を示す。タスク完了報告、指示受領時に使用。
-    tags: [同意, 確認, 了解, うなずき, 報告]
-    duration: 1.5
-    category: reaction
+  - id: celebrate
+    file: celebrate.vrma
+    name: Vサインで喜ぶ
+    description: Vサインで喜びを示す。タスク完了祝い、目標達成、良いニュースに使用。
+    tags: [祝い, 達成, 完了, やった, 成功, Vサイン, ピース]
+    duration: 4.0
+    category: emote
 
   - id: point_alert
     file: point_alert.vrma
-    name: 注意喚起の指さし
-    description: 前方を指さして注意を促す。温度異常、CO2上昇、緊急通知に使用。
+    name: 注意喚起
+    description: 前方を指して注意を促す。温度異常、CO2上昇、緊急通知に使用。
     tags: [警告, 注意, アラート, 異常, 危険]
-    duration: 2.0
+    duration: 3.5
     category: alert
 
+  - id: stretch_suggest
+    file: stretch_suggest.vrma
+    name: 屈伸運動
+    description: 屈伸運動でストレッチを促す。長時間座位、休憩提案に使用。
+    tags: [ストレッチ, 休憩, 座りすぎ, 健康, 運動, 屈伸]
+    duration: 4.0
+    category: gesture
+
+  - id: show_full
+    file: show_full.vrma
+    name: 全身を見せる
+    description: 全身を見せるポーズ。自己紹介や初回挨拶に使用。
+    tags: [自己紹介, 全身, ポーズ, 初回]
+    duration: 4.0
+    category: gesture
+
+  - id: spin
+    file: spin.vrma
+    name: くるっと回る
+    description: その場でくるっと一回転する。楽しい気分、テンションが高い場面で使用。
+    tags: [回転, 楽しい, テンション, スピン]
+    duration: 3.0
+    category: emote
+
+  - id: model_pose
+    file: model_pose.vrma
+    name: モデルポーズ
+    description: モデルのようにポーズを取る。余裕がある場面、待機時に使用。
+    tags: [ポーズ, 余裕, かわいい, モデル]
+    duration: 3.0
+    category: gesture
+
+  # --- tk256ailab/vrm-viewer (MIT) ---
   - id: thinking_pose
     file: thinking_pose.vrma
     name: 考え中
     description: 顎に手を当てて考える仕草。提案やアドバイスを述べる際に使用。
     tags: [思考, 提案, アドバイス, 考慮, ヒント]
     duration: 2.0
-    category: gesture
-
-  - id: celebrate
-    file: celebrate.vrma
-    name: お祝い
-    description: 両手を上げて喜ぶ。タスク完了祝い、目標達成、良いニュースに使用。
-    tags: [祝い, 達成, 完了, やった, 成功]
-    duration: 2.5
-    category: emote
-
-  - id: bow_polite
-    file: bow_polite.vrma
-    name: お辞儀
-    description: 丁寧にお辞儀する。お礼、謝罪、丁寧な挨拶に使用。
-    tags: [お辞儀, 礼儀, ありがとう, すみません, 丁寧]
-    duration: 2.0
-    category: greeting
-
-  - id: shrug_confused
-    file: shrug_confused.vrma
-    name: 肩をすくめる
-    description: 肩をすくめて困惑を示す。不明な状況、データ不足、予想外の結果に使用。
-    tags: [困惑, 不明, わからない, 予想外, 疑問]
-    duration: 1.8
-    category: reaction
-
-  - id: stretch_suggest
-    file: stretch_suggest.vrma
-    name: ストレッチ促し
-    description: 両腕を伸ばしてストレッチを促す。長時間座位、休憩提案に使用。
-    tags: [ストレッチ, 休憩, 座りすぎ, 健康, 運動]
-    duration: 3.0
     category: gesture
 
   - id: wave_goodbye
@@ -78,3 +80,51 @@ motions:
     tags: [驚き, びっくり, 急変, ニュース, 予想外]
     duration: 1.5
     category: reaction
+
+  - id: nod_agree
+    file: nod_agree.vrma
+    name: うなずき
+    description: 軽くうなずいて同意や確認を示す。タスク完了報告、指示受領時に使用。
+    tags: [同意, 確認, 了解, うなずき, 報告]
+    duration: 1.5
+    category: reaction
+
+  - id: bow_polite
+    file: bow_polite.vrma
+    name: お辞儀
+    description: 丁寧にお辞儀する。お礼、謝罪、丁寧な挨拶に使用。
+    tags: [お辞儀, 礼儀, ありがとう, すみません, 丁寧]
+    duration: 2.0
+    category: greeting
+
+  - id: shrug_confused
+    file: shrug_confused.vrma
+    name: 肩をすくめる
+    description: 肩をすくめて困惑を示す。不明な状況、データ不足、予想外の結果に使用。
+    tags: [困惑, 不明, わからない, 予想外, 疑問]
+    duration: 1.8
+    category: reaction
+
+  - id: look_around
+    file: look_around.vrma
+    name: 見回す
+    description: 周囲を見回す仕草。探し物、周囲確認、警戒に使用。
+    tags: [見回す, 周囲, 確認, 探す, キョロキョロ]
+    duration: 2.5
+    category: idle
+
+  - id: relax
+    file: relax.vrma
+    name: リラックス
+    description: リラックスした姿勢を取る。落ち着いた場面、平穏な環境で使用。
+    tags: [リラックス, 落ち着き, のんびり, 平穏]
+    duration: 2.5
+    category: idle
+
+  - id: sleepy
+    file: sleepy.vrma
+    name: 眠そう
+    description: 眠そうにあくびをする仕草。深夜帯、疲労度が高い時に使用。
+    tags: [眠い, あくび, 疲れ, 深夜, 就寝]
+    duration: 2.0
+    category: idle
