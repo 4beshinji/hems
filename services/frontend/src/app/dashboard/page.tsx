@@ -29,11 +29,11 @@ export default function DashboardPage() {
           {avatarMode === 'panel' && <div id="avatar-panel-slot" />}
         </div>
       </div>
-      {character?.voice_credit && (
+      {character?.voice_credit ? (
         <p className="text-[10px] text-muted-foreground/50 text-right select-none">
-          {character.voice_credit}
+          {character.voice_credit as string}
         </p>
-      )}
+      ) : null}
     </div>
   )
 }

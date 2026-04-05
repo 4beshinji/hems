@@ -1,4 +1,4 @@
-import { Suspense, useState, useCallback, useEffect, useRef } from 'react'
+import { Suspense, useState, useCallback, useEffect } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import VrmModel from './VrmModel'

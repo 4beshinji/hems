@@ -61,6 +61,9 @@ docker compose --profile news --profile ollama up -d --build
 # With knowledge ingestion (multi-format document loader)
 docker compose --profile knowledge up -d --build
 
+# With STT (Speech-to-Text, push-to-talk + VAD auto mode)
+docker compose --profile stt up -d --build
+
 # With mock LLM (development, no Ollama needed)
 LLM_API_URL=http://mock-llm:8000/v1 LLM_MODEL=mock \
   docker compose --profile mock up -d --build
@@ -74,7 +77,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `news`, `knowledge`
+Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `news`, `knowledge`, `stt`
 
 ### Frontend Development
 
@@ -106,6 +109,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | SwitchBot Bridge | 8019 | `HEMS_PORT_SWITCHBOT_BRIDGE` | hems-switchbot-bridge |
 | News Bridge | 8021 | `HEMS_PORT_NEWS_BRIDGE` | hems-news-bridge |
 | Knowledge Bridge | 8022 | `HEMS_PORT_KNOWLEDGE_BRIDGE` | hems-knowledge-bridge |
+| STT Service | 8023 | `HEMS_PORT_STT` | hems-stt |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
@@ -487,6 +491,52 @@ KNOWLEDGE_SOURCES=[{"name":"pws","path":"/sources/pws","extensions":[".md",".py"
 # Vector search (optional, requires --profile ollama)
 EMBEDDING_URL=http://ollama:11434
 EMBEDDING_MODEL=nomic-embed-text
+```
+
+### STT Service (Plugin-based Speech-to-Text)
+
+Self-hosted speech recognition with query cleaning. Replaces browser Web Speech API.
+
+- **stt-service**: Docker service (Python/FastAPI) with plugin-based STT providers
+  - Plugin system mirrors voice-service TTS architecture (STTProvider ABC)
+  - Providers: `whisper` (faster-whisper, default), `sherpa-onnx` (Parakeet 0.6B JP), `qwen3-asr` (Qwen3-ASR 1.7B)
+  - Query cleaner: regex-based filler removal + optional LLM rewrite via Ollama
+  - Audio format conversion: WebM/Opus/MP3/WAV → 16kHz mono WAV (ffmpeg)
+  - REST API: `POST /api/stt/transcribe` (multipart), `GET /api/stt/providers`
+- **Frontend**: Push-to-talk + VAD auto mode (Silero VAD ONNX via `@ricky0123/vad-web`)
+  - Push-to-talk: click mic → record → click again → transcribe
+  - Auto (VAD): continuous speech detection → auto-transcribe → auto-send
+  - Mode toggle: PTT / VAD / OFF (cycles with button)
+  - Falls back to Web Speech API when STT service unavailable
+- **Profile**: `docker compose --profile stt up -d --build`
+- **Privacy**: All processing local, no audio stored
+- **GPU**: Auto-detect — CUDA uses faster-whisper (CTranslate2), ROCm uses transformers + PyTorch ROCm, CPU uses faster-whisper int8
+
+| Provider | Model | Languages | VRAM | Best for |
+|----------|-------|-----------|------|----------|
+| `whisper` | large-v3-turbo | 99 | ~1.5GB | General use (default) |
+| `sherpa-onnx` | Parakeet 0.6B JP | ja | ~0.6GB | Japanese speed |
+| `qwen3-asr` | Qwen3-ASR 1.7B | 52 | ~3.5GB | Best quality |
+
+Configure in `.env`:
+```bash
+STT_PROVIDER=whisper
+STT_MODEL=large-v3-turbo
+STT_LANGUAGE=ja
+STT_DEVICE=auto           # auto, cpu, cuda, rocm
+STT_COMPUTE_TYPE=auto     # auto, float16, int8
+STT_LLM_REWRITE=false     # enable LLM query cleaning (requires Ollama)
+HEMS_PORT_STT=8023
+```
+
+ROCm (AMD GPU) usage:
+```bash
+# gpu_setup.py generates docker-compose.gpu.yml with ROCm devices + build args
+python infra/scripts/gpu_setup.py
+cd infra && docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
+  --profile stt up -d --build
+# GPU_TYPE=rocm build arg → PyTorch ROCm installed in image
+# /dev/kfd auto-detected at runtime → transformers backend selected
 ```
 
 ### Chat (Personalized Conversational AI)

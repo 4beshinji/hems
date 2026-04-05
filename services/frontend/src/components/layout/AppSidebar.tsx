@@ -1,12 +1,13 @@
 import { useRef, useCallback } from 'react'
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Thermometer, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User } from 'lucide-react'
+import { LayoutDashboard, Thermometer, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import type { DarkModePreference } from '@/hooks/use-dark-mode'
 import type { CharacterThemeConfig } from '@/lib/character-themes'
 import type { AvatarMode } from '@/hooks/use-avatar-mode'
+import type { STTMode } from '@/hooks/use-server-stt'
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -21,6 +22,20 @@ const AVATAR_MODE_LABELS: Record<AvatarMode, string> = {
   overlay: 'オーバーレイ',
 }
 
+const STT_MODE_LABELS: Record<STTMode, string> = {
+  'push-to-talk': 'PTT',
+  auto: 'VAD',
+  off: 'OFF',
+}
+
+const STT_LANG_LABELS: Record<string, string> = {
+  ja: 'JP',
+  en: 'EN',
+  auto: 'Auto',
+}
+
+const LANG_CYCLE = ['ja', 'en', 'auto']
+
 interface Props {
   audioEnabled: boolean
   onToggleAudio: () => void
@@ -31,6 +46,10 @@ interface Props {
   onCycleSecretTheme?: () => void
   avatarMode: AvatarMode
   onCycleAvatarMode: () => void
+  sttMode: STTMode
+  onCycleSTTMode: () => void
+  sttLanguage: string
+  onSetSTTLanguage: (lang: string) => void
 }
 
 export default function AppSidebar({
@@ -43,6 +62,10 @@ export default function AppSidebar({
   onCycleSecretTheme,
   avatarMode,
   onCycleAvatarMode,
+  sttMode,
+  onCycleSTTMode,
+  sttLanguage,
+  onSetSTTLanguage,
 }: Props) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -56,10 +79,17 @@ export default function AppSidebar({
     clearTimeout(longPressTimer.current)
   }, [])
 
+  const cycleLang = useCallback(() => {
+    const idx = LANG_CYCLE.indexOf(sttLanguage)
+    onSetSTTLanguage(LANG_CYCLE[(idx + 1) % LANG_CYCLE.length])
+  }, [sttLanguage, onSetSTTLanguage])
+
   const DarkModeIcon = darkModePreference === 'dark' ? Moon :
     darkModePreference === 'light' ? Sun : Gauge
   const darkModeLabel = darkModePreference === 'dark' ? 'ダーク' :
     darkModePreference === 'light' ? 'ライト' : 'センサー'
+
+  const sttOff = sttMode === 'off'
 
   return (
     <aside className="hidden lg:flex flex-col w-56 shrink-0 border-r border-border bg-card h-screen sticky top-0">
@@ -104,6 +134,7 @@ export default function AppSidebar({
 
       <div className="p-3 space-y-2">
         <Separator />
+        {/* Audio + Dark mode row */}
         <div className="flex gap-1 px-1">
           <Button
             variant="ghost"
@@ -125,6 +156,7 @@ export default function AppSidebar({
             <span className="text-xs">{darkModeLabel}</span>
           </Button>
         </div>
+        {/* Avatar + STT row */}
         <div className="flex gap-1 px-1">
           <Button
             variant="ghost"
@@ -136,6 +168,30 @@ export default function AppSidebar({
             <User className="h-4 w-4" />
             <span className="text-xs">{AVATAR_MODE_LABELS[avatarMode]}</span>
           </Button>
+        </div>
+        {/* STT controls */}
+        <div className="flex gap-1 px-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCycleSTTMode}
+            aria-label={`音声入力: ${STT_MODE_LABELS[sttMode]}`}
+            className={cn('h-9 gap-1.5', !sttOff && 'text-primary')}
+          >
+            {sttOff ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            <span className="text-xs">音声 {STT_MODE_LABELS[sttMode]}</span>
+          </Button>
+          {!sttOff && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={cycleLang}
+              aria-label={`STT言語: ${STT_LANG_LABELS[sttLanguage] ?? sttLanguage}`}
+              className="h-9 px-2"
+            >
+              <span className="text-xs font-mono">{STT_LANG_LABELS[sttLanguage] ?? sttLanguage}</span>
+            </Button>
+          )}
         </div>
       </div>
     </aside>

@@ -70,7 +70,7 @@ export default function ChatPanel() {
     }
   }, [timeline.length, isLoading])
 
-  const handleSend = useCallback(async (message: string) => {
+  const handleSend = useCallback(async (message: string, _opts?: { tts?: boolean }) => {
     setIsLoading(true)
     setError(null)
 
@@ -85,7 +85,11 @@ export default function ChatPanel() {
     setChatMessages(prev => [...prev, optimisticMsg])
 
     try {
-      const resp = await sendChatMessage(message, conversationId ?? undefined)
+      const resp = await sendChatMessage(
+        message,
+        conversationId ?? undefined,
+        true,
+      )
       setConversationId(resp.conversation_id)
 
       // Replace optimistic message + add assistant response

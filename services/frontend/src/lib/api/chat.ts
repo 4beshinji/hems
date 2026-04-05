@@ -1,15 +1,27 @@
-import { apiFetch } from '@/lib/api-client'
 import type { ChatResponse, ChatMessage, ConversationSummary } from '@/lib/types'
+
+const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    ...init,
+  })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json() as Promise<T>
+}
 
 export const sendChatMessage = (
   content: string,
   conversationId?: number,
+  tts?: boolean,
 ): Promise<ChatResponse> =>
   apiFetch('/chat/', {
     method: 'POST',
     body: JSON.stringify({
       content,
       conversation_id: conversationId ?? null,
+      tts: tts ?? null,
     }),
   })
 

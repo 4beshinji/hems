@@ -140,7 +140,7 @@ speaking_style:
 voice:
   # TTS backend to use
   # Type: string
-  # Options: "voicevox", "voisona", "espeak", "edge-tts"
+  # Options: "voicevox", "voisona", "aivoice", "espeak", "edge-tts"
   backend: "voicevox"
 
   # VOICEVOX-specific settings
@@ -169,6 +169,21 @@ voice:
     # Intonation strength multiplier (0.0 - 2.0, default: 1.0)
     # Type: float
     intonation_scale: 1.0
+
+  # A.I.VOICE settings (used when backend: "aivoice")
+  # Run: curl http://host.docker.internal:50080/api/v1/speakers to list IDs
+  # aivoice:
+  #   url: "http://host.docker.internal:50080"
+  #   speakers:
+  #     neutral: 0    # 結月ゆかり 凪
+  #     caring: 0
+  #     humorous: 0
+  #     alert: 0
+  #     happy: 0
+  #   speed_scale: 1.0        # 0.5 – 2.0
+  #   pitch_scale: 0.0        # -0.15 – 0.15
+  #   intonation_scale: 1.0   # 0.0 – 2.0
+  #   volume_scale: 1.0       # 0.0 – 2.0
 
   # VoiSona Talk settings (used when backend: "voisona")
   # See docs/voisona-talk-setup.md for full API parameter reference.

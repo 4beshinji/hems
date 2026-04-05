@@ -8,9 +8,11 @@ import Header from '@/components/layout/Header'
 import { useDarkMode } from '@/hooks/use-dark-mode'
 import { useCharacterTheme } from '@/hooks/use-character-theme'
 import { useAvatarMode } from '@/hooks/use-avatar-mode'
+import { useSTTMode } from '@/hooks/use-stt-mode'
 import { useAudioQueue, AudioPriority } from '@/audio'
 import { fetchZones, fetchVoiceEvents, fetchTasks } from '@/lib/api'
 import type { VoiceEvent, TaskData } from '@/lib/types'
+import type { STTMode } from '@/hooks/use-server-stt'
 
 const AvatarContainer = lazy(() => import('@/components/vrm/AvatarContainer'))
 
@@ -41,6 +43,7 @@ export default function AppLayout() {
   const [audioEnabled, setAudioEnabled] = useState(false)
   const { enqueue, isEnabled } = useAudioQueue(audioEnabled)
   const { mode: avatarMode, cycle: cycleAvatarMode, setMode: setAvatarMode } = useAvatarMode()
+  const { mode: sttMode, cycle: cycleSTTMode, setMode: setSTTMode, language: sttLanguage, setLanguage: setSTTLanguage, autoSend: sttAutoSend, toggleAutoSend: toggleSTTAutoSend } = useSTTMode()
   useKioskMode()
 
   // Track played IDs with useRef to avoid re-renders
@@ -121,6 +124,10 @@ export default function AppLayout() {
         onCycleSecretTheme={cycleCharacterTheme}
         avatarMode={avatarMode}
         onCycleAvatarMode={cycleAvatarMode}
+        sttMode={sttMode}
+        onCycleSTTMode={cycleSTTMode}
+        sttLanguage={sttLanguage}
+        onSetSTTLanguage={setSTTLanguage}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
@@ -132,6 +139,8 @@ export default function AppLayout() {
           secretThemeConfig={activeConfig}
           avatarMode={avatarMode}
           onCycleAvatarMode={cycleAvatarMode}
+          sttMode={sttMode}
+          onCycleSTTMode={cycleSTTMode}
         />
         <main className="flex-1 flex flex-col p-4 lg:p-6 pb-20 lg:pb-6 min-h-0">
           <Outlet context={{
@@ -140,6 +149,12 @@ export default function AppLayout() {
             queryClient,
             voiceEvents: voiceEventsQuery.data as VoiceEvent[] | undefined,
             avatarMode,
+            sttMode,
+            setSTTMode,
+            sttLanguage,
+            setSTTLanguage,
+            sttAutoSend,
+            toggleSTTAutoSend,
           }} />
         </main>
       </div>
@@ -166,6 +181,12 @@ interface AppContext {
   queryClient: QueryClient
   voiceEvents?: VoiceEvent[]
   avatarMode: AvatarMode
+  sttMode: STTMode
+  setSTTMode: (mode: STTMode) => void
+  sttLanguage: string
+  setSTTLanguage: (lang: string) => void
+  sttAutoSend: boolean
+  toggleSTTAutoSend: () => void
 }
 
 export function useAppContext() {

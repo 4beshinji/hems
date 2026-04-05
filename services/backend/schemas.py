@@ -227,6 +227,7 @@ class ShoppingShareResponse(BaseModel):
 class ChatMessageSend(BaseModel):
     content: str
     conversation_id: Optional[int] = None
+    tts: Optional[bool] = None  # None=auto (short responses), True=force, False=skip
 
 
 class ChatMessage(BaseModel):

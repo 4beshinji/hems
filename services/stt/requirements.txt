@@ -1,0 +1,26 @@
+fastapi>=0.115.5
+uvicorn[standard]>=0.32.0
+pydantic>=2.10.0
+loguru>=0.7.3
+python-dotenv>=1.0.1
+python-multipart>=0.0.20
+
+# Audio processing
+soundfile>=0.12.0
+numpy>=1.26.0
+
+# STT providers — whisper (default)
+faster-whisper>=1.1.0
+
+# ROCm / transformers backend (auto-selected when ROCm detected)
+# Also used by qwen3-asr provider
+transformers>=4.45.0
+
+# sherpa-onnx provider (uncomment to enable)
+# sherpa-onnx>=1.10.0
+
+# Qwen3-ASR provider (uncomment to enable)
+# qwen-asr>=0.3.0
+
+# Optional LLM query rewrite
+aiohttp>=3.13.0

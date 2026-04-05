@@ -234,6 +234,11 @@ export function fetchCharacter(): Promise<Record<string, unknown>> {
 export function sendChatMessage(
   content: string,
   conversationId?: number,
+  tts?: boolean,
 ): Promise<ChatResponse> {
-  return post('/chat/', { content, conversation_id: conversationId ?? null })
+  return post('/chat/', {
+    content,
+    conversation_id: conversationId ?? null,
+    tts: tts ?? null,
+  })
 }

@@ -31,11 +31,10 @@ export default function AvatarContainer({ mode, onClose }: Props) {
     return <AvatarOverlay onClose={onClose} />
   }
 
-  // Panel mode: portal into dashboard slot, fallback to overlay
-  if (mode === 'panel' && panelSlot) {
-    return createPortal(<AvatarPanel />, panelSlot)
+  // Panel mode: portal into slot if available, otherwise hide
+  if (mode === 'panel') {
+    return panelSlot ? createPortal(<AvatarPanel />, panelSlot) : null
   }
 
-  // Panel mode but not on dashboard — show as overlay
   return <AvatarOverlay onClose={onClose} />
 }

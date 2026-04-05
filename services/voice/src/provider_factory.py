@@ -36,6 +36,9 @@ def create_provider(character_config: dict = None) -> TTSProvider:
     elif provider_name == "voisona":
         from providers.voisona import VoisonaProvider
         return VoisonaProvider(config=voice_config)
+    elif provider_name == "aivoice":
+        from providers.aivoice import AivoiceProvider
+        return AivoiceProvider(config=voice_config)
     else:
         logger.warning(f"Unknown TTS provider '{provider_name}', falling back to espeak")
         from providers.espeak import EspeakProvider

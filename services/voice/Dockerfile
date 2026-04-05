@@ -13,5 +13,5 @@ COPY src/ .
 
 EXPOSE 8000
 
-USER appuser
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Fix shared volume permissions at startup, then drop to appuser
+CMD ["sh", "-c", "chown -R appuser:appgroup /app/audio 2>/dev/null; exec su -s /bin/sh appuser -c 'uvicorn main:app --host 0.0.0.0 --port 8000'"]
