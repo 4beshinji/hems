@@ -89,3 +89,6 @@ infra/mosquitto/passwd
 # Stray redirected stderr artifacts
 ext:/
 **/ext:/
+
+# PSD 立ち絵素材（抽出生成物 — extract_character_layers.py で再生成可能）
+services/frontend/public/assets/character/

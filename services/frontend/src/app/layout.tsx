@@ -15,6 +15,7 @@ import type { VoiceEvent, TaskData } from '@/lib/types'
 import type { STTMode } from '@/hooks/use-server-stt'
 
 const AvatarContainer = lazy(() => import('@/components/vrm/AvatarContainer'))
+const PsdTestPanel    = lazy(() => import('@/components/psd/PsdTestPanel').then(m => ({ default: m.PsdTestPanel })))
 
 const MAX_PLAYED_IDS = 500
 const TRIM_TO = 50
@@ -165,6 +166,11 @@ export default function AppLayout() {
         </Suspense>
       )}
       <Toaster position="bottom-right" richColors />
+      {import.meta.env.DEV && (
+        <Suspense fallback={null}>
+          <PsdTestPanel />
+        </Suspense>
+      )}
     </div>
   )
 }

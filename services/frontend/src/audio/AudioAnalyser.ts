@@ -63,6 +63,20 @@ class AudioAnalyser {
   get isActive() { return this._isActive }
   get currentTone() { return this._currentTone }
 
+  /** 開発用: トーンを直接セットしてサブスクライバーに通知する */
+  setTestTone(tone: string | null, durationMs = 5000) {
+    this._isActive = tone !== null
+    this._currentTone = tone
+    this.emit()
+    if (tone !== null && durationMs > 0) {
+      setTimeout(() => {
+        this._isActive = false
+        this._currentTone = null
+        this.emit()
+      }, durationMs)
+    }
+  }
+
   private emit() { for (const l of this.listeners) l() }
 }
 

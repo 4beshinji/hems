@@ -1,9 +1,18 @@
+import { lazy, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import ChatPanel from '@/components/dashboard/ChatPanel'
 import ActiveTaskList from '@/components/dashboard/ActiveTaskList'
 import KeyMetricsSummary from '@/components/dashboard/KeyMetricsSummary'
+import { Skeleton } from '@/components/ui/skeleton'
 import { fetchCharacter } from '@/lib/api'
 import { useAppContext } from '@/app/layout'
+
+const IS_PSD = (import.meta.env.VITE_AVATAR_TYPE as string | undefined) === 'psd'
+
+// PSD 立ち絵はポータル不要 — ダッシュボードに直接描画
+const PsdAvatarPanel = IS_PSD
+  ? lazy(() => import('@/components/psd/PsdAvatarPanel'))
+  : null
 
 export default function DashboardPage() {
   const { avatarMode } = useAppContext()
@@ -26,7 +35,12 @@ export default function DashboardPage() {
         <div className="space-y-4 min-h-0 overflow-y-auto">
           <KeyMetricsSummary />
           <ActiveTaskList />
-          {avatarMode === 'panel' && <div id="avatar-panel-slot" />}
+          {avatarMode === 'panel' && IS_PSD && PsdAvatarPanel && (
+            <Suspense fallback={<Skeleton className="w-full aspect-[3/4] rounded-lg" />}>
+              <PsdAvatarPanel />
+            </Suspense>
+          )}
+          {avatarMode === 'panel' && !IS_PSD && <div id="avatar-panel-slot" />}
         </div>
       </div>
       {character?.voice_credit ? (
