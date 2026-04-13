@@ -92,3 +92,12 @@ ext:/
 
 # PSD 立ち絵素材（抽出生成物 — extract_character_layers.py で再生成可能）
 services/frontend/public/assets/character/
+
+# Home Assistant runtime config + cache (contains auth tokens, session DB)
+/infra/ha-config/
+
+# Matter server runtime data (contains fabric certificates + keys)
+/infra/matter-data/
+
+# Proprietary TTS installers (AIVOICE Yukari etc. — user-supplied binaries)
+/yukari/
