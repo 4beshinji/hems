@@ -18,6 +18,13 @@ class TaskCreate(BaseModel):
     announcement_text: Optional[str] = None
     completion_audio_url: Optional[str] = None
     completion_text: Optional[str] = None
+    cognitive_load: Optional[int] = None
+    preferred_time_slot: Optional[str] = None
+    deadline: Optional[datetime] = None
+    source: Optional[str] = None
+    source_ref: Optional[str] = None
+    confidence: Optional[float] = None
+    proposal_status: Optional[str] = None
 
 
 class Task(BaseModel):
@@ -44,6 +51,16 @@ class Task(BaseModel):
     last_reminded_at: Optional[datetime] = None
     report_status: Optional[str] = None
     completion_note: Optional[str] = None
+    cognitive_load: Optional[int] = None
+    preferred_time_slot: Optional[str] = None
+    deadline: Optional[datetime] = None
+    source: Optional[str] = None
+    source_ref: Optional[str] = None
+    confidence: Optional[float] = None
+    proposal_status: Optional[str] = None
+    dismissed_at: Optional[datetime] = None
+    dismiss_reason: Optional[str] = None
+    locked_start: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -56,6 +73,57 @@ class TaskComplete(BaseModel):
 
 class TaskAccept(BaseModel):
     user_id: Optional[int] = None
+
+
+class TaskDismiss(BaseModel):
+    reason: Optional[str] = None
+
+
+class TaskLock(BaseModel):
+    locked_start: datetime
+
+
+# --- Timeline ---
+
+class ScheduledBlock(BaseModel):
+    id: int
+    date: str
+    start_ts: datetime
+    end_ts: datetime
+    kind: str
+    ref_task_id: Optional[int] = None
+    ref_calendar_event_id: Optional[str] = None
+    title: str
+    location: Optional[str] = None
+    is_locked: bool = False
+    travel_buffer_minutes: int = 0
+    generated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ScheduledBlockIn(BaseModel):
+    start_ts: datetime
+    end_ts: datetime
+    kind: str
+    ref_task_id: Optional[int] = None
+    ref_calendar_event_id: Optional[str] = None
+    title: str
+    location: Optional[str] = None
+    is_locked: bool = False
+    travel_buffer_minutes: int = 0
+
+
+class TimelineRegenerate(BaseModel):
+    date: str
+    blocks: List[ScheduledBlockIn]
+
+
+class TimelineResponse(BaseModel):
+    date: str
+    blocks: List[ScheduledBlock]
+    generated_at: Optional[datetime] = None
 
 
 # --- SystemStats ---

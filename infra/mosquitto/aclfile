@@ -16,11 +16,15 @@ topic readwrite hems/#
 topic readwrite mcp/#
 
 # --- Backend API service ---
-# Reads sensor/event data, publishes task reports to office/# topics.
+# Reads sensor/event data, publishes task reports and lifecycle events,
+# and publishes timeline snapshots.
 user hems-backend
 topic read   office/#
 topic read   hems/#
 topic write  office/+/task_report/#
+topic write  hems/task/#
+topic write  hems/timeline/#
+topic write  hems/shopping/#
 
 # --- Voice service ---
 # No MQTT pub/sub needed (REST only), but subscribe to voice commands if needed.

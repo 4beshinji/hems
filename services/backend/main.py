@@ -32,7 +32,26 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text(f"ALTER TABLE voice_events ADD COLUMN {col} VARCHAR"))
                 logger.info(f"Added {col} column to voice_events")
             except Exception:
-                pass  # Column already exists
+                pass
+
+        timeline_task_cols = [
+            ("cognitive_load", "INTEGER"),
+            ("preferred_time_slot", "VARCHAR"),
+            ("deadline", "DATETIME"),
+            ("source", "VARCHAR"),
+            ("source_ref", "VARCHAR"),
+            ("confidence", "REAL"),
+            ("proposal_status", "VARCHAR"),
+            ("dismissed_at", "DATETIME"),
+            ("dismiss_reason", "VARCHAR"),
+            ("locked_start", "DATETIME"),
+        ]
+        for col, col_type in timeline_task_cols:
+            try:
+                await conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {col_type}"))
+                logger.info(f"Added {col} column to tasks")
+            except Exception:
+                pass
     yield
 
 
@@ -61,7 +80,7 @@ app.add_middleware(
 from routers import (  # noqa: E402
     tasks, voice_events, users, zones, pc, services,
     knowledge, gas, biometric, perception, home, timeseries,
-    character, shopping, chat,
+    character, shopping, chat, timeline,
 )
 
 # All routers require API key authentication.
@@ -82,6 +101,7 @@ app.include_router(timeseries.router, dependencies=_auth)
 app.include_router(character.router, dependencies=_auth)
 app.include_router(shopping.router, dependencies=_auth)
 app.include_router(chat.router, dependencies=_auth)
+app.include_router(timeline.router, dependencies=_auth)
 
 
 @app.get("/")

@@ -43,6 +43,54 @@ class Task(Base):
     assigned_to = Column(Integer, nullable=True)
     accepted_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Timeline / scheduling fields
+    cognitive_load = Column(Integer, nullable=True)  # 0=light, 1=medium, 2=focus, 3=deep_focus
+    preferred_time_slot = Column(String, nullable=True)  # morning|afternoon|evening|deep_night|anytime
+    deadline = Column(DateTime(timezone=True), nullable=True)
+    source = Column(String, nullable=True)  # user|extractor:pws|extractor:obsidian|prep_auto
+    source_ref = Column(String, nullable=True)  # calendar event id, note path, etc.
+    confidence = Column(Float, nullable=True)  # LLM extraction confidence 0.0-1.0
+    proposal_status = Column(String, nullable=True)  # NULL=active|proposed|dismissed
+    dismissed_at = Column(DateTime(timezone=True), nullable=True)
+    dismiss_reason = Column(String, nullable=True)
+    locked_start = Column(DateTime(timezone=True), nullable=True)
+
+
+class ScheduledBlock(Base):
+    __tablename__ = "scheduled_blocks"
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(String, nullable=False, index=True)  # YYYY-MM-DD (JST)
+    start_ts = Column(DateTime(timezone=True), nullable=False)
+    end_ts = Column(DateTime(timezone=True), nullable=False)
+    kind = Column(String, nullable=False)  # calendar|task|routine_wake|commute_out|commute_in|focus_free|sleep|prep
+    ref_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
+    ref_calendar_event_id = Column(String, nullable=True)
+    title = Column(String, nullable=False)
+    location = Column(String, nullable=True)
+    is_locked = Column(Boolean, default=False)
+    travel_buffer_minutes = Column(Integer, default=0)
+    generated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DismissLog(Base):
+    __tablename__ = "dismiss_log"
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
+    task_title = Column(String, nullable=True)
+    task_type_json = Column(String, nullable=True)
+    reason = Column(String, nullable=True)
+    context_json = Column(String, nullable=True)  # {hour, cognitive_load, source, ...}
+    dismissed_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class TaskPreference(Base):
+    __tablename__ = "task_preferences"
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, nullable=False, index=True)  # e.g., "dismiss:focus:morning"
+    count = Column(Integer, default=0)
+    last_seen = Column(DateTime(timezone=True), server_default=func.now())
+    weight = Column(Float, default=0.0)
+
 
 class User(Base):
     __tablename__ = "users"

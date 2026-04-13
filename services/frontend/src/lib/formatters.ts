@@ -58,3 +58,35 @@ export function formatDuration(minutes?: number | null): string {
 export function entityLabel(entityId: string): string {
   return entityId.replace(/^[^.]+\./, '').replace(/_/g, ' ')
 }
+
+/**
+ * Format a start–end time range as "HH:mm - HH:mm" (JST).
+ */
+export function formatTimeRange(startISO: string, endISO: string): string {
+  return `${formatTime(startISO)}\u2013${formatTime(endISO)}`
+}
+
+const COGNITIVE_LOAD_LABELS: Record<number, string> = {
+  0: '軽',
+  1: '中',
+  2: '集中',
+  3: '深集中',
+}
+
+export function formatCognitiveLoad(score?: number | null): string {
+  if (score == null) return ''
+  return COGNITIVE_LOAD_LABELS[score] ?? String(score)
+}
+
+const PREFERRED_SLOT_LABELS: Record<string, string> = {
+  morning: '朝',
+  afternoon: '昼',
+  evening: '夕',
+  deep_night: '深夜',
+  anytime: 'いつでも',
+}
+
+export function formatPreferredSlot(slot?: string | null): string {
+  if (!slot) return ''
+  return PREFERRED_SLOT_LABELS[slot] ?? slot
+}

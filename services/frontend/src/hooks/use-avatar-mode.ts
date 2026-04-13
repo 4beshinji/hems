@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
+import { IS_PSD } from '@/lib/avatar-type'
 
 export type AvatarMode = 'hidden' | 'panel' | 'overlay'
 
 const STORAGE_KEY = 'hems-avatar-mode'
-
-const IS_PSD = (import.meta.env.VITE_AVATAR_TYPE as string | undefined) === 'psd'
 
 // PSD モード: hidden ↔ panel のみ（overlay 不要）
 // VRM モード: hidden → panel → overlay の3段階

@@ -7,8 +7,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { completeTask } from '@/lib/api'
-import { URGENCY_LABELS, URGENCY_VARIANTS, REPORT_STATUS_LABELS } from '@/lib/constants'
+import { completeTask, dismissTask } from '@/lib/api'
+import { URGENCY_LABELS, URGENCY_VARIANTS, REPORT_STATUS_LABELS, TASK_SOURCE_LABELS } from '@/lib/constants'
+import { formatCognitiveLoad } from '@/lib/formatters'
+import { X } from 'lucide-react'
 import { AudioPriority } from '@/audio'
 import type { TaskData } from '@/lib/types'
 
@@ -76,9 +78,37 @@ const TaskCard = memo(function TaskCard({ task, onComplete, enqueueAudio, audioE
                   <Clock className="h-3 w-3" />{task.estimated_duration}min
                 </span>
               )}
+              {task.cognitive_load != null && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {formatCognitiveLoad(task.cognitive_load)}
+                </Badge>
+              )}
+              {task.source && task.source !== 'user' && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {TASK_SOURCE_LABELS[task.source] ?? task.source}
+                </Badge>
+              )}
+              {task.proposal_status === 'proposed' && (
+                <Badge variant="warning" className="text-[10px]">提案</Badge>
+              )}
             </div>
 
-            <div className="flex items-center justify-end mt-auto pt-2 border-t border-border">
+            <div className="flex items-center justify-end gap-2 mt-auto pt-2 border-t border-border">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={async () => {
+                  try {
+                    await dismissTask(task.id)
+                    toast.info('タスクを却下しました')
+                    onComplete()
+                  } catch {
+                    toast.error('却下に失敗しました')
+                  }
+                }}
+              >
+                <X className="h-3 w-3" />却下
+              </Button>
               <Button size="sm" onClick={() => setShowDialog(true)}>
                 Complete
               </Button>

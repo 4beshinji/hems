@@ -1,10 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { AvatarMode } from '@/hooks/use-avatar-mode'
+import { IS_PSD } from '@/lib/avatar-type'
 import AvatarOverlay from './AvatarOverlay'
 import AvatarPanel from './AvatarPanel'
-
-const IS_PSD = (import.meta.env.VITE_AVATAR_TYPE as string | undefined) === 'psd'
 
 interface Props {
   mode: AvatarMode

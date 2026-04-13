@@ -1,6 +1,8 @@
 import type {
   ZoneSnapshot,
   TaskData,
+  TaskCreatePayload,
+  TimelineData,
   VoiceEvent,
   SystemStatsResponse,
   PCMetrics,
@@ -76,6 +78,27 @@ export function completeTask(
     report_status: reportStatus ?? null,
     completion_note: completionNote ?? null,
   })
+}
+
+export function createTask(payload: TaskCreatePayload): Promise<TaskData> {
+  return post('/tasks/', payload)
+}
+
+export function dismissTask(id: number, reason?: string): Promise<TaskData> {
+  return post(`/tasks/${id}/dismiss`, { reason: reason ?? null })
+}
+
+export function lockTask(id: number, lockedStart: string): Promise<TaskData> {
+  return post(`/tasks/${id}/lock`, { locked_start: lockedStart })
+}
+
+// ─── Timeline ────────────────────────────────────────────────────────────────
+export function fetchTimelineToday(): Promise<TimelineData> {
+  return get('/timeline/today')
+}
+
+export function fetchTimelineDay(date: string): Promise<TimelineData> {
+  return get(`/timeline/day?date=${date}`)
 }
 
 // ─── Voice Events ─────────────────────────────────────────────────────────────

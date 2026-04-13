@@ -63,6 +63,27 @@ def _publish_task_report(task: models.Task):
         logger.warning("MQTT publish failed for task %d: %s", task.id, e)
 
 
+def _publish_task_event(event: str, task: models.Task, extra: dict | None = None):
+    """Publish task lifecycle event (created|dismissed|completed) for timeline regen."""
+    topic = f"hems/task/{event}/{task.id}"
+    payload = {
+        "task_id": task.id,
+        "title": task.title,
+        "source": task.source,
+        "zone": task.zone,
+    }
+    if extra:
+        payload.update(extra)
+    try:
+        import paho.mqtt.publish as mqtt_publish
+        mqtt_publish.single(
+            topic, json.dumps(payload), hostname=MQTT_BROKER,
+            auth={"username": MQTT_USER, "password": MQTT_PASS},
+        )
+    except Exception as e:
+        logger.warning("MQTT publish failed for task event %s %d: %s", event, task.id, e)
+
+
 def _task_to_response(task_model: models.Task) -> schemas.Task:
     return schemas.Task(
         id=task_model.id,
@@ -88,14 +109,41 @@ def _task_to_response(task_model: models.Task) -> schemas.Task:
         last_reminded_at=task_model.last_reminded_at,
         report_status=task_model.report_status,
         completion_note=task_model.completion_note,
+        cognitive_load=task_model.cognitive_load,
+        preferred_time_slot=task_model.preferred_time_slot,
+        deadline=task_model.deadline,
+        source=task_model.source,
+        source_ref=task_model.source_ref,
+        confidence=task_model.confidence,
+        proposal_status=task_model.proposal_status,
+        dismissed_at=task_model.dismissed_at,
+        dismiss_reason=task_model.dismiss_reason,
+        locked_start=task_model.locked_start,
     )
 
 
 @router.get("/", response_model=List[schemas.Task])
-async def read_tasks(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
+async def read_tasks(
+    skip: int = 0,
+    limit: int = 100,
+    include_dismissed: bool = False,
+    include_proposed: bool = True,
+    db: AsyncSession = Depends(get_db),
+):
     query = select(models.Task).filter(
         (models.Task.expires_at.is_(None)) | (models.Task.expires_at > func.now())
-    ).offset(skip).limit(limit)
+    )
+    if not include_dismissed:
+        query = query.filter(
+            (models.Task.proposal_status.is_(None))
+            | (models.Task.proposal_status != "dismissed")
+        )
+    if not include_proposed:
+        query = query.filter(
+            (models.Task.proposal_status.is_(None))
+            | (models.Task.proposal_status != "proposed")
+        )
+    query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     return [_task_to_response(t) for t in result.scalars().all()]
 
@@ -164,6 +212,13 @@ async def create_task(task: schemas.TaskCreate, db: AsyncSession = Depends(get_d
         announcement_text=getattr(task, 'announcement_text', None),
         completion_audio_url=getattr(task, 'completion_audio_url', None),
         completion_text=getattr(task, 'completion_text', None),
+        cognitive_load=task.cognitive_load,
+        preferred_time_slot=task.preferred_time_slot,
+        deadline=task.deadline,
+        source=task.source or "user",
+        source_ref=task.source_ref,
+        confidence=task.confidence,
+        proposal_status=task.proposal_status,
     )
     db.add(new_task)
 
@@ -172,6 +227,7 @@ async def create_task(task: schemas.TaskCreate, db: AsyncSession = Depends(get_d
 
     await db.commit()
     await db.refresh(new_task)
+    _publish_task_event("created", new_task)
     return _task_to_response(new_task)
 
 
@@ -220,6 +276,72 @@ async def complete_task(
     await db.refresh(task)
 
     _publish_task_report(task)
+    _publish_task_event("completed", task)
+    return _task_to_response(task)
+
+
+@router.post("/{task_id}/dismiss", response_model=schemas.Task)
+async def dismiss_task(
+    task_id: int,
+    body: schemas.TaskDismiss | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(models.Task).filter(models.Task.id == task_id))
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.is_completed:
+        raise HTTPException(status_code=400, detail="Task already completed")
+
+    reason = body.reason if body else None
+    task.proposal_status = "dismissed"
+    task.dismissed_at = func.now()
+    task.dismiss_reason = reason
+
+    from datetime import datetime
+    hour = datetime.now().hour
+    bucket = (
+        "morning" if 5 <= hour < 11
+        else "afternoon" if 11 <= hour < 17
+        else "evening" if 17 <= hour < 22
+        else "deep_night"
+    )
+    context = {
+        "hour": hour,
+        "bucket": bucket,
+        "cognitive_load": task.cognitive_load,
+        "source": task.source,
+        "preferred_time_slot": task.preferred_time_slot,
+    }
+    log = models.DismissLog(
+        task_id=task.id,
+        task_title=task.title,
+        task_type_json=task.task_type,
+        reason=reason,
+        context_json=json.dumps(context, ensure_ascii=False),
+    )
+    db.add(log)
+
+    await db.commit()
+    await db.refresh(task)
+    _publish_task_event("dismissed", task, extra={"reason": reason})
+    return _task_to_response(task)
+
+
+@router.post("/{task_id}/lock", response_model=schemas.Task)
+async def lock_task(
+    task_id: int,
+    body: schemas.TaskLock,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(models.Task).filter(models.Task.id == task_id))
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.locked_start = body.locked_start
+    await db.commit()
+    await db.refresh(task)
+    _publish_task_event("locked", task, extra={"locked_start": body.locked_start.isoformat()})
     return _task_to_response(task)
 
 

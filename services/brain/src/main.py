@@ -30,6 +30,7 @@ from persona_rewriter import PersonaRewriter
 from event_store import init_db, EventWriter, HourlyAggregator
 from ambient_speaker import AmbientSpeaker
 from event_automation import EventAutomation
+from timeline import TimelineGenerator
 
 load_dotenv()
 
@@ -157,12 +158,14 @@ class Brain:
 
         self.ambient_speaker: AmbientSpeaker | None = None
         self.event_automation: EventAutomation | None = None
+        self.timeline_generator: TimelineGenerator | None = None
 
         self._cycle_triggered = asyncio.Event()
         self._last_event_count: dict[str, int] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._action_history: list[dict] = []
         self._schedule_save_counter: int = 0
+        self._timeline_regen_task: asyncio.Task | None = None
 
     def on_connect(self, client, userdata, flags, rc, properties=None):
         logger.info(f"Connected to MQTT Broker (rc={rc})")
@@ -199,8 +202,38 @@ class Brain:
         if self._loop:
             self._loop.call_soon_threadsafe(self._process_mqtt, msg.topic, payload)
 
+    def _trigger_timeline_regen(self, reason: str):
+        """Debounced trigger for TimelineGenerator. Coalesces bursts within 5s."""
+        if not self.timeline_generator or not self._loop:
+            return
+
+        async def _debounced():
+            try:
+                await asyncio.sleep(5)
+                if self.timeline_generator:
+                    logger.info(f"Timeline regen: {reason}")
+                    await self.timeline_generator.generate_for_today()
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning(f"Timeline regen error ({reason}): {e}")
+
+        if self._timeline_regen_task and not self._timeline_regen_task.done():
+            self._timeline_regen_task.cancel()
+        self._timeline_regen_task = self._loop.create_task(_debounced())
+
     def _process_mqtt(self, topic: str, payload: dict):
         self.world_model.update_from_mqtt(topic, payload)
+
+        if self.timeline_generator and self._loop:
+            if topic == "hems/gas/calendar/upcoming":
+                self._loop.call_soon_threadsafe(self._trigger_timeline_regen, "calendar_update")
+            elif topic.startswith("hems/task/"):
+                parts = topic.split("/")
+                if len(parts) >= 3 and parts[2] in ("created", "dismissed", "completed", "locked"):
+                    self._loop.call_soon_threadsafe(
+                        self._trigger_timeline_regen, f"task_{parts[2]}"
+                    )
 
         # Feed occupancy changes to schedule learner
         if self.schedule_learner:
@@ -920,6 +953,24 @@ class Brain:
                 logger.info(f"News integration enabled (bridge={NEWS_BRIDGE_URL})")
             else:
                 logger.info("News integration disabled (NEWS_BRIDGE_URL not set)")
+
+            from dashboard_client import _AUTH_HEADERS as _DASHBOARD_AUTH
+            self.timeline_generator = TimelineGenerator(
+                world_model=self.world_model,
+                schedule_learner=self.schedule_learner,
+                session=session,
+                auth_headers=_DASHBOARD_AUTH,
+            )
+            logger.info("Timeline generator initialized")
+
+            async def _initial_timeline_gen():
+                try:
+                    await asyncio.sleep(3)
+                    await self.timeline_generator.generate_for_today()
+                except Exception as e:
+                    logger.warning(f"Initial timeline generation error: {e}")
+
+            asyncio.create_task(_initial_timeline_gen())
             asyncio.create_task(self.task_reminder.run_periodic_check())
             if OPENCLAW_ENABLED:
                 logger.info(f"localcraw integration enabled (bridge={LOCALCRAW_BRIDGE_URL})")

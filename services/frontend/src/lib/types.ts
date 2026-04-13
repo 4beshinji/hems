@@ -11,6 +11,15 @@ export interface VoiceEvent {
 }
 
 // ─── Tasks ────────────────────────────────────────────────────────────────────
+export type PreferredTimeSlot =
+  | 'morning'
+  | 'afternoon'
+  | 'evening'
+  | 'deep_night'
+  | 'anytime'
+
+export type TaskProposalStatus = 'proposed' | 'dismissed' | null
+
 export interface TaskData {
   id: number
   title: string
@@ -35,6 +44,63 @@ export interface TaskData {
   last_reminded_at?: string | null
   report_status?: string | null
   completion_note?: string | null
+  cognitive_load?: number | null
+  preferred_time_slot?: PreferredTimeSlot | null
+  deadline?: string | null
+  source?: string | null
+  source_ref?: string | null
+  confidence?: number | null
+  proposal_status?: TaskProposalStatus
+  dismissed_at?: string | null
+  dismiss_reason?: string | null
+  locked_start?: string | null
+}
+
+export interface TaskCreatePayload {
+  title: string
+  description?: string
+  location?: string
+  urgency?: number
+  zone?: string
+  estimated_duration?: number
+  task_type?: string[]
+  cognitive_load?: number
+  preferred_time_slot?: PreferredTimeSlot
+  deadline?: string
+  source?: string
+  source_ref?: string
+}
+
+// ─── Timeline ────────────────────────────────────────────────────────────────
+export type TimelineSlotKind =
+  | 'calendar'
+  | 'task'
+  | 'routine_wake'
+  | 'commute_out'
+  | 'commute_in'
+  | 'focus_free'
+  | 'sleep'
+  | 'prep'
+
+export interface ScheduledBlock {
+  id: number
+  date: string
+  start_ts: string
+  end_ts: string
+  kind: TimelineSlotKind
+  ref_task_id?: number | null
+  ref_calendar_event_id?: string | null
+  title: string
+  location?: string | null
+  is_locked: boolean
+  travel_buffer_minutes: number
+  generated_at?: string | null
+}
+
+export interface TimelineData {
+  date: string
+  blocks: ScheduledBlock[]
+  generated_at?: string | null
 }
 
 // ─── System Stats ─────────────────────────────────────────────────────────────
