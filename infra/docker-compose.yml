@@ -313,8 +313,23 @@ services:
     profiles: ["ha"]
     volumes:
       - ${HEMS_HA_CONFIG_PATH:-./ha-config}:/config
+      - /run/dbus:/run/dbus:ro
     network_mode: host
+    privileged: true
     restart: unless-stopped
+
+  # --- Matter Server (Matter fabric for HA) ---
+  matter-server:
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable
+    container_name: hems-matter-server
+    profiles: ["ha"]
+    volumes:
+      - ${HEMS_MATTER_DATA_PATH:-./matter-data}:/data
+      - /run/dbus:/run/dbus:ro
+    network_mode: host
+    privileged: true
+    restart: unless-stopped
+    command: --storage-path /data --port 5580
 
   # --- HA Bridge (Home Assistant integration) ---
   ha-bridge:
@@ -341,6 +356,8 @@ services:
       - ../services/ha-bridge/src:/app
     networks:
       - hems-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
