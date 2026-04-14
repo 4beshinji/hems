@@ -64,6 +64,11 @@ services:
       - AMBIENT_SPEAK_INTERVAL=${AMBIENT_SPEAK_INTERVAL:-300}
       - EVENT_AUTOMATIONS=${EVENT_AUTOMATIONS:-}
       - LLM_NUM_CTX=${LLM_NUM_CTX:-}
+      - BOOT_LOAD_ENABLED=${BOOT_LOAD_ENABLED:-true}
+      - BOOT_LOAD_WINDOW_SEC=${BOOT_LOAD_WINDOW_SEC:-2700}
+      - BOOT_LOAD_MODEL=${BOOT_LOAD_MODEL:-}
+      - BOOT_LOAD_API_URL=${BOOT_LOAD_API_URL:-}
+      - BOOT_LOAD_PROVIDER=${BOOT_LOAD_PROVIDER:-}
     volumes:
       - ../services/brain/src:/app
       - ../config:/config:ro
@@ -100,6 +105,7 @@ services:
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - BRAIN_CHAT_URL=${BRAIN_CHAT_URL:-http://brain:8080}
       - VOICE_SERVICE_URL=${VOICE_SERVICE_URL:-http://voice-service:8000}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
     volumes:
       - ../services/backend:/app
       - ../config:/config:ro
