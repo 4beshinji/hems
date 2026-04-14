@@ -11,15 +11,15 @@ from datetime import datetime
 import aiohttp
 from loguru import logger
 
+from brain_utils import AUTH_HEADERS as _AUTH_HEADERS, SPEAK_CHUNK_LIMIT, split_for_speak as _split_for_speak
+
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
+BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
 
 # Default automations when EVENT_AUTOMATIONS env is not set
 DEFAULT_AUTOMATIONS = [
     {"event": "wake_up", "actions": ["morning_greeting", "news_briefing", "weather_report"]},
 ]
-
-# Max chars per speak call — brain speak tool limit is 70
-SPEAK_CHUNK_LIMIT = 70
 
 
 class EventAutomation:
@@ -28,11 +28,13 @@ class EventAutomation:
     EVENTS = {"wake_up", "arrival", "departure", "scheduled"}
     ACTIONS = {"news_briefing", "morning_greeting", "weather_report", "speak_custom"}
 
-    def __init__(self, tool_executor, world_model, llm_client=None, character=None):
+    def __init__(self, tool_executor, world_model, llm_client=None, character=None,
+                 boot_load_manager=None):
         self.tool_executor = tool_executor
         self.world_model = world_model
         self.llm = llm_client
         self.character = character
+        self.boot_load_manager = boot_load_manager
 
         # Parse automations from env or use defaults
         raw = os.getenv("EVENT_AUTOMATIONS", "")
@@ -85,13 +87,30 @@ class EventAutomation:
 
         logger.info(f"Event triggered: {event_type}")
 
+        # Boot Load cache: play pre-generated briefing instantly if ready
+        if (
+            event_type == "wake_up"
+            and self.boot_load_manager
+            and self.boot_load_manager.is_ready
+        ):
+            logger.info("[BootLoad] キャッシュ済みブリーフィングを再生")
+            try:
+                await self._execute_boot_load_briefing()
+            except Exception as e:
+                logger.error(f"[BootLoad] キャッシュ再生失敗、通常パスにフォールバック: {e}")
+            else:
+                self.boot_load_manager.reset()
+                return
+
         for automation in self.automations:
             if automation.get("event") != event_type:
                 continue
             actions = automation.get("actions", [])
-            for action_name in actions:
+            for action in actions:
+                action_name = action if isinstance(action, str) else action.get("name", "")
+                action_config = None if isinstance(action, str) else action
                 try:
-                    await self._execute_action(action_name)
+                    await self._execute_action(action_name, action_config)
                 except Exception as e:
                     logger.error(f"Action {action_name} failed: {e}")
 
@@ -113,13 +132,15 @@ class EventAutomation:
                     continue
                 self._scheduled_runs[target_time] = today
                 logger.info(f"Scheduled event fired: {target_time}")
-                for action_name in automation.get("actions", []):
+                for action in automation.get("actions", []):
+                    action_name = action if isinstance(action, str) else action.get("name", "")
+                    action_config = None if isinstance(action, str) else action
                     try:
-                        await self._execute_action(action_name)
+                        await self._execute_action(action_name, action_config)
                     except Exception as e:
                         logger.error(f"Scheduled action {action_name} failed: {e}")
 
-    async def _execute_action(self, action_name: str):
+    async def _execute_action(self, action_name: str, action_config: dict = None):
         """Execute a single action."""
         if action_name == "news_briefing":
             await self._action_news_briefing()
@@ -127,6 +148,14 @@ class EventAutomation:
             await self._action_morning_greeting()
         elif action_name == "weather_report":
             await self._action_weather_report()
+        elif action_name == "speak_custom":
+            text = (action_config or {}).get("text", "")
+            if text:
+                await self.tool_executor.execute("speak", {
+                    "message": text[:SPEAK_CHUNK_LIMIT],
+                    "zone": "home",
+                    "tone": (action_config or {}).get("tone", "neutral"),
+                })
         else:
             logger.warning(f"Unknown action: {action_name}")
 
@@ -171,7 +200,7 @@ class EventAutomation:
 
         # Speak each chunk, re-splitting if needed for 70-char limit
         for chunk in chunks:
-            sub_chunks = _split_for_speak(chunk, SPEAK_CHUNK_LIMIT)
+            sub_chunks = _split_for_speak(chunk)
             for sub in sub_chunks:
                 await self.tool_executor.execute("speak", {
                     "message": sub,
@@ -233,6 +262,54 @@ class EventAutomation:
             "tone": "caring",
         })
 
+    async def _execute_boot_load_briefing(self):
+        """Play pre-generated boot load briefing cache.
+
+        Preferred path: inject pre-synthesized audio_urls as VoiceEvents directly
+        into the backend DB → frontend picks them up within 3 s polling interval.
+
+        Fallback (no audio_urls): speak each text chunk via tool_executor,
+        which triggers TTS at wake time but still skips LLM generation.
+        """
+        cache = self.boot_load_manager.cache
+        if not cache or not cache.briefing_chunks:
+            logger.warning("[BootLoad] キャッシュが空")
+            return
+
+        if cache.audio_urls and self._session:
+            # Inject pre-synthesized audio as VoiceEvents
+            for url, chunk in zip(cache.audio_urls, cache.briefing_chunks):
+                try:
+                    async with self._session.post(
+                        f"{BACKEND_URL}/voice-events/",
+                        json={
+                            "message": chunk,
+                            "audio_url": url,
+                            "zone": "home",
+                            "tone": "caring",
+                        },
+                        headers=_AUTH_HEADERS,
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status not in (200, 201):
+                            logger.warning(
+                                "[BootLoad] VoiceEvent inject HTTP %d", resp.status
+                            )
+                except Exception as e:
+                    logger.warning(f"[BootLoad] VoiceEvent inject エラー: {e}")
+        else:
+            # Fallback: TTS at wake time (LLM still skipped)
+            logger.debug("[BootLoad] audio_urls なし — テキストチャンクでTTS再生")
+            for chunk in cache.briefing_chunks:
+                try:
+                    await self.tool_executor.execute("speak", {
+                        "message": chunk,
+                        "zone": "home",
+                        "tone": "caring",
+                    })
+                except Exception as e:
+                    logger.warning(f"[BootLoad] speak エラー: {e}")
+
     async def _action_weather_report(self):
         """Speak weather summary from world model."""
         w = self.world_model.physical.weather
@@ -273,31 +350,3 @@ class EventAutomation:
         })
 
 
-def _split_for_speak(text: str, limit: int) -> list[str]:
-    """Split text into chunks of at most `limit` characters, breaking at sentence ends."""
-    if len(text) <= limit:
-        return [text]
-
-    import re
-    sentences = re.split(r"(?<=。)", text)
-    chunks: list[str] = []
-    buf = ""
-    for s in sentences:
-        if not s:
-            continue
-        if len(buf) + len(s) <= limit:
-            buf += s
-        else:
-            if buf:
-                chunks.append(buf)
-            # If single sentence is too long, hard-truncate
-            if len(s) > limit:
-                while s:
-                    chunks.append(s[:limit])
-                    s = s[limit:]
-                buf = ""
-            else:
-                buf = s
-    if buf:
-        chunks.append(buf)
-    return chunks

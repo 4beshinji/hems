@@ -7,12 +7,15 @@ import asyncio
 import os
 import json
 import time
+from datetime import datetime
 import aiohttp
 from loguru import logger
 from dotenv import load_dotenv
 import paho.mqtt.client as mqtt
 from mcp_bridge import MCPBridge
 from llm_client import LLMClient
+from llm_router import LLMRouter
+from boot_load_manager import BootLoadManager
 from sanitizer import Sanitizer
 from world_model import WorldModel
 from task_scheduling import TaskQueueManager
@@ -55,6 +58,10 @@ NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 NEWS_ENABLED = bool(NEWS_BRIDGE_URL)
 KNOWLEDGE_BRIDGE_URL = os.getenv("KNOWLEDGE_BRIDGE_URL", "")
 KNOWLEDGE_ENABLED = bool(KNOWLEDGE_BRIDGE_URL)
+
+VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
+BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
+BOOT_LOAD_ENABLED = os.getenv("BOOT_LOAD_ENABLED", "true").lower() in ("true", "1", "yes")
 
 HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
 CHAT_SERVER_PORT = int(os.getenv("BRAIN_CHAT_PORT", "8080"))
@@ -150,11 +157,14 @@ class Brain:
         self.power_mode_manager = PowerModeManager()
 
         self.llm = None
+        self.llm_router: LLMRouter | None = None
+        self.boot_load_manager: BootLoadManager | None = None
         self.persona_rewriter = None
         self.dashboard = None
         self.task_queue = None
         self.task_reminder = None
         self.tool_executor = None
+        self._session: aiohttp.ClientSession | None = None
 
         self.ambient_speaker: AmbientSpeaker | None = None
         self.event_automation: EventAutomation | None = None
@@ -261,9 +271,8 @@ class Brain:
                         )
 
             # Camera: person detected in morning hours (5:00-10:00)
-            from datetime import datetime as _dt
             parts = topic.split("/")
-            hour = _dt.now().hour
+            hour = datetime.now().hour
             if (5 <= hour < 10 and len(parts) >= 5
                     and parts[0] == "office" and parts[2] == "camera"):
                 count = payload.get("person_count", payload.get("count", 0))
@@ -307,6 +316,26 @@ class Brain:
             self._last_event_count = current
             self._cycle_triggered.set()
 
+    async def _run_rule_actions(self, actions: list, *, rewrite: bool = True) -> int:
+        """Execute rule actions with optional persona rewriting. Returns action count."""
+        count = 0
+        for action in actions:
+            if rewrite and action["tool"] == "speak" and self.persona_rewriter:
+                action["args"]["message"] = await self.persona_rewriter.rewrite(
+                    action["args"].get("message", ""),
+                    tone=action["args"].get("tone", "neutral"),
+                )
+            result = await self.tool_executor.execute(action["tool"], action["args"])
+            count += 1
+            if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
+                self.ambient_speaker.record_speak(action["args"].get("message", ""))
+            self._action_history.append({
+                "time": time.time(), "tool": action["tool"],
+                "summary": _summarize_action(action["tool"], action["args"]),
+                "success": result.get("success", True),
+            })
+        return count
+
     async def cognitive_cycle(self):
         cycle_start = time.time()
         total_tool_calls = 0
@@ -331,16 +360,9 @@ class Brain:
             pm = self.power_mode_manager.get_status()
 
             # Step 1 — Critical safety rules: always execute immediately, no LLM needed
-            for action in self.rule_engine.evaluate_critical(self.world_model):
-                result = await self.tool_executor.execute(action["tool"], action["args"])
-                total_tool_calls += 1
-                if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
-                    self.ambient_speaker.record_speak(action["args"].get("message", ""))
-                self._action_history.append({
-                    "time": time.time(), "tool": action["tool"],
-                    "summary": _summarize_action(action["tool"], action["args"]),
-                    "success": result.get("success", True),
-                })
+            total_tool_calls += await self._run_rule_actions(
+                self.rule_engine.evaluate_critical(self.world_model), rewrite=False
+            )
 
             # Step 2 — Normal rules: lightweight scan (consumes rule cooldowns)
             rule_actions = self.rule_engine.evaluate(self.world_model)
@@ -363,69 +385,45 @@ class Brain:
                     "[低消費電力] LLMレート制限中(%s, %d秒後に解除) — ルールアクション直接実行",
                     pm["mode"], wait_sec,
                 )
-                for action in rule_actions:
-                    if action["tool"] == "speak" and self.persona_rewriter:
-                        action["args"]["message"] = await self.persona_rewriter.rewrite(
-                            action["args"].get("message", ""),
-                            tone=action["args"].get("tone", "neutral"),
-                        )
-                    result = await self.tool_executor.execute(action["tool"], action["args"])
-                    total_tool_calls += 1
-                    if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
-                        self.ambient_speaker.record_speak(action["args"].get("message", ""))
-                    self._action_history.append({
-                        "time": time.time(), "tool": action["tool"],
-                        "summary": _summarize_action(action["tool"], action["args"]),
-                        "success": result.get("success", True),
-                    })
+                total_tool_calls += await self._run_rule_actions(rule_actions)
                 await self._push_all_snapshots()
                 return
 
             else:
                 # Nothing detected — skip LLM entirely
                 logger.debug("[低消費電力] %sモード: ルール未発火 — LLMスキップ", pm["mode"])
+
+                # Boot load: start pre-wake heavy processing if within wake window
+                if (
+                    self.boot_load_manager
+                    and not self.boot_load_manager.is_running
+                    and self._session
+                    and self.boot_load_manager.should_start(self.schedule_learner)
+                ):
+                    logger.info("[BootLoad] 起床前ウィンドウ検出 → boot load開始")
+                    self.boot_load_manager.start(
+                        world_model=self.world_model,
+                        llm_router=self.llm_router,
+                        voice_url=VOICE_SERVICE_URL,
+                        news_url=NEWS_BRIDGE_URL,
+                        backend_url=BACKEND_URL,
+                        session=self._session,
+                    )
+
                 await self._push_all_snapshots()
                 return
 
         # Rule-based fallback when VLM heavy model is using VRAM
         if self.world_model.vlm_model_swap_active:
             logger.info("VLM heavy model active — using rule-based mode")
-            for action in self.rule_engine.evaluate(self.world_model):
-                if action["tool"] == "speak" and self.persona_rewriter:
-                    action["args"]["message"] = await self.persona_rewriter.rewrite(
-                        action["args"].get("message", ""),
-                        tone=action["args"].get("tone", "neutral"),
-                    )
-                result = await self.tool_executor.execute(action["tool"], action["args"])
-                total_tool_calls += 1
-                if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
-                    self.ambient_speaker.record_speak(action["args"].get("message", ""))
-                self._action_history.append({
-                    "time": time.time(), "tool": action["tool"],
-                    "summary": _summarize_action(action["tool"], action["args"]),
-                    "success": result.get("success", True),
-                })
+            total_tool_calls += await self._run_rule_actions(self.rule_engine.evaluate(self.world_model))
             await self._push_all_snapshots()
             return
 
         # Rule-based fallback when GPU is busy
         if self.rule_engine.should_use_rules():
             logger.info("GPU load high — rule-based mode")
-            for action in self.rule_engine.evaluate(self.world_model):
-                if action["tool"] == "speak" and self.persona_rewriter:
-                    action["args"]["message"] = await self.persona_rewriter.rewrite(
-                        action["args"].get("message", ""),
-                        tone=action["args"].get("tone", "neutral"),
-                    )
-                result = await self.tool_executor.execute(action["tool"], action["args"])
-                total_tool_calls += 1
-                if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
-                    self.ambient_speaker.record_speak(action["args"].get("message", ""))
-                self._action_history.append({
-                    "time": time.time(), "tool": action["tool"],
-                    "summary": _summarize_action(action["tool"], action["args"]),
-                    "success": result.get("success", True),
-                })
+            total_tool_calls += await self._run_rule_actions(self.rule_engine.evaluate(self.world_model))
             await self._push_all_snapshots()
             return
 
@@ -452,8 +450,7 @@ class Brain:
                 calendar_events = self.world_model.gas_state.calendar_events
             wake_time = self.schedule_learner.get_wake_time(calendar_events)
             if wake_time:
-                from datetime import datetime as _dt
-                wake_str = _dt.fromtimestamp(wake_time).strftime("%H:%M")
+                wake_str = datetime.fromtimestamp(wake_time).strftime("%H:%M")
                 llm_context += f"\n  明日の起床予測: {wake_str}"
 
         now = time.time()
@@ -927,7 +924,10 @@ class Brain:
             logger.error(f"Event store init failed (non-fatal): {e}")
 
         async with aiohttp.ClientSession() as session:
+            self._session = session
             self.llm = LLMClient(api_url=LLM_API_URL, session=session)
+            self.llm_router = LLMRouter(self.llm, session=session)
+            self.boot_load_manager = BootLoadManager() if BOOT_LOAD_ENABLED else None
             self.persona_rewriter = PersonaRewriter(self.character, self.llm)
             self.dashboard = DashboardClient(session=session)
             self.task_reminder = TaskReminder(session=session)
@@ -948,6 +948,7 @@ class Brain:
                     world_model=self.world_model,
                     llm_client=self.llm,
                     character=self.character,
+                    boot_load_manager=self.boot_load_manager,
                 )
                 self.event_automation.set_session(session)
                 logger.info(f"News integration enabled (bridge={NEWS_BRIDGE_URL})")
