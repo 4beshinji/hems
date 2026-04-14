@@ -490,3 +490,15 @@ class DashboardClient:
                     logger.debug(f"Zone snapshot push failed: {resp.status}")
         except Exception as e:
             logger.debug(f"Zone snapshot push error: {e}")
+
+    async def push_brain_snapshot(self, power_mode_status: dict) -> None:
+        """Push brain power mode status to backend for frontend consumption."""
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/brain/snapshot",
+                json=power_mode_status, timeout=5, headers=_AUTH_HEADERS,
+            ) as resp:
+                if resp.status not in (200, 204):
+                    logger.debug("Brain snapshot push HTTP %d", resp.status)
+        except Exception as e:
+            logger.debug("Brain snapshot push error: %s", e)

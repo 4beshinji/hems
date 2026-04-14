@@ -18,15 +18,17 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # openai | anthropic | ollam
 
 
 class LLMClient:
-    def __init__(self, api_url: str = None, session=None):
+    def __init__(self, api_url: str = None, session=None,
+                 model: str = None, provider: str = None):
         self.api_url = api_url or os.getenv("LLM_API_URL", "http://mock-llm:8000/v1")
-        self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        self.model = model or os.getenv("LLM_MODEL", "gpt-4o-mini")
         self.session = session
-        self.provider = LLM_PROVIDER
+        self.provider = provider or LLM_PROVIDER
 
     async def chat(self, messages: list, tools: list = None, *,
                    temperature: float | None = None,
-                   max_tokens: int | None = None) -> LLMResponse:
+                   max_tokens: int | None = None,
+                   think: bool = False) -> LLMResponse:
         if self.provider == "anthropic":
             return await self._chat_anthropic(messages, tools,
                                               temperature=temperature,
@@ -34,14 +36,16 @@ class LLMClient:
         if self.provider == "ollama":
             return await self._chat_ollama(messages, tools,
                                            temperature=temperature,
-                                           max_tokens=max_tokens)
+                                           max_tokens=max_tokens,
+                                           think=think)
         return await self._chat_openai(messages, tools,
                                        temperature=temperature,
                                        max_tokens=max_tokens)
 
     async def _chat_ollama(self, messages: list, tools: list = None, *,
                            temperature: float | None = None,
-                           max_tokens: int | None = None) -> LLMResponse:
+                           max_tokens: int | None = None,
+                           think: bool = False) -> LLMResponse:
         """Ollama native API — supports think, num_ctx, and tool calling."""
         # Strip /v1 suffix to get base URL for native API
         base_url = self.api_url.rstrip("/")
@@ -58,7 +62,7 @@ class LLMClient:
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "think": False,  # Disable thinking mode to avoid wasted tokens
+            "think": think,
         }
         if ollama_tools:
             payload["tools"] = ollama_tools

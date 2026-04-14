@@ -50,13 +50,13 @@ class LLMRouter:
         max_tokens: int | None = None,
     ) -> LLMResponse:
         """Route to the appropriate LLMClient and call chat()."""
-        client = (
-            self._boot_load
-            if task_type == "boot_load" and self._boot_load is not None
-            else self._default
-        )
+        is_boot_load = task_type == "boot_load" and self._boot_load is not None
+        client = self._boot_load if is_boot_load else self._default
+        # Enable thinking for boot_load: time budget is generous and quality matters
+        think = is_boot_load and client.provider == "ollama"
         return await client.chat(
             messages, tools,
             temperature=temperature,
             max_tokens=max_tokens,
+            think=think,
         )

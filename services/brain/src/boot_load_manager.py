@@ -28,7 +28,7 @@ from brain_utils import AUTH_HEADERS as _AUTH_HEADERS, SPEAK_CHUNK_LIMIT, split_
 
 BOOT_LOAD_WINDOW_SEC = int(os.getenv("BOOT_LOAD_WINDOW_SEC", "2700"))  # 45 min
 BOOT_LOAD_NEWS_STALE_HOURS = int(os.getenv("BOOT_LOAD_NEWS_STALE_HOURS", "20"))
-BOOT_LOAD_MAX_TOKENS = int(os.getenv("BOOT_LOAD_MAX_TOKENS", "400"))
+BOOT_LOAD_MAX_TOKENS = int(os.getenv("BOOT_LOAD_MAX_TOKENS", "1600"))  # thinking uses ~1200, response ~400
 
 
 @dataclass

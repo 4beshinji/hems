@@ -44,6 +44,8 @@ LOW_POWER_AWAY_MIN_INTERVAL = int(os.getenv("HEMS_LOW_POWER_AWAY_MIN_INTERVAL", 
 LOW_POWER_LLM_COOLDOWN = int(os.getenv("HEMS_LOW_POWER_LLM_COOLDOWN", "1800"))      # 30 min
 # How long all zones must be continuously empty before entering away mode
 AWAY_CONFIRM_SECONDS = int(os.getenv("HEMS_LOW_POWER_AWAY_CONFIRM", "300"))         # 5 min
+# How long a manual override suppresses automatic mode transitions
+MANUAL_OVERRIDE_DURATION = int(os.getenv("HEMS_MANUAL_OVERRIDE_DURATION", "7200"))  # 2 h
 
 
 class PowerMode:
@@ -71,6 +73,8 @@ class PowerModeManager:
         self._away_candidate_since: float | None = None
         # LLM call throttling in low-power mode
         self._last_llm_call: float = 0.0
+        # Manual override: suppress automatic transitions until this timestamp
+        self._manual_override_until: float = 0.0
 
     # ------------------------------------------------------------------
     # Read-only properties
@@ -121,6 +125,25 @@ class PowerModeManager:
         """Record that an LLM call is being made now (call before dispatching)."""
         self._last_llm_call = now or time.time()
 
+    # ------------------------------------------------------------------
+    # Manual override
+    # ------------------------------------------------------------------
+
+    def force_mode(self, mode: str, reason: str = "手動設定"):
+        """Force a specific power mode from the dashboard.
+
+        Suppresses automatic transitions for MANUAL_OVERRIDE_DURATION seconds
+        so the user's choice is not immediately overridden by sensor data.
+        """
+        now = time.time()
+        self._manual_override_until = now + MANUAL_OVERRIDE_DURATION
+        self._away_candidate_since = None
+        self._transition(mode, reason, now)
+        logger.info(
+            "[低消費電力] 手動オーバーライド: mode=%s, 自動遷移停止 %ds",
+            mode, MANUAL_OVERRIDE_DURATION,
+        )
+
     def seconds_until_llm_allowed(self, now: float | None = None) -> int:
         """Return seconds remaining until next LLM call is allowed (0 if now)."""
         remaining = LOW_POWER_LLM_COOLDOWN - ((now or time.time()) - self._last_llm_call)
@@ -137,6 +160,9 @@ class PowerModeManager:
         Returns True if the mode changed this call.
         """
         now = time.time()
+        # Manual override: skip automatic transitions while active
+        if now < self._manual_override_until:
+            return False
         bio = world_model.biometric_state
         hour = datetime.now().hour
 
@@ -240,4 +266,5 @@ class PowerModeManager:
             "entered_at": self._entered_at,
             "cycle_interval_sec": self.cycle_interval,
             "llm_cooldown_remaining_sec": self.seconds_until_llm_allowed(),
+            "manual_override_remaining_sec": max(0, int(self._manual_override_until - time.time())),
         }

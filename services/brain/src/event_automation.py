@@ -26,7 +26,7 @@ class EventAutomation:
     """イベント駆動の自動アクション実行."""
 
     EVENTS = {"wake_up", "arrival", "departure", "scheduled"}
-    ACTIONS = {"news_briefing", "morning_greeting", "weather_report", "speak_custom"}
+    ACTIONS = {"news_briefing", "morning_greeting", "weather_report", "speak_custom", "task_planning"}
 
     def __init__(self, tool_executor, world_model, llm_client=None, character=None,
                  boot_load_manager=None):
@@ -148,6 +148,8 @@ class EventAutomation:
             await self._action_morning_greeting()
         elif action_name == "weather_report":
             await self._action_weather_report()
+        elif action_name == "task_planning":
+            await self._action_task_planning()
         elif action_name == "speak_custom":
             text = (action_config or {}).get("text", "")
             if text:
@@ -309,6 +311,50 @@ class EventAutomation:
                     })
                 except Exception as e:
                     logger.warning(f"[BootLoad] speak エラー: {e}")
+
+    async def _action_task_planning(self):
+        """アクティブタスクの詳細プランを LLM で生成し、結果を発話する。"""
+        if not self.llm:
+            logger.debug("[task_planning] LLM未設定、スキップ")
+            return
+        try:
+            tasks = await self.tool_executor.dashboard.get_active_tasks()
+            if not tasks:
+                logger.info("[task_planning] アクティブタスクなし")
+                await self.tool_executor.execute("speak", {
+                    "message": "現在アクティブなタスクはありません。",
+                    "zone": "home",
+                    "tone": "neutral",
+                })
+                return
+
+            tasks_text = "\n".join(
+                f"- [{t['id']}] {t['title']}: {t.get('description', '')}"
+                for t in tasks[:10]
+            )
+            prompt = (
+                f"以下のアクティブタスクについて、各タスクの詳細な実行手順・目安時間・注意点を"
+                f"日本語で簡潔にまとめてください。発話用なので200文字以内でお願いします。\n\n{tasks_text}"
+            )
+            resp = await self.llm.chat([
+                {"role": "system", "content": "あなたはタスク管理アシスタントです。簡潔に答えてください。"},
+                {"role": "user", "content": prompt},
+            ], max_tokens=300)
+            if resp.error:
+                logger.warning("[task_planning] LLMエラー: %s", resp.error)
+                return
+
+            content = resp.content.strip()
+            if content:
+                for chunk in _split_for_speak(content, SPEAK_CHUNK_LIMIT):
+                    await self.tool_executor.execute("speak", {
+                        "message": chunk,
+                        "zone": "home",
+                        "tone": "informative",
+                    })
+            logger.info("[task_planning] 完了 (%d tasks)", len(tasks))
+        except Exception as e:
+            logger.error("[task_planning] エラー: %s", e)
 
     async def _action_weather_report(self):
         """Speak weather summary from world model."""

@@ -209,8 +209,43 @@ class Brain:
             logger.info(f"Guest mode {'enabled' if enabled else 'disabled'} via MQTT (duration={hours}h)")
             return
 
+        if msg.topic == "hems/brain/set-power-mode":
+            mode = payload.get("mode", "normal")
+            if mode in ("normal", "sleep", "away"):
+                self.power_mode_manager.force_mode(mode, "手動設定（ダッシュボード）")
+                logger.info("Power mode manually set to: %s", mode)
+            return
+
+        if msg.topic == "hems/brain/batch-run":
+            tasks = payload.get("tasks", [])
+            model = payload.get("model")
+            if self._loop and tasks:
+                asyncio.run_coroutine_threadsafe(self._run_batch(tasks, model), self._loop)
+            return
+
         if self._loop:
             self._loop.call_soon_threadsafe(self._process_mqtt, msg.topic, payload)
+
+    async def _run_batch(self, tasks: list, model: str | None = None):
+        """バッチタスクを指定モデルで順次実行（ダッシュボードからの手動トリガー）。"""
+        if not self.event_automation:
+            logger.warning("[Batch] EventAutomation未初期化")
+            return
+        original_model = None
+        if model and self.llm:
+            original_model = self.llm.model
+            self.llm.model = model
+            logger.info("[Batch] モデル変更: %s → %s", original_model, model)
+        try:
+            for task_name in tasks:
+                logger.info("[Batch] 実行: %s", task_name)
+                await self.event_automation._execute_action(task_name)
+        except Exception as e:
+            logger.error("[Batch] エラー: %s", e)
+        finally:
+            if original_model is not None and self.llm:
+                self.llm.model = original_model
+                logger.info("[Batch] モデル復元: %s", original_model)
 
     def _trigger_timeline_regen(self, reason: str):
         """Debounced trigger for TimelineGenerator. Coalesces bursts within 5s."""
@@ -808,6 +843,7 @@ class Brain:
             await self.dashboard.push_perception_snapshot(self.world_model)
         if HA_ENABLED:
             await self.dashboard.push_home_snapshot(self.world_model)
+        await self.dashboard.push_brain_snapshot(self.power_mode_manager.get_status())
 
     # Mapping: task text keywords → alert types to suppress
     _TASK_ALERT_KEYWORDS: dict[str, list[str]] = {
