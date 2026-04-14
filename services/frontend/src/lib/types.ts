@@ -441,3 +441,24 @@ export interface ConversationSummary {
   updated_at?: string | null
   last_message?: string | null
 }
+
+// ─── Brain / Power mode ───────────────────────────────────────────────────────
+
+export type PowerMode = 'normal' | 'sleep' | 'away'
+
+export interface BrainStatus {
+  mode: PowerMode
+  reason: string
+  entered_at: number
+  cycle_interval_sec: number
+  llm_cooldown_remaining_sec: number
+  manual_override_remaining_sec: number
+}
+
+export interface OllamaModel {
+  name: string
+  size_gb: number
+  family: string
+}
+
+export type BatchTaskName = 'news_briefing' | 'morning_greeting' | 'weather_report' | 'task_planning'

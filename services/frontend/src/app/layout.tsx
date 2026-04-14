@@ -9,10 +9,12 @@ import { useDarkMode } from '@/hooks/use-dark-mode'
 import { useCharacterTheme } from '@/hooks/use-character-theme'
 import { useAvatarMode } from '@/hooks/use-avatar-mode'
 import { useSTTMode } from '@/hooks/use-stt-mode'
+import { usePowerMode } from '@/hooks/use-power-mode'
 import { useAudioQueue, AudioPriority } from '@/audio'
 import { fetchZones, fetchVoiceEvents, fetchTasks } from '@/lib/api'
 import type { VoiceEvent, TaskData } from '@/lib/types'
 import type { STTMode } from '@/hooks/use-server-stt'
+import BatchDialog from '@/components/brain/BatchDialog'
 
 const AvatarContainer = lazy(() => import('@/components/vrm/AvatarContainer'))
 const PsdTestPanel    = lazy(() => import('@/components/psd/PsdTestPanel').then(m => ({ default: m.PsdTestPanel })))
@@ -45,6 +47,8 @@ export default function AppLayout() {
   const { enqueue, isEnabled } = useAudioQueue(audioEnabled)
   const { mode: avatarMode, cycle: cycleAvatarMode, setMode: setAvatarMode } = useAvatarMode()
   const { mode: sttMode, cycle: cycleSTTMode, setMode: setSTTMode, language: sttLanguage, setLanguage: setSTTLanguage, autoSend: sttAutoSend, toggleAutoSend: toggleSTTAutoSend } = useSTTMode()
+  const { mode: powerMode, cycleMode: cyclePowerMode, isPending: powerModePending } = usePowerMode()
+  const [batchOpen, setBatchOpen] = useState(false)
   useKioskMode()
 
   // Track played IDs with useRef to avoid re-renders
@@ -129,6 +133,10 @@ export default function AppLayout() {
         onCycleSTTMode={cycleSTTMode}
         sttLanguage={sttLanguage}
         onSetSTTLanguage={setSTTLanguage}
+        powerMode={powerMode}
+        onCyclePowerMode={cyclePowerMode}
+        powerModePending={powerModePending}
+        onOpenBatch={() => setBatchOpen(true)}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
@@ -142,6 +150,9 @@ export default function AppLayout() {
           onCycleAvatarMode={cycleAvatarMode}
           sttMode={sttMode}
           onCycleSTTMode={cycleSTTMode}
+          powerMode={powerMode}
+          onCyclePowerMode={cyclePowerMode}
+          powerModePending={powerModePending}
         />
         <main className="flex-1 flex flex-col p-4 lg:p-6 pb-20 lg:pb-6 min-h-0">
           <Outlet context={{
@@ -165,6 +176,7 @@ export default function AppLayout() {
           <AvatarContainer mode={avatarMode} onClose={hideAvatar} />
         </Suspense>
       )}
+      <BatchDialog open={batchOpen} onOpenChange={setBatchOpen} />
       <Toaster position="bottom-right" richColors />
       {import.meta.env.DEV && (
         <Suspense fallback={null}>

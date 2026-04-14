@@ -1,11 +1,13 @@
 import { useLocation } from 'react-router'
-import { Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff } from 'lucide-react'
+import { type ComponentType } from 'react'
+import { Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { DarkModePreference } from '@/hooks/use-dark-mode'
 import type { CharacterThemeConfig } from '@/lib/character-themes'
 import type { AvatarMode } from '@/hooks/use-avatar-mode'
 import type { STTMode } from '@/hooks/use-server-stt'
+import type { PowerMode } from '@/lib/types'
 
 const ROUTE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -20,6 +22,12 @@ const STT_MODE_LABELS: Record<STTMode, string> = {
   off: 'OFF',
 }
 
+const POWER_MODE_ICONS: Record<PowerMode, ComponentType<{ className?: string }>> = {
+  normal: Zap,
+  sleep: Moon,
+  away: LogOut,
+}
+
 interface Props {
   audioEnabled: boolean
   onToggleAudio: () => void
@@ -31,6 +39,9 @@ interface Props {
   onCycleAvatarMode: () => void
   sttMode: STTMode
   onCycleSTTMode: () => void
+  powerMode: PowerMode
+  onCyclePowerMode: () => void
+  powerModePending: boolean
 }
 
 export default function Header({
@@ -44,6 +55,9 @@ export default function Header({
   onCycleAvatarMode,
   sttMode,
   onCycleSTTMode,
+  powerMode,
+  onCyclePowerMode,
+  powerModePending,
 }: Props) {
   const location = useLocation()
   const title = ROUTE_TITLES[location.pathname] || 'HEMS'
@@ -52,6 +66,7 @@ export default function Header({
     darkModePreference === 'light' ? Sun : Gauge
 
   const sttOff = sttMode === 'off'
+  const PowerIcon = POWER_MODE_ICONS[powerMode]
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-14 border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 px-4 lg:px-6">
@@ -91,6 +106,16 @@ export default function Header({
             className={cn('h-9 w-9', avatarMode !== 'hidden' && 'text-primary')}
           >
             <User className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onCyclePowerMode}
+            disabled={powerModePending}
+            aria-label={`電力モード: ${powerMode}`}
+            className={cn('h-9 w-9', powerMode !== 'normal' && 'text-amber-500')}
+          >
+            <PowerIcon className="h-4 w-4" />
           </Button>
         </div>
       </div>

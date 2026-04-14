@@ -1,6 +1,6 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, type ComponentType } from 'react'
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Thermometer, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff } from 'lucide-react'
+import { LayoutDashboard, Thermometer, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -8,6 +8,7 @@ import type { DarkModePreference } from '@/hooks/use-dark-mode'
 import type { CharacterThemeConfig } from '@/lib/character-themes'
 import type { AvatarMode } from '@/hooks/use-avatar-mode'
 import type { STTMode } from '@/hooks/use-server-stt'
+import type { PowerMode } from '@/lib/types'
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -36,6 +37,18 @@ const STT_LANG_LABELS: Record<string, string> = {
 
 const LANG_CYCLE = ['ja', 'en', 'auto']
 
+const POWER_MODE_ICONS: Record<PowerMode, ComponentType<{ className?: string }>> = {
+  normal: Zap,
+  sleep: Moon,
+  away: LogOut,
+}
+
+const POWER_MODE_LABELS: Record<PowerMode, string> = {
+  normal: '通常',
+  sleep: 'スリープ',
+  away: '外出',
+}
+
 interface Props {
   audioEnabled: boolean
   onToggleAudio: () => void
@@ -50,6 +63,10 @@ interface Props {
   onCycleSTTMode: () => void
   sttLanguage: string
   onSetSTTLanguage: (lang: string) => void
+  powerMode: PowerMode
+  onCyclePowerMode: () => void
+  powerModePending: boolean
+  onOpenBatch: () => void
 }
 
 export default function AppSidebar({
@@ -66,6 +83,10 @@ export default function AppSidebar({
   onCycleSTTMode,
   sttLanguage,
   onSetSTTLanguage,
+  powerMode,
+  onCyclePowerMode,
+  powerModePending,
+  onOpenBatch,
 }: Props) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -90,6 +111,7 @@ export default function AppSidebar({
     darkModePreference === 'light' ? 'ライト' : 'センサー'
 
   const sttOff = sttMode === 'off'
+  const PowerIcon = POWER_MODE_ICONS[powerMode]
 
   return (
     <aside className="hidden lg:flex flex-col w-56 shrink-0 border-r border-border bg-card h-screen sticky top-0">
@@ -192,6 +214,30 @@ export default function AppSidebar({
               <span className="text-xs font-mono">{STT_LANG_LABELS[sttLanguage] ?? sttLanguage}</span>
             </Button>
           )}
+        </div>
+        {/* Power mode + Batch row */}
+        <Separator />
+        <div className="flex gap-1 px-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCyclePowerMode}
+            disabled={powerModePending}
+            aria-label={`電力モード: ${POWER_MODE_LABELS[powerMode]}`}
+            className={cn('h-9 gap-1.5', powerMode !== 'normal' && 'text-amber-500')}
+          >
+            <PowerIcon className="h-4 w-4" />
+            <span className="text-xs">{POWER_MODE_LABELS[powerMode]}</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onOpenBatch}
+            aria-label="バッチ実行"
+            className="h-9 w-9"
+          >
+            <Play className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </aside>

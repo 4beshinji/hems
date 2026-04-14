@@ -17,6 +17,10 @@ import type {
   ShoppingStats,
   PurchaseHistoryItem,
   ChatResponse,
+  BrainStatus,
+  OllamaModel,
+  PowerMode,
+  BatchTaskName,
 } from './types'
 
 // In production, nginx proxies /api/ → backend (with auth header injected).
@@ -246,6 +250,26 @@ export function createShareLink(): Promise<{
   token: string
 }> {
   return post('/shopping/0/share', {})
+}
+
+// ─── Brain / Power mode ───────────────────────────────────────────────────────
+export function fetchBrainStatus(): Promise<BrainStatus> {
+  return get('/brain/power-mode')
+}
+
+export function setPowerMode(mode: PowerMode): Promise<{ ok: boolean; mode: PowerMode }> {
+  return post('/brain/power-mode', { mode })
+}
+
+export function fetchOllamaModels(): Promise<{ models: OllamaModel[] }> {
+  return get('/brain/ollama/models')
+}
+
+export function runBatch(
+  tasks: BatchTaskName[],
+  model: string | null,
+): Promise<{ ok: boolean; tasks: string[]; labels: string[]; model: string | null }> {
+  return post('/brain/batch', { tasks, model })
 }
 
 // ─── Character ──────────────────────────────────────────────────────────────
