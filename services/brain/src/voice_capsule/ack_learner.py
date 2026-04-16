@@ -63,6 +63,12 @@ class AckLearner:
             if drift is not None:
                 drifts[row["clip_id"]].append(int(drift))
 
+        # Pre-fetch all event_lead cache entries once for prefix matching.
+        all_event_leads = await self._list_event_lead_entries()
+        prefix_map: dict[str, dict] = {}
+        for entry in all_event_leads:
+            prefix_map[entry["key_hash"][:12]] = entry
+
         updates = 0
         for clip_id, vals in drifts.items():
             if len(vals) < MIN_SAMPLES:
@@ -70,10 +76,13 @@ class AckLearner:
             shift = self._shift_from_drift(vals)
             if shift == 0:
                 continue
-            title = _title_from_clip_id(clip_id)
-            if not title:
+            title_hash = _title_hash_from_clip_id(clip_id)
+            if not title_hash:
                 continue
-            if await self._adjust_cached_plan(title, shift):
+            entry = prefix_map.get(title_hash)
+            if entry is None:
+                continue
+            if await self._adjust_cached_plan_entry(entry, shift):
                 updates += 1
 
         logger.info("[ack_learner] updated {} event_lead entr(y|ies)", updates)
@@ -102,17 +111,10 @@ class AckLearner:
             logger.warning("[ack_learner] play-log fetch error: {}", exc)
         return []
 
-    async def _adjust_cached_plan(self, title: str, shift_min: int) -> bool:
-        """Read the event_lead cache row for ``title``, shift lead_time_min, write back."""
-        key_hash = hashlib.sha256(
-            f"event_lead:{title.strip().lower()}".encode("utf-8")
-        ).hexdigest()
-        row = await self._get_cache_entry("event_lead", key_hash)
-        if row is None:
-            return False
-
+    async def _adjust_cached_plan_entry(self, entry: dict, shift_min: int) -> bool:
+        """Shift ``lead_time_min`` on an existing event_lead cache row."""
         try:
-            plan = json.loads(row["value_json"])
+            plan = json.loads(entry["value_json"])
         except Exception:  # noqa: BLE001
             return False
 
@@ -124,20 +126,20 @@ class AckLearner:
         plan["lead_time_min"] = new
         return await self._put_cache_entry(
             kind="event_lead",
-            key_hash=key_hash,
+            key_hash=entry["key_hash"],
             value=json.dumps(plan, ensure_ascii=False),
-            source=row.get("source", "llm"),
+            source=entry.get("source", "llm"),
         )
 
-    async def _get_cache_entry(self, kind: str, key_hash: str) -> dict | None:
-        url = f"{self.backend_url}/classifier-cache/{kind}/{key_hash}"
+    async def _list_event_lead_entries(self) -> list[dict]:
+        url = f"{self.backend_url}/classifier-cache?kind=event_lead"
         try:
-            async with self.session.get(url, headers=self._auth, timeout=10) as resp:
+            async with self.session.get(url, headers=self._auth, timeout=15) as resp:
                 if resp.status == 200:
                     return await resp.json()
         except Exception as exc:  # noqa: BLE001
-            logger.debug("[ack_learner] cache get error: {}", exc)
-        return None
+            logger.debug("[ack_learner] cache list error: {}", exc)
+        return []
 
     async def _put_cache_entry(
         self, *, kind: str, key_hash: str, value: str, source: str,
@@ -155,20 +157,15 @@ class AckLearner:
             return False
 
 
-def _title_from_clip_id(clip_id: str) -> str | None:
-    """``event_<safe_title>_HHMM`` → best-effort original title.
-
-    The safe_title is a lowercased alnum slug, which is lossy — we cannot
-    recover the original Japanese characters. So the hash key lookup will
-    only match on clip-ids whose title was already ASCII. That's a known
-    limitation; P5 learnings target English-ish events (meetings etc.)
-    which covers the bulk of calendar entries with descriptive titles.
-    """
+def _title_hash_from_clip_id(clip_id: str) -> str | None:
+    """Extract the 12-hex-char title hash from ``event_<hash>_HHMM``."""
     if not clip_id.startswith("event_"):
         return None
     body = clip_id[len("event_"):]
-    # Strip trailing _HHMM
     parts = body.rsplit("_", 1)
     if len(parts) != 2 or not parts[1].isdigit() or len(parts[1]) != 4:
         return None
-    return parts[0] or None
+    h = parts[0]
+    if len(h) == 12 and all(c in "0123456789abcdef" for c in h):
+        return h
+    return None

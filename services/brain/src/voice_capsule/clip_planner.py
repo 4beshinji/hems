@@ -11,6 +11,7 @@ doesn't need calendar context.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -30,6 +31,11 @@ _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9]+")
 def _safe_id(raw: str, max_len: int = 24) -> str:
     s = _SAFE_ID_RE.sub("_", raw.strip().lower()).strip("_") or "event"
     return s[:max_len]
+
+
+def _title_hash(title: str) -> str:
+    """12-hex-char hash of the normalized title — stable across locales."""
+    return hashlib.sha256(title.strip().lower().encode("utf-8")).hexdigest()[:12]
 
 
 async def plan_day(
@@ -103,7 +109,7 @@ async def plan_day(
         trigger = event_time - timedelta(minutes=lead_min)
         if trigger <= datetime.now(tz=local_tz):
             continue
-        raw_id = f"event_{_safe_id(title)}_{event_time.strftime('%H%M')}"
+        raw_id = f"event_{_title_hash(title)}_{event_time.strftime('%H%M')}"
         if raw_id in seen_ids:
             continue
         seen_ids.add(raw_id)

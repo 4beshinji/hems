@@ -73,6 +73,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
+    implementation(libs.androidx.health.connect)
     implementation(libs.play.services.code.scanner)
     implementation(libs.play.services.location)
     implementation(libs.accompanist.permissions)

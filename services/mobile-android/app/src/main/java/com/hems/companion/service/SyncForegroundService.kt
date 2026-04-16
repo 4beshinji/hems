@@ -79,16 +79,10 @@ class SyncForegroundService : Service() {
         requestLocationUpdates()
         requestActivityUpdates()
         scheduler.enqueuePeriodicBatch()
+        scheduler.enqueueHealthConnect()
         scheduler.enqueueCapsuleDownload()
+        isRunning = true
         return START_STICKY
-    }
-
-    override fun onDestroy() {
-        try {
-            fused.removeLocationUpdates(locationCallback)
-            ActivityRecognition.getClient(this).removeActivityUpdates(activityPendingIntent())
-        } catch (_: SecurityException) { /* permission may have been revoked */ }
-        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -164,7 +158,18 @@ class SyncForegroundService : Service() {
         mgr.createNotificationChannel(channel)
     }
 
+    override fun onDestroy() {
+        isRunning = false
+        try {
+            fused.removeLocationUpdates(locationCallback)
+            ActivityRecognition.getClient(this).removeActivityUpdates(activityPendingIntent())
+        } catch (_: SecurityException) { /* permission may have been revoked */ }
+        super.onDestroy()
+    }
+
     companion object {
+        @Volatile var isRunning = false
+            private set
         private const val CHANNEL_ID = "hems_sync"
         private const val NOTIFICATION_ID = 1001
         private const val LOCATION_INTERVAL_MS = 5 * 60 * 1000L

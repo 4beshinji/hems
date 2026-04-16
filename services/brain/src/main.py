@@ -37,7 +37,7 @@ from timeline import TimelineGenerator
 from device_dispatcher import DeviceDispatcher, parse_mqtt as parse_device_mqtt
 from scene_executor import SceneExecutor
 from automation_engine import AutomationEngine
-from annotator import ClassifierCache, EventClassifier, ShoppingClassifier
+from annotator import ClassifierCache, EventClassifier, RulePromoter, ShoppingClassifier
 
 load_dotenv()
 
@@ -177,6 +177,9 @@ class Brain:
         self.scene_executor: SceneExecutor | None = None
         self.automation_engine: AutomationEngine | None = None
         self.shopping_classifier: ShoppingClassifier | None = None
+        self._rule_promoter: RulePromoter | None = None
+        self._ack_learner = None
+        self._daily_maintenance_date: str | None = None
         self._heartbeat_debounce: dict[str, float] = {}
         self._cached_devices: list[dict] = []
         self._cached_devices_at: float = 0.0
@@ -1152,6 +1155,27 @@ class Brain:
         except Exception as e:
             logger.debug(f"Schedule state save failed: {e}")
 
+    async def _maybe_daily_maintenance(self):
+        """Run rule_promoter + ack_learner once per day, around 03:xx local."""
+        now = datetime.now()
+        if now.hour != 3:
+            return
+        today = now.strftime("%Y-%m-%d")
+        if self._daily_maintenance_date == today:
+            return
+        self._daily_maintenance_date = today
+        try:
+            if self._rule_promoter:
+                n = await self._rule_promoter.run()
+                if n:
+                    logger.info("[DailyMaint] rule_promoter promoted %d entries", n)
+            if self._ack_learner:
+                n = await self._ack_learner.run()
+                if n:
+                    logger.info("[DailyMaint] ack_learner adjusted %d entries", n)
+        except Exception as e:
+            logger.warning(f"Daily maintenance error: {e}")
+
     async def run(self):
         self._loop = asyncio.get_running_loop()
         logger.info(f"Connecting to {MQTT_BROKER}:{MQTT_PORT}...")
@@ -1194,6 +1218,14 @@ class Brain:
             )
             self.event_classifier = EventClassifier(
                 llm_router=self.llm_router, cache=classifier_cache,
+            )
+            self._rule_promoter = RulePromoter(
+                session=session, backend_url=BACKEND_URL, api_key=HEMS_API_KEY,
+                obsidian_url=OBSIDIAN_BRIDGE_URL,
+            )
+            from voice_capsule.ack_learner import AckLearner
+            self._ack_learner = AckLearner(
+                session=session, backend_url=BACKEND_URL, api_key=HEMS_API_KEY,
             )
             if self.boot_load_manager is not None:
                 self.boot_load_manager.configure_capsule(
@@ -1372,6 +1404,9 @@ class Brain:
                         await self.event_automation.check_scheduled()
                 except Exception as e:
                     logger.warning(f"Event automation error: {e}")
+
+                # Daily maintenance: rule promotion + ack learning (once at 03:xx)
+                await self._maybe_daily_maintenance()
 
 
 if __name__ == "__main__":

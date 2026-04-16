@@ -50,6 +50,19 @@ class SyncScheduler @Inject constructor(
      * minutes; the morning window is the main target so any firing in a
      * 24-hour cycle is fine — CapsuleDownloadWorker is idempotent.
      */
+    fun enqueueHealthConnect() {
+        val request = PeriodicWorkRequestBuilder<HealthConnectWorker>(Duration.ofMinutes(15))
+            .setConstraints(Constraints.Builder().build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofMinutes(1))
+            .addTag(HealthConnectWorker.TAG)
+            .build()
+        WorkManager.getInstance(appContext).enqueueUniquePeriodicWork(
+            HealthConnectWorker.UNIQUE_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request,
+        )
+    }
+
     fun enqueueCapsuleDownload() {
         val request = PeriodicWorkRequestBuilder<CapsuleDownloadWorker>(Duration.ofHours(6))
             .setConstraints(
