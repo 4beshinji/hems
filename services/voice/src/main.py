@@ -12,7 +12,18 @@ from fastapi.responses import FileResponse
 from loguru import logger
 from pydub import AudioSegment
 
-from models import SynthesizeRequest, TaskAnnounceRequest, VoiceResponse, DualVoiceResponse
+import re
+
+from models import (
+    BatchSynthesizeItem,
+    BatchSynthesizeRequest,
+    BatchSynthesizeResponse,
+    BatchSynthesizeResult,
+    DualVoiceResponse,
+    SynthesizeRequest,
+    TaskAnnounceRequest,
+    VoiceResponse,
+)
 from provider_factory import create_provider
 from speech_generator import SpeechGenerator
 from text_processor import TextProcessor
@@ -211,6 +222,54 @@ async def generate_feedback(feedback_type: str):
     fname = f"fb_{uuid.uuid4()}.mp3"
     await _save_audio(result, AUDIO_DIR / fname)
     return VoiceResponse(audio_url=f"/audio/{fname}", text_generated=text, duration_seconds=_estimate_duration(result))
+
+
+_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+async def _synth_batch_item(item: BatchSynthesizeItem, prefix: str) -> BatchSynthesizeResult:
+    if not _SAFE_NAME_RE.match(item.clip_id):
+        return BatchSynthesizeResult(
+            clip_id=item.clip_id, error="Invalid clip_id (expected [A-Za-z0-9._-]+)",
+        )
+    try:
+        processed = text_processor.process(item.text)
+        result = await tts_provider.synthesize(processed, voice=item.tone or "neutral")
+        if not result.audio_data:
+            return BatchSynthesizeResult(
+                clip_id=item.clip_id,
+                duration_seconds=result.duration or 0.0,
+                error="Provider returned no audio (played directly)",
+            )
+        fname = f"{prefix}_{item.clip_id}.mp3"
+        await _save_audio(result, AUDIO_DIR / fname)
+        return BatchSynthesizeResult(
+            clip_id=item.clip_id,
+            audio_url=f"/audio/{fname}",
+            duration_seconds=_estimate_duration(result),
+        )
+    except Exception as exc:  # noqa: BLE001 — individual item failures must not kill the batch
+        logger.warning("batch-synth failed clip_id={} err={}", item.clip_id, exc)
+        return BatchSynthesizeResult(clip_id=item.clip_id, error=str(exc)[:200])
+
+
+@app.post("/api/voice/batch-synthesize", response_model=BatchSynthesizeResponse)
+async def batch_synthesize(req: BatchSynthesizeRequest):
+    """Parallel synthesize a batch of clips with deterministic filenames.
+
+    Output filename is ``{prefix}_{clip_id}.mp3`` — re-running with the same
+    prefix overwrites, letting boot-load re-generate a capsule cheaply.
+    """
+    if not _SAFE_NAME_RE.match(req.prefix):
+        raise HTTPException(status_code=400, detail="Invalid prefix")
+    if not req.items:
+        return BatchSynthesizeResponse(results=[])
+
+    results = await asyncio.gather(
+        *(_synth_batch_item(item, req.prefix) for item in req.items),
+        return_exceptions=False,
+    )
+    return BatchSynthesizeResponse(results=list(results))
 
 
 @app.get("/audio/{filename}")

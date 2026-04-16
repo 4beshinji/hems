@@ -14,7 +14,8 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
               shopping_enabled: bool = False,
               switchbot_enabled: bool = False,
               news_enabled: bool = False,
-              knowledge_enabled: bool = False) -> list:
+              knowledge_enabled: bool = False,
+              device_registry_enabled: bool = True) -> list:
     tools = [
         {
             "type": "function",
@@ -152,6 +153,10 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
     if knowledge_enabled:
         tools.extend(_get_knowledge_tools())
 
+    if device_registry_enabled:
+        tools.extend(_get_device_registry_tools())
+        tools.extend(_get_scene_tools())
+
     return tools
 
 
@@ -161,7 +166,8 @@ def get_chat_tools(openclaw_enabled: bool = False, services_enabled: bool = Fals
                    perception_enabled: bool = False,
                    switchbot_enabled: bool = False,
                    news_enabled: bool = False,
-                   knowledge_enabled: bool = False) -> list:
+                   knowledge_enabled: bool = False,
+                   device_registry_enabled: bool = True) -> list:
     """Return read-only tool subset for conversational chat.
 
     Excludes action tools: create_task, speak, send_device_command, control_*,
@@ -179,12 +185,14 @@ def get_chat_tools(openclaw_enabled: bool = False, services_enabled: bool = Fals
         "get_switchbot_devices",
         "get_news_summary",
         "search_knowledge", "get_knowledge_sources", "read_knowledge_document",
+        "list_devices", "describe_device", "list_scenes",
     }
 
     all_tools = get_tools(
         openclaw_enabled=openclaw_enabled, services_enabled=services_enabled,
         obsidian_enabled=obsidian_enabled, ha_enabled=ha_enabled,
         biometric_enabled=biometric_enabled, perception_enabled=perception_enabled,
+        device_registry_enabled=device_registry_enabled,
         shopping_enabled=True, switchbot_enabled=switchbot_enabled,
         news_enabled=news_enabled, knowledge_enabled=knowledge_enabled,
     )
@@ -774,6 +782,168 @@ def _get_knowledge_tools() -> list:
                         "path": {"type": "string", "description": "ドキュメントパス"},
                     },
                     "required": ["source", "path"],
+                },
+            },
+        },
+    ]
+
+
+def _get_scene_tools() -> list:
+    """Scene tools — execute predefined multi-device action sequences."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "execute_scene_by_name",
+                "description": (
+                    "事前定義されたシーン (programmatic name) を実行する。"
+                    "例: wake_up → デスクライトON→IRシーリング→電球段階点灯。"
+                    "HAのexecute_sceneとは別 (HA scene は entity_id.* を使う)。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "シーンのprogrammatic name (例: wake_up, bedtime)",
+                        },
+                    },
+                    "required": ["name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_scenes",
+                "description": "登録済みの有効シーン一覧を取得する。",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
+
+
+def _get_device_registry_tools() -> list:
+    """Unified sensor + actuator tools via Device Registry (vendor-agnostic).
+
+    control_actuator dispatches by Device.vendor to the appropriate bridge/MQTT.
+    Use list_devices to discover devices by purpose/zone/capability.
+    """
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "control_actuator",
+                "description": (
+                    "登録済みデバイスに制御コマンドを送る（ベンダー非依存）。"
+                    "list_devicesで対象を確認してからdevice_idを指定。"
+                    "actionは on/off/toggle/set_brightness/set_color_temp/set_position/"
+                    "set_temperature/pulse/ir_send。"
+                    "pulseは指定秒数ONにしてから自動OFF（水ポンプ等に使う）。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "デバイスID (例: tapo.plug_desklight, zigbee.bulb_bedroom)",
+                        },
+                        "action": {
+                            "type": "string",
+                            "enum": ["on", "off", "toggle", "set_brightness", "set_color_temp",
+                                    "set_position", "set_temperature", "pulse", "ir_send"],
+                            "description": "アクション種別",
+                        },
+                        "params": {
+                            "type": "object",
+                            "description": (
+                                "アクション引数。set_brightness={value:0-255}, "
+                                "set_color_temp={value:153-500}, set_position={value:0-100}, "
+                                "set_temperature={value:16-30}, pulse={duration_s:1-600}, "
+                                "ir_send={command:str, parameter:str}"
+                            ),
+                        },
+                    },
+                    "required": ["device_id", "action"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_devices",
+                "description": (
+                    "登録済みデバイス一覧を取得する。用途・ゾーン・機能・種別でフィルタ可能。"
+                    "actuator制御前に対象デバイスを特定するために使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["sensor", "actuator", "both"],
+                            "description": "デバイス種別",
+                        },
+                        "zone": {"type": "string", "description": "ゾーン名フィルタ"},
+                        "vendor": {
+                            "type": "string",
+                            "enum": ["zigbee", "switchbot", "tapo", "ha", "mcp", "ir_via_hub"],
+                            "description": "ベンダーフィルタ",
+                        },
+                        "capability": {
+                            "type": "string",
+                            "enum": ["on_off", "brightness", "color_temp", "set_position",
+                                    "set_temperature", "pulse", "ir_send"],
+                            "description": "機能フィルタ",
+                        },
+                        "purpose_contains": {
+                            "type": "string",
+                            "description": "用途テキスト部分一致フィルタ (例: '水やり', '起床')",
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "describe_device",
+                "description": (
+                    "特定デバイスの詳細情報（メタデータ+現在状態+最新値）を取得する。"
+                    "control_actuatorを呼ぶ前の現状確認に使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {"type": "string", "description": "デバイスID"},
+                    },
+                    "required": ["device_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "zigbee_permit_join",
+                "description": (
+                    "Zigbee コーディネーターのペアリングモードを開閉する。"
+                    "新しい Zigbee デバイス登録時のみ使用。安全のため duration_s は通常 60-120 秒。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "enable": {
+                            "type": "boolean",
+                            "description": "true=ペアリング開始, false=終了",
+                        },
+                        "duration_s": {
+                            "type": "integer",
+                            "description": "自動終了までの秒数 (0=手動終了, 最大3600)",
+                            "minimum": 0,
+                            "maximum": 3600,
+                        },
+                    },
+                    "required": ["enable"],
                 },
             },
         },

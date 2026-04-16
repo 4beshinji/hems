@@ -84,6 +84,7 @@ async def add_item(item: schemas.ShoppingItemCreate, db: AsyncSession = Depends(
         quantity=item.quantity,
         unit=item.unit,
         store=item.store,
+        store_category=item.store_category,
         price=item.price,
         is_recurring=item.is_recurring,
         recurrence_days=item.recurrence_days,
@@ -121,6 +122,39 @@ async def update_item(
 
     await db.commit()
     await db.refresh(item)
+    _publish_shopping_event("updated", {
+        "id": item.id, "name": item.name, "store_category": item.store_category,
+    })
+    return item
+
+
+@router.patch("/{item_id}", response_model=schemas.ShoppingItem)
+async def patch_item(
+    item_id: int,
+    body: schemas.ShoppingItemPatch,
+    db: AsyncSession = Depends(get_db),
+):
+    """Partial update — used by brain's shopping classifier to write back store_category."""
+    result = await db.execute(
+        select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id)
+    )
+    item = result.scalars().first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    changes = body.model_dump(exclude_unset=True)
+    if not changes:
+        return item
+
+    for field_name, value in changes.items():
+        setattr(item, field_name, value)
+
+    await db.commit()
+    await db.refresh(item)
+    _publish_shopping_event("updated", {
+        "id": item.id, "name": item.name,
+        "fields": list(changes.keys()),
+    })
     return item
 
 

@@ -34,6 +34,8 @@ SERVICES=(
     hems-localcraw
     hems-perception
     hems-switchbot
+    hems-tapo-bridge
+    hems-z2m
     hems-iot
 )
 

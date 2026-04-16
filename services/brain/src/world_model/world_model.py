@@ -308,6 +308,14 @@ class WorldModel:
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "personal":
             self._update_personal(parts[2:], payload)
 
+        # hems/tapo/{vendor_ref}/state → power metering + on/off state
+        elif parts[0] == "hems" and len(parts) >= 4 and parts[1] == "tapo" and parts[3] == "state":
+            self._update_tapo_state(parts[2], payload)
+
+        # zigbee2mqtt/{device} → sensor channels + on/off state (Z2M direct)
+        elif parts[0] == "zigbee2mqtt" and len(parts) >= 2 and not parts[1].startswith("bridge"):
+            self._update_zigbee_state(parts[1], payload)
+
     def _update_sensor(self, zone_id: str, channel: str, value: float):
         zone = self._get_zone(zone_id)
         fusion_key = f"{zone_id}/{channel}"
@@ -743,6 +751,48 @@ class WorldModel:
             elif status == "ready":
                 self.vlm_model_swap_active = False
                 logger.info("VLM model swap: ready — brain resuming LLM mode")
+
+    def _update_tapo_state(self, vendor_ref: str, payload: dict):
+        """Tapo plug state → feed power metering into zone sensors if provided.
+
+        Tapo P110 exposes power_watts/voltage/current/energy_kwh. Feed power
+        readings into timeseries for the EnergyPanel; the device itself is
+        tracked in the Device Registry (auto-register happens separately).
+        """
+        zone_id = payload.get("zone", "home")
+        power = payload.get("power_watts")
+        if power is not None:
+            zone = self._get_zone(zone_id)
+            zone.add_event(Event(
+                event_type="tapo_power",
+                description=f"{vendor_ref}: {power:.1f}W",
+                severity=0,
+                zone=zone_id,
+                data={"power_watts": float(power), "vendor_ref": vendor_ref},
+            ))
+
+    def _update_zigbee_state(self, vendor_ref: str, payload: dict):
+        """Zigbee2MQTT device update → feed sensor channels into zone state.
+
+        Z2M publishes the full payload per device (state + sensor readings).
+        Device auto-registration is handled separately via parse_mqtt;
+        here we only route sensor values to the zone.
+        """
+        # Zone lookup: payload may carry "zone"; if not, skip zone routing.
+        # (Zigbee zone assignment is typically done via UI after auto-registration.)
+        zone_id = payload.get("zone")
+        if not zone_id:
+            return
+        for channel in ("temperature", "humidity", "co2", "pressure", "illuminance",
+                        "soil_moisture", "voc", "pm25"):
+            if channel in payload:
+                try:
+                    value = float(payload[channel])
+                except (TypeError, ValueError):
+                    continue
+                # Normalize Z2M-specific channel names
+                mapped = "light" if channel == "illuminance" else channel
+                self._update_sensor(zone_id, mapped, value)
 
     def _update_personal(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/* topics."""

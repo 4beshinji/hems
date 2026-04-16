@@ -55,6 +55,12 @@ docker compose --profile perception up -d --build
 # With SwitchBot (direct SwitchBot API, no HA required)
 docker compose --profile switchbot up -d --build
 
+# With Tapo P110/P115 (direct LAN, python-kasa, no HA required)
+docker compose --profile tapo up -d --build
+
+# With Zigbee2MQTT (requires Zigbee USB coordinator stick)
+docker compose --profile zigbee up -d --build
+
 # With news briefing (RSS + Ollama summarizer, requires --profile ollama)
 docker compose --profile news --profile ollama up -d --build
 
@@ -77,7 +83,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `news`, `knowledge`, `stt`
+Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `tapo`, `zigbee`, `news`, `knowledge`, `stt`
 
 ### Frontend Development
 
@@ -107,6 +113,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Biometric Bridge | 8017 | `HEMS_PORT_BIOMETRIC_BRIDGE` | hems-biometric-bridge |
 | Perception | 8018 | `HEMS_PORT_PERCEPTION` | hems-perception |
 | SwitchBot Bridge | 8019 | `HEMS_PORT_SWITCHBOT_BRIDGE` | hems-switchbot-bridge |
+| Tapo Bridge | 8020 | `HEMS_PORT_TAPO_BRIDGE` | hems-tapo-bridge |
 | News Bridge | 8021 | `HEMS_PORT_NEWS_BRIDGE` | hems-news-bridge |
 | Knowledge Bridge | 8022 | `HEMS_PORT_KNOWLEDGE_BRIDGE` | hems-knowledge-bridge |
 | STT Service | 8023 | `HEMS_PORT_STT` | hems-stt |
@@ -403,6 +410,79 @@ HEMS_PERCEPTION_CAMERAS=[{"device_id":"cam01","zone":"living_room","type":"mcp"}
 VLM_ENABLED=true
 VLM_LIGHT_MODEL=moondream
 VLM_HEAVY_MODEL=minicpm-v
+```
+
+### Device Registry (Unified sensor + actuator管理)
+
+すべてのセンサー/アクチュエータを `Device` テーブル1本で管理。ベンダー(zigbee/switchbot/tapo/ha/mcp)は属性。
+
+- **自動登録**: Brain が MQTT (office/sensor, hems/home, hems/switchbot, hems/tapo, zigbee2mqtt) を監視、
+  未知の device_id を検出したら backend `/devices/heartbeat` で自動作成。
+- **メタデータ編集**: `/devices` ページで `display_name / zone / location / purpose / description` を編集
+- **用途(purpose)**: LLM が用途理解でツール選択に使う重要フィールド (例: "水やりポンプ", "起床補助ライト")
+- **LLM ツール** (ベンダー非依存):
+  - `control_actuator(device_id, action, params)` — on/off/toggle/set_brightness/set_color_temp/set_position/set_temperature/pulse/ir_send
+  - `list_devices(kind, zone, vendor, capability, purpose_contains)` — 用途/機能で検索
+  - `describe_device(device_id)` — 現状確認
+- **Backend `/devices/`**: CRUD + heartbeat + `{id}/control` プロキシ
+- **Safety**: action allowlist (sanitizer), pulse duration_s ≤ 600s, brightness 0-255, color_temp 153-500
+- **dispatcher**: `brain/src/device_dispatcher.py` — `vendor` でハブ別ディスパッチ (ha-bridge / switchbot-bridge / tapo-bridge / zigbee2mqtt MQTT)
+
+### Tapo Integration (`--profile tapo`)
+
+Tapo P110/P115 (電力計測対応スマートプラグ) を LAN 経由で直接制御 (HA不要)。
+
+- **tapo-bridge**: Docker サービス (Python/FastAPI, python-kasa 使用)
+  - 30秒間隔で全 Tapo デバイスを polling → 電力・電圧・電流・総消費電力を MQTT publish
+  - REST API: `POST /api/devices/{ref}/command` (turnOn/turnOff/toggle)
+  - Publishes to `hems/tapo/{vendor_ref}/state`
+- **Profile**: `docker compose --profile tapo up -d --build`
+- **Brain tools**: `control_actuator` 経由 (vendor="tapo")
+- **pulse対応**: ブレイン側で on → sleep → off (水ポンプ等の短時間通電に活用)
+- **Device Registry**: `tapo.{vendor_ref}` として自動登録
+
+Configure in `.env`:
+```bash
+TAPO_USERNAME=<tapo-cloud-email>
+TAPO_PASSWORD=<tapo-cloud-password>
+TAPO_DEVICES={"plug_desklight":"192.168.1.42","plug_pump":"192.168.1.43"}
+TAPO_ZONES={"plug_desklight":"bedroom","plug_pump":"balcony"}
+TAPO_NAMES={"plug_desklight":"寝室デスクライト"}
+TAPO_BRIDGE_URL=http://tapo-bridge:8000
+HEMS_PORT_TAPO_BRIDGE=8020
+```
+
+### Zigbee2MQTT Integration (`--profile zigbee`)
+
+Zigbee デバイスを公式 Z2M daemon 経由で直接制御 (HA不要)。
+
+- **zigbee2mqtt**: 公式 Docker image (`koenkk/zigbee2mqtt`) — Zigbee USB coordinator stick 必須
+  - `zigbee2mqtt/{device}` にデバイス状態、`zigbee2mqtt/bridge/*` に管理情報を publish
+  - Brain が `zigbee2mqtt/{device}/set` に publish すれば制御可能
+- **Profile**: `docker compose --profile zigbee up -d --build`
+- **Brain tools**: `control_actuator` 経由 (vendor="zigbee") — 直接 MQTT publish、`zigbee_permit_join` でペアリング制御
+- **Device Registry**: `zigbee.{friendly_name}` として自動登録
+- **Admin UI**: `http://localhost:${HEMS_PORT_FRONTEND:-8080}/z2m/` (nginx proxy 経由) または `http://localhost:${HEMS_PORT_Z2M_UI:-8090}/` (直接)、認証トークンは `HEMS_API_KEY`
+- **Remote permit_join**: `POST /devices/zigbee/permit_join` で Z2M に `zigbee2mqtt/bridge/request/permit_join` publish、`/devices` ページにボタンあり
+
+**Deploy 手順**:
+1. MQTT 認証情報生成: `bash infra/mosquitto/setup-users.sh --gen`
+2. `.env` に `MQTT_PASS_HEMS_Z2M=...` と `HEMS_API_KEY=...` を設定
+3. (推奨) USB stick を固定名化: `sudo cp infra/udev/99-zigbee.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger` → `.env` に `HEMS_Z2M_USB_DEVICE=/dev/zigbee-coordinator`
+4. `docker compose --profile zigbee up -d --build`
+
+**IKEA GRILLPLATS ペアリング** (secret Zigbeeモード):
+1. On/Offボタン長押し (10秒) → 工場リセット
+2. On/Offを**素早く8回**タップ → Zigbeeモード有効化 (Matter ではなく)
+3. `/devices` ページで「Zigbee ペアリング開始」ボタン押下 (または `zigbee_permit_join` LLM tool)
+4. ペアリング成功後は On/Off と Power-on behavior のみ (電力計測は非対応 → Matter モード必要)
+
+Configure in `.env`:
+```bash
+HEMS_Z2M_USB_DEVICE=/dev/ttyUSB0   # or /dev/zigbee-coordinator with udev rule
+MQTT_PASS_HEMS_Z2M=<from setup-users.sh>
+HEMS_API_KEY=<shared with backend>
+# HEMS_PORT_Z2M_UI=8090
 ```
 
 ### SwitchBot Integration (Direct API)

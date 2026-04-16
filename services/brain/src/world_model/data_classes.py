@@ -576,6 +576,7 @@ class ShoppingItemData:
     quantity: int = 1
     unit: str = ""
     store: str = ""
+    store_category: str = ""  # drugstore|supermarket|convenience|home_center|other
     price: int = 0
     is_recurring: bool = False
     recurrence_days: int = 0

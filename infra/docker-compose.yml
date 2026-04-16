@@ -564,6 +564,66 @@ services:
       retries: 3
       start_period: 10s
 
+  # --- Tapo Bridge (python-kasa direct LAN integration) ---
+  tapo-bridge:
+    build: ../services/tapo-bridge
+    container_name: hems-tapo-bridge
+    restart: always
+    profiles: ["tapo"]
+    ports:
+      - "${HEMS_PORT_TAPO_BRIDGE:-8020}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - TAPO_USERNAME=${TAPO_USERNAME:-}
+      - TAPO_PASSWORD=${TAPO_PASSWORD:-}
+      - TAPO_DEVICES=${TAPO_DEVICES:-{}}
+      - TAPO_ZONES=${TAPO_ZONES:-{}}
+      - TAPO_NAMES=${TAPO_NAMES:-{}}
+      - TAPO_POLL_INTERVAL=${TAPO_POLL_INTERVAL:-30}
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=${MQTT_USER_TAPO:-hems-tapo-bridge}
+      - MQTT_PASS=${MQTT_PASS_TAPO:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/tapo-bridge/src:/app
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # --- Zigbee2MQTT (official image, needs USB coordinator stick) ---
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt:latest
+    container_name: hems-zigbee2mqtt
+    restart: unless-stopped
+    profiles: ["zigbee"]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    ports:
+      # Admin UI fallback — also reachable via nginx at http://<frontend>/z2m/
+      - "${HEMS_PORT_Z2M_UI:-8090}:8080"
+    volumes:
+      - ../config/zigbee2mqtt:/app/data
+      - /run/udev:/run/udev:ro
+    devices:
+      - ${HEMS_Z2M_USB_DEVICE:-/dev/ttyUSB0}:/dev/ttyACM0
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      # MQTT password for user hems-z2m (overrides configuration.yaml)
+      - ZIGBEE2MQTT_CONFIG_MQTT_PASSWORD=${MQTT_PASS_HEMS_Z2M:-}
+      # Admin UI auth token — reuses HEMS_API_KEY so one secret covers everything
+      - ZIGBEE2MQTT_CONFIG_FRONTEND_AUTH_TOKEN=${HEMS_API_KEY:-}
+    networks:
+      - hems-net
+
   # --- News Bridge (RSS + Ollama summarizer) ---
   news-bridge:
     build: ../services/news-bridge

@@ -101,3 +101,11 @@ services/frontend/public/assets/character/
 
 # Proprietary TTS installers (AIVOICE Yukari etc. — user-supplied binaries)
 /yukari/
+
+# Zigbee2MQTT runtime state (network_key, coordinator backup, pairing state)
+# Keep configuration.yaml / secret.yaml templates tracked but ignore runtime writes.
+/config/zigbee2mqtt/state.json
+/config/zigbee2mqtt/coordinator_backup.json
+/config/zigbee2mqtt/database.db
+/config/zigbee2mqtt/log/
+/config/zigbee2mqtt/secret.yaml.local

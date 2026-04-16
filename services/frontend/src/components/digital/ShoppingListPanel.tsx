@@ -32,6 +32,14 @@ const PRIORITY_CLASS: Record<number, string> = {
   2: 'text-destructive font-medium',
 }
 
+const STORE_CATEGORY_LABEL: Record<string, string> = {
+  drugstore: '薬局',
+  supermarket: 'スーパー',
+  convenience: 'コンビニ',
+  home_center: 'ホムセン',
+  other: 'その他',
+}
+
 const ShoppingListPanel = memo(function ShoppingListPanel({ items, stats }: Props) {
   const queryClient = useQueryClient()
   const [newItemName, setNewItemName] = useState('')
@@ -261,6 +269,14 @@ const ShoppingListPanel = memo(function ShoppingListPanel({ items, stats }: Prop
                   {item.store && (
                     <span className="text-[9px] text-muted-foreground bg-muted px-1 rounded">
                       {item.store}
+                    </span>
+                  )}
+                  {item.store_category && (
+                    <span
+                      className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full"
+                      title="brain が分類した推奨店舗カテゴリ"
+                    >
+                      {STORE_CATEGORY_LABEL[item.store_category] ?? item.store_category}
                     </span>
                   )}
                   {item.price != null && (

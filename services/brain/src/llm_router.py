@@ -3,9 +3,12 @@ LLM Router — routes chat() calls to different LLMClient instances
 based on task_type.
 
 Supported task types:
-  "default"   → main LLM (LLM_MODEL / LLM_API_URL)
-  "boot_load" → heavy LLM (BOOT_LOAD_MODEL / BOOT_LOAD_API_URL) if configured,
-                otherwise falls back to default
+  "default"            → main LLM (LLM_MODEL / LLM_API_URL)
+  "shopping_classify"  → default (lightweight / synchronous fallback path)
+  "boot_load"          → heavy LLM (BOOT_LOAD_MODEL / BOOT_LOAD_API_URL)
+                         if configured, otherwise falls back to default
+  "event_classify"     → boot_load (quality matters; only runs during capsule
+                         build so heavy-model latency is acceptable)
 """
 import os
 
@@ -50,7 +53,8 @@ class LLMRouter:
         max_tokens: int | None = None,
     ) -> LLMResponse:
         """Route to the appropriate LLMClient and call chat()."""
-        is_boot_load = task_type == "boot_load" and self._boot_load is not None
+        use_boot_load = task_type in ("boot_load", "event_classify")
+        is_boot_load = use_boot_load and self._boot_load is not None
         client = self._boot_load if is_boot_load else self._default
         # Enable thinking for boot_load: time budget is generous and quality matters
         think = is_boot_load and client.provider == "ollama"

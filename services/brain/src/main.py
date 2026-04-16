@@ -34,6 +34,10 @@ from event_store import init_db, EventWriter, HourlyAggregator
 from ambient_speaker import AmbientSpeaker
 from event_automation import EventAutomation
 from timeline import TimelineGenerator
+from device_dispatcher import DeviceDispatcher, parse_mqtt as parse_device_mqtt
+from scene_executor import SceneExecutor
+from automation_engine import AutomationEngine
+from annotator import ClassifierCache, EventClassifier, ShoppingClassifier
 
 load_dotenv()
 
@@ -169,6 +173,13 @@ class Brain:
         self.ambient_speaker: AmbientSpeaker | None = None
         self.event_automation: EventAutomation | None = None
         self.timeline_generator: TimelineGenerator | None = None
+        self.device_dispatcher: DeviceDispatcher | None = None
+        self.scene_executor: SceneExecutor | None = None
+        self.automation_engine: AutomationEngine | None = None
+        self.shopping_classifier: ShoppingClassifier | None = None
+        self._heartbeat_debounce: dict[str, float] = {}
+        self._cached_devices: list[dict] = []
+        self._cached_devices_at: float = 0.0
 
         self._cycle_triggered = asyncio.Event()
         self._last_event_count: dict[str, int] = {}
@@ -182,6 +193,7 @@ class Brain:
         client.subscribe("mcp/+/response/#")
         client.subscribe("office/#")
         client.subscribe("hems/#")
+        client.subscribe("zigbee2mqtt/#")
 
     def on_message(self, client, userdata, msg):
         try:
@@ -270,6 +282,11 @@ class Brain:
     def _process_mqtt(self, topic: str, payload: dict):
         self.world_model.update_from_mqtt(topic, payload)
 
+        if topic == "hems/shopping/added" and self.shopping_classifier and self._loop:
+            asyncio.run_coroutine_threadsafe(
+                self.shopping_classifier.handle_added_event(payload), self._loop
+            )
+
         if self.timeline_generator and self._loop:
             if topic == "hems/gas/calendar/upcoming":
                 self._loop.call_soon_threadsafe(self._trigger_timeline_regen, "calendar_update")
@@ -304,6 +321,10 @@ class Brain:
                         asyncio.run_coroutine_threadsafe(
                             self.event_automation.trigger("wake_up"), self._loop
                         )
+                        if self.automation_engine:
+                            asyncio.run_coroutine_threadsafe(
+                                self.automation_engine.trigger_event("wake_up"), self._loop
+                            )
 
             # Camera: person detected in morning hours (5:00-10:00)
             parts = topic.split("/")
@@ -316,6 +337,10 @@ class Brain:
                         asyncio.run_coroutine_threadsafe(
                             self.event_automation.trigger("wake_up"), self._loop
                         )
+                        if self.automation_engine:
+                            asyncio.run_coroutine_threadsafe(
+                                self.automation_engine.trigger_event("wake_up"), self._loop
+                            )
 
         if self.event_writer:
             parts = topic.split("/")
@@ -331,6 +356,17 @@ class Brain:
             parts = topic.split("/")
             if len(parts) >= 4:
                 self.device_registry.update_from_heartbeat(parts[3], payload)
+
+        # Device Registry auto-registration / refresh
+        observation = parse_device_mqtt(topic, payload)
+        if observation is not None and self.dashboard is not None and self._loop is not None:
+            now = time.time()
+            last = self._heartbeat_debounce.get(observation.device_id, 0.0)
+            if now - last >= 10.0:  # throttle to max 1 heartbeat / 10s per device
+                self._heartbeat_debounce[observation.device_id] = now
+                asyncio.run_coroutine_threadsafe(
+                    self.dashboard.push_device_heartbeat(observation), self._loop
+                )
 
         current = {zid: len(z.events) for zid, z in self.world_model.zones.items()}
         if OPENCLAW_ENABLED:
@@ -518,8 +554,11 @@ class Brain:
         active_tasks = await self.dashboard.get_active_tasks()
 
         services_enabled = OPENCLAW_ENABLED and bool(self.world_model.services_state.services)
+        devices_for_prompt = await self._get_cached_devices()
+        # Stage 1 (thinking) uses raw model — character=None to skip any lingering
+        # character injection. Stage 2 character overlay happens in ToolExecutor._handle_speak.
         system_msg = build_system_message(
-            self.character, openclaw_enabled=OPENCLAW_ENABLED,
+            character=None, openclaw_enabled=OPENCLAW_ENABLED,
             services_enabled=services_enabled,
             obsidian_enabled=OBSIDIAN_ENABLED,
             ha_enabled=HA_ENABLED,
@@ -527,6 +566,7 @@ class Brain:
             perception_enabled=PERCEPTION_ENABLED,
             switchbot_enabled=SWITCHBOT_ENABLED,
             knowledge_enabled=KNOWLEDGE_ENABLED,
+            devices=devices_for_prompt,
         )
         user_content = f"## 現在の自宅状態\n{llm_context}"
 
@@ -641,13 +681,24 @@ class Brain:
             if not filtered:
                 break
 
+            # Provider-specific tool_call/tool message formatting (OpenAI vs Ollama).
+            llm_provider = getattr(self.llm, "provider", "openai")
+            if llm_provider == "ollama":
+                tool_call_blocks = [
+                    {"id": tc["id"], "type": "function",
+                     "function": {"name": tc["function"]["name"],
+                                  "arguments": tc["function"]["arguments"]}}
+                    for tc in filtered
+                ]
+            else:
+                tool_call_blocks = [
+                    {"id": tc["id"], "type": "function",
+                     "function": {"name": tc["function"]["name"],
+                                  "arguments": json.dumps(tc["function"]["arguments"], ensure_ascii=False)}}
+                    for tc in filtered
+                ]
             assistant_msg = {"role": "assistant", "content": response.content or ""}
-            assistant_msg["tool_calls"] = [
-                {"id": tc["id"], "type": "function",
-                 "function": {"name": tc["function"]["name"],
-                              "arguments": json.dumps(tc["function"]["arguments"], ensure_ascii=False)}}
-                for tc in filtered
-            ]
+            assistant_msg["tool_calls"] = tool_call_blocks
             messages.append(assistant_msg)
 
             total_tool_calls += len(filtered)
@@ -662,10 +713,15 @@ class Brain:
                     "success": result.get("success", True),
                 })
 
-                messages.append({
-                    "role": "tool", "tool_call_id": tc["id"],
+                tool_msg = {
+                    "role": "tool",
                     "content": str(result.get("result") or result.get("error", "")),
-                })
+                }
+                if llm_provider == "ollama":
+                    tool_msg["name"] = tool_name
+                else:
+                    tool_msg["tool_call_id"] = tc["id"]
+                messages.append(tool_msg)
 
                 if not result["success"]:
                     consecutive_errors += 1
@@ -714,6 +770,126 @@ class Brain:
     async def _chat_health(self, request):
         from aiohttp import web as aio_web
         return aio_web.json_response({"status": "ok"})
+
+    async def _handle_device_control(self, request):
+        """Proxy manual device control from backend UI to DeviceDispatcher."""
+        from aiohttp import web as aio_web
+        import secrets as _secrets
+
+        auth = request.headers.get("Authorization", "")
+        if HEMS_API_KEY and not _secrets.compare_digest(auth, f"Bearer {HEMS_API_KEY}"):
+            return aio_web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+        except Exception:
+            return aio_web.json_response({"error": "Invalid JSON"}, status=400)
+
+        if self.device_dispatcher is None:
+            return aio_web.json_response(
+                {"success": False, "error": "Dispatcher not initialized"}, status=503,
+            )
+
+        device_id = data.get("device_id", "")
+        action = data.get("action", "")
+        params = data.get("params") or {}
+        if not device_id or not action:
+            return aio_web.json_response(
+                {"success": False, "error": "device_id and action are required"},
+                status=400,
+            )
+
+        validation = self.sanitizer.validate_tool_call(
+            "control_actuator",
+            {"device_id": device_id, "action": action, "params": params},
+        )
+        if not validation["allowed"]:
+            return aio_web.json_response(
+                {"success": False, "error": validation["reason"]}, status=400,
+            )
+
+        result = await self.device_dispatcher.dispatch(device_id, action, params)
+        # Invalidate cached device list so the next system prompt build refreshes.
+        self._cached_devices_at = 0.0
+        return aio_web.json_response(result)
+
+    async def _handle_zigbee_permit_join(self, request):
+        """Toggle Z2M pairing mode. Proxied from backend /devices/zigbee/permit_join."""
+        from aiohttp import web as aio_web
+        import secrets as _secrets
+
+        auth = request.headers.get("Authorization", "")
+        if HEMS_API_KEY and not _secrets.compare_digest(auth, f"Bearer {HEMS_API_KEY}"):
+            return aio_web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+        except Exception:
+            return aio_web.json_response({"error": "Invalid JSON"}, status=400)
+
+        if self.device_dispatcher is None:
+            return aio_web.json_response(
+                {"success": False, "error": "Dispatcher not initialized"}, status=503,
+            )
+
+        enable = bool(data.get("enable", False))
+        duration_s = int(data.get("duration_s", 0) or 0)
+        result = self.device_dispatcher.zigbee_permit_join(enable, duration_s)
+        return aio_web.json_response(result)
+
+    async def _handle_scene_execute(self, request):
+        """Execute a scene (from backend proxy or direct LLM call)."""
+        from aiohttp import web as aio_web
+        import secrets as _secrets
+
+        auth = request.headers.get("Authorization", "")
+        if HEMS_API_KEY and not _secrets.compare_digest(auth, f"Bearer {HEMS_API_KEY}"):
+            return aio_web.json_response({"error": "Unauthorized"}, status=401)
+        try:
+            data = await request.json()
+        except Exception:
+            return aio_web.json_response({"error": "Invalid JSON"}, status=400)
+
+        if self.scene_executor is None:
+            return aio_web.json_response(
+                {"success": False, "executed": 0, "errors": ["scene_executor not ready"]},
+                status=503,
+            )
+        actions = data.get("actions")
+        name = data.get("name", "")
+        if actions is not None:
+            result = await self.scene_executor.execute(actions)
+        elif name:
+            result = await self.scene_executor.execute_by_name(name)
+        else:
+            return aio_web.json_response(
+                {"success": False, "executed": 0,
+                 "errors": ["either 'actions' or 'name' required"]}, status=400,
+            )
+        return aio_web.json_response(result)
+
+    async def _handle_automation_evaluate(self, request):
+        """Dry-run evaluate a rule's trigger; returns would_fire + reason."""
+        from aiohttp import web as aio_web
+        import secrets as _secrets
+
+        auth = request.headers.get("Authorization", "")
+        if HEMS_API_KEY and not _secrets.compare_digest(auth, f"Bearer {HEMS_API_KEY}"):
+            return aio_web.json_response({"error": "Unauthorized"}, status=401)
+        try:
+            data = await request.json()
+        except Exception:
+            return aio_web.json_response({"error": "Invalid JSON"}, status=400)
+
+        if self.automation_engine is None:
+            return aio_web.json_response(
+                {"would_fire": False, "reason": "engine not ready"}, status=503,
+            )
+        result = await self.automation_engine.evaluate_trigger(
+            trigger_type=data.get("trigger_type", ""),
+            trigger_config=data.get("trigger_config") or {},
+        )
+        return aio_web.json_response(result)
 
     async def _handle_chat(self, request):
         """Handle user chat query via agentic RAG with read-only tools."""
@@ -784,14 +960,26 @@ class Brain:
                 response_content = response.content or ""
                 break
 
-            # Process tool calls
+            # Process tool calls.
+            # Ollama /api/chat expects arguments as an object; OpenAI expects a JSON string.
+            # Use string form only for OpenAI-compatible providers (incl. mock-llm).
+            llm_provider = getattr(self.llm, "provider", "openai")
+            if llm_provider == "ollama":
+                tool_call_blocks = [
+                    {"id": tc["id"], "type": "function",
+                     "function": {"name": tc["function"]["name"],
+                                  "arguments": tc["function"]["arguments"]}}
+                    for tc in response.tool_calls
+                ]
+            else:
+                tool_call_blocks = [
+                    {"id": tc["id"], "type": "function",
+                     "function": {"name": tc["function"]["name"],
+                                  "arguments": json.dumps(tc["function"]["arguments"], ensure_ascii=False)}}
+                    for tc in response.tool_calls
+                ]
             assistant_msg = {"role": "assistant", "content": response.content or ""}
-            assistant_msg["tool_calls"] = [
-                {"id": tc["id"], "type": "function",
-                 "function": {"name": tc["function"]["name"],
-                              "arguments": json.dumps(tc["function"]["arguments"], ensure_ascii=False)}}
-                for tc in response.tool_calls
-            ]
+            assistant_msg["tool_calls"] = tool_call_blocks
             llm_messages.append(assistant_msg)
 
             for tc in response.tool_calls:
@@ -799,10 +987,16 @@ class Brain:
                 arguments = tc["function"]["arguments"]
                 result = await self.tool_executor.execute(tool_name, arguments)
 
-                llm_messages.append({
-                    "role": "tool", "tool_call_id": tc["id"],
+                tool_msg = {
+                    "role": "tool",
                     "content": str(result.get("result") or result.get("error", "")),
-                })
+                }
+                # Ollama tool messages include `name`, not `tool_call_id`.
+                if llm_provider == "ollama":
+                    tool_msg["name"] = tool_name
+                else:
+                    tool_msg["tool_call_id"] = tc["id"]
+                llm_messages.append(tool_msg)
 
                 tool_calls_log.append({
                     "tool": tool_name,
@@ -812,6 +1006,18 @@ class Brain:
 
                 logger.debug(f"Chat tool: {tool_name}({_summarize_action(tool_name, arguments)}) "
                              f"→ {'ok' if result['success'] else 'err'}")
+
+        # Stage 2 rewrite: apply character voice to the final chat response.
+        # Raw response is produced by the tool-calling layer (character-free);
+        # PersonaRewriter.rewrite_long preserves facts (numbers / device_ids)
+        # while applying the character speaking style.
+        if self.persona_rewriter is not None and response_content:
+            try:
+                response_content = await self.persona_rewriter.rewrite_long(
+                    response_content, tone="neutral",
+                )
+            except Exception as e:
+                logger.debug(f"Chat response rewrite failed, using raw: {e}")
 
         # Get character name for display
         char_name = None
@@ -825,6 +1031,18 @@ class Brain:
             "tool_calls": tool_calls_log,
             "character_name": char_name,
         })
+
+    async def _get_cached_devices(self, max_age: float = 60.0) -> list[dict]:
+        """Fetch devices with caching to avoid per-cycle backend hits."""
+        now = time.time()
+        if self._cached_devices and (now - self._cached_devices_at) < max_age:
+            return self._cached_devices
+        if self.dashboard is None:
+            return []
+        devices = await self.dashboard.fetch_all_devices()
+        self._cached_devices = devices
+        self._cached_devices_at = now
+        return devices
 
     async def _push_all_snapshots(self):
         """Push all domain snapshots to backend for frontend consumption."""
@@ -965,18 +1183,58 @@ class Brain:
             self.llm_router = LLMRouter(self.llm, session=session)
             self.boot_load_manager = BootLoadManager() if BOOT_LOAD_ENABLED else None
             self.persona_rewriter = PersonaRewriter(self.character, self.llm)
+            # NOTE: configure_capsule moved below event_classifier init (see next block).
             self.dashboard = DashboardClient(session=session)
+            classifier_cache = ClassifierCache(
+                session=session, backend_url=BACKEND_URL, api_key=HEMS_API_KEY,
+            )
+            self.shopping_classifier = ShoppingClassifier(
+                session=session, backend_url=BACKEND_URL, api_key=HEMS_API_KEY,
+                cache=classifier_cache, llm_router=self.llm_router,
+            )
+            self.event_classifier = EventClassifier(
+                llm_router=self.llm_router, cache=classifier_cache,
+            )
+            if self.boot_load_manager is not None:
+                self.boot_load_manager.configure_capsule(
+                    api_key=HEMS_API_KEY,
+                    persona_rewriter=self.persona_rewriter,
+                    mqtt_client=self.client,
+                    character_version=os.getenv("CHARACTER_VERSION", os.getenv("CHARACTER", "default")),
+                    schedule_learner=self.schedule_learner,
+                    event_classifier=self.event_classifier,
+                )
             self.task_reminder = TaskReminder(session=session)
             self.task_queue = TaskQueueManager(self.world_model, self.dashboard)
+            self.device_dispatcher = DeviceDispatcher(
+                session=session, mqtt_client=self.client,
+            )
+            self.scene_executor = SceneExecutor(
+                device_dispatcher=self.device_dispatcher,
+                dashboard_client=self.dashboard,
+            )
+            self.automation_engine = AutomationEngine(
+                dispatcher=self.device_dispatcher,
+                scene_executor=self.scene_executor,
+                dashboard_client=self.dashboard,
+                llm_client=None,  # assigned below after self.llm is set
+                world_model=self.world_model,
+                sanitizer=self.sanitizer,
+            )
             self.tool_executor = ToolExecutor(
                 sanitizer=self.sanitizer, mcp_bridge=self.mcp,
                 dashboard_client=self.dashboard, world_model=self.world_model,
                 task_queue=self.task_queue, session=session,
                 device_registry=self.device_registry,
+                device_dispatcher=self.device_dispatcher,
+                scene_executor=self.scene_executor,
+                persona_rewriter=self.persona_rewriter,
             )
+            # Wire LLM now that it's initialized
+            self.automation_engine.llm_client = self.llm
             self.ambient_speaker = AmbientSpeaker(
                 llm_client=self.llm, world_model=self.world_model,
-                character=self.character,
+                character=self.character, persona_rewriter=self.persona_rewriter,
             )
             if NEWS_ENABLED:
                 self.event_automation = EventAutomation(
@@ -1049,11 +1307,20 @@ class Brain:
             chat_app = aio_web.Application()
             chat_app.router.add_post("/chat", self._handle_chat)
             chat_app.router.add_get("/health", self._chat_health)
+            chat_app.router.add_post("/devices/control", self._handle_device_control)
+            chat_app.router.add_post("/devices/zigbee/permit_join", self._handle_zigbee_permit_join)
+            chat_app.router.add_post("/scenes/execute", self._handle_scene_execute)
+            chat_app.router.add_post("/automations/evaluate", self._handle_automation_evaluate)
             chat_runner = aio_web.AppRunner(chat_app)
             await chat_runner.setup()
             chat_site = aio_web.TCPSite(chat_runner, "0.0.0.0", CHAT_SERVER_PORT)
             await chat_site.start()
             logger.info(f"Brain chat server started on :{CHAT_SERVER_PORT}")
+
+            # Start AutomationEngine (background eval loop + periodic rule refresh)
+            if self.automation_engine is not None:
+                if os.getenv("AUTOMATION_ENGINE_ENABLED", "true").lower() not in ("0", "false", "no"):
+                    await self.automation_engine.start()
 
             logger.info("HEMS Brain running (ReAct mode)...")
 

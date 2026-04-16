@@ -37,3 +37,25 @@ class DualVoiceResponse(BaseModel):
     completion_text: str
     completion_duration: float = 0.0
     played_directly: bool = False
+
+
+class BatchSynthesizeItem(BaseModel):
+    clip_id: str                # deterministic; appears in the output filename
+    text: str
+    tone: Optional[str] = "neutral"
+
+
+class BatchSynthesizeRequest(BaseModel):
+    prefix: str                 # e.g. "capsule_2026-04-17" — path-safe
+    items: List[BatchSynthesizeItem]
+
+
+class BatchSynthesizeResult(BaseModel):
+    clip_id: str
+    audio_url: Optional[str] = None
+    duration_seconds: float = 0.0
+    error: Optional[str] = None
+
+
+class BatchSynthesizeResponse(BaseModel):
+    results: List[BatchSynthesizeResult]

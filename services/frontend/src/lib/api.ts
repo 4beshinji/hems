@@ -21,6 +21,25 @@ import type {
   OllamaModel,
   PowerMode,
   BatchTaskName,
+  Device,
+  DeviceCreate,
+  DeviceUpdate,
+  DeviceControlRequest,
+  DeviceControlResponse,
+  Scene,
+  SceneCreate,
+  SceneUpdate,
+  SceneExecuteResponse,
+  AutomationRule,
+  AutomationRuleCreate,
+  AutomationRuleUpdate,
+  AutomationTestResponse,
+  FrequentPlace,
+  FrequentPlaceCreate,
+  FrequentPlaceUpdate,
+  MobileDevice,
+  MobileDeviceRegisterRequest,
+  MobileDeviceRegisterResponse,
 } from './types'
 
 // In production, nginx proxies /api/ → backend (with auth header injected).
@@ -288,4 +307,130 @@ export function sendChatMessage(
     conversation_id: conversationId ?? null,
     tts: tts ?? null,
   })
+}
+
+// ─── Devices ────────────────────────────────────────────────────────────────
+export function fetchDevices(params?: {
+  kind?: string
+  vendor?: string
+  zone?: string
+  enabled_only?: boolean
+}): Promise<Device[]> {
+  const query = new URLSearchParams()
+  if (params?.kind) query.set('kind', params.kind)
+  if (params?.vendor) query.set('vendor', params.vendor)
+  if (params?.zone) query.set('zone', params.zone)
+  if (params?.enabled_only) query.set('enabled_only', 'true')
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return get(`/devices/${suffix}`)
+}
+
+export function fetchDevice(deviceId: string): Promise<Device> {
+  return get(`/devices/${encodeURIComponent(deviceId)}`)
+}
+
+export function createDevice(payload: DeviceCreate): Promise<Device> {
+  return post('/devices/', payload)
+}
+
+export function updateDevice(deviceId: string, payload: DeviceUpdate): Promise<Device> {
+  return put(`/devices/${encodeURIComponent(deviceId)}`, payload)
+}
+
+export function deleteDevice(deviceId: string): Promise<{ success: boolean }> {
+  return del(`/devices/${encodeURIComponent(deviceId)}`)
+}
+
+export function controlDevice(
+  deviceId: string,
+  payload: DeviceControlRequest,
+): Promise<DeviceControlResponse> {
+  return post(`/devices/${encodeURIComponent(deviceId)}/control`, payload)
+}
+
+export function zigbeePermitJoin(
+  enable: boolean,
+  durationS: number = 60,
+): Promise<DeviceControlResponse> {
+  return post('/devices/zigbee/permit_join', { enable, duration_s: durationS })
+}
+
+// ─── Scenes ─────────────────────────────────────────────────────────────────
+export function fetchScenes(enabledOnly = false): Promise<Scene[]> {
+  return get(`/scenes/${enabledOnly ? '?enabled_only=true' : ''}`)
+}
+
+export function createScene(payload: SceneCreate): Promise<Scene> {
+  return post('/scenes/', payload)
+}
+
+export function updateScene(id: number, payload: SceneUpdate): Promise<Scene> {
+  return put(`/scenes/${id}`, payload)
+}
+
+export function deleteScene(id: number): Promise<{ success: boolean }> {
+  return del(`/scenes/${id}`)
+}
+
+export function executeScene(id: number): Promise<SceneExecuteResponse> {
+  return post(`/scenes/${id}/execute`, {})
+}
+
+// ─── Automation rules ──────────────────────────────────────────────────────
+export function fetchAutomations(enabledOnly = false): Promise<AutomationRule[]> {
+  return get(`/automations/${enabledOnly ? '?enabled_only=true' : ''}`)
+}
+
+export function createAutomation(payload: AutomationRuleCreate): Promise<AutomationRule> {
+  return post('/automations/', payload)
+}
+
+export function updateAutomation(
+  id: number,
+  payload: AutomationRuleUpdate,
+): Promise<AutomationRule> {
+  return put(`/automations/${id}`, payload)
+}
+
+export function deleteAutomation(id: number): Promise<{ success: boolean }> {
+  return del(`/automations/${id}`)
+}
+
+export function testAutomation(id: number): Promise<AutomationTestResponse> {
+  return post(`/automations/${id}/test`, {})
+}
+
+// ─── Frequent Places ────────────────────────────────────────────────────────
+export function fetchFrequentPlaces(enabledOnly = false): Promise<FrequentPlace[]> {
+  return get(`/frequent-places/${enabledOnly ? '?enabled_only=true' : ''}`)
+}
+
+export function createFrequentPlace(payload: FrequentPlaceCreate): Promise<FrequentPlace> {
+  return post('/frequent-places/', payload)
+}
+
+export function updateFrequentPlace(
+  id: number,
+  payload: FrequentPlaceUpdate,
+): Promise<FrequentPlace> {
+  return put(`/frequent-places/${id}`, payload)
+}
+
+export function deleteFrequentPlace(id: number): Promise<{ deleted: boolean }> {
+  return del(`/frequent-places/${id}`)
+}
+
+// ─── Mobile devices ─────────────────────────────────────────────────────────
+export function fetchMobileDevices(): Promise<MobileDevice[]> {
+  return get('/mobile/devices')
+}
+
+export function registerMobileDevice(
+  payload: MobileDeviceRegisterRequest,
+): Promise<MobileDeviceRegisterResponse> {
+  return post('/mobile/register', payload)
+}
+
+export function disableMobileDevice(id: number): Promise<{ disabled: boolean }> {
+  return del(`/mobile/devices/${id}`)
 }

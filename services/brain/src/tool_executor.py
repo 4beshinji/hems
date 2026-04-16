@@ -25,7 +25,8 @@ _AUTH_HEADERS = {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY el
 
 class ToolExecutor:
     def __init__(self, sanitizer, mcp_bridge, dashboard_client, world_model,
-                 task_queue, session: aiohttp.ClientSession = None, device_registry=None):
+                 task_queue, session: aiohttp.ClientSession = None, device_registry=None,
+                 device_dispatcher=None, scene_executor=None, persona_rewriter=None):
         self.sanitizer = sanitizer
         self.mcp = mcp_bridge
         self.dashboard = dashboard_client
@@ -33,6 +34,11 @@ class ToolExecutor:
         self.task_queue = task_queue
         self._session = session
         self.device_registry = device_registry
+        self.device_dispatcher = device_dispatcher
+        self.scene_executor = scene_executor
+        # Stage 2 (output) rewriter — applied to speak messages before TTS.
+        # Kept optional (None) so this module works in test contexts without a live LLM.
+        self.persona_rewriter = persona_rewriter
         self.openclaw_url = LOCALCRAW_BRIDGE_URL
         self.obsidian_url = OBSIDIAN_BRIDGE_URL
         self.ha_url = HA_BRIDGE_URL
@@ -137,6 +143,18 @@ class ToolExecutor:
                 return await self._handle_get_knowledge_sources(arguments)
             elif tool_name == "read_knowledge_document":
                 return await self._handle_read_knowledge_document(arguments)
+            elif tool_name == "control_actuator":
+                return await self._handle_control_actuator(arguments)
+            elif tool_name == "list_devices":
+                return await self._handle_list_devices(arguments)
+            elif tool_name == "describe_device":
+                return await self._handle_describe_device(arguments)
+            elif tool_name == "zigbee_permit_join":
+                return await self._handle_zigbee_permit_join(arguments)
+            elif tool_name == "execute_scene_by_name":
+                return await self._handle_execute_scene_by_name(arguments)
+            elif tool_name == "list_scenes":
+                return await self._handle_list_scenes(arguments)
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -230,10 +248,25 @@ class ToolExecutor:
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
 
     async def _handle_speak(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Synthesize speech and record as ephemeral voice event."""
-        message = args.get("message", "")
+        """Synthesize speech and record as ephemeral voice event.
+
+        Stage 2 character overlay: if a PersonaRewriter is wired, rewrite the raw
+        Stage-1 message into the configured character voice before synthesis.
+        Fact-bearing tokens (numbers, device_ids, names) are preserved by the
+        rewriter's system prompt.
+        """
+        raw_message = args.get("message", "")
         zone = args.get("zone", "")
         tone = args.get("tone", "neutral")
+
+        # Stage 2 rewrite (empty message is a no-op)
+        message = raw_message
+        if self.persona_rewriter is not None and raw_message:
+            try:
+                message = await self.persona_rewriter.rewrite(raw_message, tone=tone)
+            except Exception as e:
+                logger.debug(f"Persona rewrite failed, using raw: {e}")
+                message = raw_message
 
         # 1. Select avatar motion via serendipity retriever
         motion_id = None
@@ -1038,3 +1071,102 @@ class ToolExecutor:
                 return {"success": False, "error": result.get("detail", f"HTTP {resp.status}")}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    # --- Device Registry tools ---
+
+    async def _handle_control_actuator(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if self.device_dispatcher is None:
+            return {"success": False, "error": "Device dispatcher not configured"}
+        device_id = args.get("device_id", "")
+        action = args.get("action", "")
+        params = args.get("params") or {}
+        if not device_id or not action:
+            return {"success": False, "error": "device_id and action are required"}
+        return await self.device_dispatcher.dispatch(device_id, action, params)
+
+    async def _handle_list_devices(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if self.device_dispatcher is None:
+            return {"success": False, "error": "Device dispatcher not configured"}
+        devices = await self.device_dispatcher.list_all(
+            kind=args.get("kind"),
+            zone=args.get("zone"),
+            vendor=args.get("vendor"),
+        )
+
+        capability = args.get("capability")
+        purpose_sub = args.get("purpose_contains")
+
+        def _match(d: dict) -> bool:
+            if capability and capability not in (d.get("capabilities") or []):
+                return False
+            if purpose_sub and purpose_sub not in (d.get("purpose") or ""):
+                return False
+            return True
+
+        filtered = [d for d in devices if _match(d)]
+        summary = [
+            {
+                "device_id": d["device_id"],
+                "kind": d.get("kind"),
+                "vendor": d.get("vendor"),
+                "device_class": d.get("device_class"),
+                "capabilities": d.get("capabilities", []),
+                "channels": d.get("channels", []),
+                "zone": d.get("zone"),
+                "location": d.get("location"),
+                "purpose": d.get("purpose"),
+                "display_name": d.get("display_name"),
+                "is_enabled": d.get("is_enabled", True),
+                "last_state": d.get("last_state") or {},
+                "last_value": d.get("last_value") or {},
+            }
+            for d in filtered
+        ]
+        return {"success": True, "result": json.dumps(summary, ensure_ascii=False)}
+
+    async def _handle_describe_device(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if self.device_dispatcher is None:
+            return {"success": False, "error": "Device dispatcher not configured"}
+        device_id = args.get("device_id", "")
+        if not device_id:
+            return {"success": False, "error": "device_id is required"}
+        device = await self.device_dispatcher.lookup(device_id)
+        if device is None:
+            return {"success": False, "error": f"Device '{device_id}' not found"}
+        return {"success": True, "result": json.dumps(device, ensure_ascii=False)}
+
+    async def _handle_zigbee_permit_join(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if self.device_dispatcher is None:
+            return {"success": False, "error": "Device dispatcher not configured"}
+        enable = bool(args.get("enable", False))
+        duration_s = int(args.get("duration_s", 60) or 0)
+        return self.device_dispatcher.zigbee_permit_join(enable, duration_s)
+
+    async def _handle_execute_scene_by_name(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if self.scene_executor is None:
+            return {"success": False, "error": "Scene executor not configured"}
+        name = args.get("name", "")
+        if not name:
+            return {"success": False, "error": "name is required"}
+        result = await self.scene_executor.execute_by_name(name)
+        if result.get("success"):
+            return {"success": True,
+                    "result": f"scene '{name}': {result['executed']} actions executed"}
+        return {"success": False,
+                "error": f"scene '{name}' failed: {'; '.join(result.get('errors', []))}"}
+
+    async def _handle_list_scenes(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        if self.scene_executor is None:
+            return {"success": False, "error": "Scene executor not configured"}
+        scenes = await self.scene_executor.list_scenes()
+        summary = [
+            {
+                "name": s.get("name"),
+                "display_name": s.get("display_name"),
+                "description": s.get("description"),
+                "action_count": len(s.get("actions") or []),
+                "is_enabled": s.get("is_enabled", True),
+            }
+            for s in scenes
+        ]
+        return {"success": True, "result": json.dumps(summary, ensure_ascii=False)}

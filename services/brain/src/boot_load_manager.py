@@ -55,6 +55,36 @@ class BootLoadManager:
         self._task: Optional[asyncio.Task] = None
         self._last_run_date: Optional[str] = None  # YYYY-MM-DD
 
+        # Capsule deps — wired from main.Brain.run() once, referenced each run.
+        self._capsule_api_key: str = ""
+        self._capsule_persona = None
+        self._capsule_mqtt = None
+        self._capsule_character_version: Optional[str] = None
+        self._capsule_schedule_learner = None
+        self._capsule_event_classifier = None
+
+    def configure_capsule(
+        self,
+        *,
+        api_key: str,
+        persona_rewriter=None,
+        mqtt_client=None,
+        character_version: Optional[str] = None,
+        schedule_learner=None,
+        event_classifier=None,
+    ) -> None:
+        """Attach dependencies needed to build a voice capsule in _run().
+
+        Keeps the public ``start()`` signature stable — main.Brain just calls
+        this once after its other components are initialized.
+        """
+        self._capsule_api_key = api_key
+        self._capsule_persona = persona_rewriter
+        self._capsule_mqtt = mqtt_client
+        self._capsule_character_version = character_version
+        self._capsule_schedule_learner = schedule_learner
+        self._capsule_event_classifier = event_classifier
+
     # ------------------------------------------------------------------ #
     #  Public interface                                                    #
     # ------------------------------------------------------------------ #
@@ -172,6 +202,10 @@ class BootLoadManager:
                     len(self._cache.audio_urls),
                     len(self._cache.briefing_chunks),
                 )
+
+            # Step 5: Build the mobile voice capsule (best-effort).
+            if voice_url and backend_url and self._capsule_api_key:
+                await self._build_capsule(voice_url, backend_url, session, world_model)
 
             self._cache.generated_at = time.time()
             self._cache.is_complete = True
@@ -307,6 +341,47 @@ class BootLoadManager:
         except Exception:
             pass
         return greeting
+
+    async def _build_capsule(
+        self,
+        voice_url: str,
+        backend_url: str,
+        session: aiohttp.ClientSession,
+        world_model,
+    ) -> None:
+        """Build and persist a daily voice capsule manifest (best-effort)."""
+        try:
+            from voice_capsule import CapsuleBuilder
+
+            builder = CapsuleBuilder(
+                session=session,
+                voice_service_url=voice_url,
+                backend_url=backend_url,
+                api_key=self._capsule_api_key,
+                persona_rewriter=self._capsule_persona,
+                mqtt_client=self._capsule_mqtt,
+                character_version=self._capsule_character_version,
+                event_classifier=self._capsule_event_classifier,
+            )
+            today = datetime.now().strftime("%Y-%m-%d")
+            wake_ts = None
+            if self._capsule_schedule_learner is not None:
+                try:
+                    wake_ts = self._capsule_schedule_learner.get_wake_time()
+                except Exception:  # noqa: BLE001
+                    wake_ts = None
+            manifest = await builder.build_daily_capsule(
+                today, world_model=world_model, wake_ts=wake_ts,
+            )
+            if manifest:
+                logger.info(
+                    "[BootLoad] Capsule built: date={} clips={} bank={}",
+                    manifest.get("capsule_id"),
+                    len(manifest.get("clips", [])),
+                    len(manifest.get("generic_bank", [])),
+                )
+        except Exception as exc:  # noqa: BLE001 — capsule must not break briefing
+            logger.warning("[BootLoad] capsule build failed: {}", exc)
 
     async def _presynthesize(
         self,

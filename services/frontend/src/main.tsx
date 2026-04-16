@@ -11,6 +11,11 @@ const DashboardPage = lazy(() => import('./app/dashboard/page'))
 const PhysicalPage = lazy(() => import('./app/physical/page'))
 const DigitalPage = lazy(() => import('./app/digital/page'))
 const UserPage = lazy(() => import('./app/user/page'))
+const DevicesPage = lazy(() => import('./app/devices/page'))
+const ScenesPage = lazy(() => import('./app/devices/scenes/page'))
+const AutomationsPage = lazy(() => import('./app/devices/automations/page'))
+const PlacesPage = lazy(() => import('./app/places/page'))
+const MobileDevicesPage = lazy(() => import('./app/mobile-devices/page'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -77,6 +82,46 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<LoadingState />}>
             <UserPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'devices',
+        element: (
+          <Suspense fallback={<LoadingState />}>
+            <DevicesPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'devices/scenes',
+        element: (
+          <Suspense fallback={<LoadingState />}>
+            <ScenesPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'devices/automations',
+        element: (
+          <Suspense fallback={<LoadingState />}>
+            <AutomationsPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'places',
+        element: (
+          <Suspense fallback={<LoadingState />}>
+            <PlacesPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'mobile-devices',
+        element: (
+          <Suspense fallback={<LoadingState />}>
+            <MobileDevicesPage />
           </Suspense>
         ),
       },

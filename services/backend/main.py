@@ -52,6 +52,16 @@ async def lifespan(app: FastAPI):
                 logger.info(f"Added {col} column to tasks")
             except Exception:
                 pass
+
+        shopping_item_cols = [
+            ("store_category", "VARCHAR"),
+        ]
+        for col, col_type in shopping_item_cols:
+            try:
+                await conn.execute(text(f"ALTER TABLE shopping_items ADD COLUMN {col} {col_type}"))
+                logger.info(f"Added {col} column to shopping_items")
+            except Exception:
+                pass
     yield
 
 
@@ -80,7 +90,8 @@ app.add_middleware(
 from routers import (  # noqa: E402
     tasks, voice_events, users, zones, pc, services,
     knowledge, gas, biometric, perception, home, timeseries,
-    character, shopping, chat, timeline, brain,
+    character, shopping, chat, timeline, brain, devices,
+    scenes, automations, mobile, frequent_places, classifier_cache,
 )
 
 # All routers require API key authentication.
@@ -103,6 +114,14 @@ app.include_router(shopping.router, dependencies=_auth)
 app.include_router(chat.router, dependencies=_auth)
 app.include_router(timeline.router, dependencies=_auth)
 app.include_router(brain.router, dependencies=_auth)
+app.include_router(devices.router, dependencies=_auth)
+app.include_router(scenes.router, dependencies=_auth)
+app.include_router(automations.router, dependencies=_auth)
+app.include_router(frequent_places.router, dependencies=_auth)
+app.include_router(classifier_cache.router, dependencies=_auth)
+# Mobile admin routes apply verify_api_key themselves; device routes authenticate per-endpoint.
+app.include_router(mobile.admin_router)
+app.include_router(mobile.device_router)
 
 
 @app.get("/")

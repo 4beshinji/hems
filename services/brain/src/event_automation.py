@@ -142,6 +142,14 @@ class EventAutomation:
 
     async def _execute_action(self, action_name: str, action_config: dict = None):
         """Execute a single action."""
+        # scene:{name} → route to Scene executor
+        if action_name.startswith("scene:"):
+            scene_name = action_name.split(":", 1)[1]
+            await self.tool_executor.execute(
+                "execute_scene_by_name", {"name": scene_name},
+            )
+            return
+
         if action_name == "news_briefing":
             await self._action_news_briefing()
         elif action_name == "morning_greeting":
@@ -234,14 +242,16 @@ class EventAutomation:
         message = None
         if self.llm:
             try:
-                char_name = getattr(self.character, "name", "") if self.character else ""
+                # Stage 1: factual morning greeting (no character injection).
+                # Character voice is applied later via _handle_speak → PersonaRewriter.
                 prompt = (
-                    f"{'キャラクター名: ' + char_name + chr(10) if char_name else ''}"
-                    f"以下の状況に基づいて朝の挨拶を1文（50文字以内）で生成してください。\n"
+                    f"以下の状況に基づいて朝の挨拶を1文（50文字以内）で、"
+                    f"素のまま事実ベースで生成してください。"
+                    f"キャラ口調や装飾語尾は付けないでください（後段で付与されます）。\n"
                     f"セリフのみ出力してください。\n\n{context}"
                 )
                 response = await self.llm.chat([
-                    {"role": "system", "content": "短い日本語の朝の挨拶を生成してください。"},
+                    {"role": "system", "content": "短い日本語の朝の挨拶を素のまま生成してください。"},
                     {"role": "user", "content": prompt},
                 ])
                 if not response.error and response.content:

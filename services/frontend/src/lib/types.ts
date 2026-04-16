@@ -383,6 +383,7 @@ export interface ShoppingItem {
   quantity: number
   unit?: string | null
   store?: string | null
+  store_category?: string | null   // brain classifier output (drugstore/supermarket/...)
   price?: number | null
   is_purchased: boolean
   is_recurring: boolean
@@ -462,3 +463,236 @@ export interface OllamaModel {
 }
 
 export type BatchTaskName = 'news_briefing' | 'morning_greeting' | 'weather_report' | 'task_planning'
+
+// ─── Device Registry ──────────────────────────────────────────────────────────
+
+export type DeviceVendor = 'zigbee' | 'switchbot' | 'tapo' | 'ha' | 'mcp' | 'ir_via_hub'
+export type DeviceKind = 'sensor' | 'actuator' | 'both'
+
+export type DeviceCapability =
+  | 'on_off'
+  | 'brightness'
+  | 'color_temp'
+  | 'set_position'
+  | 'set_temperature'
+  | 'pulse'
+  | 'ir_send'
+
+export type DeviceAction =
+  | 'on'
+  | 'off'
+  | 'toggle'
+  | 'set_brightness'
+  | 'set_color_temp'
+  | 'set_position'
+  | 'set_temperature'
+  | 'pulse'
+  | 'ir_send'
+
+export interface Device {
+  id: number
+  device_id: string
+  vendor: DeviceVendor
+  vendor_ref?: string | null
+  kind: DeviceKind
+  device_class?: string | null
+  capabilities: DeviceCapability[]
+  channels: string[]
+  units: Record<string, string>
+  display_name?: string | null
+  zone?: string | null
+  location?: string | null
+  purpose?: string | null
+  description?: string | null
+  icon?: string | null
+  last_state: Record<string, unknown>
+  last_value: Record<string, unknown>
+  last_seen?: string | null
+  battery_pct?: number | null
+  is_enabled: boolean
+  notes?: string | null
+  metadata_json?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface DeviceUpdate {
+  display_name?: string | null
+  zone?: string | null
+  location?: string | null
+  purpose?: string | null
+  description?: string | null
+  icon?: string | null
+  is_enabled?: boolean
+  notes?: string | null
+  kind?: DeviceKind
+  device_class?: string | null
+  capabilities?: DeviceCapability[]
+  channels?: string[]
+  units?: Record<string, string>
+  metadata_json?: string | null
+}
+
+export interface DeviceCreate extends DeviceUpdate {
+  device_id: string
+  vendor: DeviceVendor
+  vendor_ref?: string | null
+  kind: DeviceKind
+}
+
+export interface DeviceControlRequest {
+  action: DeviceAction
+  params?: Record<string, unknown>
+}
+
+export interface DeviceControlResponse {
+  success: boolean
+  result?: string | null
+  error?: string | null
+}
+
+// ─── Scenes ───────────────────────────────────────────────────────────────────
+
+export interface SceneAction {
+  device_id: string
+  action: DeviceAction
+  params?: Record<string, unknown>
+  delay_s: number
+}
+
+export interface Scene {
+  id: number
+  name: string
+  display_name: string
+  description?: string | null
+  actions: SceneAction[]
+  is_enabled: boolean
+  last_executed_at?: string | null
+  execution_count: number
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface SceneCreate {
+  name: string
+  display_name: string
+  description?: string | null
+  actions: SceneAction[]
+  is_enabled?: boolean
+}
+
+export interface SceneUpdate {
+  display_name?: string
+  description?: string | null
+  actions?: SceneAction[]
+  is_enabled?: boolean
+}
+
+export interface SceneExecuteResponse {
+  success: boolean
+  executed: number
+  errors: string[]
+}
+
+// ─── Automation rules ─────────────────────────────────────────────────────────
+
+export type AutomationTriggerType = 'sensor_threshold' | 'schedule' | 'event' | 'device_state'
+export type AutomationMode = 'direct' | 'llm_review'
+
+export interface AutomationRule {
+  id: number
+  name: string
+  description?: string | null
+  enabled: boolean
+  trigger_type: AutomationTriggerType
+  trigger_config: Record<string, unknown>
+  actions: SceneAction[]
+  cooldown_s: number
+  last_fired_at?: string | null
+  mode: AutomationMode
+  require_confirm: boolean
+  fire_count: number
+  last_evaluation_ts?: number | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface AutomationRuleCreate {
+  name: string
+  description?: string | null
+  enabled?: boolean
+  trigger_type: AutomationTriggerType
+  trigger_config: Record<string, unknown>
+  actions: SceneAction[]
+  cooldown_s?: number
+  mode?: AutomationMode
+  require_confirm?: boolean
+}
+
+export type AutomationRuleUpdate = Partial<AutomationRuleCreate>
+
+export interface AutomationTestResponse {
+  rule_id: number
+  would_fire: boolean
+  reason: string
+  sampled_value?: number | string | null
+}
+
+// ─── Frequent Places (mobile companion geofence targets) ───────────────────
+
+export type FrequentPlaceCategory =
+  | 'drugstore'
+  | 'supermarket'
+  | 'convenience'
+  | 'home_center'
+  | 'other'
+
+export interface FrequentPlace {
+  id: number
+  label: string
+  category: FrequentPlaceCategory
+  lat: number
+  lon: number
+  radius_m: number
+  enabled: boolean
+  cooldown_min: number
+  created_at?: string
+  updated_at?: string
+}
+
+export interface FrequentPlaceCreate {
+  label: string
+  category: FrequentPlaceCategory
+  lat: number
+  lon: number
+  radius_m?: number
+  enabled?: boolean
+  cooldown_min?: number
+}
+
+export type FrequentPlaceUpdate = Partial<FrequentPlaceCreate>
+
+// ─── Mobile devices ────────────────────────────────────────────────────────
+
+export interface MobileDevice {
+  id: number
+  device_label: string
+  platform?: string
+  registered_at?: string
+  last_seen_at?: string
+  enabled: boolean
+}
+
+export interface MobileDeviceRegisterRequest {
+  device_label: string
+  platform?: string
+}
+
+/** One-time response containing plaintext credentials — render as QR, drop. */
+export interface MobileDeviceRegisterResponse {
+  device_id: number
+  device_key: string
+  hmac_secret: string
+  backend_url?: string
+  character_version?: string
+}

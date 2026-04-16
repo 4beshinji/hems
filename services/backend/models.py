@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, JSON, Text, UniqueConstraint
 from sqlalchemy.sql import func
 from database import Base
 
@@ -137,6 +137,7 @@ class ShoppingItem(Base):
     quantity = Column(Integer, default=1)
     unit = Column(String, nullable=True)
     store = Column(String, nullable=True)
+    store_category = Column(String, nullable=True, index=True)
     price = Column(Integer, nullable=True)
     is_purchased = Column(Boolean, default=False)
     is_recurring = Column(Boolean, default=False)
@@ -183,6 +184,69 @@ class Message(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class Device(Base):
+    __tablename__ = "devices"
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(String, unique=True, nullable=False, index=True)  # "tapo.plug_desklight"
+    vendor = Column(String, nullable=False, index=True)  # zigbee|switchbot|tapo|ha|mcp|ir_via_hub
+    vendor_ref = Column(String, nullable=True)  # IEEE addr / cloud id / IP / entity_id
+    kind = Column(String, nullable=False, default="actuator")  # sensor|actuator|both
+    device_class = Column(String, nullable=True)  # plug|light|bulb|pump|soil|temp_humidity|co2|pir|hub_ir|curtain
+    capabilities = Column(JSON, default=list)  # ["on_off","brightness","color_temp","pulse","ir_send"]
+    channels = Column(JSON, default=list)  # sensors: ["temperature","humidity","soil_moisture"]
+    units = Column(JSON, default=dict)  # {"temperature":"°C"}
+    display_name = Column(String, nullable=True)
+    zone = Column(String, nullable=True, index=True)
+    location = Column(String, nullable=True)
+    purpose = Column(String, nullable=True)  # LLM context: "起床補助ライト"
+    description = Column(String, nullable=True)
+    icon = Column(String, nullable=True)  # lucide icon name
+    last_state = Column(JSON, default=dict)  # {"on":true,"brightness":200}
+    last_value = Column(JSON, default=dict)  # {"temperature":22.5,"humidity":55}
+    last_seen = Column(DateTime(timezone=True), nullable=True)
+    battery_pct = Column(Integer, nullable=True)
+    is_enabled = Column(Boolean, default=True)
+    notes = Column(String, nullable=True)
+    metadata_json = Column(String, nullable=True)  # vendor固有設定JSON
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class Scene(Base):
+    __tablename__ = "scenes"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False, index=True)  # programmatic id "wake_up"
+    display_name = Column(String, nullable=False)  # "起床シーン"
+    description = Column(String, nullable=True)
+    actions = Column(JSON, nullable=False, default=list)
+    # [{"device_id":str,"action":str,"params":dict,"delay_s":int}]
+    is_enabled = Column(Boolean, default=True)
+    last_executed_at = Column(DateTime(timezone=True), nullable=True)
+    execution_count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class AutomationRule(Base):
+    __tablename__ = "automation_rules"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    enabled = Column(Boolean, default=True)
+    trigger_type = Column(String, nullable=False, index=True)
+    # sensor_threshold|schedule|event|device_state
+    trigger_config = Column(JSON, nullable=False, default=dict)
+    actions = Column(JSON, nullable=False, default=list)  # scene action format
+    cooldown_s = Column(Integer, default=600)
+    last_fired_at = Column(DateTime(timezone=True), nullable=True)
+    mode = Column(String, default="direct")  # direct|llm_review
+    require_confirm = Column(Boolean, default=False)
+    fire_count = Column(Integer, default=0)
+    last_evaluation_ts = Column(Float, nullable=True)  # for sustain_s tracking
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class BiometricReading(Base):
     __tablename__ = "biometric_readings"
     id = Column(Integer, primary_key=True, index=True)
@@ -201,3 +265,63 @@ class BiometricReading(Base):
     body_temperature = Column(Float, nullable=True)
     respiratory_rate = Column(Integer, nullable=True)
     recorded_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class FrequentPlace(Base):
+    __tablename__ = "frequent_places"
+    id = Column(Integer, primary_key=True, index=True)
+    label = Column(String, nullable=False)
+    category = Column(String, nullable=False, index=True)
+    lat = Column(Float, nullable=False)
+    lon = Column(Float, nullable=False)
+    radius_m = Column(Integer, default=200)
+    enabled = Column(Boolean, default=True)
+    cooldown_min = Column(Integer, default=60)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ClassifierCache(Base):
+    __tablename__ = "classifier_cache"
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String, nullable=False, index=True)
+    key_hash = Column(String, nullable=False, index=True)
+    value_json = Column(String, nullable=False)
+    source = Column(String, nullable=False)
+    hit_count = Column(Integer, default=1)
+    learned_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("kind", "key_hash", name="uq_classifier_kind_key"),)
+
+
+class MobileDevice(Base):
+    __tablename__ = "mobile_devices"
+    id = Column(Integer, primary_key=True, index=True)
+    device_label = Column(String, nullable=False)
+    api_key_hash = Column(String, nullable=False, unique=True, index=True)
+    hmac_secret = Column(String, nullable=False)
+    platform = Column(String, nullable=True)
+    registered_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+    enabled = Column(Boolean, default=True)
+
+
+class VoiceCapsule(Base):
+    __tablename__ = "voice_capsules"
+    id = Column(Integer, primary_key=True, index=True)
+    capsule_date = Column(String, nullable=False, index=True)
+    character_version = Column(String, nullable=True)
+    manifest_json = Column(Text, nullable=False)
+    generated_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    invalidated = Column(Boolean, default=False)
+
+
+class VoiceCapsulePlayLog(Base):
+    __tablename__ = "voice_capsule_play_log"
+    id = Column(Integer, primary_key=True, index=True)
+    capsule_id = Column(Integer, ForeignKey("voice_capsules.id"), index=True)
+    clip_id = Column(String, nullable=False)
+    played_at = Column(DateTime(timezone=True), server_default=func.now())
+    trigger_drift_sec = Column(Integer, nullable=True)
+    context_json = Column(Text, nullable=True)

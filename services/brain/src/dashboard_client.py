@@ -491,6 +491,52 @@ class DashboardClient:
         except Exception as e:
             logger.debug(f"Zone snapshot push error: {e}")
 
+    async def push_device_heartbeat(self, observation) -> dict | None:
+        """Auto-register or refresh a device in the backend Device Registry.
+
+        observation is a DeviceObservation (device_dispatcher.DeviceObservation).
+        """
+        payload = {
+            "device_id": observation.device_id,
+            "vendor": observation.vendor,
+            "vendor_ref": observation.vendor_ref,
+            "kind": observation.kind,
+            "device_class": observation.device_class,
+            "capabilities": observation.capabilities or [],
+            "channels": observation.channels or [],
+            "units": observation.units or {},
+            "zone": observation.zone,
+            "last_state": observation.last_state or {},
+            "last_value": observation.last_value or {},
+            "battery_pct": observation.battery_pct,
+        }
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/devices/heartbeat",
+                json=payload, timeout=5, headers=_AUTH_HEADERS,
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                text = await resp.text()
+                logger.debug(f"Device heartbeat failed ({observation.device_id}): "
+                             f"{resp.status} {text[:200]}")
+        except Exception as e:
+            logger.debug(f"Device heartbeat error ({observation.device_id}): {e}")
+        return None
+
+    async def fetch_all_devices(self) -> list[dict]:
+        """Fetch full device list for LLM context injection."""
+        try:
+            async with self.session.get(
+                f"{self.backend_url}/devices/", params={"enabled_only": "true"},
+                timeout=5, headers=_AUTH_HEADERS,
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+        except Exception as e:
+            logger.debug(f"Device list fetch error: {e}")
+        return []
+
     async def push_brain_snapshot(self, power_mode_status: dict) -> None:
         """Push brain power mode status to backend for frontend consumption."""
         try:
