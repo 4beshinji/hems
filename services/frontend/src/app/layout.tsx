@@ -153,6 +153,7 @@ export default function AppLayout() {
           powerMode={powerMode}
           onCyclePowerMode={cyclePowerMode}
           powerModePending={powerModePending}
+          environment={primaryZone?.environment}
         />
         <main className="flex-1 flex flex-col p-4 lg:p-6 pb-20 lg:pb-6 min-h-0">
           <Outlet context={{

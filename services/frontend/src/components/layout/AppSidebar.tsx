@@ -1,4 +1,4 @@
-import { useRef, useCallback, type ComponentType } from 'react'
+import { useRef, useCallback, lazy, Suspense, type ComponentType } from 'react'
 import { NavLink } from 'react-router'
 import { LayoutDashboard, Thermometer, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut, Play, Cpu, MapPin, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -9,6 +9,11 @@ import type { CharacterThemeConfig } from '@/lib/character-themes'
 import type { AvatarMode } from '@/hooks/use-avatar-mode'
 import type { STTMode } from '@/hooks/use-server-stt'
 import type { PowerMode } from '@/lib/types'
+import { IS_PSD } from '@/lib/avatar-type'
+
+const PsdBustUp = IS_PSD
+  ? lazy(() => import('@/components/psd/PsdBustUp'))
+  : null
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -136,7 +141,7 @@ export default function AppSidebar({
         )}
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="p-3 space-y-1 shrink-0">
         {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
@@ -156,6 +161,17 @@ export default function AppSidebar({
           </NavLink>
         ))}
       </nav>
+
+      {/* Avatar bust-up — fills remaining sidebar space */}
+      {avatarMode === 'panel' && PsdBustUp ? (
+        <Suspense fallback={null}>
+          <div className="flex-1 min-h-0 px-3">
+            <PsdBustUp />
+          </div>
+        </Suspense>
+      ) : (
+        <div className="flex-1" />
+      )}
 
       <div className="p-3 space-y-2">
         <Separator />

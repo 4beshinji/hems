@@ -1,13 +1,13 @@
 import { useLocation } from 'react-router'
 import { type ComponentType } from 'react'
-import { Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut } from 'lucide-react'
+import { Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut, Thermometer, Droplets, Wind } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { DarkModePreference } from '@/hooks/use-dark-mode'
 import type { CharacterThemeConfig } from '@/lib/character-themes'
 import type { AvatarMode } from '@/hooks/use-avatar-mode'
 import type { STTMode } from '@/hooks/use-server-stt'
-import type { PowerMode } from '@/lib/types'
+import type { PowerMode, EnvironmentData } from '@/lib/types'
 
 const ROUTE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -42,6 +42,7 @@ interface Props {
   powerMode: PowerMode
   onCyclePowerMode: () => void
   powerModePending: boolean
+  environment?: EnvironmentData | null
 }
 
 export default function Header({
@@ -58,6 +59,7 @@ export default function Header({
   powerMode,
   onCyclePowerMode,
   powerModePending,
+  environment,
 }: Props) {
   const location = useLocation()
   const title = ROUTE_TITLES[location.pathname] || 'HEMS'
@@ -77,6 +79,30 @@ export default function Header({
         {title}
       </h1>
       <div className="flex items-center gap-2">
+        {/* Environment indicators */}
+        {environment && (
+          <div className="hidden sm:flex items-center gap-3 text-xs text-muted-foreground mr-2">
+            {environment.temperature != null && (
+              <span className="flex items-center gap-1">
+                <Thermometer className="h-3.5 w-3.5 text-chart-red" />
+                <span className="font-medium text-foreground">{environment.temperature.toFixed(1)}°</span>
+              </span>
+            )}
+            {environment.humidity != null && (
+              <span className="flex items-center gap-1">
+                <Droplets className="h-3.5 w-3.5 text-chart-blue" />
+                <span className="font-medium text-foreground">{environment.humidity.toFixed(0)}%</span>
+              </span>
+            )}
+            {environment.co2 != null && (
+              <span className="flex items-center gap-1">
+                <Wind className={cn('h-3.5 w-3.5', environment.co2 < 800 ? 'text-chart-green' : environment.co2 < 1500 ? 'text-warning' : 'text-destructive')} />
+                <span className="font-medium text-foreground">{Math.round(environment.co2)}</span>
+                <span className="text-[10px]">ppm</span>
+              </span>
+            )}
+          </div>
+        )}
         <div className="lg:hidden flex gap-1">
           <Button variant="ghost" size="icon" onClick={onToggleAudio} aria-label="オーディオ切替" className="h-9 w-9">
             {audioEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
