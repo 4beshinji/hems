@@ -1,7 +1,9 @@
 """
 MQTT publisher for Weather Bridge — publishes weather data to hems/weather/* topics.
 """
+
 import json
+
 import paho.mqtt.client as mqtt
 from loguru import logger
 

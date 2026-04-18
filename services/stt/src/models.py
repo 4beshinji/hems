@@ -1,4 +1,5 @@
 """Pydantic request/response models for STT API."""
+
 from pydantic import BaseModel, Field
 
 

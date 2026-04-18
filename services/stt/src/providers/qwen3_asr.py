@@ -3,13 +3,13 @@ Qwen3-ASR STT provider.
 Qwen3-ASR 1.7B via qwen-asr package or transformers.
 52 languages, streaming-capable, modern architecture.
 """
+
 import asyncio
 import io
 import os
 
 import soundfile as sf
 from loguru import logger
-
 from stt_provider import STTProvider, TranscriptionResult
 
 _DEFAULT_MODEL = "Qwen/Qwen3-ASR-1.7B"
@@ -76,17 +76,11 @@ class Qwen3AsrProvider(STTProvider):
         self._use_qwen_asr = False
         logger.info("Qwen3-ASR loaded via transformers")
 
-    async def transcribe(
-        self, audio_data: bytes, language: str = "ja"
-    ) -> TranscriptionResult:
+    async def transcribe(self, audio_data: bytes, language: str = "ja") -> TranscriptionResult:
         async with self._lock:
-            return await asyncio.get_event_loop().run_in_executor(
-                None, self._transcribe_sync, audio_data, language
-            )
+            return await asyncio.get_event_loop().run_in_executor(None, self._transcribe_sync, audio_data, language)
 
-    def _transcribe_sync(
-        self, audio_data: bytes, language: str
-    ) -> TranscriptionResult:
+    def _transcribe_sync(self, audio_data: bytes, language: str) -> TranscriptionResult:
         self._load_model()
 
         data, sr = sf.read(io.BytesIO(audio_data), dtype="float32")
@@ -97,9 +91,7 @@ class Qwen3AsrProvider(STTProvider):
 
         return self._transcribe_transformers(data, sr, language, duration)
 
-    def _transcribe_qwen_asr(
-        self, data, sr: int, language: str, duration: float
-    ) -> TranscriptionResult:
+    def _transcribe_qwen_asr(self, data, sr: int, language: str, duration: float) -> TranscriptionResult:
         result = self._model.transcribe(
             data,
             sr=sr,
@@ -109,16 +101,12 @@ class Qwen3AsrProvider(STTProvider):
 
         return TranscriptionResult(
             text=text.strip(),
-            language=result.get("language", language)
-            if isinstance(result, dict)
-            else language,
+            language=result.get("language", language) if isinstance(result, dict) else language,
             confidence=0.9 if text else 0.0,
             duration_seconds=duration,
         )
 
-    def _transcribe_transformers(
-        self, data, sr: int, language: str, duration: float
-    ) -> TranscriptionResult:
+    def _transcribe_transformers(self, data, sr: int, language: str, duration: float) -> TranscriptionResult:
         import torch
 
         inputs = self._processor(
@@ -135,9 +123,7 @@ class Qwen3AsrProvider(STTProvider):
                 language=None if language == "auto" else language,
             )
 
-        text = self._processor.batch_decode(
-            generated_ids, skip_special_tokens=True
-        )[0]
+        text = self._processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
         return TranscriptionResult(
             text=text.strip(),
@@ -149,11 +135,13 @@ class Qwen3AsrProvider(STTProvider):
     async def is_available(self) -> bool:
         try:
             import qwen_asr  # noqa: F401
+
             return True
         except ImportError:
             pass
         try:
             import transformers  # noqa: F401
+
             return True
         except ImportError:
             return False

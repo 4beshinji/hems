@@ -1,8 +1,9 @@
 """
 Weather API clients — JMA (気象庁) and OpenWeatherMap.
 """
+
 import time
-from typing import Optional
+
 import aiohttp
 from loguru import logger
 
@@ -10,14 +11,25 @@ from loguru import logger
 class WeatherData:
     """Normalized weather data from any provider."""
 
-    def __init__(self, *, provider: str = "", temperature: float = None,
-                 feels_like: float = None, humidity: int = None,
-                 pressure: float = None, wind_speed: float = None,
-                 wind_direction: str = "", weather_main: str = "",
-                 weather_description: str = "", icon: str = "",
-                 clouds: int = None, rain_1h: float = None,
-                 visibility: int = None, uv_index: float = None,
-                 timestamp: float = 0):
+    def __init__(
+        self,
+        *,
+        provider: str = "",
+        temperature: float = None,
+        feels_like: float = None,
+        humidity: int = None,
+        pressure: float = None,
+        wind_speed: float = None,
+        wind_direction: str = "",
+        weather_main: str = "",
+        weather_description: str = "",
+        icon: str = "",
+        clouds: int = None,
+        rain_1h: float = None,
+        visibility: int = None,
+        uv_index: float = None,
+        timestamp: float = 0,
+    ):
         self.provider = provider
         self.temperature = temperature
         self.feels_like = feels_like
@@ -68,10 +80,18 @@ class WeatherData:
 class ForecastEntry:
     """Single forecast time slot."""
 
-    def __init__(self, *, dt: str = "", temperature_max: float = None,
-                 temperature_min: float = None, weather_main: str = "",
-                 weather_description: str = "", pop: int = None,
-                 rain_mm: float = None, wind_speed: float = None):
+    def __init__(
+        self,
+        *,
+        dt: str = "",
+        temperature_max: float = None,
+        temperature_min: float = None,
+        weather_main: str = "",
+        weather_description: str = "",
+        pop: int = None,
+        rain_mm: float = None,
+        wind_speed: float = None,
+    ):
         self.dt = dt
         self.temperature_max = temperature_max
         self.temperature_min = temperature_min
@@ -103,8 +123,7 @@ class ForecastEntry:
 class WeatherAlert:
     """Weather warning/advisory."""
 
-    def __init__(self, *, title: str = "", description: str = "",
-                 severity: str = "", start: str = "", end: str = ""):
+    def __init__(self, *, title: str = "", description: str = "", severity: str = "", start: str = "", end: str = ""):
         self.title = title
         self.description = description
         self.severity = severity  # warning | advisory | watch
@@ -128,30 +147,54 @@ class JMAClient:
 
     # JMA weather code → description mapping
     WEATHER_CODES = {
-        "100": "晴れ", "101": "晴れ時々曇り", "102": "晴れ一時雨",
-        "110": "晴れ後曇り", "111": "晴れ後曇り一時雨",
-        "200": "曇り", "201": "曇り時々晴れ", "202": "曇り一時雨",
-        "210": "曇り後晴れ", "211": "曇り後雨",
-        "300": "雨", "301": "雨時々曇り", "302": "雨一時雪",
-        "303": "雨時々雪", "311": "雨後曇り", "313": "雨後晴れ",
-        "400": "雪", "401": "雪時々曇り", "402": "雪一時雨",
+        "100": "晴れ",
+        "101": "晴れ時々曇り",
+        "102": "晴れ一時雨",
+        "110": "晴れ後曇り",
+        "111": "晴れ後曇り一時雨",
+        "200": "曇り",
+        "201": "曇り時々晴れ",
+        "202": "曇り一時雨",
+        "210": "曇り後晴れ",
+        "211": "曇り後雨",
+        "300": "雨",
+        "301": "雨時々曇り",
+        "302": "雨一時雪",
+        "303": "雨時々雪",
+        "311": "雨後曇り",
+        "313": "雨後晴れ",
+        "400": "雪",
+        "401": "雪時々曇り",
+        "402": "雪一時雨",
     }
 
     # JMA weather code → simplified main category
     WEATHER_MAIN = {
-        "100": "Clear", "101": "Clouds", "102": "Rain",
-        "110": "Clouds", "111": "Rain",
-        "200": "Clouds", "201": "Clouds", "202": "Rain",
-        "210": "Clouds", "211": "Rain",
-        "300": "Rain", "301": "Rain", "302": "Snow",
-        "303": "Snow", "311": "Rain", "313": "Rain",
-        "400": "Snow", "401": "Snow", "402": "Snow",
+        "100": "Clear",
+        "101": "Clouds",
+        "102": "Rain",
+        "110": "Clouds",
+        "111": "Rain",
+        "200": "Clouds",
+        "201": "Clouds",
+        "202": "Rain",
+        "210": "Clouds",
+        "211": "Rain",
+        "300": "Rain",
+        "301": "Rain",
+        "302": "Snow",
+        "303": "Snow",
+        "311": "Rain",
+        "313": "Rain",
+        "400": "Snow",
+        "401": "Snow",
+        "402": "Snow",
     }
 
     def __init__(self, area_code: str, detail_code: str):
         self.area_code = area_code
         self.detail_code = detail_code
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
     async def start(self):
         self._session = aiohttp.ClientSession()
@@ -161,12 +204,13 @@ class JMAClient:
             await self._session.close()
             self._session = None
 
-    async def _get_json(self, url: str) -> Optional[dict | list]:
+    async def _get_json(self, url: str) -> dict | list | None:
         if not self._session:
             return None
         try:
             async with self._session.get(
-                url, timeout=aiohttp.ClientTimeout(total=30),
+                url,
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status != 200:
                     logger.warning(f"JMA request failed: {url} status={resp.status}")
@@ -176,7 +220,7 @@ class JMAClient:
             logger.warning(f"JMA request error: {url} {e}")
             return None
 
-    async def get_current(self) -> Optional[WeatherData]:
+    async def get_current(self) -> WeatherData | None:
         """Get current weather from JMA overview forecast."""
         url = f"{self.BASE_URL}/forecast/data/overview_forecast/{self.area_code}.json"
         data = await self._get_json(url)
@@ -198,7 +242,7 @@ class JMAClient:
         current.weather_description = desc[:200] if not current.weather_description else current.weather_description
         return current
 
-    async def _get_forecast_raw(self) -> Optional[list]:
+    async def _get_forecast_raw(self) -> list | None:
         url = f"{self.BASE_URL}/forecast/data/forecast/{self.area_code}.json"
         return await self._get_json(url)
 
@@ -337,9 +381,12 @@ class JMAClient:
                                         pass
                                 else:
                                     try:
-                                        entries.append(ForecastEntry(
-                                            dt=dt, pop=int(pops[i]),
-                                        ))
+                                        entries.append(
+                                            ForecastEntry(
+                                                dt=dt,
+                                                pop=int(pops[i]),
+                                            )
+                                        )
                                     except (ValueError, TypeError):
                                         pass
 
@@ -359,24 +406,41 @@ class JMAClient:
                     status = warning.get("status", "")
                     if status in ("発表", "継続"):
                         code = warning.get("code", "")
-                        alerts.append(WeatherAlert(
-                            title=self._warning_code_to_name(code),
-                            description=f"{area.get('name', '')} {status}",
-                            severity="warning" if int(code) < 10 else "advisory",
-                        ))
+                        alerts.append(
+                            WeatherAlert(
+                                title=self._warning_code_to_name(code),
+                                description=f"{area.get('name', '')} {status}",
+                                severity="warning" if int(code) < 10 else "advisory",
+                            )
+                        )
         return alerts
 
     @staticmethod
     def _warning_code_to_name(code: str) -> str:
         names = {
-            "02": "暴風雪警報", "03": "大雨警報", "04": "洪水警報",
-            "05": "暴風警報", "06": "大雪警報", "07": "波浪警報",
-            "08": "高潮警報", "10": "大雨注意報", "12": "大雪注意報",
-            "13": "風雪注意報", "14": "雷注意報", "15": "強風注意報",
-            "16": "波浪注意報", "17": "融雪注意報", "18": "洪水注意報",
-            "19": "高潮注意報", "20": "濃霧注意報", "21": "乾燥注意報",
-            "22": "なだれ注意報", "23": "低温注意報", "24": "霜注意報",
-            "25": "着氷注意報", "26": "着雪注意報",
+            "02": "暴風雪警報",
+            "03": "大雨警報",
+            "04": "洪水警報",
+            "05": "暴風警報",
+            "06": "大雪警報",
+            "07": "波浪警報",
+            "08": "高潮警報",
+            "10": "大雨注意報",
+            "12": "大雪注意報",
+            "13": "風雪注意報",
+            "14": "雷注意報",
+            "15": "強風注意報",
+            "16": "波浪注意報",
+            "17": "融雪注意報",
+            "18": "洪水注意報",
+            "19": "高潮注意報",
+            "20": "濃霧注意報",
+            "21": "乾燥注意報",
+            "22": "なだれ注意報",
+            "23": "低温注意報",
+            "24": "霜注意報",
+            "25": "着氷注意報",
+            "26": "着雪注意報",
         }
         return names.get(code, f"気象警報(code={code})")
 
@@ -386,14 +450,13 @@ class OWMClient:
 
     BASE_URL = "https://api.openweathermap.org/data/3.0"
 
-    def __init__(self, api_key: str, lat: str, lon: str,
-                 units: str = "metric", lang: str = "ja"):
+    def __init__(self, api_key: str, lat: str, lon: str, units: str = "metric", lang: str = "ja"):
         self.api_key = api_key
         self.lat = lat
         self.lon = lon
         self.units = units
         self.lang = lang
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
     async def start(self):
         self._session = aiohttp.ClientSession()
@@ -403,12 +466,14 @@ class OWMClient:
             await self._session.close()
             self._session = None
 
-    async def _get_json(self, url: str, params: dict) -> Optional[dict]:
+    async def _get_json(self, url: str, params: dict) -> dict | None:
         if not self._session:
             return None
         try:
             async with self._session.get(
-                url, params=params, timeout=aiohttp.ClientTimeout(total=30),
+                url,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status != 200:
                     logger.warning(f"OWM request failed: status={resp.status}")
@@ -418,14 +483,17 @@ class OWMClient:
             logger.warning(f"OWM request error: {e}")
             return None
 
-    async def get_current(self) -> Optional[WeatherData]:
+    async def get_current(self) -> WeatherData | None:
         """Get current weather from OWM One Call API."""
         data = await self._get_json(
             f"{self.BASE_URL}/onecall",
             {
-                "lat": self.lat, "lon": self.lon,
-                "appid": self.api_key, "units": self.units,
-                "lang": self.lang, "exclude": "minutely,hourly,daily,alerts",
+                "lat": self.lat,
+                "lon": self.lon,
+                "appid": self.api_key,
+                "units": self.units,
+                "lang": self.lang,
+                "exclude": "minutely,hourly,daily,alerts",
             },
         )
         if not data or "current" not in data:
@@ -454,9 +522,12 @@ class OWMClient:
         data = await self._get_json(
             f"{self.BASE_URL}/onecall",
             {
-                "lat": self.lat, "lon": self.lon,
-                "appid": self.api_key, "units": self.units,
-                "lang": self.lang, "exclude": "current,minutely,hourly,alerts",
+                "lat": self.lat,
+                "lon": self.lon,
+                "appid": self.api_key,
+                "units": self.units,
+                "lang": self.lang,
+                "exclude": "current,minutely,hourly,alerts",
             },
         )
         if not data or "daily" not in data:
@@ -465,16 +536,18 @@ class OWMClient:
         entries = []
         for day in data["daily"]:
             weather = day.get("weather", [{}])[0] if day.get("weather") else {}
-            entries.append(ForecastEntry(
-                dt=str(day.get("dt", "")),
-                temperature_max=day.get("temp", {}).get("max"),
-                temperature_min=day.get("temp", {}).get("min"),
-                weather_main=weather.get("main", ""),
-                weather_description=weather.get("description", ""),
-                pop=int(day.get("pop", 0) * 100) if day.get("pop") is not None else None,
-                rain_mm=day.get("rain"),
-                wind_speed=day.get("wind_speed"),
-            ))
+            entries.append(
+                ForecastEntry(
+                    dt=str(day.get("dt", "")),
+                    temperature_max=day.get("temp", {}).get("max"),
+                    temperature_min=day.get("temp", {}).get("min"),
+                    weather_main=weather.get("main", ""),
+                    weather_description=weather.get("description", ""),
+                    pop=int(day.get("pop", 0) * 100) if day.get("pop") is not None else None,
+                    rain_mm=day.get("rain"),
+                    wind_speed=day.get("wind_speed"),
+                )
+            )
         return entries
 
     async def get_alerts(self) -> list[WeatherAlert]:
@@ -482,9 +555,12 @@ class OWMClient:
         data = await self._get_json(
             f"{self.BASE_URL}/onecall",
             {
-                "lat": self.lat, "lon": self.lon,
-                "appid": self.api_key, "units": self.units,
-                "lang": self.lang, "exclude": "current,minutely,hourly,daily",
+                "lat": self.lat,
+                "lon": self.lon,
+                "appid": self.api_key,
+                "units": self.units,
+                "lang": self.lang,
+                "exclude": "current,minutely,hourly,daily",
             },
         )
         if not data or "alerts" not in data:

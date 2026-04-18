@@ -5,10 +5,9 @@ Encodes camera frames to base64 JPEG (RAM only), calls Ollama chat API with imag
 Supports light tier (moondream, coexists with brain LLM) and heavy tier
 (minicpm-v, evicts brain LLM from VRAM).
 """
+
 import base64
 import time
-from io import BytesIO
-from typing import Optional
 
 import aiohttp
 import cv2
@@ -70,9 +69,7 @@ class VLMAnalyzer:
         _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return base64.b64encode(buf.tobytes()).decode("ascii")
 
-    async def _check_model_available(
-        self, model: str, session: aiohttp.ClientSession
-    ) -> bool:
+    async def _check_model_available(self, model: str, session: aiohttp.ClientSession) -> bool:
         """Check if a model is available in Ollama. Caches for 2 minutes."""
         cached = self._model_cache.get(model)
         if cached and time.time() - cached[1] < self._model_cache_ttl:
@@ -87,10 +84,7 @@ class VLMAnalyzer:
                     data = await resp.json()
                     models = [m.get("name", "") for m in data.get("models", [])]
                     # Match both exact name and name:latest
-                    available = any(
-                        model == m or model == m.split(":")[0]
-                        for m in models
-                    )
+                    available = any(model == m or model == m.split(":")[0] for m in models)
                     self._model_cache[model] = (available, time.time())
                     return available
         except Exception as e:
@@ -99,9 +93,7 @@ class VLMAnalyzer:
         self._model_cache[model] = (False, time.time())
         return False
 
-    async def _unload_model(
-        self, model: str, session: aiohttp.ClientSession
-    ) -> None:
+    async def _unload_model(self, model: str, session: aiohttp.ClientSession) -> None:
         """Unload model from VRAM via keep_alive=0."""
         try:
             async with session.post(
@@ -120,7 +112,7 @@ class VLMAnalyzer:
         self,
         frame: np.ndarray,
         session: aiohttp.ClientSession,
-        prompt: Optional[str] = None,
+        prompt: str | None = None,
         mode: str = "general",
         tier: str = "light",
         zone: str = "",
@@ -183,17 +175,19 @@ class VLMAnalyzer:
 
                 # Parse response into structured fields
                 result = self._parse_response(content, mode)
-                result.update({
-                    "model": model,
-                    "tier": tier,
-                    "mode": mode,
-                    "elapsed_ms": elapsed_ms,
-                    "timestamp": time.time(),
-                    "zone": zone,
-                })
+                result.update(
+                    {
+                        "model": model,
+                        "tier": tier,
+                        "mode": mode,
+                        "elapsed_ms": elapsed_ms,
+                        "timestamp": time.time(),
+                        "zone": zone,
+                    }
+                )
                 return result
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             elapsed_ms = int((time.time() - start) * 1000)
             logger.warning(f"VLM timeout after {elapsed_ms}ms (model={model})")
             return {
@@ -224,10 +218,32 @@ class VLMAnalyzer:
         objects: list[str] = []
         # Common room objects to look for
         _object_keywords = [
-            "chair", "desk", "table", "sofa", "couch", "bed", "lamp", "monitor",
-            "computer", "keyboard", "phone", "book", "cup", "bottle", "plant",
-            "window", "door", "shelf", "cabinet", "tv", "television", "fan",
-            "air conditioner", "person", "cat", "dog",
+            "chair",
+            "desk",
+            "table",
+            "sofa",
+            "couch",
+            "bed",
+            "lamp",
+            "monitor",
+            "computer",
+            "keyboard",
+            "phone",
+            "book",
+            "cup",
+            "bottle",
+            "plant",
+            "window",
+            "door",
+            "shelf",
+            "cabinet",
+            "tv",
+            "television",
+            "fan",
+            "air conditioner",
+            "person",
+            "cat",
+            "dog",
         ]
         lower = description.lower()
         for obj in _object_keywords:
@@ -250,8 +266,18 @@ class VLMAnalyzer:
         # Detect anomalies (safety mode especially)
         anomalies: list[str] = []
         _anomaly_keywords = [
-            "fire", "smoke", "water", "flood", "fallen", "hazard", "danger",
-            "broken", "damage", "leak", "spill", "unusual",
+            "fire",
+            "smoke",
+            "water",
+            "flood",
+            "fallen",
+            "hazard",
+            "danger",
+            "broken",
+            "damage",
+            "leak",
+            "spill",
+            "unusual",
         ]
         for kw in _anomaly_keywords:
             if kw in lower and "no " + kw not in lower and "no issues" not in lower:
@@ -266,4 +292,3 @@ class VLMAnalyzer:
 
 
 # Needed for TimeoutError in async context
-import asyncio  # noqa: E402

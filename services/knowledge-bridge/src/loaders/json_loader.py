@@ -1,8 +1,10 @@
 """
 JSON loader — .json files with structured data flattening for search.
 """
+
 import json
 from pathlib import Path
+
 from loguru import logger
 
 from .base import BaseLoader, DocumentEntry
@@ -53,10 +55,16 @@ class JsonLoader(BaseLoader):
             data = json.loads(content)
         except json.JSONDecodeError:
             return DocumentEntry(
-                path=rel_path, source_name=source_name, title=title,
-                doc_type=self.doc_type, tags=tags, metadata=metadata,
-                word_count=len(content.split()), modified_at=stat.st_mtime,
-                content=content, body=content[:MAX_BODY_LENGTH],
+                path=rel_path,
+                source_name=source_name,
+                title=title,
+                doc_type=self.doc_type,
+                tags=tags,
+                metadata=metadata,
+                word_count=len(content.split()),
+                modified_at=stat.st_mtime,
+                content=content,
+                body=content[:MAX_BODY_LENGTH],
             )
 
         # Extract summary metadata
@@ -76,8 +84,14 @@ class JsonLoader(BaseLoader):
             body = body[:MAX_BODY_LENGTH]
 
         return DocumentEntry(
-            path=rel_path, source_name=source_name, title=title,
-            doc_type=self.doc_type, tags=tags, metadata=metadata,
-            word_count=len(body.split()), modified_at=stat.st_mtime,
-            content=content, body=body,
+            path=rel_path,
+            source_name=source_name,
+            title=title,
+            doc_type=self.doc_type,
+            tags=tags,
+            metadata=metadata,
+            word_count=len(body.split()),
+            modified_at=stat.st_mtime,
+            content=content,
+            body=body,
         )

@@ -1,7 +1,9 @@
 """
 MQTT publisher for HEMS HA Bridge.
 """
+
 import json
+
 import paho.mqtt.client as mqtt
 from loguru import logger
 

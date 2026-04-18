@@ -1,6 +1,7 @@
 """
 YOLOv11s-pose inference — single-pass person detection + keypoint extraction.
 """
+
 import time
 from dataclasses import dataclass, field
 
@@ -27,8 +28,7 @@ class Detector:
 
     PERSON_CLASS = 0  # COCO person class ID
 
-    def __init__(self, pose_model_name: str = "yolo11s-pose.pt",
-                 confidence: float = 0.5):
+    def __init__(self, pose_model_name: str = "yolo11s-pose.pt", confidence: float = 0.5):
         self.pose_model_name = pose_model_name
         self.confidence = confidence
         self._pose_model = None
@@ -42,6 +42,7 @@ class Detector:
         """Load YOLO pose model. Auto-downloads on first run (~30-60s)."""
         try:
             from ultralytics import YOLO
+
             logger.info(f"Loading pose model: {self.pose_model_name}")
             self._pose_model = YOLO(self.pose_model_name)
             self._loaded = True
@@ -78,11 +79,13 @@ class Detector:
                     if kps_raw is not None and len(kps_raw) > 0:
                         kps = kps_raw[0].cpu().numpy()  # (17, 3)
 
-                detections.append(Detection(
-                    bbox=bbox,
-                    confidence=conf,
-                    keypoints=kps,
-                ))
+                detections.append(
+                    Detection(
+                        bbox=bbox,
+                        confidence=conf,
+                        keypoints=kps,
+                    )
+                )
 
         return FrameResult(
             person_count=len(detections),

@@ -2,8 +2,10 @@
 Markdown loader — .md files with YAML frontmatter, inline tags, wikilinks.
 Ported from obsidian-bridge vault_index.py.
 """
+
 import re
 from pathlib import Path
+
 from loguru import logger
 
 from .base import BaseLoader, DocumentEntry
@@ -35,7 +37,7 @@ class MarkdownLoader(BaseLoader):
         body = content
         if fm:
             fm_text = fm.group(1)
-            body = content[fm.end():]
+            body = content[fm.end() :]
             for line in fm_text.split("\n"):
                 line_stripped = line.strip().lstrip("- ")
                 if line_stripped.startswith("tags:"):

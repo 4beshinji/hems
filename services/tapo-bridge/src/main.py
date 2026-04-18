@@ -4,17 +4,18 @@ HEMS tapo-bridge — connects Tapo P-series plugs to HEMS via MQTT + REST.
 Polling: periodically reads device status → MQTT publish (hems/tapo/{ref}/state)
 REST: accepts control commands from Brain → python-kasa → device
 """
+
 import asyncio
 from contextlib import asynccontextmanager
 
+from device_mapper import DeviceMapper
 from fastapi import FastAPI, HTTPException
 from loguru import logger
 from pydantic import BaseModel
+from tapo_client import TapoClient
 
 import config
-from device_mapper import DeviceMapper
 from mqtt_publisher import MQTTPublisher
-from tapo_client import TapoClient
 
 cfg: config.Config | None = None
 device_mapper: DeviceMapper | None = None
@@ -54,10 +55,13 @@ async def _status_loop():
     assert cfg and mqtt_pub and device_mapper
     while True:
         try:
-            mqtt_pub.publish("hems/tapo/bridge/status", {
-                "connected": True,
-                "device_count": len(device_mapper.all_refs()),
-            })
+            mqtt_pub.publish(
+                "hems/tapo/bridge/status",
+                {
+                    "connected": True,
+                    "device_count": len(device_mapper.all_refs()),
+                },
+            )
         except Exception as e:
             logger.debug(f"Status loop error: {e}")
         await asyncio.sleep(30)
@@ -69,7 +73,10 @@ async def lifespan(app: FastAPI):
     cfg = config.load_config()
     device_mapper = DeviceMapper(cfg)
     mqtt_pub = MQTTPublisher(
-        cfg.mqtt_broker, cfg.mqtt_port, cfg.mqtt_user, cfg.mqtt_pass,
+        cfg.mqtt_broker,
+        cfg.mqtt_port,
+        cfg.mqtt_user,
+        cfg.mqtt_pass,
     )
     mqtt_pub.connect()
 
@@ -108,13 +115,15 @@ async def list_devices():
         return {"devices": []}
     items = []
     for ref in device_mapper.all_refs():
-        items.append({
-            "vendor_ref": ref,
-            "device_id": f"tapo.{ref}",
-            "ip": device_mapper.get_ip(ref),
-            "zone": device_mapper.get_zone(ref),
-            "name": device_mapper.get_name(ref),
-        })
+        items.append(
+            {
+                "vendor_ref": ref,
+                "device_id": f"tapo.{ref}",
+                "ip": device_mapper.get_ip(ref),
+                "zone": device_mapper.get_zone(ref),
+                "name": device_mapper.get_name(ref),
+            }
+        )
     return {"devices": items}
 
 

@@ -7,10 +7,12 @@ an HTTP API identical in structure to VOICEVOX (audio_query + synthesis).
 API base: http://{host}:{port}/api/v1
 Default:  http://host.docker.internal:50080/api/v1
 """
+
 import os
+
 import aiohttp
 from loguru import logger
-from tts_provider import TTSProvider, AudioResult
+from tts_provider import AudioResult, TTSProvider
 
 AIVOICE_URL = os.getenv("AIVOICE_URL", "http://host.docker.internal:50080")
 

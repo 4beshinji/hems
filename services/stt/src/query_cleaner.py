@@ -3,6 +3,7 @@ Query cleaner for STT output.
 Stage 1: Rule-based filler removal (always active, ~0ms)
 Stage 2: LLM rewrite (optional, requires LLM_API_URL)
 """
+
 import os
 import re
 
@@ -61,9 +62,7 @@ class QueryCleaner:
         self._session: aiohttp.ClientSession | None = None
 
         if self.llm_rewrite and self.llm_api_url:
-            logger.info(
-                f"LLM query rewrite enabled: {self.llm_api_url} model={self.llm_model}"
-            )
+            logger.info(f"LLM query rewrite enabled: {self.llm_api_url} model={self.llm_model}")
         elif self.llm_rewrite:
             logger.warning("STT_LLM_REWRITE=true but LLM_API_URL not set, disabled")
             self.llm_rewrite = False
@@ -93,9 +92,7 @@ class QueryCleaner:
 
         if language.startswith("ja") or _has_japanese(result):
             result = _FILLERS_JA.sub("", result)
-        if language.startswith("en") or (
-            language == "auto" and not _has_japanese(result)
-        ):
+        if language.startswith("en") or (language == "auto" and not _has_japanese(result)):
             result = _FILLERS_EN.sub("", result)
 
         result = _LEADING_PUNCT.sub("", result)

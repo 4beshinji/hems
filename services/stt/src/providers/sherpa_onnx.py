@@ -3,6 +3,7 @@ sherpa-onnx STT provider.
 NVIDIA Parakeet TDT-CTC 0.6B JP via ONNX Runtime.
 Japanese-only, very fast inference.
 """
+
 import asyncio
 import io
 import os
@@ -10,7 +11,6 @@ import struct
 import wave
 
 from loguru import logger
-
 from stt_provider import STTProvider, TranscriptionResult
 
 _DEFAULT_MODEL = "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja"
@@ -53,9 +53,7 @@ class SherpaOnnxProvider(STTProvider):
         )
         logger.info("sherpa-onnx model loaded")
 
-    async def transcribe(
-        self, audio_data: bytes, language: str = "ja"
-    ) -> TranscriptionResult:
+    async def transcribe(self, audio_data: bytes, language: str = "ja") -> TranscriptionResult:
         if language != "ja" and language != "auto":
             return TranscriptionResult(
                 text="",
@@ -65,13 +63,10 @@ class SherpaOnnxProvider(STTProvider):
             )
 
         async with self._lock:
-            return await asyncio.get_event_loop().run_in_executor(
-                None, self._transcribe_sync, audio_data
-            )
+            return await asyncio.get_event_loop().run_in_executor(None, self._transcribe_sync, audio_data)
 
     def _transcribe_sync(self, audio_data: bytes) -> TranscriptionResult:
         self._load_model()
-        import sherpa_onnx
 
         # Read WAV samples
         with wave.open(io.BytesIO(audio_data), "rb") as wf:
@@ -98,6 +93,7 @@ class SherpaOnnxProvider(STTProvider):
     async def is_available(self) -> bool:
         try:
             import sherpa_onnx  # noqa: F401
+
             return True
         except ImportError:
             return False

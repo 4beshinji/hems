@@ -1,13 +1,16 @@
 """
 HTML loader — .html/.htm files with tag stripping via BeautifulSoup.
 """
+
 from pathlib import Path
+
 from loguru import logger
 
 from .base import BaseLoader, DocumentEntry
 
 try:
     from bs4 import BeautifulSoup
+
     _HAS_BS4 = True
 except ImportError:
     _HAS_BS4 = False
@@ -33,6 +36,7 @@ class HtmlLoader(BaseLoader):
         if not _HAS_BS4:
             # Fallback: simple tag stripping
             import re
+
             body = re.sub(r"<[^>]+>", " ", content)
             body = re.sub(r"\s+", " ", body).strip()
         else:
@@ -55,8 +59,14 @@ class HtmlLoader(BaseLoader):
             body = soup.get_text(separator="\n", strip=True)
 
         return DocumentEntry(
-            path=rel_path, source_name=source_name, title=title,
-            doc_type=self.doc_type, tags=tags, metadata=metadata,
-            word_count=len(body.split()), modified_at=stat.st_mtime,
-            content=content, body=body,
+            path=rel_path,
+            source_name=source_name,
+            title=title,
+            doc_type=self.doc_type,
+            tags=tags,
+            metadata=metadata,
+            word_count=len(body.split()),
+            modified_at=stat.st_mtime,
+            content=content,
+            body=body,
         )

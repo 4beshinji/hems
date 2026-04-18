@@ -1,4 +1,5 @@
 """Environment-based config loader for tapo-bridge."""
+
 import json
 import os
 from dataclasses import dataclass

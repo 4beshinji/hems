@@ -7,29 +7,42 @@ classifies posture/activity, and publishes to MQTT for Brain consumption.
 Optional VLM (Vision Language Model) integration via Ollama for richer
 scene understanding with adaptive frequency scheduling.
 """
+
 import asyncio
 import time
+from contextlib import asynccontextmanager
 
 import aiohttp
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from pydantic import BaseModel
-from loguru import logger
-from typing import Optional
-
-from config import (
-    MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS,
-    CAMERAS, POSE_MODEL, CONFIDENCE_THRESHOLD,
-    PROCESS_INTERVAL, LOG_LEVEL,
-    VLM_ENABLED, VLM_OLLAMA_URL, VLM_LIGHT_MODEL, VLM_HEAVY_MODEL,
-    VLM_BASE_INTERVAL, VLM_MIN_INTERVAL, VLM_MAX_INTERVAL,
-    VLM_BOOST_DURATION, VLM_TIMEOUT, VLM_MAX_TOKENS, VLM_IMAGE_MAX_SIZE,
-    LLM_MODEL,
-)
-from mqtt_publisher import MQTTPublisher
-from detector import Detector
 from activity_tracker import ActivityTracker
 from camera_manager import CameraManager
+from detector import Detector
+from fastapi import FastAPI
+from loguru import logger
+from pydantic import BaseModel
+
+from config import (
+    CAMERAS,
+    CONFIDENCE_THRESHOLD,
+    LOG_LEVEL,
+    MQTT_BROKER,
+    MQTT_PASS,
+    MQTT_PORT,
+    MQTT_USER,
+    POSE_MODEL,
+    PROCESS_INTERVAL,
+    VLM_BASE_INTERVAL,
+    VLM_BOOST_DURATION,
+    VLM_ENABLED,
+    VLM_HEAVY_MODEL,
+    VLM_IMAGE_MAX_SIZE,
+    VLM_LIGHT_MODEL,
+    VLM_MAX_INTERVAL,
+    VLM_MAX_TOKENS,
+    VLM_MIN_INTERVAL,
+    VLM_OLLAMA_URL,
+    VLM_TIMEOUT,
+)
+from mqtt_publisher import MQTTPublisher
 
 # Module-level state
 mqtt_pub: MQTTPublisher | None = None
@@ -50,8 +63,7 @@ logger.remove()
 logger.add(lambda msg: print(msg, end=""), level=LOG_LEVEL, format="{time:HH:mm:ss} | {level:<7} | {message}")
 
 
-def _detect_events(cam_id: str, zone: str, person_count: int,
-                   posture: str, activity_level: float) -> None:
+def _detect_events(cam_id: str, zone: str, person_count: int, posture: str, activity_level: float) -> None:
     """Compare current YOLO state with previous, notify VLM scheduler on changes."""
     if not vlm_scheduler:
         return
@@ -61,23 +73,38 @@ def _detect_events(cam_id: str, zone: str, person_count: int,
     # Person count changed (enter/leave)
     prev_count = prev.get("person_count", -1)
     if prev_count != -1 and prev_count != person_count:
-        vlm_scheduler.notify_event("person_count_changed", {
-            "zone": zone, "prev": prev_count, "current": person_count,
-        })
+        vlm_scheduler.notify_event(
+            "person_count_changed",
+            {
+                "zone": zone,
+                "prev": prev_count,
+                "current": person_count,
+            },
+        )
 
     # Posture changed
     prev_posture = prev.get("posture", "unknown")
     if prev_posture != "unknown" and posture != "unknown" and prev_posture != posture:
-        vlm_scheduler.notify_event("posture_changed", {
-            "zone": zone, "prev": prev_posture, "current": posture,
-        })
+        vlm_scheduler.notify_event(
+            "posture_changed",
+            {
+                "zone": zone,
+                "prev": prev_posture,
+                "current": posture,
+            },
+        )
 
     # Activity spike (jump > 0.3)
     prev_activity = prev.get("activity_level", 0.0)
     if abs(activity_level - prev_activity) > 0.3:
-        vlm_scheduler.notify_event("activity_spike", {
-            "zone": zone, "prev": prev_activity, "current": activity_level,
-        })
+        vlm_scheduler.notify_event(
+            "activity_spike",
+            {
+                "zone": zone,
+                "prev": prev_activity,
+                "current": activity_level,
+            },
+        )
 
     _prev_state[cam_id] = {
         "person_count": person_count,
@@ -134,8 +161,11 @@ async def _processing_loop():
 
                     # Notify VLM scheduler of state changes
                     _detect_events(
-                        cam_id, zone, result.person_count,
-                        state.posture, state.activity_level,
+                        cam_id,
+                        zone,
+                        result.person_count,
+                        state.posture,
+                        state.activity_level,
                     )
 
         except Exception as e:
@@ -152,10 +182,7 @@ async def _vlm_processing_loop():
     while not (camera_mgr and detector and detector.loaded and mqtt_pub):
         await asyncio.sleep(5)
 
-    logger.info(
-        f"VLM loop started (light={VLM_LIGHT_MODEL}, heavy={VLM_HEAVY_MODEL}, "
-        f"interval={VLM_BASE_INTERVAL}s)"
-    )
+    logger.info(f"VLM loop started (light={VLM_LIGHT_MODEL}, heavy={VLM_HEAVY_MODEL}, interval={VLM_BASE_INTERVAL}s)")
 
     _vlm_session = aiohttp.ClientSession()
 
@@ -190,10 +217,13 @@ async def _run_vlm_cycle():
     # Heavy tier: signal brain to enter rule-only mode
     is_heavy = tier == "heavy"
     if is_heavy:
-        mqtt_pub.publish("hems/perception/vlm/model_swap", {
-            "status": "heavy_loading",
-            "model": vlm_analyzer.heavy_model,
-        })
+        mqtt_pub.publish(
+            "hems/perception/vlm/model_swap",
+            {
+                "status": "heavy_loading",
+                "model": vlm_analyzer.heavy_model,
+            },
+        )
         logger.info(f"VLM heavy tier: model_swap signal sent (model={vlm_analyzer.heavy_model})")
 
     try:
@@ -237,8 +267,7 @@ async def _run_vlm_cycle():
                 any_interesting = True
 
             logger.info(
-                f"VLM [{tier}] {zone}: {result.get('description', '')[:80]}... "
-                f"({result.get('elapsed_ms', 0)}ms)"
+                f"VLM [{tier}] {zone}: {result.get('description', '')[:80]}... ({result.get('elapsed_ms', 0)}ms)"
             )
 
         vlm_scheduler.record_run(interesting=any_interesting)
@@ -247,10 +276,13 @@ async def _run_vlm_cycle():
         # Heavy tier: unload model and signal brain to resume
         if is_heavy:
             await vlm_analyzer._unload_model(vlm_analyzer.heavy_model, _vlm_session)
-            mqtt_pub.publish("hems/perception/vlm/model_swap", {
-                "status": "ready",
-                "model": vlm_analyzer.heavy_model,
-            })
+            mqtt_pub.publish(
+                "hems/perception/vlm/model_swap",
+                {
+                    "status": "ready",
+                    "model": vlm_analyzer.heavy_model,
+                },
+            )
             logger.info("VLM heavy tier: model unloaded, model_swap ready signal sent")
 
     # Publish scheduler status (retained)
@@ -262,11 +294,13 @@ def _publish_vlm_status():
     if not (vlm_scheduler and mqtt_pub):
         return
     status = vlm_scheduler.get_status()
-    status.update({
-        "enabled": True,
-        "light_model": VLM_LIGHT_MODEL,
-        "heavy_model": VLM_HEAVY_MODEL,
-    })
+    status.update(
+        {
+            "enabled": True,
+            "light_model": VLM_LIGHT_MODEL,
+            "heavy_model": VLM_HEAVY_MODEL,
+        }
+    )
     mqtt_pub.publish("hems/perception/vlm/status", status, retain=True)
 
 
@@ -345,10 +379,7 @@ async def lifespan(app: FastAPI):
             boost_duration=VLM_BOOST_DURATION,
         )
         _tasks.append(asyncio.create_task(_vlm_processing_loop()))
-        logger.info(
-            f"VLM enabled (light={VLM_LIGHT_MODEL}, heavy={VLM_HEAVY_MODEL}, "
-            f"ollama={VLM_OLLAMA_URL})"
-        )
+        logger.info(f"VLM enabled (light={VLM_LIGHT_MODEL}, heavy={VLM_HEAVY_MODEL}, ollama={VLM_OLLAMA_URL})")
     else:
         logger.info("VLM disabled (VLM_ENABLED=false)")
 
@@ -430,8 +461,8 @@ async def list_cameras():
 
 
 class VLMAnalyzeRequest(BaseModel):
-    zone_id: Optional[str] = None
-    prompt: Optional[str] = None
+    zone_id: str | None = None
+    prompt: str | None = None
 
 
 @app.post("/api/perception/vlm/analyze")
@@ -468,10 +499,12 @@ async def vlm_status():
         return {"enabled": False}
 
     status = vlm_scheduler.get_status()
-    status.update({
-        "enabled": True,
-        "light_model": VLM_LIGHT_MODEL,
-        "heavy_model": VLM_HEAVY_MODEL,
-        "ollama_url": VLM_OLLAMA_URL,
-    })
+    status.update(
+        {
+            "enabled": True,
+            "light_model": VLM_LIGHT_MODEL,
+            "heavy_model": VLM_HEAVY_MODEL,
+            "ollama_url": VLM_OLLAMA_URL,
+        }
+    )
     return status

@@ -1,7 +1,9 @@
 """
 MQTT publisher for biometric data (same pattern as HA bridge).
 """
+
 import json
+
 import paho.mqtt.client as mqtt
 from loguru import logger
 

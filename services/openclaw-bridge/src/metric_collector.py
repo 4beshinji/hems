@@ -2,17 +2,18 @@
 Periodic PC metric collector via OpenClaw system.run().
 Parses CPU, memory, GPU, disk, temperature, and process data.
 """
+
 import asyncio
 import json
 import time
+
 from loguru import logger
 
 
 class MetricCollector:
     """Collects PC metrics by running commands through OpenClaw."""
 
-    def __init__(self, openclaw_client, mqtt_publisher, metrics_interval: int = 10,
-                 process_interval: int = 30):
+    def __init__(self, openclaw_client, mqtt_publisher, metrics_interval: int = 10, process_interval: int = 30):
         self.oc = openclaw_client
         self.mqtt = mqtt_publisher
         self.metrics_interval = metrics_interval
@@ -55,8 +56,11 @@ class MetricCollector:
         temps = await self._collect_temperatures()
 
         self.last_metrics = {
-            "cpu": cpu, "memory": memory, "gpu": gpu,
-            "disk": disk, "temperature": temps,
+            "cpu": cpu,
+            "memory": memory,
+            "gpu": gpu,
+            "disk": disk,
+            "temperature": temps,
             "timestamp": time.time(),
         }
 
@@ -78,7 +82,7 @@ class MetricCollector:
     async def _collect_cpu(self) -> dict:
         try:
             result = await self.oc.system_run(
-                "python3 -c \""
+                'python3 -c "'
                 "import json, os; "
                 "loads = os.getloadavg(); "
                 "cpus = os.cpu_count() or 1; "
@@ -96,7 +100,7 @@ class MetricCollector:
     async def _collect_memory(self) -> dict:
         try:
             result = await self.oc.system_run(
-                "python3 -c \""
+                'python3 -c "'
                 "import json; "
                 "m = {}; "
                 "with open('/proc/meminfo') as f: "
@@ -160,12 +164,14 @@ class MetricCollector:
             for line in output.split("\n"):
                 parts = line.split()
                 if len(parts) >= 4:
-                    partitions.append({
-                        "mount": parts[0],
-                        "used_gb": round(int(parts[1]) / 1073741824, 2),
-                        "total_gb": round(int(parts[2]) / 1073741824, 2),
-                        "percent": float(parts[3].replace("%", "")),
-                    })
+                    partitions.append(
+                        {
+                            "mount": parts[0],
+                            "used_gb": round(int(parts[1]) / 1073741824, 2),
+                            "total_gb": round(int(parts[2]) / 1073741824, 2),
+                            "percent": float(parts[3].replace("%", "")),
+                        }
+                    )
             return {"partitions": partitions}
         except Exception as e:
             logger.debug(f"Disk collection failed: {e}")
@@ -216,12 +222,14 @@ class MetricCollector:
             for line in output.split("\n"):
                 parts = line.split()
                 if len(parts) >= 4:
-                    processes.append({
-                        "pid": int(parts[0]),
-                        "name": parts[1].split("/")[-1],
-                        "cpu_percent": float(parts[2]),
-                        "mem_mb": round(float(parts[3]), 1),
-                    })
+                    processes.append(
+                        {
+                            "pid": int(parts[0]),
+                            "name": parts[1].split("/")[-1],
+                            "cpu_percent": float(parts[2]),
+                            "mem_mb": round(float(parts[3]), 1),
+                        }
+                    )
 
             self.last_processes = processes
             self.mqtt.publish("hems/pc/processes/top", {"processes": processes})

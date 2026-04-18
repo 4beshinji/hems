@@ -2,6 +2,7 @@
 TTS Provider abstract base class for HEMS Voice Service.
 All TTS backends implement this interface.
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 

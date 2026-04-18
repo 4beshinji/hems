@@ -1,5 +1,7 @@
 """MQTT publisher for HEMS tapo-bridge. Mirrors switchbot-bridge."""
+
 import json
+
 import paho.mqtt.client as mqtt
 from loguru import logger
 

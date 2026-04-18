@@ -4,7 +4,6 @@ import re
 
 import aiohttp
 from loguru import logger
-
 from news_fetcher import Article
 
 SUMMARY_SYSTEM = """\
@@ -116,23 +115,23 @@ class OllamaClient:
             },
         }
 
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=120)
-        ) as session:
-            async with session.post(f"{self.url}/api/chat", json=body) as resp:
-                if resp.status != 200:
-                    detail = await resp.text()
-                    raise RuntimeError(f"Ollama chat failed: {resp.status} {detail}")
-                result = await resp.json()
-                return result.get("message", {}).get("content", "")
+        async with (
+            aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session,
+            session.post(f"{self.url}/api/chat", json=body) as resp,
+        ):
+            if resp.status != 200:
+                detail = await resp.text()
+                raise RuntimeError(f"Ollama chat failed: {resp.status} {detail}")
+            result = await resp.json()
+            return result.get("message", {}).get("content", "")
 
     async def is_available(self) -> bool:
         try:
-            async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=5)
-            ) as session:
-                async with session.get(f"{self.url}/api/tags") as resp:
-                    return resp.status == 200
+            async with (
+                aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session,
+                session.get(f"{self.url}/api/tags") as resp,
+            ):
+                return resp.status == 200
         except Exception:
             return False
 
@@ -152,9 +151,7 @@ class NewsSummarizer:
             logger.warning("Ollama unavailable, using raw titles")
             return self._fallback_summary(articles)
 
-        articles_text = "\n".join(
-            f"- [{a.source}] {a.title}: {a.summary[:200]}" for a in articles[:15]
-        )
+        articles_text = "\n".join(f"- [{a.source}] {a.title}: {a.summary[:200]}" for a in articles[:15])
         prompt = SUMMARY_PROMPT.format(articles=articles_text)
 
         try:

@@ -1,16 +1,17 @@
 """
 HEMS GAS Bridge — FastAPI service that polls GAS Web App and publishes to MQTT.
 """
+
 import asyncio
 from contextlib import asynccontextmanager
 
+from data_poller import DataPoller
 from fastapi import FastAPI, HTTPException
+from gas_client import GASClient
 from loguru import logger
 
 import config
-from gas_client import GASClient
 from mqtt_publisher import MQTTPublisher
-from data_poller import DataPoller
 
 # Module-level state
 gas_client: GASClient | None = None
@@ -30,8 +31,10 @@ async def lifespan(app: FastAPI):
 
     # MQTT
     mqtt_pub = MQTTPublisher(
-        config.MQTT_BROKER, config.MQTT_PORT,
-        config.MQTT_USER, config.MQTT_PASS,
+        config.MQTT_BROKER,
+        config.MQTT_PORT,
+        config.MQTT_USER,
+        config.MQTT_PASS,
     )
     mqtt_pub.connect()
 

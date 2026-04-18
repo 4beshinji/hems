@@ -1,6 +1,7 @@
 """
 Configuration for HEMS Perception Service.
 """
+
 import json
 import os
 

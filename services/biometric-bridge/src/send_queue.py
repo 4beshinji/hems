@@ -3,6 +3,7 @@ SQLite-backed send queue for MQTT messages.
 
 Buffers messages when MQTT broker is unreachable, flushes on reconnect.
 """
+
 import json
 import time
 

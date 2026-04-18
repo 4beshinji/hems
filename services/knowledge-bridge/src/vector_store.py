@@ -1,6 +1,7 @@
 """
 In-memory vector store — cosine similarity search over numpy arrays.
 """
+
 import numpy as np
 from loguru import logger
 
@@ -9,7 +10,7 @@ class VectorStore:
     """In-memory vector index for embedding-based document search."""
 
     def __init__(self):
-        self._keys: list[str] = []        # doc_key list (aligned with matrix rows)
+        self._keys: list[str] = []  # doc_key list (aligned with matrix rows)
         self._matrix: np.ndarray | None = None  # (N, dim) normalized vectors
         self._key_to_idx: dict[str, int] = {}
 
@@ -58,8 +59,9 @@ class VectorStore:
         self._matrix = matrix
         logger.debug(f"VectorStore built: {len(self._keys)} vectors, dim={matrix.shape[1]}")
 
-    def search(self, query_vector: np.ndarray, top_k: int = 20,
-               allowed_keys: set[str] | None = None) -> list[tuple[str, float]]:
+    def search(
+        self, query_vector: np.ndarray, top_k: int = 20, allowed_keys: set[str] | None = None
+    ) -> list[tuple[str, float]]:
         """Cosine similarity search. Returns [(doc_key, score), ...] sorted desc.
 
         Args:

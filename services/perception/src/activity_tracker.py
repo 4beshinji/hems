@@ -2,6 +2,7 @@
 Posture classification, activity level computation, and duration tracking.
 Uses COCO 17-keypoint skeleton from YOLOv11-pose.
 """
+
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -22,11 +23,12 @@ MIN_KP_CONF = 0.3
 @dataclass
 class ActivityState:
     """Current activity state for a tracked person/zone."""
-    posture: str = "unknown"           # standing, sitting, lying, walking, unknown
-    activity_level: float = 0.0        # 0.0-1.0 smoothed
-    activity_class: str = "unknown"    # idle, low, moderate, high
+
+    posture: str = "unknown"  # standing, sitting, lying, walking, unknown
+    activity_level: float = 0.0  # 0.0-1.0 smoothed
+    activity_class: str = "unknown"  # idle, low, moderate, high
     posture_duration_sec: float = 0.0  # seconds in current posture
-    posture_status: str = "unknown"    # changing, mostly_static, static
+    posture_status: str = "unknown"  # changing, mostly_static, static
     last_update: float = 0.0
 
 
@@ -39,7 +41,7 @@ class ActivityTracker:
     MODERATE_THRESHOLD = 0.6
 
     # Posture duration thresholds (seconds)
-    CHANGING_THRESHOLD = 300      # < 5 min
+    CHANGING_THRESHOLD = 300  # < 5 min
     MOSTLY_STATIC_THRESHOLD = 3600  # < 60 min
 
     # EMA smoothing factor for activity level
@@ -50,9 +52,9 @@ class ActivityTracker:
 
     def __init__(self):
         # Tiered pose buffer
-        self._tier1: deque[np.ndarray] = deque(maxlen=3)    # 15s (3 frames)
-        self._tier2: deque[np.ndarray] = deque(maxlen=12)   # 60s (12 frames)
-        self._tier3: deque[np.ndarray] = deque(maxlen=60)   # 300s (60 frames)
+        self._tier1: deque[np.ndarray] = deque(maxlen=3)  # 15s (3 frames)
+        self._tier2: deque[np.ndarray] = deque(maxlen=12)  # 60s (12 frames)
+        self._tier3: deque[np.ndarray] = deque(maxlen=60)  # 300s (60 frames)
 
         self._state = ActivityState()
         self._posture_start_time: float = 0.0
@@ -93,10 +95,7 @@ class ActivityTracker:
             posture = "walking"
 
         # EMA smooth activity level
-        self._smoothed_activity = (
-            self.EMA_ALPHA * raw_activity
-            + (1 - self.EMA_ALPHA) * self._smoothed_activity
-        )
+        self._smoothed_activity = self.EMA_ALPHA * raw_activity + (1 - self.EMA_ALPHA) * self._smoothed_activity
         activity_level = max(0.0, min(1.0, self._smoothed_activity))
 
         # Classify activity
@@ -124,6 +123,7 @@ class ActivityTracker:
 
     def _classify_posture(self, kps: np.ndarray) -> str:
         """Classify posture from COCO keypoints based on joint relationships."""
+
         def valid(idx: int) -> bool:
             return kps[idx][2] >= MIN_KP_CONF
 

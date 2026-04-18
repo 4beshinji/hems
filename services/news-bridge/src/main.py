@@ -2,6 +2,7 @@
 HEMS News Bridge — RSS news fetcher + Ollama summarizer + urgency detection.
 Publishes daily summaries and urgent news alerts to MQTT.
 """
+
 import asyncio
 import time
 from contextlib import asynccontextmanager
@@ -9,12 +10,12 @@ from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from loguru import logger
-
-import config
-from mqtt_publisher import MQTTPublisher
 from news_fetcher import NewsFetcher
 from news_summarizer import NewsSummarizer, OllamaClient, split_by_category
 from urgency import UrgencyDetector
+
+import config
+from mqtt_publisher import MQTTPublisher
 
 # Module-level state
 mqtt_pub: MQTTPublisher | None = None
@@ -90,11 +91,14 @@ async def _check_urgent_news():
 
 async def _publish_bridge_status():
     """Publish bridge status to MQTT."""
-    mqtt_pub.publish("hems/news/bridge/status", {
-        "connected": True,
-        "last_fetch": _latest_summary.get("timestamp", 0),
-        "articles_count": _latest_summary.get("article_count", 0),
-    })
+    mqtt_pub.publish(
+        "hems/news/bridge/status",
+        {
+            "connected": True,
+            "last_fetch": _latest_summary.get("timestamp", 0),
+            "articles_count": _latest_summary.get("article_count", 0),
+        },
+    )
 
 
 async def _daily_summary_loop():
@@ -109,6 +113,7 @@ async def _daily_summary_loop():
             if now >= target:
                 # Already past today's target — schedule for tomorrow
                 import datetime as dt_mod
+
                 target = target + dt_mod.timedelta(days=1)
 
             wait_seconds = (target - now).total_seconds()
@@ -145,8 +150,10 @@ async def lifespan(app: FastAPI):
 
     # MQTT
     mqtt_pub = MQTTPublisher(
-        config.MQTT_BROKER, config.MQTT_PORT,
-        config.MQTT_USER, config.MQTT_PASS,
+        config.MQTT_BROKER,
+        config.MQTT_PORT,
+        config.MQTT_USER,
+        config.MQTT_PASS,
     )
     mqtt_pub.connect()
 

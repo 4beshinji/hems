@@ -2,23 +2,30 @@
 Source watcher — monitors multiple source directories for file changes via watchdog.
 Debounces events and triggers index update + MQTT publish.
 """
+
 import asyncio
 import time
 from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
-from loguru import logger
 
 from document_index import DocumentIndex
+from loguru import logger
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
+from watchdog.observers import Observer
+
 from mqtt_publisher import MQTTPublisher
-from loaders import get_supported_extensions
 
 
 class _SourceEventHandler(FileSystemEventHandler):
     """Collects file change events with debouncing for a single source."""
 
-    def __init__(self, source_name: str, source_path: str, extensions: set[str],
-                 exclude_patterns: list[str], debounce_seconds: float):
+    def __init__(
+        self,
+        source_name: str,
+        source_path: str,
+        extensions: set[str],
+        exclude_patterns: list[str],
+        debounce_seconds: float,
+    ):
         self.source_name = source_name
         self.source_path = Path(source_path)
         self.extensions = extensions
@@ -79,16 +86,14 @@ class _SourceEventHandler(FileSystemEventHandler):
 class SourceWatcher:
     """Watches multiple source directories, updates index and publishes MQTT events."""
 
-    def __init__(self, doc_index: DocumentIndex, mqtt_pub: MQTTPublisher,
-                 debounce: float = 3.0):
+    def __init__(self, doc_index: DocumentIndex, mqtt_pub: MQTTPublisher, debounce: float = 3.0):
         self.index = doc_index
         self.mqtt = mqtt_pub
         self.debounce = debounce
         self._handlers: dict[str, _SourceEventHandler] = {}  # source_name → handler
         self._observer: Observer | None = None
 
-    def add_source(self, source_name: str, source_path: str, extensions: list[str],
-                   exclude_patterns: list[str]):
+    def add_source(self, source_name: str, source_path: str, extensions: list[str], exclude_patterns: list[str]):
         """Register a source directory for watching."""
         path = Path(source_path)
         if not path.exists():
@@ -96,8 +101,11 @@ class SourceWatcher:
             return
 
         handler = _SourceEventHandler(
-            source_name, source_path, set(extensions),
-            exclude_patterns, self.debounce,
+            source_name,
+            source_path,
+            set(extensions),
+            exclude_patterns,
+            self.debounce,
         )
         self._handlers[source_name] = handler
 

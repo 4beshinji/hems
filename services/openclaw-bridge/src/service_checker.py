@@ -2,11 +2,13 @@
 Service Checker — monitors external service status (Gmail IMAP, GitHub REST, browser scraping).
 Publishes to hems/services/{name}/status via MQTT.
 """
+
 import asyncio
 import json
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
+
 from loguru import logger
 
 
@@ -30,8 +32,7 @@ class BaseChecker(ABC):
         self._last_status: ServiceStatus | None = None
 
     @abstractmethod
-    async def check(self) -> ServiceStatus:
-        ...
+    async def check(self) -> ServiceStatus: ...
 
     @property
     def last_status(self) -> ServiceStatus | None:
@@ -49,6 +50,7 @@ class GmailChecker(BaseChecker):
     async def check(self) -> ServiceStatus:
         try:
             import aioimaplib
+
             imap = aioimaplib.IMAP4_SSL("imap.gmail.com")
             await imap.wait_hello_from_server()
             await imap.login(self.email, self.app_password)
@@ -60,16 +62,21 @@ class GmailChecker(BaseChecker):
 
             summary = f"未読メール: {count}通" if count > 0 else "未読なし"
             status = ServiceStatus(
-                name=self.name, available=True, unread_count=count,
-                summary=summary, last_check=time.time(),
+                name=self.name,
+                available=True,
+                unread_count=count,
+                summary=summary,
+                last_check=time.time(),
             )
             self._last_status = status
             return status
         except Exception as e:
             logger.warning(f"Gmail check failed: {e}")
             status = ServiceStatus(
-                name=self.name, available=False,
-                summary="Gmail接続エラー", last_check=time.time(),
+                name=self.name,
+                available=False,
+                summary="Gmail接続エラー",
+                last_check=time.time(),
                 error=str(e)[:200],
             )
             self._last_status = status
@@ -86,24 +93,31 @@ class GitHubChecker(BaseChecker):
     async def check(self) -> ServiceStatus:
         try:
             import aiohttp
+
             headers = {
                 "Authorization": f"Bearer {self.token}",
                 "Accept": "application/vnd.github+json",
             }
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(
                     "https://api.github.com/notifications",
-                    headers=headers, timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    if resp.status != 200:
-                        raise Exception(f"GitHub API {resp.status}")
-                    notifications = await resp.json()
-                    count = len(notifications)
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp,
+            ):
+                if resp.status != 200:
+                    raise Exception(f"GitHub API {resp.status}")
+                notifications = await resp.json()
+                count = len(notifications)
 
             summary = f"GitHub通知: {count}件" if count > 0 else "通知なし"
             status = ServiceStatus(
-                name=self.name, available=True, unread_count=count,
-                summary=summary, last_check=time.time(),
+                name=self.name,
+                available=True,
+                unread_count=count,
+                summary=summary,
+                last_check=time.time(),
                 details={"types": _count_github_types(notifications)},
             )
             self._last_status = status
@@ -111,8 +125,10 @@ class GitHubChecker(BaseChecker):
         except Exception as e:
             logger.warning(f"GitHub check failed: {e}")
             status = ServiceStatus(
-                name=self.name, available=False,
-                summary="GitHub接続エラー", last_check=time.time(),
+                name=self.name,
+                available=False,
+                summary="GitHub接続エラー",
+                last_check=time.time(),
                 error=str(e)[:200],
             )
             self._last_status = status
@@ -130,8 +146,15 @@ def _count_github_types(notifications: list) -> dict:
 class BrowserChecker(BaseChecker):
     """Check service status via browser JS evaluation (requires OpenClaw)."""
 
-    def __init__(self, name: str, url: str, js_script: str,
-                 oc_client, interval: int = 300, browser_lock: asyncio.Lock | None = None):
+    def __init__(
+        self,
+        name: str,
+        url: str,
+        js_script: str,
+        oc_client,
+        interval: int = 300,
+        browser_lock: asyncio.Lock | None = None,
+    ):
         super().__init__(name, interval)
         self.url = url
         self.js_script = js_script
@@ -151,8 +174,11 @@ class BrowserChecker(BaseChecker):
                 count = int(data.get("unread_count", 0))
                 summary = data.get("summary", f"{self.name}: {count}件")
                 status = ServiceStatus(
-                    name=self.name, available=True, unread_count=count,
-                    summary=summary, last_check=time.time(),
+                    name=self.name,
+                    available=True,
+                    unread_count=count,
+                    summary=summary,
+                    last_check=time.time(),
                     details=data.get("details", {}),
                 )
                 self._last_status = status
@@ -160,8 +186,10 @@ class BrowserChecker(BaseChecker):
             except Exception as e:
                 logger.warning(f"Browser check '{self.name}' failed: {e}")
                 status = ServiceStatus(
-                    name=self.name, available=False,
-                    summary=f"{self.name}チェックエラー", last_check=time.time(),
+                    name=self.name,
+                    available=False,
+                    summary=f"{self.name}チェックエラー",
+                    last_check=time.time(),
                     error=str(e)[:200],
                 )
                 self._last_status = status
@@ -203,13 +231,16 @@ class ServiceCheckerManager:
 
                 # Edge trigger: unread count increased
                 if status.unread_count > prev_count:
-                    self._mqtt.publish(f"hems/services/{checker.name}/event", {
-                        "type": "unread_increased",
-                        "name": checker.name,
-                        "prev_count": prev_count,
-                        "new_count": status.unread_count,
-                        "summary": status.summary,
-                    })
+                    self._mqtt.publish(
+                        f"hems/services/{checker.name}/event",
+                        {
+                            "type": "unread_increased",
+                            "name": checker.name,
+                            "prev_count": prev_count,
+                            "new_count": status.unread_count,
+                            "summary": status.summary,
+                        },
+                    )
                     logger.info(f"Service event: {checker.name} unread {prev_count} → {status.unread_count}")
 
             except Exception as e:
@@ -219,7 +250,4 @@ class ServiceCheckerManager:
 
     def get_status(self) -> dict:
         """Return all cached statuses for REST API."""
-        return {
-            name: asdict(status)
-            for name, status in self._statuses.items()
-        }
+        return {name: asdict(status) for name, status in self._statuses.items()}

@@ -5,17 +5,19 @@ WebSocket: HA state_changed events -> MQTT publish
 REST API: Brain tool calls -> HA service calls
 Polling fallback: when WebSocket disconnects
 """
+
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+
 import aiohttp
+from entity_mapper import EntityMapper
+from fastapi import FastAPI, HTTPException
+from ha_client import HAClient
 from loguru import logger
+from pydantic import BaseModel
 
 import config
-from ha_client import HAClient
 from mqtt_publisher import MQTTPublisher
-from entity_mapper import EntityMapper
 
 # Module-level shared state
 ha_client: HAClient | None = None
@@ -85,20 +87,26 @@ async def _poll_states():
                 mqtt_pub.publish(topic, parsed)
 
         # Publish bridge status
-        mqtt_pub.publish("hems/home/bridge/status", {
-            "connected": ha_client.connected,
-            "mode": "polling",
-        })
+        mqtt_pub.publish(
+            "hems/home/bridge/status",
+            {
+                "connected": ha_client.connected,
+                "mode": "polling",
+            },
+        )
         await asyncio.sleep(config.STATE_POLL_INTERVAL)
 
 
 async def _bridge_status_loop():
     """Periodically publish bridge connection status."""
     while True:
-        mqtt_pub.publish("hems/home/bridge/status", {
-            "connected": ha_client.connected,
-            "mode": "websocket" if ha_client.connected else "disconnected",
-        })
+        mqtt_pub.publish(
+            "hems/home/bridge/status",
+            {
+                "connected": ha_client.connected,
+                "mode": "websocket" if ha_client.connected else "disconnected",
+            },
+        )
         await asyncio.sleep(30)
 
 
@@ -107,8 +115,7 @@ async def lifespan(app: FastAPI):
     global ha_client, mqtt_pub, entity_mapper
 
     entity_mapper = EntityMapper(config.HEMS_HA_ENTITY_MAP)
-    mqtt_pub = MQTTPublisher(config.MQTT_BROKER, config.MQTT_PORT,
-                             config.MQTT_USER, config.MQTT_PASS)
+    mqtt_pub = MQTTPublisher(config.MQTT_BROKER, config.MQTT_PORT, config.MQTT_USER, config.MQTT_PASS)
     mqtt_pub.connect()
 
     ha_client = HAClient(config.HA_URL, config.HA_TOKEN)
@@ -117,9 +124,7 @@ async def lifespan(app: FastAPI):
         await ha_client.start(session)
 
         # Start WebSocket event loop with polling fallback
-        _tasks.append(asyncio.create_task(
-            ha_client.reconnect_loop(_on_state_changed, _poll_states)
-        ))
+        _tasks.append(asyncio.create_task(ha_client.reconnect_loop(_on_state_changed, _poll_states)))
         _tasks.append(asyncio.create_task(_bridge_status_loop()))
 
         logger.info(f"HA Bridge started (HA={config.HA_URL})")
@@ -139,8 +144,13 @@ app = FastAPI(title="HEMS HA Bridge", lifespan=lifespan)
 
 # Domains that could be used for command injection or dangerous operations
 _BLOCKED_DOMAINS = {
-    "shell_command", "command_line", "python_script", "script",
-    "automation", "event", "persistent_notification",
+    "shell_command",
+    "command_line",
+    "python_script",
+    "script",
+    "automation",
+    "event",
+    "persistent_notification",
 }
 
 # Per-domain parameter validation rules

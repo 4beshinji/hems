@@ -1,6 +1,7 @@
 """
 Configuration for HEMS Biometric Bridge.
 """
+
 import os
 
 # MQTT

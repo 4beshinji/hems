@@ -2,26 +2,42 @@
 OpenClaw Bridge — connects OpenClaw desktop agent to HEMS via MQTT + REST.
 Polls PC metrics, publishes to hems/pc/* topics, exposes REST API for brain tools.
 """
+
 import asyncio
 import time
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from loguru import logger
+from pydantic import BaseModel
 
 from config import (
-    OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN,
-    MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS,
-    METRICS_INTERVAL, PROCESS_INTERVAL, LOG_LEVEL,
-    GMAIL_ENABLED, GMAIL_EMAIL, GMAIL_APP_PASSWORD, GMAIL_INTERVAL,
-    GITHUB_ENABLED, GITHUB_TOKEN, GITHUB_INTERVAL,
     BROWSER_CHECKERS_JSON,
+    GITHUB_ENABLED,
+    GITHUB_INTERVAL,
+    GITHUB_TOKEN,
+    GMAIL_APP_PASSWORD,
+    GMAIL_EMAIL,
+    GMAIL_ENABLED,
+    GMAIL_INTERVAL,
+    LOG_LEVEL,
+    METRICS_INTERVAL,
+    MQTT_BROKER,
+    MQTT_PASS,
+    MQTT_PORT,
+    MQTT_USER,
+    OPENCLAW_GATEWAY_TOKEN,
+    OPENCLAW_GATEWAY_URL,
+    PROCESS_INTERVAL,
 )
-from openclaw_client import OpenClawClient
 from metric_collector import MetricCollector
 from mqtt_publisher import MQTTPublisher
+from openclaw_client import OpenClawClient
 from service_checker import (
-    ServiceCheckerManager, GmailChecker, GitHubChecker, BrowserChecker,
+    BrowserChecker,
+    GitHubChecker,
+    GmailChecker,
+    ServiceCheckerManager,
 )
 
 logger.configure(handlers=[{"sink": "ext://sys.stderr", "level": LOG_LEVEL}])
@@ -45,16 +61,21 @@ def _register_service_checkers():
     # Browser-based checkers from JSON config
     try:
         import json as _json
+
         browser_configs = _json.loads(BROWSER_CHECKERS_JSON)
         if browser_configs:
             browser_lock = asyncio.Lock()
             for cfg in browser_configs:
-                service_checker.register(BrowserChecker(
-                    name=cfg["name"], url=cfg["url"],
-                    js_script=cfg["js_script"], oc_client=oc_client,
-                    interval=cfg.get("interval", 300),
-                    browser_lock=browser_lock,
-                ))
+                service_checker.register(
+                    BrowserChecker(
+                        name=cfg["name"],
+                        url=cfg["url"],
+                        js_script=cfg["js_script"],
+                        oc_client=oc_client,
+                        interval=cfg.get("interval", 300),
+                        browser_lock=browser_lock,
+                    )
+                )
     except Exception as e:
         logger.warning(f"Failed to parse HEMS_BROWSER_CHECKERS: {e}")
 
@@ -89,36 +110,45 @@ app = FastAPI(title="OpenClaw Bridge", lifespan=lifespan)
 async def _bridge_status_loop():
     """Publish bridge status to MQTT every 30s."""
     while True:
-        mqtt_pub.publish("hems/pc/bridge/status", {
-            "connected": oc_client.connected,
-            "uptime_s": round(time.time() - start_time),
-        })
+        mqtt_pub.publish(
+            "hems/pc/bridge/status",
+            {
+                "connected": oc_client.connected,
+                "uptime_s": round(time.time() - start_time),
+            },
+        )
         await asyncio.sleep(30)
 
 
 # --- Request models ---
+
 
 class CommandRequest(BaseModel):
     command: str
     cwd: str | None = None
     timeout: float = 30
 
+
 class NotifyRequest(BaseModel):
     title: str
     body: str
     priority: str = "active"
 
+
 class NavigateRequest(BaseModel):
     url: str
 
+
 class EvalRequest(BaseModel):
     javascript: str
+
 
 class KillRequest(BaseModel):
     pid: int
 
 
 # --- REST endpoints ---
+
 
 @app.get("/health")
 async def health():

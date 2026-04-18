@@ -1,8 +1,10 @@
 """
 Microsoft Edge TTS Provider — free cloud TTS.
 """
+
 import io
-from tts_provider import TTSProvider, AudioResult
+
+from tts_provider import AudioResult, TTSProvider
 
 VOICE_MAP = {
     "neutral": "ja-JP-NanamiNeural",
@@ -41,6 +43,7 @@ class EdgeTTSProvider(TTSProvider):
     async def is_available(self) -> bool:
         try:
             import edge_tts  # noqa: F401
+
             return True
         except ImportError:
             return False

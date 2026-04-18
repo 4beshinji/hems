@@ -3,7 +3,9 @@ MQTT publisher/subscriber for perception data.
 Extended from biometric-bridge pattern with subscribe + callback support
 for MCP camera response routing.
 """
+
 import json
+
 import paho.mqtt.client as mqtt
 from loguru import logger
 

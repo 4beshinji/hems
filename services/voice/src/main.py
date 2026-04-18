@@ -1,18 +1,23 @@
 """HEMS Voice Service — Plugin-based TTS with character awareness."""
+
 import asyncio
+import hmac
 import io
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from loguru import logger
+from provider_factory import create_provider
 from pydub import AudioSegment
-
-import re
+from speech_generator import SpeechGenerator
+from text_processor import TextProcessor
+from tts_provider import AudioResult
 
 from models import (
     BatchSynthesizeItem,
@@ -24,13 +29,10 @@ from models import (
     TaskAnnounceRequest,
     VoiceResponse,
 )
-from provider_factory import create_provider
-from speech_generator import SpeechGenerator
-from text_processor import TextProcessor
-from tts_provider import AudioResult
 
 AUDIO_DIR = Path("/app/audio")
 AUDIO_DIR.mkdir(exist_ok=True)
+_INTERNAL_TOKEN = os.getenv("HEMS_INTERNAL_TOKEN", "")
 
 character_config = {}
 tts_provider = None
@@ -44,7 +46,7 @@ def _load_character() -> dict:
     for path in [os.getenv("CHARACTER_FILE", ""), "/config/character.yaml"]:
         if path and Path(path).exists():
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     return yaml.safe_load(f) or {}
             except Exception as e:
                 logger.warning(f"Failed to load character: {e}")
@@ -70,6 +72,17 @@ async def _save_audio(result: AudioResult, filepath: Path):
         filepath.write_bytes(result.audio_data)
 
 
+def _get_voisona_provider(provider):
+    """Extract VoisonaProvider from a provider (possibly wrapped in FallbackProvider)."""
+    from providers.voisona import VoisonaProvider
+
+    if isinstance(provider, VoisonaProvider):
+        return provider
+    if hasattr(provider, "primary") and isinstance(provider.primary, VoisonaProvider):
+        return provider.primary
+    return None
+
+
 async def _voisona_health_loop():
     """Passive health monitor for VoiSona TTS provider.
 
@@ -81,35 +94,41 @@ async def _voisona_health_loop():
     """
     global _last_health
     from providers.voisona import HEALTH_CHECK_INTERVAL, HEALTH_SLOW_THRESHOLD
-    STALE_THRESHOLD = HEALTH_CHECK_INTERVAL * 3  # no synthesis for 15min → degraded
+
+    _stale_threshold = HEALTH_CHECK_INTERVAL * 3  # no synthesis for 15min → degraded
     await asyncio.sleep(60)  # initial grace period
     while True:
         try:
-            if hasattr(tts_provider, "_last_synth_duration"):
+            voisona = _get_voisona_provider(tts_provider)
+            if voisona and hasattr(voisona, "_last_synth_duration"):
                 # Check API reachability
-                reachable = await tts_provider.is_available()
+                reachable = await voisona.is_available()
                 if not reachable:
-                    tts_provider._healthy = False
+                    voisona._healthy = False
                     _last_health = {
-                        "healthy": False, "wall_seconds": 0,
-                        "state": "unreachable", "detail": "VoiSona API unreachable",
+                        "healthy": False,
+                        "wall_seconds": 0,
+                        "state": "unreachable",
+                        "detail": "VoiSona API unreachable",
                     }
                     logger.warning("VoiSona health: API unreachable")
-                elif tts_provider._last_synth_duration > HEALTH_SLOW_THRESHOLD:
+                elif voisona._last_synth_duration > HEALTH_SLOW_THRESHOLD:
                     _last_health = {
-                        "healthy": True, "wall_seconds": tts_provider._last_synth_duration,
-                        "state": "slow", "detail": f"Last synthesis took {tts_provider._last_synth_duration:.1f}s",
+                        "healthy": True,
+                        "wall_seconds": voisona._last_synth_duration,
+                        "state": "slow",
+                        "detail": f"Last synthesis took {voisona._last_synth_duration:.1f}s",
                     }
-                    logger.info(f"VoiSona health: slow ({tts_provider._last_synth_duration:.1f}s)")
+                    logger.info(f"VoiSona health: slow ({voisona._last_synth_duration:.1f}s)")
                 else:
                     _last_health = {
-                        "healthy": tts_provider._healthy,
-                        "wall_seconds": tts_provider._last_synth_duration,
-                        "state": "ok" if tts_provider._healthy else "degraded",
+                        "healthy": voisona._healthy,
+                        "wall_seconds": voisona._last_synth_duration,
+                        "state": "ok" if voisona._healthy else "degraded",
                         "detail": "",
                     }
-                    if tts_provider._healthy:
-                        logger.debug(f"VoiSona health OK (last synth {tts_provider._last_synth_duration:.1f}s)")
+                    if voisona._healthy:
+                        logger.debug(f"VoiSona health OK (last synth {voisona._last_synth_duration:.1f}s)")
                     else:
                         logger.warning("VoiSona health: degraded (last synthesis failed)")
         except Exception as e:
@@ -125,7 +144,9 @@ async def lifespan(app: FastAPI):
     tts_provider = create_provider(character_config=character_config)
     speech_gen = SpeechGenerator(character_config=character_config)
     logger.info(f"TTS provider: {tts_provider.name}")
-    if tts_provider.name == "voisona":
+    # Start VoiSona health loop if primary provider is voisona (including fallback wrapper)
+    _voisona = _get_voisona_provider(tts_provider)
+    if _voisona:
         _health_task = asyncio.create_task(_voisona_health_loop())
         logger.info("VoiSona health check started (every 5min)")
     yield
@@ -134,6 +155,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="HEMS Voice Service", lifespan=lifespan)
+
+
+def _check_auth(authorization: str | None):
+    if not _INTERNAL_TOKEN:
+        return
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not hmac.compare_digest(token, _INTERNAL_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @app.get("/")
@@ -145,15 +174,18 @@ async def root():
 async def health():
     """Detailed health status including VoiSona probe results."""
     base = {"service": "HEMS Voice", "tts": tts_provider.name if tts_provider else "none"}
-    if tts_provider and hasattr(tts_provider, "healthy"):
-        base["tts_healthy"] = tts_provider.healthy
+    voisona = _get_voisona_provider(tts_provider) if tts_provider else None
+    if voisona:
+        base["tts_healthy"] = voisona.healthy
         base["last_health_check"] = _last_health
+    if tts_provider and hasattr(tts_provider, "_using_fallback"):
+        base["using_fallback"] = tts_provider._using_fallback
     return base
 
 
-
 @app.post("/api/voice/synthesize", response_model=VoiceResponse)
-async def synthesize_text(req: SynthesizeRequest):
+async def synthesize_text(req: SynthesizeRequest, authorization: str | None = Header(None)):
+    _check_auth(authorization)
     processed_text = text_processor.process(req.text)
     result = await tts_provider.synthesize(processed_text, voice=req.tone or "neutral")
     if not result.audio_data:
@@ -164,11 +196,14 @@ async def synthesize_text(req: SynthesizeRequest):
         )
     fname = f"speak_{uuid.uuid4()}.mp3"
     await _save_audio(result, AUDIO_DIR / fname)
-    return VoiceResponse(audio_url=f"/audio/{fname}", text_generated=req.text, duration_seconds=_estimate_duration(result))
+    return VoiceResponse(
+        audio_url=f"/audio/{fname}", text_generated=req.text, duration_seconds=_estimate_duration(result)
+    )
 
 
 @app.post("/api/voice/announce", response_model=VoiceResponse)
-async def announce_task(req: TaskAnnounceRequest):
+async def announce_task(req: TaskAnnounceRequest, authorization: str | None = Header(None)):
+    _check_auth(authorization)
     text = await speech_gen.generate_speech_text(req.task)
     result = await tts_provider.synthesize(text, voice="neutral")
     if not result.audio_data:
@@ -183,7 +218,8 @@ async def announce_task(req: TaskAnnounceRequest):
 
 
 @app.post("/api/voice/announce_with_completion", response_model=DualVoiceResponse)
-async def announce_with_completion(req: TaskAnnounceRequest):
+async def announce_with_completion(req: TaskAnnounceRequest, authorization: str | None = Header(None)):
+    _check_auth(authorization)
     ann_text = await speech_gen.generate_speech_text(req.task)
     comp_text = await speech_gen.generate_completion_text(req.task)
     ann_result = await tts_provider.synthesize(ann_text, voice="neutral")
@@ -202,15 +238,18 @@ async def announce_with_completion(req: TaskAnnounceRequest):
     await _save_audio(ann_result, AUDIO_DIR / ann_fname)
     await _save_audio(comp_result, AUDIO_DIR / comp_fname)
     return DualVoiceResponse(
-        announcement_audio_url=f"/audio/{ann_fname}", announcement_text=ann_text,
+        announcement_audio_url=f"/audio/{ann_fname}",
+        announcement_text=ann_text,
         announcement_duration=_estimate_duration(ann_result),
-        completion_audio_url=f"/audio/{comp_fname}", completion_text=comp_text,
+        completion_audio_url=f"/audio/{comp_fname}",
+        completion_text=comp_text,
         completion_duration=_estimate_duration(comp_result),
     )
 
 
 @app.post("/api/voice/feedback/{feedback_type}")
-async def generate_feedback(feedback_type: str):
+async def generate_feedback(feedback_type: str, authorization: str | None = Header(None)):
+    _check_auth(authorization)
     text = await speech_gen.generate_feedback(feedback_type)
     result = await tts_provider.synthesize(text, voice="neutral")
     if not result.audio_data:
@@ -230,7 +269,8 @@ _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 async def _synth_batch_item(item: BatchSynthesizeItem, prefix: str) -> BatchSynthesizeResult:
     if not _SAFE_NAME_RE.match(item.clip_id):
         return BatchSynthesizeResult(
-            clip_id=item.clip_id, error="Invalid clip_id (expected [A-Za-z0-9._-]+)",
+            clip_id=item.clip_id,
+            error="Invalid clip_id (expected [A-Za-z0-9._-]+)",
         )
     try:
         processed = text_processor.process(item.text)
@@ -248,13 +288,14 @@ async def _synth_batch_item(item: BatchSynthesizeItem, prefix: str) -> BatchSynt
             audio_url=f"/audio/{fname}",
             duration_seconds=_estimate_duration(result),
         )
-    except Exception as exc:  # noqa: BLE001 — individual item failures must not kill the batch
+    except Exception as exc:
         logger.warning("batch-synth failed clip_id={} err={}", item.clip_id, exc)
         return BatchSynthesizeResult(clip_id=item.clip_id, error=str(exc)[:200])
 
 
 @app.post("/api/voice/batch-synthesize", response_model=BatchSynthesizeResponse)
-async def batch_synthesize(req: BatchSynthesizeRequest):
+async def batch_synthesize(req: BatchSynthesizeRequest, authorization: str | None = Header(None)):
+    _check_auth(authorization)
     """Parallel synthesize a batch of clips with deterministic filenames.
 
     Output filename is ``{prefix}_{clip_id}.mp3`` — re-running with the same

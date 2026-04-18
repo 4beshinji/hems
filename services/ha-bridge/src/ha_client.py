@@ -1,7 +1,9 @@
 """
 Home Assistant REST + WebSocket client.
 """
+
 import asyncio
+
 import aiohttp
 from loguru import logger
 
@@ -64,8 +66,7 @@ class HAClient:
             logger.warning(f"HA get_state error: {e}")
         return None
 
-    async def call_service(self, domain: str, service: str,
-                           entity_id: str = "", data: dict | None = None) -> bool:
+    async def call_service(self, domain: str, service: str, entity_id: str = "", data: dict | None = None) -> bool:
         """Call a Home Assistant service (e.g. light/turn_on)."""
         payload = dict(data or {})
         if entity_id:
@@ -119,11 +120,13 @@ class HAClient:
         if not self._ws or self._ws.closed:
             return False
         self._ws_id += 1
-        await self._ws.send_json({
-            "id": self._ws_id,
-            "type": "subscribe_events",
-            "event_type": "state_changed",
-        })
+        await self._ws.send_json(
+            {
+                "id": self._ws_id,
+                "type": "subscribe_events",
+                "event_type": "state_changed",
+            }
+        )
         msg = await self._ws.receive_json(timeout=10)
         return msg.get("success", False)
 

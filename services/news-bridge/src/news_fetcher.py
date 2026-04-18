@@ -50,14 +50,16 @@ class NewsFetcher:
         return articles
 
     async def _fetch_feed(self, source_name: str, feed_url: str) -> list[Article]:
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=15),
-            headers={"User-Agent": "hems-news-bridge/0.1"},
-        ) as session:
-            async with session.get(feed_url) as resp:
-                if resp.status != 200:
-                    raise RuntimeError(f"RSS fetch failed: {resp.status}")
-                text = await resp.text()
+        async with (
+            aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15),
+                headers={"User-Agent": "hems-news-bridge/0.1"},
+            ) as session,
+            session.get(feed_url) as resp,
+        ):
+            if resp.status != 200:
+                raise RuntimeError(f"RSS fetch failed: {resp.status}")
+            text = await resp.text()
 
         feed = feedparser.parse(text)
         articles = []

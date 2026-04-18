@@ -1,7 +1,9 @@
 """
 MQTT publisher for Obsidian Bridge — publishes note change events to hems/personal/notes/* topics.
 """
+
 import json
+
 import paho.mqtt.client as mqtt
 from loguru import logger
 

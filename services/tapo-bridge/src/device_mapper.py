@@ -1,4 +1,5 @@
 """Map vendor_ref (e.g. 'plug_desklight') ↔ IP/zone/name."""
+
 from config import Config
 
 

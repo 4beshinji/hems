@@ -2,9 +2,11 @@
 WebSocket client for OpenClaw Gateway.
 Persistent connection with auto-reconnect and request/response pairing.
 """
+
 import asyncio
 import json
 import uuid
+
 from loguru import logger
 
 try:
@@ -115,7 +117,7 @@ class OpenClawClient:
             if "error" in result:
                 raise RuntimeError(f"RPC error: {result['error']}")
             return result.get("result", {})
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending.pop(req_id, None)
             raise TimeoutError(f"RPC timeout: {method}")
 
@@ -128,9 +130,14 @@ class OpenClawClient:
 
     async def system_notify(self, title: str, body: str, priority: str = "active") -> dict:
         """Send a desktop notification via OpenClaw."""
-        return await self._rpc("system.notify", {
-            "title": title, "body": body, "priority": priority,
-        })
+        return await self._rpc(
+            "system.notify",
+            {
+                "title": title,
+                "body": body,
+                "priority": priority,
+            },
+        )
 
     async def canvas_navigate(self, url: str) -> dict:
         """Navigate the browser to a URL."""

@@ -1,7 +1,9 @@
 """
 Configuration for HEMS Home Assistant Bridge service.
 """
+
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()

@@ -1,7 +1,6 @@
 """News urgency scoring via Ollama — ported from voisona-yomiage."""
 
 from loguru import logger
-
 from news_fetcher import Article
 from news_summarizer import OllamaClient
 
@@ -25,9 +24,7 @@ class UrgencyDetector:
 
         prompt = f"タイトル: {article.title}\n要約: {article.summary[:300]}\n\n緊急度スコア:"
         try:
-            response = await self.ollama.generate(
-                prompt, system=URGENCY_SYSTEM, temperature=0.1, max_tokens=10
-            )
+            response = await self.ollama.generate(prompt, system=URGENCY_SYSTEM, temperature=0.1, max_tokens=10)
             score = float(response.strip().split()[0])
             return max(0.0, min(1.0, score))
         except (ValueError, IndexError):
@@ -45,8 +42,18 @@ class UrgencyDetector:
         score = 0.3
 
         urgent_keywords = [
-            "速報", "緊急", "breaking", "地震", "津波", "台風",
-            "テロ", "戦争", "爆発", "大規模", "死者", "警報",
+            "速報",
+            "緊急",
+            "breaking",
+            "地震",
+            "津波",
+            "台風",
+            "テロ",
+            "戦争",
+            "爆発",
+            "大規模",
+            "死者",
+            "警報",
         ]
         for kw in urgent_keywords:
             if kw in title:

@@ -4,11 +4,12 @@ python-kasa supports both Kasa and Tapo devices via the same API. For Tapo,
 credentials (cloud account username/password) must be provided at discover time
 even for local LAN control.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-from kasa import Credentials, Discover, Device
+from kasa import Credentials, Device, Discover
 from loguru import logger
 
 

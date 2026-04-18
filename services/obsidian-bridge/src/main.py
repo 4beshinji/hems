@@ -2,20 +2,28 @@
 Obsidian Bridge — connects Obsidian vault to HEMS via MQTT + REST.
 Indexes vault notes, watches for changes, provides search API.
 """
+
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from loguru import logger
 
-from config import (
-    VAULT_PATH, MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS,
-    WATCHER_DEBOUNCE, MAX_SEARCH_RESULTS, LOG_LEVEL,
-)
+from fastapi import FastAPI, HTTPException
+from loguru import logger
+from note_writer import NoteWriter
+from pydantic import BaseModel
 from vault_index import VaultIndex
 from vault_watcher import VaultWatcher
-from note_writer import NoteWriter
+
+from config import (
+    LOG_LEVEL,
+    MAX_SEARCH_RESULTS,
+    MQTT_BROKER,
+    MQTT_PASS,
+    MQTT_PORT,
+    MQTT_USER,
+    VAULT_PATH,
+    WATCHER_DEBOUNCE,
+)
 from mqtt_publisher import MQTTPublisher
 
 logger.configure(handlers=[{"sink": "ext://sys.stderr", "level": LOG_LEVEL}])
@@ -57,11 +65,13 @@ app = FastAPI(title="Obsidian Bridge", lifespan=lifespan)
 
 # --- Request/Response models ---
 
+
 class SearchRequest(BaseModel):
     query: str = ""
     tags: list[str] | None = None
     path_prefix: str | None = None
     max_results: int = 5
+
 
 class WriteNoteRequest(BaseModel):
     title: str
@@ -69,10 +79,12 @@ class WriteNoteRequest(BaseModel):
     tags: list[str] | None = None
     category: str | None = None  # decisions, learnings, or custom
 
+
 class DecisionLogRequest(BaseModel):
     trigger: str
     action: str
     context: str = ""
+
 
 class LearningMemoRequest(BaseModel):
     title: str
@@ -80,6 +92,7 @@ class LearningMemoRequest(BaseModel):
 
 
 # --- REST endpoints ---
+
 
 @app.get("/health")
 async def health():
@@ -98,8 +111,10 @@ async def search_notes(req: SearchRequest):
     """Search vault notes by keyword, tags, or path prefix."""
     max_r = min(req.max_results, MAX_SEARCH_RESULTS)
     results = vault_index.search(
-        query=req.query, tags=req.tags,
-        path_prefix=req.path_prefix, max_results=max_r,
+        query=req.query,
+        tags=req.tags,
+        path_prefix=req.path_prefix,
+        max_results=max_r,
     )
     return {"results": results, "count": len(results)}
 

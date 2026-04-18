@@ -1,10 +1,12 @@
 """
 espeak-ng TTS Provider — lightweight fallback.
 """
+
 import asyncio
 import tempfile
 from pathlib import Path
-from tts_provider import TTSProvider, AudioResult
+
+from tts_provider import AudioResult, TTSProvider
 
 
 class EspeakProvider(TTSProvider):
@@ -22,9 +24,18 @@ class EspeakProvider(TTSProvider):
             tmpfile = f.name
 
         proc = await asyncio.create_subprocess_exec(
-            "espeak-ng", "-v", self.voice, "-s", str(wpm), "-p", str(self.pitch),
-            "-w", tmpfile, text,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "espeak-ng",
+            "-v",
+            self.voice,
+            "-s",
+            str(wpm),
+            "-p",
+            str(self.pitch),
+            "-w",
+            tmpfile,
+            text,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         await proc.communicate()
 
@@ -36,8 +47,10 @@ class EspeakProvider(TTSProvider):
     async def is_available(self) -> bool:
         try:
             proc = await asyncio.create_subprocess_exec(
-                "espeak-ng", "--version",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                "espeak-ng",
+                "--version",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
             await proc.communicate()
             return proc.returncode == 0

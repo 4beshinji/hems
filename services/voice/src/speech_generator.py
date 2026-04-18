@@ -1,9 +1,12 @@
 """
 LLM-powered speech text generator — character-aware.
 """
-import aiohttp
+
 import os
+
+import aiohttp
 from loguru import logger
+
 from models import Task
 
 LLM_API_URL = os.getenv("LLM_API_URL", "http://mock-llm:8000/v1")
@@ -31,10 +34,10 @@ class SpeechGenerator:
         prompt = f"""{self._persona}
 以下のタスク情報を自然な日本語の依頼文に変換してください。70文字以内。
 タイトル: {task.title}
-説明: {task.description or '詳細なし'}
-場所: {task.location or '場所不明'}
+説明: {task.description or "詳細なし"}
+場所: {task.location or "場所不明"}
 緊急度: {task.urgency}/4
-エリア: {task.zone or '不明'}"""
+エリア: {task.zone or "不明"}"""
 
         try:
             text = await self._call_llm(prompt)
@@ -48,7 +51,7 @@ class SpeechGenerator:
         prompt = f"""{self._persona}
 以下のタスクが完了しました。完了への感謝を70文字以内で。
 タイトル: {task.title}
-場所: {task.location or '不明'}"""
+場所: {task.location or "不明"}"""
         try:
             return (await self._call_llm(prompt)).strip()
         except Exception:
@@ -73,12 +76,15 @@ class SpeechGenerator:
             url += "/chat/completions"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
-            async with session.post(url, json={
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 100,
-                "temperature": 0.3,
-            }) as resp:
+            async with session.post(
+                url,
+                json={
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 100,
+                    "temperature": 0.3,
+                },
+            ) as resp:
                 if resp.status != 200:
                     raise Exception(f"LLM API error {resp.status}")
                 data = await resp.json()

@@ -1,7 +1,9 @@
 """
 Abstract base class for biometric data providers.
 """
+
 from abc import ABC, abstractmethod
+
 from data_processor import BiometricReading
 
 
