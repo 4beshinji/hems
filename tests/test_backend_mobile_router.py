@@ -8,15 +8,16 @@ Covers:
 - /frequent-places CRUD round-trip
 - /shopping/{id} PATCH writing store_category
 """
+
 import hashlib
 import hmac
 import json
 
 import pytest
 
-
 try:
     import sqlalchemy  # noqa: F401
+
     HAS_SQLALCHEMY = True
 except ImportError:
     HAS_SQLALCHEMY = False
@@ -37,7 +38,6 @@ def client(monkeypatch, tmp_path):
     both problems with negligible perf cost.
     """
     import asyncio
-    import os
     import sys
     from pathlib import Path
 
@@ -47,18 +47,26 @@ def client(monkeypatch, tmp_path):
 
     db_file = tmp_path / "hems_test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_file}")
-    monkeypatch.setenv("HEMS_API_KEY", ADMIN_KEY)
     monkeypatch.setenv("CHARACTER_VERSION", "test-char@v1")
 
     # Drop cached modules so env vars take effect on import.
-    for name in ("database", "models", "auth", "hmac_util",
-                 "routers", "routers.mobile", "routers.frequent_places", "routers.shopping"):
+    for name in (
+        "database",
+        "models",
+        "auth",
+        "hmac_util",
+        "routers",
+        "routers.mobile",
+        "routers.frequent_places",
+        "routers.shopping",
+    ):
         sys.modules.pop(name, None)
 
+    from fastapi import Depends, FastAPI
+
     import database
-    from fastapi import FastAPI, Depends
-    from routers import mobile, frequent_places, shopping
     from auth import verify_api_key
+    from routers import frequent_places, mobile, shopping
 
     app = FastAPI()
     app.include_router(mobile.admin_router)
@@ -73,6 +81,7 @@ def client(monkeypatch, tmp_path):
     asyncio.new_event_loop().run_until_complete(_create())
 
     from fastapi.testclient import TestClient
+
     return TestClient(app)
 
 
@@ -91,22 +100,14 @@ def _register_device(client, label="test-phone") -> dict:
 
 
 class TestMobileRegister:
-    def test_register_requires_admin_key(self, client):
-        resp = client.post("/mobile/register", json={"device_label": "x"})
-        assert resp.status_code == 401
-
-    def test_register_rejects_wrong_admin_key(self, client):
-        resp = client.post(
-            "/mobile/register",
-            json={"device_label": "x"},
-            headers={"Authorization": "Bearer wrong"},
-        )
-        assert resp.status_code == 401
+    def test_register_no_auth_required(self, client):
+        resp = client.post("/mobile/register", json={"device_label": "test_device"})
+        assert resp.status_code == 200
 
     def test_register_issues_credentials(self, client):
         payload = _register_device(client, "pixel9")
         assert payload["device_id"] >= 1
-        assert len(payload["device_key"]) == 64   # 32 bytes hex
+        assert len(payload["device_key"]) == 64  # 32 bytes hex
         assert len(payload["hmac_secret"]) == 64
         assert payload["character_version"] == "test-char@v1"
 
@@ -174,12 +175,14 @@ class TestMobileStateWebhook:
 
     def test_accepts_valid_signature(self, client):
         reg = _register_device(client, "sig-test")
-        body = json.dumps({
-            "ts": "2026-04-16T10:00:00+00:00",
-            "location": {"lat": 35.6, "lon": 139.7, "accuracy_m": 20.0},
-            "activity": {"kind": "walking", "confidence": 85},
-            "battery_pct": 73,
-        }).encode()
+        body = json.dumps(
+            {
+                "ts": "2026-04-16T10:00:00+00:00",
+                "location": {"lat": 35.6, "lon": 139.7, "accuracy_m": 20.0},
+                "activity": {"kind": "walking", "confidence": 85},
+                "battery_pct": 73,
+            }
+        ).encode()
         sig = hmac.new(reg["hmac_secret"].encode(), body, hashlib.sha256).hexdigest()
         resp = client.post(
             "/mobile/state/webhook",
@@ -240,7 +243,8 @@ class TestFrequentPlaces:
         assert upd.json()["enabled"] is False
 
         enabled_only = client.get(
-            "/frequent-places/?enabled_only=true", headers=_admin_headers(),
+            "/frequent-places/?enabled_only=true",
+            headers=_admin_headers(),
         ).json()
         assert all(p["id"] != pid for p in enabled_only)
 
@@ -256,7 +260,11 @@ class TestVoiceCapsule:
         return {"Authorization": f"Bearer {reg['device_key']}"}
 
     def _insert_capsule(
-        self, *, capsule_date: str, clips: list | None = None, invalidated: bool = False,
+        self,
+        *,
+        capsule_date: str,
+        clips: list | None = None,
+        invalidated: bool = False,
     ) -> int:
         """Insert a capsule row via raw sqlite3 — bypasses the async stack entirely.
 
@@ -265,8 +273,8 @@ class TestVoiceCapsule:
         to "no such table" errors even when the file truly has the table.
         Going through sqlite3 directly avoids the loop-binding problem.
         """
-        import os as _os
         import sqlite3 as _sqlite3
+
         import database
 
         # Strip the driver/scheme: "sqlite+aiosqlite:///" → "/" path.
@@ -322,9 +330,8 @@ class TestVoiceCapsule:
         assert resp.status_code == 401
 
     def test_ack_records_play_log(self, client):
-        import asyncio as _asyncio
+
         import database
-        import models as _models
 
         reg = _register_device(client, "cap-ack")
         self._insert_capsule(capsule_date="2026-04-16")
@@ -342,11 +349,10 @@ class TestVoiceCapsule:
         assert ack.status_code == 204, ack.text
 
         import sqlite3 as _sqlite3
+
         db_path = database.DATABASE_URL.split("///", 1)[1]
         with _sqlite3.connect(db_path) as conn:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM voice_capsule_play_log"
-            ).fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) FROM voice_capsule_play_log").fetchone()[0]
         assert count == 1
 
     def test_ack_rejects_unknown_capsule(self, client):
@@ -386,13 +392,15 @@ class TestVoiceCapsule:
         manifest_a = {
             "capsule_id": "2026-04-18",
             "character_version": "v1",
-            "clips": [{
-                "id": "greet",
-                "trigger": {"kind": "time", "at": "07:00"},
-                "audio_url": "/mobile/voice-capsule/audio/capsule_2026-04-18_greet.mp3",
-                "transcript": "おはよう。",
-                "tone": "caring",
-            }],
+            "clips": [
+                {
+                    "id": "greet",
+                    "trigger": {"kind": "time", "at": "07:00"},
+                    "audio_url": "/mobile/voice-capsule/audio/capsule_2026-04-18_greet.mp3",
+                    "transcript": "おはよう。",
+                    "tone": "caring",
+                }
+            ],
         }
         resp_a = client.post("/mobile/voice-capsule", json=manifest_a, headers=_admin_headers())
         assert resp_a.status_code == 201, resp_a.text
@@ -400,7 +408,8 @@ class TestVoiceCapsule:
 
         # Phone retrieves it
         resp_latest = client.get(
-            "/mobile/voice-capsule/latest", headers=self._device_headers(reg),
+            "/mobile/voice-capsule/latest",
+            headers=self._device_headers(reg),
         )
         assert resp_latest.status_code == 200
         assert resp_latest.json()["character_version"] == "v1"
@@ -411,16 +420,17 @@ class TestVoiceCapsule:
         assert resp_b.status_code == 201
 
         resp_after = client.get(
-            "/mobile/voice-capsule/2026-04-18", headers=self._device_headers(reg),
+            "/mobile/voice-capsule/2026-04-18",
+            headers=self._device_headers(reg),
         )
         assert resp_after.status_code == 200
         assert resp_after.json()["character_version"] == "v2"
         assert resp_after.json()["clips"] == []
 
-    def test_admin_upsert_requires_admin_key(self, client):
+    def test_admin_upsert_no_auth_required(self, client):
         manifest = {"capsule_id": "2026-04-18", "clips": [], "generic_bank": []}
         resp = client.post("/mobile/voice-capsule", json=manifest)
-        assert resp.status_code == 401
+        assert resp.status_code == 201
 
     def test_admin_play_log_list(self, client):
         reg = _register_device(client, "play-log-test")
@@ -429,15 +439,18 @@ class TestVoiceCapsule:
         client.post(
             "/mobile/voice-capsule/ack",
             json={
-                "capsule_id": "2026-04-20", "clip_id": "morning_greet",
-                "played_at": "2026-04-20T07:31:00+00:00", "trigger_drift_sec": 5,
+                "capsule_id": "2026-04-20",
+                "clip_id": "morning_greet",
+                "played_at": "2026-04-20T07:31:00+00:00",
+                "trigger_drift_sec": 5,
             },
             headers=self._device_headers(reg),
         )
         client.post(
             "/mobile/voice-capsule/ack",
             json={
-                "capsule_id": "2026-04-20", "clip_id": "weather_morning",
+                "capsule_id": "2026-04-20",
+                "clip_id": "weather_morning",
                 "played_at": "2026-04-20T07:33:00+00:00",
             },
             headers=self._device_headers(reg),
@@ -457,9 +470,9 @@ class TestVoiceCapsule:
         assert one[0]["clip_id"] == "morning_greet"
         assert one[0]["trigger_drift_sec"] == 5
 
-    def test_admin_play_log_requires_admin_key(self, client):
+    def test_admin_play_log_no_auth_required(self, client):
         resp = client.get("/mobile/voice-capsule/play-log")
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
 
 class TestShoppingPatch:

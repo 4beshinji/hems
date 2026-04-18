@@ -2,9 +2,16 @@
 Tests for biometric data classes (HeartRateData, SleepData, ActivityData,
 StressData, FatigueData, SpO2Data, BiometricState).
 """
+
 from world_model.data_classes import (
-    HeartRateData, SleepData, ActivityData, StressData,
-    FatigueData, SpO2Data, BiometricState, Event,
+    ActivityData,
+    BiometricState,
+    Event,
+    FatigueData,
+    HeartRateData,
+    SleepData,
+    SpO2Data,
+    StressData,
 )
 
 
@@ -73,9 +80,15 @@ class TestSleepData:
 
     def test_custom_values(self):
         s = SleepData(
-            stage="deep", duration_minutes=480, deep_minutes=90,
-            rem_minutes=120, light_minutes=270, quality_score=85,
-            sleep_start_ts=1000.0, sleep_end_ts=29800.0, last_update=2.0,
+            stage="deep",
+            duration_minutes=480,
+            deep_minutes=90,
+            rem_minutes=120,
+            light_minutes=270,
+            quality_score=85,
+            sleep_start_ts=1000.0,
+            sleep_end_ts=29800.0,
+            last_update=2.0,
         )
         assert s.stage == "deep"
         assert s.duration_minutes == 480
@@ -99,8 +112,9 @@ class TestActivityData:
         assert a.last_update == 0
 
     def test_custom_values(self):
-        a = ActivityData(steps=7500, steps_goal=10000, calories=350,
-                         active_minutes=45, level="moderate", last_update=3.0)
+        a = ActivityData(
+            steps=7500, steps_goal=10000, calories=350, active_minutes=45, level="moderate", last_update=3.0
+        )
         assert a.steps == 7500
         assert a.calories == 350
         assert a.active_minutes == 45

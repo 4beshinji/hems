@@ -1,10 +1,24 @@
 """
 Tests for tool_registry — OpenClaw tool conditional inclusion.
 """
+
 from tool_registry import get_tools
 
 PC_TOOL_NAMES = {"get_pc_status", "run_pc_command", "control_browser", "send_pc_notification"}
-BASE_TOOL_NAMES = {"create_task", "send_device_command", "get_zone_status", "speak", "get_active_tasks", "get_device_status"}
+BASE_TOOL_NAMES = {
+    "create_task",
+    "send_device_command",
+    "get_zone_status",
+    "speak",
+    "get_active_tasks",
+    "get_device_status",
+    "control_actuator",
+    "list_devices",
+    "describe_device",
+    "list_scenes",
+    "execute_scene_by_name",
+    "zigbee_permit_join",
+}
 
 
 class TestToolRegistryDefault:
@@ -41,11 +55,11 @@ class TestToolRegistryOpenClawEnabled:
 
     def test_total_tool_count(self):
         tools = get_tools(openclaw_enabled=True)
-        assert len(tools) == 10
+        assert len(tools) == 16
 
     def test_base_tool_count(self):
         tools = get_tools(openclaw_enabled=False)
-        assert len(tools) == 6
+        assert len(tools) == 12
 
 
 class TestToolRegistrySchemaValidity:

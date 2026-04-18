@@ -1,11 +1,13 @@
 """
 Tests for HEMS HA Bridge service.
 """
-import sys
+
 import importlib
 import importlib.util
+import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 _ha_src = str(Path(__file__).resolve().parent.parent / "services" / "ha-bridge" / "src")
@@ -66,7 +68,7 @@ class TestEntityMapper:
         mapper_mod = _ha_import("entity_mapper")
         mapper = mapper_mod.EntityMapper("not json")
         # Should fall through to default mapping
-        zone, domain = mapper.map("light.test")
+        _zone, domain = mapper.map("light.test")
         assert domain == "light"
 
 
@@ -79,9 +81,11 @@ class TestHAClient:
 
         mock_resp = AsyncMock()
         mock_resp.status = 200
-        mock_resp.json = AsyncMock(return_value=[
-            {"entity_id": "light.test", "state": "on", "attributes": {}},
-        ])
+        mock_resp.json = AsyncMock(
+            return_value=[
+                {"entity_id": "light.test", "state": "on", "attributes": {}},
+            ]
+        )
         mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
         mock_resp.__aexit__ = AsyncMock(return_value=False)
         session.get = MagicMock(return_value=mock_resp)
@@ -184,8 +188,12 @@ class TestBridgeAPIEndpoints:
 
         mod.app.router.lifespan_context = noop_lifespan
         # Restore modules
-        for name, old in [("config", old_config), ("ha_client", old_ha),
-                          ("mqtt_publisher", old_mqtt), ("entity_mapper", old_mapper)]:
+        for name, old in [
+            ("config", old_config),
+            ("ha_client", old_ha),
+            ("mqtt_publisher", old_mqtt),
+            ("entity_mapper", old_mapper),
+        ]:
             if old is not None:
                 sys.modules[name] = old
 
@@ -193,6 +201,7 @@ class TestBridgeAPIEndpoints:
 
     def test_health_endpoint(self, bridge_app):
         from fastapi.testclient import TestClient
+
         client = TestClient(bridge_app.app)
         resp = client.get("/health")
         assert resp.status_code == 200
@@ -200,6 +209,7 @@ class TestBridgeAPIEndpoints:
 
     def test_devices_endpoint_503_when_not_initialized(self, bridge_app):
         from fastapi.testclient import TestClient
+
         bridge_app.ha_client = None
         client = TestClient(bridge_app.app)
         resp = client.get("/api/devices")
@@ -207,11 +217,15 @@ class TestBridgeAPIEndpoints:
 
     def test_device_control_503_when_not_initialized(self, bridge_app):
         from fastapi.testclient import TestClient
+
         bridge_app.ha_client = None
         client = TestClient(bridge_app.app)
-        resp = client.post("/api/device/control", json={
-            "entity_id": "light.test",
-            "service": "light/turn_on",
-            "data": {},
-        })
+        resp = client.post(
+            "/api/device/control",
+            json={
+                "entity_id": "light.test",
+                "service": "light/turn_on",
+                "data": {},
+            },
+        )
         assert resp.status_code == 503

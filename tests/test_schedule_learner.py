@@ -1,9 +1,11 @@
 """
 Tests for ScheduleLearner — life pattern learning and prediction.
 """
+
 import time
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
+
 from schedule_learner import ScheduleLearner
 
 

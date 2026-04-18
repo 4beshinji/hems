@@ -1,12 +1,17 @@
 """
 Tests for Zigbee sensor rules in RuleEngine.
 """
+
 import time
 
 import pytest
+
 from rule_engine import RuleEngine
 from world_model.data_classes import (
-    BinarySensorState, HASensorState, LightState, OccupancyData,
+    BinarySensorState,
+    HASensorState,
+    LightState,
+    OccupancyData,
 )
 
 
@@ -23,7 +28,9 @@ class TestMoistureRule:
     def test_moisture_detected_creates_task_and_speaks(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.binary_sensors["binary_sensor.kitchen_leak"] = BinarySensorState(
-            entity_id="binary_sensor.kitchen_leak", state=True, device_class="moisture",
+            entity_id="binary_sensor.kitchen_leak",
+            state=True,
+            device_class="moisture",
         )
         actions = engine.evaluate(world_model)
         task_actions = [a for a in actions if a["tool"] == "create_task" and "水漏れ" in a["args"]["title"]]
@@ -35,7 +42,9 @@ class TestMoistureRule:
     def test_moisture_off_no_action(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.binary_sensors["binary_sensor.leak"] = BinarySensorState(
-            entity_id="binary_sensor.leak", state=False, device_class="moisture",
+            entity_id="binary_sensor.leak",
+            state=False,
+            device_class="moisture",
         )
         actions = engine.evaluate(world_model)
         moisture_actions = [a for a in actions if "水漏れ" in str(a)]
@@ -44,7 +53,9 @@ class TestMoistureRule:
     def test_moisture_cooldown(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.binary_sensors["binary_sensor.leak"] = BinarySensorState(
-            entity_id="binary_sensor.leak", state=True, device_class="moisture",
+            entity_id="binary_sensor.leak",
+            state=True,
+            device_class="moisture",
         )
         engine.evaluate(world_model)
         actions2 = engine.evaluate(world_model)
@@ -59,11 +70,15 @@ class TestDoorArrivalDepartureRule:
         world_model.home_devices.bridge_connected = True
         now = time.time()
         world_model.home_devices.binary_sensors["binary_sensor.door"] = BinarySensorState(
-            entity_id="binary_sensor.door", state=False, device_class="door",
-            previous_state=True, last_changed=now,
+            entity_id="binary_sensor.door",
+            state=False,
+            device_class="door",
+            previous_state=True,
+            last_changed=now,
         )
         world_model.home_devices.lights["light.living"] = LightState(
-            entity_id="light.living", on=False,
+            entity_id="light.living",
+            on=False,
         )
         zone = world_model._get_zone("living_room")
         zone.occupancy = OccupancyData(count=1)
@@ -78,11 +93,15 @@ class TestDoorArrivalDepartureRule:
         world_model.home_devices.bridge_connected = True
         now = time.time()
         world_model.home_devices.binary_sensors["binary_sensor.door"] = BinarySensorState(
-            entity_id="binary_sensor.door", state=False, device_class="door",
-            previous_state=True, last_changed=now,
+            entity_id="binary_sensor.door",
+            state=False,
+            device_class="door",
+            previous_state=True,
+            last_changed=now,
         )
         world_model.home_devices.lights["light.living"] = LightState(
-            entity_id="light.living", on=True,
+            entity_id="light.living",
+            on=True,
         )
         # No occupants
         zone = world_model._get_zone("living_room")
@@ -98,8 +117,11 @@ class TestDoorArrivalDepartureRule:
         """Door transition older than 60s is ignored."""
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.binary_sensors["binary_sensor.door"] = BinarySensorState(
-            entity_id="binary_sensor.door", state=False, device_class="door",
-            previous_state=True, last_changed=time.time() - 120,
+            entity_id="binary_sensor.door",
+            state=False,
+            device_class="door",
+            previous_state=True,
+            last_changed=time.time() - 120,
         )
         actions = engine.evaluate(world_model)
         door_actions = [a for a in actions if "おかえり" in str(a) or "いってらっしゃい" in str(a)]
@@ -112,7 +134,9 @@ class TestPowerDropRule:
     def test_washer_finished_creates_task(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.sensors["sensor.washer_power"] = HASensorState(
-            entity_id="sensor.washer_power", value=2, device_class="power",
+            entity_id="sensor.washer_power",
+            value=2,
+            device_class="power",
             previous_value=200,
         )
         actions = engine.evaluate(world_model)
@@ -124,7 +148,9 @@ class TestPowerDropRule:
     def test_kettle_finished_speak_only(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.sensors["sensor.kettle_power"] = HASensorState(
-            entity_id="sensor.kettle_power", value=1, device_class="power",
+            entity_id="sensor.kettle_power",
+            value=1,
+            device_class="power",
             previous_value=1500,
         )
         actions = engine.evaluate(world_model)
@@ -136,7 +162,9 @@ class TestPowerDropRule:
     def test_generic_appliance_speak(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.sensors["sensor.dryer_power"] = HASensorState(
-            entity_id="sensor.dryer_power", value=0, device_class="power",
+            entity_id="sensor.dryer_power",
+            value=0,
+            device_class="power",
             previous_value=500,
         )
         actions = engine.evaluate(world_model)
@@ -147,7 +175,9 @@ class TestPowerDropRule:
         """No action when power is still above idle threshold."""
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.sensors["sensor.washer_power"] = HASensorState(
-            entity_id="sensor.washer_power", value=100, device_class="power",
+            entity_id="sensor.washer_power",
+            value=100,
+            device_class="power",
             previous_value=200,
         )
         actions = engine.evaluate(world_model)
@@ -161,10 +191,14 @@ class TestCO2WindowRule:
     def test_co2_high_windows_closed(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.sensors["sensor.co2"] = HASensorState(
-            entity_id="sensor.co2", value=1200, device_class="carbon_dioxide",
+            entity_id="sensor.co2",
+            value=1200,
+            device_class="carbon_dioxide",
         )
         world_model.home_devices.binary_sensors["binary_sensor.window"] = BinarySensorState(
-            entity_id="binary_sensor.window", state=False, device_class="window",
+            entity_id="binary_sensor.window",
+            state=False,
+            device_class="window",
         )
         actions = engine.evaluate(world_model)
         speak_actions = [a for a in actions if a["tool"] == "speak" and "換気" in a["args"]["message"]]
@@ -174,10 +208,14 @@ class TestCO2WindowRule:
         """No suggestion when windows are already open."""
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.sensors["sensor.co2"] = HASensorState(
-            entity_id="sensor.co2", value=1200, device_class="carbon_dioxide",
+            entity_id="sensor.co2",
+            value=1200,
+            device_class="carbon_dioxide",
         )
         world_model.home_devices.binary_sensors["binary_sensor.window"] = BinarySensorState(
-            entity_id="binary_sensor.window", state=True, device_class="window",
+            entity_id="binary_sensor.window",
+            state=True,
+            device_class="window",
         )
         actions = engine.evaluate(world_model)
         co2_window = [a for a in actions if a["tool"] == "speak" and "窓を開けて換気" in a["args"].get("message", "")]
@@ -186,10 +224,14 @@ class TestCO2WindowRule:
     def test_co2_normal_no_action(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.sensors["sensor.co2"] = HASensorState(
-            entity_id="sensor.co2", value=500, device_class="carbon_dioxide",
+            entity_id="sensor.co2",
+            value=500,
+            device_class="carbon_dioxide",
         )
         world_model.home_devices.binary_sensors["binary_sensor.window"] = BinarySensorState(
-            entity_id="binary_sensor.window", state=False, device_class="window",
+            entity_id="binary_sensor.window",
+            state=False,
+            device_class="window",
         )
         actions = engine.evaluate(world_model)
         co2_window = [a for a in actions if a["tool"] == "speak" and "窓を開けて換気" in a["args"].get("message", "")]
@@ -202,13 +244,16 @@ class TestPM25Rule:
     def test_pm25_high_speaks_and_turns_on_purifier(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.sensors["sensor.pm25"] = HASensorState(
-            entity_id="sensor.pm25", value=50, device_class="pm25",
+            entity_id="sensor.pm25",
+            value=50,
+            device_class="pm25",
         )
         world_model.home_devices.switches["switch.air_purifier"] = False
         actions = engine.evaluate(world_model)
         speak_actions = [a for a in actions if a["tool"] == "speak" and "PM2.5" in a["args"]["message"]]
-        switch_actions = [a for a in actions if a["tool"] == "control_switch"
-                          and a["args"]["entity_id"] == "switch.air_purifier"]
+        switch_actions = [
+            a for a in actions if a["tool"] == "control_switch" and a["args"]["entity_id"] == "switch.air_purifier"
+        ]
         assert len(speak_actions) >= 1
         assert len(switch_actions) >= 1
         assert switch_actions[0]["args"]["on"] is True
@@ -216,7 +261,9 @@ class TestPM25Rule:
     def test_pm25_normal_no_action(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.sensors["sensor.pm25"] = HASensorState(
-            entity_id="sensor.pm25", value=20, device_class="pm25",
+            entity_id="sensor.pm25",
+            value=20,
+            device_class="pm25",
         )
         actions = engine.evaluate(world_model)
         pm_actions = [a for a in actions if "PM2.5" in str(a)]
@@ -229,8 +276,10 @@ class TestVibrationRule:
     def test_washer_vibration_stopped(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.binary_sensors["binary_sensor.washing_vibration"] = BinarySensorState(
-            entity_id="binary_sensor.washing_vibration", state=False,
-            device_class="vibration", previous_state=True,
+            entity_id="binary_sensor.washing_vibration",
+            state=False,
+            device_class="vibration",
+            previous_state=True,
         )
         actions = engine.evaluate(world_model)
         task_actions = [a for a in actions if a["tool"] == "create_task" and "洗濯" in a["args"]["title"]]
@@ -242,8 +291,10 @@ class TestVibrationRule:
         """Vibration sensor not matching washing keywords is ignored."""
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.binary_sensors["binary_sensor.desk_vibration"] = BinarySensorState(
-            entity_id="binary_sensor.desk_vibration", state=False,
-            device_class="vibration", previous_state=True,
+            entity_id="binary_sensor.desk_vibration",
+            state=False,
+            device_class="vibration",
+            previous_state=True,
         )
         actions = engine.evaluate(world_model)
         vib_actions = [a for a in actions if "洗濯" in str(a)]
@@ -255,7 +306,9 @@ class TestCriticalMoisture:
 
     def test_critical_moisture_fires(self, engine, world_model):
         world_model.home_devices.binary_sensors["binary_sensor.leak"] = BinarySensorState(
-            entity_id="binary_sensor.leak", state=True, device_class="moisture",
+            entity_id="binary_sensor.leak",
+            state=True,
+            device_class="moisture",
         )
         actions = engine.evaluate_critical(world_model)
         task_actions = [a for a in actions if a["tool"] == "create_task" and "水漏れ" in a["args"]["title"]]
@@ -265,7 +318,9 @@ class TestCriticalMoisture:
 
     def test_critical_no_moisture_when_dry(self, engine, world_model):
         world_model.home_devices.binary_sensors["binary_sensor.leak"] = BinarySensorState(
-            entity_id="binary_sensor.leak", state=False, device_class="moisture",
+            entity_id="binary_sensor.leak",
+            state=False,
+            device_class="moisture",
         )
         actions = engine.evaluate_critical(world_model)
         moisture_actions = [a for a in actions if "水漏れ" in str(a)]

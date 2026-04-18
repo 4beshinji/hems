@@ -1,15 +1,21 @@
 """
 Tests for ServiceCheckerManager, BaseChecker, and individual checkers.
 """
+
 import asyncio
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from service_checker import (
-    BaseChecker, ServiceStatus, GmailChecker, GitHubChecker,
-    BrowserChecker, ServiceCheckerManager,
+    BaseChecker,
+    BrowserChecker,
+    GitHubChecker,
+    GmailChecker,
+    ServiceCheckerManager,
+    ServiceStatus,
 )
 
 
@@ -19,8 +25,11 @@ class ConcreteChecker(BaseChecker):
     def __init__(self, name="test", interval=60, status=None):
         super().__init__(name, interval)
         self._status = status or ServiceStatus(
-            name=name, available=True, unread_count=0,
-            summary="OK", last_check=time.time(),
+            name=name,
+            available=True,
+            unread_count=0,
+            summary="OK",
+            last_check=time.time(),
         )
 
     async def check(self) -> ServiceStatus:
@@ -136,10 +145,13 @@ class TestGitHubChecker:
     @pytest.mark.asyncio
     async def test_check_success(self):
         checker = GitHubChecker("ghp_token", interval=120)
-        mock_aiohttp = self._make_mock_aiohttp(200, [
-            {"reason": "mention", "id": "1"},
-            {"reason": "review_requested", "id": "2"},
-        ])
+        mock_aiohttp = self._make_mock_aiohttp(
+            200,
+            [
+                {"reason": "mention", "id": "1"},
+                {"reason": "review_requested", "id": "2"},
+            ],
+        )
 
         with patch.dict("sys.modules", {"aiohttp": mock_aiohttp}):
             status = await checker.check()
@@ -179,14 +191,21 @@ class TestBrowserChecker:
         oc_client = AsyncMock()
         oc_client.connected = True
         oc_client.canvas_navigate = AsyncMock()
-        oc_client.canvas_eval = AsyncMock(return_value=json.dumps({
-            "unread_count": 5,
-            "summary": "LINE未読: 5件",
-        }))
+        oc_client.canvas_eval = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "unread_count": 5,
+                    "summary": "LINE未読: 5件",
+                }
+            )
+        )
 
         checker = BrowserChecker(
-            name="line", url="https://line.me", js_script="...",
-            oc_client=oc_client, interval=300,
+            name="line",
+            url="https://line.me",
+            js_script="...",
+            oc_client=oc_client,
+            interval=300,
         )
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -202,7 +221,9 @@ class TestBrowserChecker:
         oc_client.connected = False
 
         checker = BrowserChecker(
-            name="line", url="https://line.me", js_script="...",
+            name="line",
+            url="https://line.me",
+            js_script="...",
             oc_client=oc_client,
         )
 
@@ -218,7 +239,9 @@ class TestBrowserChecker:
         oc_client.canvas_eval = AsyncMock(return_value="not valid json{{")
 
         checker = BrowserChecker(
-            name="line", url="https://line.me", js_script="...",
+            name="line",
+            url="https://line.me",
+            js_script="...",
             oc_client=oc_client,
         )
 
@@ -263,8 +286,11 @@ class TestServiceCheckerManager:
     async def test_checker_loop_stores_status(self, mqtt_pub):
         mgr = ServiceCheckerManager(mqtt_pub)
         status = ServiceStatus(
-            name="test", available=True, unread_count=3,
-            summary="テスト: 3件", last_check=time.time(),
+            name="test",
+            available=True,
+            unread_count=3,
+            summary="テスト: 3件",
+            last_check=time.time(),
         )
         checker = ConcreteChecker("test", interval=60, status=status)
         mgr.register(checker)
@@ -280,7 +306,10 @@ class TestServiceCheckerManager:
         """Run actual _checker_loop and verify MQTT publish is called."""
         mgr = ServiceCheckerManager(mqtt_pub)
         status = ServiceStatus(
-            name="test", available=True, unread_count=0, last_check=time.time(),
+            name="test",
+            available=True,
+            unread_count=0,
+            last_check=time.time(),
         )
         checker = ConcreteChecker("test", interval=60, status=status)
         mgr.register(checker)
@@ -301,10 +330,15 @@ class TestServiceCheckerManager:
         mgr._statuses["gmail"] = ServiceStatus(name="gmail", unread_count=0, last_check=time.time())
 
         # Second check: 3 unread (increase)
-        checker = ConcreteChecker("gmail", status=ServiceStatus(
-            name="gmail", unread_count=3, summary="未読メール: 3通",
-            last_check=time.time(),
-        ))
+        checker = ConcreteChecker(
+            "gmail",
+            status=ServiceStatus(
+                name="gmail",
+                unread_count=3,
+                summary="未読メール: 3通",
+                last_check=time.time(),
+            ),
+        )
         mgr.register(checker)
 
         # Simulate one loop iteration manually
@@ -318,12 +352,15 @@ class TestServiceCheckerManager:
 
         # Simulate the edge trigger publish (mirrors _checker_loop logic)
         if new_status.unread_count > prev_count:
-            mqtt_pub.publish("hems/services/gmail/event", {
-                "type": "unread_increased",
-                "name": "gmail",
-                "prev_count": prev_count,
-                "new_count": new_status.unread_count,
-            })
+            mqtt_pub.publish(
+                "hems/services/gmail/event",
+                {
+                    "type": "unread_increased",
+                    "name": "gmail",
+                    "prev_count": prev_count,
+                    "new_count": new_status.unread_count,
+                },
+            )
 
         calls = [c[0][0] for c in mqtt_pub.publish.call_args_list]
         assert any("gmail/event" in t for t in calls)
@@ -334,9 +371,16 @@ class TestServiceCheckerManager:
         mgr = ServiceCheckerManager(mqtt_pub)
         mgr._statuses["gmail"] = ServiceStatus(name="gmail", unread_count=0, last_check=time.time())
 
-        checker = ConcreteChecker("gmail", interval=60, status=ServiceStatus(
-            name="gmail", unread_count=5, summary="未読: 5通", last_check=time.time(),
-        ))
+        checker = ConcreteChecker(
+            "gmail",
+            interval=60,
+            status=ServiceStatus(
+                name="gmail",
+                unread_count=5,
+                summary="未読: 5通",
+                last_check=time.time(),
+            ),
+        )
         mgr.register(checker)
 
         with pytest.raises(asyncio.TimeoutError):
@@ -358,7 +402,9 @@ class TestServiceCheckerManager:
     def test_get_status_returns_cached(self, mqtt_pub):
         mgr = ServiceCheckerManager(mqtt_pub)
         mgr._statuses["gmail"] = ServiceStatus(
-            name="gmail", unread_count=5, summary="未読: 5通",
+            name="gmail",
+            unread_count=5,
+            summary="未読: 5通",
             last_check=time.time(),
         )
         result = mgr.get_status()

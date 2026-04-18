@@ -1,12 +1,16 @@
 """
 Tests for ToolExecutor Zigbee tool handlers.
 """
+
 import json
 from unittest.mock import MagicMock
 
 import pytest
+
 from world_model.data_classes import (
-    BinarySensorState, HASensorState, LightState,
+    BinarySensorState,
+    HASensorState,
+    LightState,
 )
 
 
@@ -16,7 +20,8 @@ class TestControlSwitch:
         mock_session.post = MagicMock(return_value=mock_session._make_response(200, {}))
         tool_executor.ha_url = "http://ha-bridge:8000"
         result = await tool_executor.execute(
-            "control_switch", {"entity_id": "switch.plug", "on": True},
+            "control_switch",
+            {"entity_id": "switch.plug", "on": True},
         )
         assert result["success"] is True
         call_args = mock_session.post.call_args
@@ -28,7 +33,8 @@ class TestControlSwitch:
         mock_session.post = MagicMock(return_value=mock_session._make_response(200, {}))
         tool_executor.ha_url = "http://ha-bridge:8000"
         result = await tool_executor.execute(
-            "control_switch", {"entity_id": "switch.plug", "on": False},
+            "control_switch",
+            {"entity_id": "switch.plug", "on": False},
         )
         assert result["success"] is True
         call_args = mock_session.post.call_args
@@ -39,7 +45,8 @@ class TestControlSwitch:
     async def test_switch_no_ha(self, tool_executor):
         tool_executor.ha_url = ""
         result = await tool_executor.execute(
-            "control_switch", {"entity_id": "switch.plug", "on": True},
+            "control_switch",
+            {"entity_id": "switch.plug", "on": True},
         )
         assert result["success"] is False
         assert "not configured" in result["error"]
@@ -47,7 +54,8 @@ class TestControlSwitch:
     @pytest.mark.asyncio
     async def test_switch_rejected_wrong_prefix(self, tool_executor):
         result = await tool_executor.execute(
-            "control_switch", {"entity_id": "light.plug", "on": True},
+            "control_switch",
+            {"entity_id": "light.plug", "on": True},
         )
         assert result["success"] is False
 
@@ -56,10 +64,16 @@ class TestGetSensorData:
     @pytest.mark.asyncio
     async def test_get_all_sensors(self, tool_executor, world_model):
         world_model.home_devices.sensors["sensor.power"] = HASensorState(
-            entity_id="sensor.power", value=120, unit="W", device_class="power",
+            entity_id="sensor.power",
+            value=120,
+            unit="W",
+            device_class="power",
         )
         world_model.home_devices.sensors["sensor.co2"] = HASensorState(
-            entity_id="sensor.co2", value=800, unit="ppm", device_class="carbon_dioxide",
+            entity_id="sensor.co2",
+            value=800,
+            unit="ppm",
+            device_class="carbon_dioxide",
         )
         result = await tool_executor.execute("get_sensor_data", {})
         assert result["success"] is True
@@ -70,10 +84,14 @@ class TestGetSensorData:
     @pytest.mark.asyncio
     async def test_get_sensor_by_id(self, tool_executor, world_model):
         world_model.home_devices.sensors["sensor.power"] = HASensorState(
-            entity_id="sensor.power", value=120, unit="W", device_class="power",
+            entity_id="sensor.power",
+            value=120,
+            unit="W",
+            device_class="power",
         )
         result = await tool_executor.execute(
-            "get_sensor_data", {"entity_id": "sensor.power"},
+            "get_sensor_data",
+            {"entity_id": "sensor.power"},
         )
         assert result["success"] is True
         data = json.loads(result["result"])
@@ -83,7 +101,8 @@ class TestGetSensorData:
     @pytest.mark.asyncio
     async def test_get_sensor_not_found(self, tool_executor, world_model):
         result = await tool_executor.execute(
-            "get_sensor_data", {"entity_id": "sensor.nonexistent"},
+            "get_sensor_data",
+            {"entity_id": "sensor.nonexistent"},
         )
         assert result["success"] is False
         assert "not found" in result["error"]
@@ -91,16 +110,23 @@ class TestGetSensorData:
     @pytest.mark.asyncio
     async def test_get_sensors_by_device_class(self, tool_executor, world_model):
         world_model.home_devices.sensors["sensor.power1"] = HASensorState(
-            entity_id="sensor.power1", value=100, device_class="power",
+            entity_id="sensor.power1",
+            value=100,
+            device_class="power",
         )
         world_model.home_devices.sensors["sensor.power2"] = HASensorState(
-            entity_id="sensor.power2", value=200, device_class="power",
+            entity_id="sensor.power2",
+            value=200,
+            device_class="power",
         )
         world_model.home_devices.sensors["sensor.co2"] = HASensorState(
-            entity_id="sensor.co2", value=800, device_class="carbon_dioxide",
+            entity_id="sensor.co2",
+            value=800,
+            device_class="carbon_dioxide",
         )
         result = await tool_executor.execute(
-            "get_sensor_data", {"device_class": "power"},
+            "get_sensor_data",
+            {"device_class": "power"},
         )
         data = json.loads(result["result"])
         assert len(data) == 2
@@ -115,7 +141,8 @@ class TestExecuteScene:
         mock_session.post = MagicMock(return_value=mock_session._make_response(200, {}))
         tool_executor.ha_url = "http://ha-bridge:8000"
         result = await tool_executor.execute(
-            "execute_scene", {"entity_id": "scene.good_night"},
+            "execute_scene",
+            {"entity_id": "scene.good_night"},
         )
         assert result["success"] is True
         call_args = mock_session.post.call_args
@@ -126,7 +153,8 @@ class TestExecuteScene:
     @pytest.mark.asyncio
     async def test_scene_rejected_wrong_prefix(self, tool_executor):
         result = await tool_executor.execute(
-            "execute_scene", {"entity_id": "switch.plug"},
+            "execute_scene",
+            {"entity_id": "switch.plug"},
         )
         assert result["success"] is False
 
@@ -134,7 +162,8 @@ class TestExecuteScene:
     async def test_scene_no_ha(self, tool_executor):
         tool_executor.ha_url = ""
         result = await tool_executor.execute(
-            "execute_scene", {"entity_id": "scene.good_night"},
+            "execute_scene",
+            {"entity_id": "scene.good_night"},
         )
         assert result["success"] is False
 
@@ -145,7 +174,9 @@ class TestGetHomeDevicesExtended:
     @pytest.mark.asyncio
     async def test_includes_binary_sensors(self, tool_executor, world_model):
         world_model.home_devices.binary_sensors["binary_sensor.door"] = BinarySensorState(
-            entity_id="binary_sensor.door", state=True, device_class="door",
+            entity_id="binary_sensor.door",
+            state=True,
+            device_class="door",
         )
         result = await tool_executor.execute("get_home_devices", {})
         data = json.loads(result["result"])
@@ -157,7 +188,10 @@ class TestGetHomeDevicesExtended:
     @pytest.mark.asyncio
     async def test_includes_sensors(self, tool_executor, world_model):
         world_model.home_devices.sensors["sensor.power"] = HASensorState(
-            entity_id="sensor.power", value=150, unit="W", device_class="power",
+            entity_id="sensor.power",
+            value=150,
+            unit="W",
+            device_class="power",
         )
         result = await tool_executor.execute("get_home_devices", {})
         data = json.loads(result["result"])
@@ -170,7 +204,9 @@ class TestGetHomeDevicesExtended:
     async def test_still_includes_lights_climates(self, tool_executor, world_model):
         """Existing fields (lights, climates, etc.) are still present."""
         world_model.home_devices.lights["light.a"] = LightState(
-            entity_id="light.a", on=True, brightness=200,
+            entity_id="light.a",
+            on=True,
+            brightness=200,
         )
         result = await tool_executor.execute("get_home_devices", {})
         data = json.loads(result["result"])

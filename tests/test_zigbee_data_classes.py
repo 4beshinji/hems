@@ -1,8 +1,11 @@
 """
 Tests for Zigbee binary sensor / HA sensor data classes.
 """
+
 from world_model.data_classes import (
-    BinarySensorState, HASensorState, HomeDevicesState,
+    BinarySensorState,
+    HASensorState,
+    HomeDevicesState,
 )
 
 
@@ -94,10 +97,14 @@ class TestHomeDevicesStateBinarySensors:
     def test_add_binary_sensors(self):
         hd = HomeDevicesState()
         hd.binary_sensors["binary_sensor.door"] = BinarySensorState(
-            entity_id="binary_sensor.door", state=True, device_class="door",
+            entity_id="binary_sensor.door",
+            state=True,
+            device_class="door",
         )
         hd.sensors["sensor.power"] = HASensorState(
-            entity_id="sensor.power", value=100, device_class="power",
+            entity_id="sensor.power",
+            value=100,
+            device_class="power",
         )
         assert len(hd.binary_sensors) == 1
         assert len(hd.sensors) == 1
@@ -107,6 +114,7 @@ class TestHomeDevicesStateBinarySensors:
     def test_coexistence_with_existing_fields(self):
         """binary_sensors and sensors coexist with lights/climates/covers/switches."""
         from world_model.data_classes import LightState
+
         hd = HomeDevicesState()
         hd.lights["light.a"] = LightState(entity_id="light.a", on=True)
         hd.binary_sensors["bs.a"] = BinarySensorState(entity_id="bs.a", state=True)

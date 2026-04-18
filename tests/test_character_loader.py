@@ -1,6 +1,7 @@
 """
 Tests for CharacterLoader — config loading, inheritance, validation, hot-reload.
 """
+
 import os
 import sys
 from pathlib import Path
@@ -12,8 +13,7 @@ import pytest
 _root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_root / "services" / "brain" / "src"))
 
-import character_loader  # noqa: E402
-
+import character_loader
 
 # ── CharacterConfig properties ───────────────────────────────────
 
@@ -50,8 +50,7 @@ class TestFindConfigDir:
         assert result == config_dir
 
     def test_docker_mount_path(self):
-        with patch("character_loader.Path.exists", return_value=True), \
-             patch.dict(os.environ, {}, clear=False):
+        with patch("character_loader.Path.exists", return_value=True), patch.dict(os.environ, {}, clear=False):
             # Remove CONFIG_DIR if present
             env = os.environ.copy()
             env.pop("CONFIG_DIR", None)
@@ -125,7 +124,7 @@ class TestResolveInheritance:
         """Circular extends chain should raise ValueError."""
         data = {"extends": "self_loop"}
         # The function uses seen set to detect circular inheritance
-        with pytest.raises(ValueError, match="[Cc]ircular"):
+        with pytest.raises(ValueError, match=r"[Cc]ircular"):
             character_loader._resolve_inheritance(data, seen={"self_loop"})
 
 
@@ -147,9 +146,7 @@ class TestLoadCharacter:
     def test_character_file_env_override(self, tmp_path):
         """CHARACTER_FILE pointing to valid YAML should load it."""
         char_file = tmp_path / "custom.yaml"
-        char_file.write_text(
-            "identity:\n  name: TestChar\n  first_person: I\n"
-        )
+        char_file.write_text("identity:\n  name: TestChar\n  first_person: I\n")
         with patch.dict(os.environ, {"CHARACTER_FILE": str(char_file)}):
             cfg = character_loader.load_character()
         assert cfg.name == "TestChar"

@@ -1,6 +1,7 @@
 """
 Tests for openclaw-bridge service components.
 """
+
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
@@ -13,6 +14,7 @@ class TestOpenClawClient:
 
     def _make_client(self):
         from openclaw_client import OpenClawClient
+
         return OpenClawClient("ws://localhost:18789")
 
     def test_initial_state(self):
@@ -55,6 +57,7 @@ class TestMQTTPublisher:
 
     def test_publish_calls_client(self):
         from mqtt_publisher import MQTTPublisher
+
         pub = MQTTPublisher("localhost", 1883)
         pub.client = MagicMock()
 
@@ -67,6 +70,7 @@ class TestMQTTPublisher:
 
     def test_publish_handles_error(self):
         from mqtt_publisher import MQTTPublisher
+
         pub = MQTTPublisher("localhost", 1883)
         pub.client = MagicMock()
         pub.client.publish.side_effect = Exception("MQTT error")
@@ -80,6 +84,7 @@ class TestMetricCollector:
 
     def _make_collector(self):
         from metric_collector import MetricCollector
+
         oc = AsyncMock()
         mqtt = MagicMock()
         return MetricCollector(oc, mqtt, metrics_interval=10, process_interval=30)
@@ -145,9 +150,14 @@ class TestMetricCollector:
 
     def test_threshold_disk_low(self):
         collector = self._make_collector()
-        collector._check_events({}, {}, {}, {
-            "partitions": [{"mount": "/", "percent": 95}],
-        })
+        collector._check_events(
+            {},
+            {},
+            {},
+            {
+                "partitions": [{"mount": "/", "percent": 95}],
+            },
+        )
         assert collector.mqtt.publish.call_count == 1
         topic = collector.mqtt.publish.call_args[0][0]
         assert topic == "hems/pc/events/disk_low"
@@ -160,23 +170,22 @@ class TestBridgeAPIEndpoints:
     def bridge_client(self):
         import importlib.util
         import sys
-        from pathlib import Path
-        from fastapi.testclient import TestClient
         from contextlib import asynccontextmanager
+        from pathlib import Path
+
+        from fastapi.testclient import TestClient
 
         # Load the bridge's main.py explicitly to avoid collision with
         # backend/main.py which is also on sys.path.
-        bridge_main_path = (
-            Path(__file__).resolve().parent.parent
-            / "services" / "openclaw-bridge" / "src" / "main.py"
-        )
+        bridge_main_path = Path(__file__).resolve().parent.parent / "services" / "openclaw-bridge" / "src" / "main.py"
         # Ensure openclaw-bridge config.py is found (not gas-bridge's config.py)
         oc_src = str(bridge_main_path.parent)
         old_config = sys.modules.pop("config", None)
         sys.path.insert(0, oc_src)
         try:
             spec = importlib.util.spec_from_file_location(
-                "bridge_main", str(bridge_main_path),
+                "bridge_main",
+                str(bridge_main_path),
             )
             bridge_main = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(bridge_main)
@@ -215,21 +224,32 @@ class TestBridgeAPIEndpoints:
 
     def test_command_endpoint_requires_connection(self, bridge_client):
         """When OpenClaw is not connected, commands should return 503."""
-        resp = bridge_client.post("/api/pc/command", json={
-            "command": "ls", "timeout": 5,
-        })
+        resp = bridge_client.post(
+            "/api/pc/command",
+            json={
+                "command": "ls",
+                "timeout": 5,
+            },
+        )
         assert resp.status_code == 503
 
     def test_notify_endpoint_requires_connection(self, bridge_client):
-        resp = bridge_client.post("/api/pc/notify", json={
-            "title": "Test", "body": "Hello",
-        })
+        resp = bridge_client.post(
+            "/api/pc/notify",
+            json={
+                "title": "Test",
+                "body": "Hello",
+            },
+        )
         assert resp.status_code == 503
 
     def test_browser_navigate_requires_connection(self, bridge_client):
-        resp = bridge_client.post("/api/pc/browser/navigate", json={
-            "url": "https://example.com",
-        })
+        resp = bridge_client.post(
+            "/api/pc/browser/navigate",
+            json={
+                "url": "https://example.com",
+            },
+        )
         assert resp.status_code == 503
 
     def test_process_kill_requires_connection(self, bridge_client):

@@ -1,6 +1,7 @@
 """
 Tests for system_prompt — OpenClaw section conditional inclusion.
 """
+
 from system_prompt import build_system_message
 
 

@@ -1,6 +1,7 @@
 """
 Tests for RuleEngine biometric rules.
 """
+
 import time
 from datetime import datetime
 from unittest.mock import patch
@@ -15,6 +16,7 @@ class TestRuleEngineBiometricRules:
 
     def _make_engine(self):
         from rule_engine import RuleEngine
+
         engine = RuleEngine()
         engine._cooldowns = {}
         return engine
@@ -374,7 +376,7 @@ class TestRuleEngineBiometricRules:
         }
 
         actions = engine.evaluate(world_model)
-        light_offs = [a for a in actions if a["tool"] == "control_light"]
+        light_offs = [a for a in actions if a["tool"] == "control_light" and a["args"].get("on") is False]
         assert len(light_offs) == 1
 
     def test_sleep_stage_awake_no_lights_off(self, world_model):
@@ -467,8 +469,7 @@ class TestRuleEngineBiometricRules:
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
 
-        dims = [a for a in actions if a["tool"] == "control_light"
-                and a["args"].get("brightness") == 80]
+        dims = [a for a in actions if a["tool"] == "control_light" and a["args"].get("brightness") == 80]
         assert len(dims) == 1
         assert dims[0]["args"]["entity_id"] == "light.living"
         assert dims[0]["args"]["on"] is True
@@ -494,8 +495,7 @@ class TestRuleEngineBiometricRules:
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
 
-        dims = [a for a in actions if a["tool"] == "control_light"
-                and a["args"].get("brightness") == 80]
+        dims = [a for a in actions if a["tool"] == "control_light" and a["args"].get("brightness") == 80]
         # Only lights with brightness > 100 should be dimmed
         assert len(dims) == 2
         dimmed_ids = {a["args"]["entity_id"] for a in dims}
@@ -521,8 +521,7 @@ class TestRuleEngineBiometricRules:
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
 
-        dims = [a for a in actions if a["tool"] == "control_light"
-                and a["args"].get("brightness") == 80]
+        dims = [a for a in actions if a["tool"] == "control_light" and a["args"].get("brightness") == 80]
         assert len(dims) == 0
 
     def test_fatigue_dimming_low_fatigue_no_action(self, world_model):
@@ -543,8 +542,7 @@ class TestRuleEngineBiometricRules:
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
 
-        dims = [a for a in actions if a["tool"] == "control_light"
-                and a["args"].get("brightness") == 80]
+        dims = [a for a in actions if a["tool"] == "control_light" and a["args"].get("brightness") == 80]
         assert len(dims) == 0
 
     def test_fatigue_dimming_no_ha_no_action(self, world_model):
@@ -565,8 +563,7 @@ class TestRuleEngineBiometricRules:
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
 
-        dims = [a for a in actions if a["tool"] == "control_light"
-                and a["args"].get("brightness") == 80]
+        dims = [a for a in actions if a["tool"] == "control_light" and a["args"].get("brightness") == 80]
         assert len(dims) == 0
 
     def test_fatigue_dimming_light_already_dim_no_action(self, world_model):
@@ -587,8 +584,7 @@ class TestRuleEngineBiometricRules:
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
 
-        dims = [a for a in actions if a["tool"] == "control_light"
-                and a["args"].get("brightness") == 80]
+        dims = [a for a in actions if a["tool"] == "control_light" and a["args"].get("brightness") == 80]
         assert len(dims) == 0
 
     # --- Cooldown prevents repeated actions ---
@@ -654,8 +650,12 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.activity.last_update = time.time()
 
         actions = engine.evaluate(world_model)
-        bio_actions = [a for a in actions if any(
-            kw in a["args"].get("message", "")
-            for kw in ("心拍数", "ストレス", "疲", "睡眠品質", "目標達成", "おやすみ")
-        )]
+        bio_actions = [
+            a
+            for a in actions
+            if any(
+                kw in a["args"].get("message", "")
+                for kw in ("心拍数", "ストレス", "疲", "睡眠品質", "目標達成", "おやすみ")
+            )
+        ]
         assert len(bio_actions) == 0

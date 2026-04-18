@@ -1,9 +1,16 @@
 """
 Tests for GAS-related data classes.
 """
+
 from world_model.data_classes import (
-    CalendarEvent, FreeSlot, GoogleTask, GmailLabel,
-    DriveFile, SheetData, GASState, Event,
+    CalendarEvent,
+    DriveFile,
+    Event,
+    FreeSlot,
+    GASState,
+    GmailLabel,
+    GoogleTask,
+    SheetData,
 )
 
 
@@ -17,9 +24,14 @@ class TestCalendarEvent:
 
     def test_custom_values(self):
         ev = CalendarEvent(
-            id="abc123", title="Meeting", start="2026-02-19T10:00:00Z",
-            end="2026-02-19T11:00:00Z", location="Room A",
-            calendar_name="Work", is_all_day=False, start_ts=1771495200.0,
+            id="abc123",
+            title="Meeting",
+            start="2026-02-19T10:00:00Z",
+            end="2026-02-19T11:00:00Z",
+            location="Room A",
+            calendar_name="Work",
+            is_all_day=False,
+            start_ts=1771495200.0,
         )
         assert ev.title == "Meeting"
         assert ev.location == "Room A"
@@ -66,8 +78,10 @@ class TestDriveFile:
 
     def test_document(self):
         f = DriveFile(
-            name="Budget 2026", mime_type="application/vnd.google-apps.spreadsheet",
-            modified_time="2026-02-19T08:00:00Z", url="https://docs.google.com/spreadsheets/d/xxx",
+            name="Budget 2026",
+            mime_type="application/vnd.google-apps.spreadsheet",
+            modified_time="2026-02-19T08:00:00Z",
+            url="https://docs.google.com/spreadsheets/d/xxx",
         )
         assert "spreadsheet" in f.mime_type
 

@@ -1,9 +1,10 @@
 """Tests for /classifier-cache/ CRUD endpoints (P3 Step A)."""
-import pytest
 
+import pytest
 
 try:
     import sqlalchemy  # noqa: F401
+
     HAS_SQLALCHEMY = True
 except ImportError:
     HAS_SQLALCHEMY = False
@@ -24,19 +25,17 @@ def client(monkeypatch, tmp_path):
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
 
-    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path/'hems.db'}")
-    monkeypatch.setenv("HEMS_API_KEY", ADMIN_KEY)
-
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'hems.db'}")
     # Match the mobile-router fixture pattern — popping `routers` package is
     # required so re-imported routers pick up the fresh Base / models classes.
-    for name in ("database", "models", "auth",
-                 "routers", "routers.classifier_cache"):
+    for name in ("database", "models", "auth", "routers", "routers.classifier_cache"):
         sys.modules.pop(name, None)
 
+    from fastapi import Depends, FastAPI
+
     import database
-    from fastapi import FastAPI, Depends
-    from routers import classifier_cache
     from auth import verify_api_key
+    from routers import classifier_cache
 
     app = FastAPI()
     app.include_router(classifier_cache.router, dependencies=[Depends(verify_api_key)])
@@ -48,6 +47,7 @@ def client(monkeypatch, tmp_path):
     asyncio.new_event_loop().run_until_complete(_create())
 
     from fastapi.testclient import TestClient
+
     return TestClient(app)
 
 
@@ -59,7 +59,8 @@ def _upsert(client, *, kind="shopping", key_hash="abc123", value="drugstore", so
     return client.post(
         "/classifier-cache",
         json={
-            "kind": kind, "key_hash": key_hash,
+            "kind": kind,
+            "key_hash": key_hash,
             "value_json": value if value.startswith("{") else f'"{value}"',
             "source": source,
         },
@@ -68,20 +69,12 @@ def _upsert(client, *, kind="shopping", key_hash="abc123", value="drugstore", so
 
 
 class TestClassifierCacheAuth:
-    def test_requires_admin_key(self, client):
+    def test_no_auth_required(self, client):
         resp = client.post(
             "/classifier-cache",
             json={"kind": "shopping", "key_hash": "x", "value_json": '"y"', "source": "llm"},
         )
-        assert resp.status_code == 401
-
-    def test_rejects_wrong_key(self, client):
-        resp = client.post(
-            "/classifier-cache",
-            json={"kind": "shopping", "key_hash": "x", "value_json": '"y"', "source": "llm"},
-            headers={"Authorization": "Bearer wrong"},
-        )
-        assert resp.status_code == 401
+        assert resp.status_code == 201
 
 
 class TestClassifierCacheCrud:
@@ -128,12 +121,14 @@ class TestClassifierCacheCrud:
             client.get("/classifier-cache/shopping/s2", headers=_headers())
 
         shopping_llm = client.get(
-            "/classifier-cache?kind=shopping&source=llm", headers=_headers(),
+            "/classifier-cache?kind=shopping&source=llm",
+            headers=_headers(),
         ).json()
         assert [e["key_hash"] for e in shopping_llm] == ["s2"]
 
         min3 = client.get(
-            "/classifier-cache?kind=shopping&min_hit_count=3", headers=_headers(),
+            "/classifier-cache?kind=shopping&min_hit_count=3",
+            headers=_headers(),
         ).json()
         assert all(e["hit_count"] >= 3 for e in min3)
 
@@ -149,8 +144,11 @@ class TestClassifierCacheCrud:
         resp = client.post(
             "/classifier-cache",
             json={
-                "kind": "shopping", "key_hash": "extra", "value_json": '"x"',
-                "source": "llm", "not_a_field": True,
+                "kind": "shopping",
+                "key_hash": "extra",
+                "value_json": '"x"',
+                "source": "llm",
+                "not_a_field": True,
             },
             headers=_headers(),
         )

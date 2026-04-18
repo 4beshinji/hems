@@ -1,12 +1,19 @@
 """
 Tests for ToolExecutor biometric tool handlers.
 """
+
 import json
 from unittest.mock import MagicMock
 
 import pytest
+
 from world_model.data_classes import (
-    HeartRateData, SleepData, ActivityData, StressData, FatigueData, SpO2Data,
+    ActivityData,
+    FatigueData,
+    HeartRateData,
+    SleepData,
+    SpO2Data,
+    StressData,
 )
 
 
@@ -16,7 +23,10 @@ class TestGetBiometrics:
     @pytest.mark.asyncio
     async def test_returns_heart_rate_when_set(self, tool_executor, world_model):
         world_model.biometric_state.heart_rate = HeartRateData(
-            bpm=72, resting_bpm=60, zone="fat_burn", last_update=1.0,
+            bpm=72,
+            resting_bpm=60,
+            zone="fat_burn",
+            last_update=1.0,
         )
         result = await tool_executor.execute("get_biometrics", {})
         assert result["success"] is True
@@ -35,7 +45,9 @@ class TestGetBiometrics:
     @pytest.mark.asyncio
     async def test_returns_stress_when_set(self, tool_executor, world_model):
         world_model.biometric_state.stress = StressData(
-            level=65, category="moderate", last_update=1.0,
+            level=65,
+            category="moderate",
+            last_update=1.0,
         )
         result = await tool_executor.execute("get_biometrics", {})
         data = json.loads(result["result"])
@@ -45,7 +57,9 @@ class TestGetBiometrics:
     @pytest.mark.asyncio
     async def test_returns_fatigue_when_set(self, tool_executor, world_model):
         world_model.biometric_state.fatigue = FatigueData(
-            score=40, factors=["poor_sleep", "high_stress"], last_update=1.0,
+            score=40,
+            factors=["poor_sleep", "high_stress"],
+            last_update=1.0,
         )
         result = await tool_executor.execute("get_biometrics", {})
         data = json.loads(result["result"])
@@ -55,7 +69,10 @@ class TestGetBiometrics:
     @pytest.mark.asyncio
     async def test_returns_activity_when_set(self, tool_executor, world_model):
         world_model.biometric_state.activity = ActivityData(
-            steps=8500, steps_goal=10000, calories=350, level="moderate",
+            steps=8500,
+            steps_goal=10000,
+            calories=350,
+            level="moderate",
             last_update=1.0,
         )
         result = await tool_executor.execute("get_biometrics", {})
@@ -92,7 +109,10 @@ class TestGetBiometrics:
     async def test_omits_heart_rate_when_bpm_none(self, tool_executor, world_model):
         """heart_rate is only included when bpm is not None."""
         world_model.biometric_state.heart_rate = HeartRateData(
-            bpm=None, resting_bpm=60, zone="rest", last_update=1.0,
+            bpm=None,
+            resting_bpm=60,
+            zone="rest",
+            last_update=1.0,
         )
         result = await tool_executor.execute("get_biometrics", {})
         data = json.loads(result["result"])
@@ -102,7 +122,9 @@ class TestGetBiometrics:
     async def test_omits_stress_when_no_update(self, tool_executor, world_model):
         """stress is only included when last_update > 0."""
         world_model.biometric_state.stress = StressData(
-            level=50, category="normal", last_update=0,
+            level=50,
+            category="normal",
+            last_update=0,
         )
         result = await tool_executor.execute("get_biometrics", {})
         data = json.loads(result["result"])
@@ -112,7 +134,9 @@ class TestGetBiometrics:
     async def test_omits_fatigue_when_no_update(self, tool_executor, world_model):
         """fatigue is only included when last_update > 0."""
         world_model.biometric_state.fatigue = FatigueData(
-            score=30, factors=[], last_update=0,
+            score=30,
+            factors=[],
+            last_update=0,
         )
         result = await tool_executor.execute("get_biometrics", {})
         data = json.loads(result["result"])
@@ -122,7 +146,10 @@ class TestGetBiometrics:
     async def test_omits_activity_when_no_update(self, tool_executor, world_model):
         """activity is only included when last_update > 0."""
         world_model.biometric_state.activity = ActivityData(
-            steps=5000, steps_goal=10000, calories=200, level="light",
+            steps=5000,
+            steps_goal=10000,
+            calories=200,
+            level="light",
             last_update=0,
         )
         result = await tool_executor.execute("get_biometrics", {})
@@ -136,8 +163,12 @@ class TestGetSleepSummary:
     @pytest.mark.asyncio
     async def test_returns_sleep_data_from_world_model(self, tool_executor, world_model):
         world_model.biometric_state.sleep = SleepData(
-            stage="deep", duration_minutes=420, deep_minutes=90,
-            rem_minutes=100, light_minutes=230, quality_score=82,
+            stage="deep",
+            duration_minutes=420,
+            deep_minutes=90,
+            rem_minutes=100,
+            light_minutes=230,
+            quality_score=82,
             last_update=1.0,
         )
         result = await tool_executor.execute("get_sleep_summary", {})
@@ -216,13 +247,20 @@ class TestGetSleepSummary:
 
     @pytest.mark.asyncio
     async def test_world_model_data_takes_priority_over_bridge(
-        self, tool_executor, world_model, mock_session,
+        self,
+        tool_executor,
+        world_model,
+        mock_session,
     ):
         """When world model has sleep data, bridge API is not called."""
         tool_executor.biometric_url = "http://biometric-bridge:8000"
         world_model.biometric_state.sleep = SleepData(
-            stage="rem", duration_minutes=360, deep_minutes=80,
-            rem_minutes=90, light_minutes=190, quality_score=70,
+            stage="rem",
+            duration_minutes=360,
+            deep_minutes=80,
+            rem_minutes=90,
+            light_minutes=190,
+            quality_score=70,
             last_update=1.0,
         )
         result = await tool_executor.execute("get_sleep_summary", {})

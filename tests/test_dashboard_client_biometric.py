@@ -1,15 +1,16 @@
 """
 Tests for DashboardClient.push_biometric_snapshot.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
 
 
 class TestPushBiometricSnapshot:
-
     def _make_client(self, mock_session):
         from dashboard_client import DashboardClient
+
         client = DashboardClient(session=mock_session)
         return client
 
@@ -210,7 +211,9 @@ class TestPushBiometricSnapshot:
 
     @pytest.mark.asyncio
     async def test_payload_excludes_stress_and_fatigue_when_no_update(
-        self, world_model, mock_session,
+        self,
+        world_model,
+        mock_session,
     ):
         client = self._make_client(mock_session)
         bio = world_model.biometric_state
@@ -227,7 +230,9 @@ class TestPushBiometricSnapshot:
 
     @pytest.mark.asyncio
     async def test_base_payload_always_has_bridge_connected_and_provider(
-        self, world_model, mock_session,
+        self,
+        world_model,
+        mock_session,
     ):
         client = self._make_client(mock_session)
         bio = world_model.biometric_state

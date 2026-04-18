@@ -1,6 +1,7 @@
 """
 Tests for perception-related rules in RuleEngine.
 """
+
 import time
 from datetime import datetime as _real_dt
 from unittest.mock import patch
@@ -8,11 +9,12 @@ from unittest.mock import patch
 import pytest
 
 from rule_engine import RuleEngine
-from world_model.data_classes import ZoneState, LightState
+from world_model.data_classes import LightState, ZoneState
 
 
 class _FakeDatetime(_real_dt):
     """datetime subclass that freezes .now() to 14:00 (inside 6-21h daytime window)."""
+
     @classmethod
     def now(cls, tz=None):
         if tz:
@@ -66,8 +68,7 @@ class TestEmptyRoomDetection:
         world_model.home_devices.lights["light.living_room"] = LightState(on=True, brightness=200)
 
         actions = engine.evaluate(world_model)
-        light_off = [a for a in actions if a.get("tool") == "control_light"
-                     and a.get("args", {}).get("on") is False]
+        light_off = [a for a in actions if a.get("tool") == "control_light" and a.get("args", {}).get("on") is False]
         assert len(light_off) >= 1
 
     def test_occupied_room_no_light_off(self, world_model, engine):

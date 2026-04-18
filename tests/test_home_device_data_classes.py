@@ -1,8 +1,13 @@
 """
 Tests for Home Assistant device data classes.
 """
+
 from world_model.data_classes import (
-    LightState, ClimateState, CoverState, HomeDevicesState, Event,
+    ClimateState,
+    CoverState,
+    Event,
+    HomeDevicesState,
+    LightState,
 )
 
 
@@ -33,8 +38,7 @@ class TestClimateState:
         assert c.fan_mode == "auto"
 
     def test_custom_values(self):
-        c = ClimateState(entity_id="climate.living_room", mode="cool",
-                         target_temp=26, current_temp=28.5)
+        c = ClimateState(entity_id="climate.living_room", mode="cool", target_temp=26, current_temp=28.5)
         assert c.mode == "cool"
         assert c.target_temp == 26
         assert c.current_temp == 28.5

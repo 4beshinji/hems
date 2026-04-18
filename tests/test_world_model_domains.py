@@ -3,12 +3,24 @@ Tests for WorldModel tri-domain facade pattern and backward-compatible property 
 """
 
 from world_model.data_classes import (
-    PhysicalSpace, DigitalSpace, UserState,
-    ZoneState, HomeDevicesState, LightState,
-    PCState, ServicesState, GASState, KnowledgeState,
-    BiometricState, HeartRateData, SleepData, ActivityData,
-    StressData, FatigueData, SpO2Data,
+    ActivityData,
+    BiometricState,
     CPUData,
+    DigitalSpace,
+    FatigueData,
+    GASState,
+    HeartRateData,
+    HomeDevicesState,
+    KnowledgeState,
+    LightState,
+    PCState,
+    PhysicalSpace,
+    ServicesState,
+    SleepData,
+    SpO2Data,
+    StressData,
+    UserState,
+    ZoneState,
 )
 
 
@@ -165,15 +177,19 @@ class TestMutationThroughProperty:
 
     def test_mutate_services_state_via_property(self, world_model):
         from world_model.data_classes import ServiceStatusData
+
         world_model.services_state.services["test"] = ServiceStatusData(
-            name="test", summary="ok",
+            name="test",
+            summary="ok",
         )
         assert "test" in world_model.digital.services_state.services
 
     def test_mutate_services_state_via_domain(self, world_model):
         from world_model.data_classes import ServiceStatusData
+
         world_model.digital.services_state.services["github"] = ServiceStatusData(
-            name="github", unread_count=5,
+            name="github",
+            unread_count=5,
         )
         assert world_model.services_state.services["github"].unread_count == 5
 
@@ -183,6 +199,7 @@ class TestMutationThroughProperty:
 
     def test_mutate_gas_state_via_domain(self, world_model):
         from world_model.data_classes import CalendarEvent
+
         ev = CalendarEvent(id="ev1", title="Meeting")
         world_model.digital.gas_state.calendar_events.append(ev)
         assert len(world_model.gas_state.calendar_events) == 1
@@ -198,7 +215,9 @@ class TestMutationThroughProperty:
 
     def test_mutate_home_devices_via_property(self, world_model):
         world_model.home_devices.lights["light.test"] = LightState(
-            entity_id="light.test", on=True, brightness=200,
+            entity_id="light.test",
+            on=True,
+            brightness=200,
         )
         assert "light.test" in world_model.physical.home_devices.lights
         assert world_model.physical.home_devices.lights["light.test"].on is True
@@ -221,9 +240,12 @@ class TestMQTTUpdatesThroughDomains:
 
     def test_zone_update_via_occupancy(self, world_model):
         """Camera/occupancy MQTT updates zone visible from both paths."""
-        world_model.update_from_mqtt("office/main/camera/cam01/status", {
-            "person_count": 2,
-        })
+        world_model.update_from_mqtt(
+            "office/main/camera/cam01/status",
+            {
+                "person_count": 2,
+            },
+        )
         # Accessible via property
         assert "main" in world_model.zones
         assert world_model.zones["main"].occupancy.count == 2
@@ -232,9 +254,13 @@ class TestMQTTUpdatesThroughDomains:
         assert world_model.physical.zones["main"].occupancy.count == 2
 
     def test_pc_mqtt_update(self, world_model):
-        world_model.update_from_mqtt("hems/pc/metrics/cpu", {
-            "usage_percent": 60.0, "core_count": 12,
-        })
+        world_model.update_from_mqtt(
+            "hems/pc/metrics/cpu",
+            {
+                "usage_percent": 60.0,
+                "core_count": 12,
+            },
+        )
         # Via property
         assert world_model.pc_state.cpu.usage_percent == 60.0
         # Via domain
@@ -251,18 +277,24 @@ class TestMQTTUpdatesThroughDomains:
         assert world_model.physical.home_devices.lights["light.living"].brightness == 180
 
     def test_gas_mqtt_update(self, world_model):
-        world_model.update_from_mqtt("hems/gas/bridge/status", {
-            "connected": True,
-        })
+        world_model.update_from_mqtt(
+            "hems/gas/bridge/status",
+            {
+                "connected": True,
+            },
+        )
         # Via property
         assert world_model.gas_state.bridge_connected is True
         # Via domain
         assert world_model.digital.gas_state.bridge_connected is True
 
     def test_biometric_mqtt_update(self, world_model):
-        world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
-            "bpm": 75,
-        })
+        world_model.update_from_mqtt(
+            "hems/personal/biometrics/garmin/heart_rate",
+            {
+                "bpm": 75,
+            },
+        )
         # Via property
         assert world_model.biometric_state.heart_rate.bpm == 75
         # Via domain
@@ -274,6 +306,7 @@ class TestExistingFunctionalityPreserved:
 
     def test_get_zone(self, world_model):
         from world_model.data_classes import EnvironmentData
+
         world_model.zones["lab"] = ZoneState(
             zone_id="lab",
             environment=EnvironmentData(temperature=22.0),
@@ -301,19 +334,27 @@ class TestExistingFunctionalityPreserved:
     def test_get_llm_context_tri_domain_headers(self, world_model):
         """Context includes tri-domain section headers when data present."""
         from world_model.data_classes import EnvironmentData
+
         # Physical: add a zone directly
         world_model.zones["main"] = ZoneState(
             zone_id="main",
             environment=EnvironmentData(temperature=24.0),
         )
         # Digital: add PC data via MQTT
-        world_model.update_from_mqtt("hems/pc/metrics/cpu", {
-            "usage_percent": 30.0, "core_count": 4,
-        })
+        world_model.update_from_mqtt(
+            "hems/pc/metrics/cpu",
+            {
+                "usage_percent": 30.0,
+                "core_count": 4,
+            },
+        )
         # User: add biometric data via MQTT
-        world_model.update_from_mqtt("hems/personal/biometrics/watch/heart_rate", {
-            "bpm": 68,
-        })
+        world_model.update_from_mqtt(
+            "hems/personal/biometrics/watch/heart_rate",
+            {
+                "bpm": 68,
+            },
+        )
 
         ctx = world_model.get_llm_context()
         assert "## 現実空間" in ctx

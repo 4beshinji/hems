@@ -1,11 +1,13 @@
 """
 Tests for ToolExecutor PC tool handlers.
 """
+
 import json
 from unittest.mock import MagicMock
 
 import pytest
-from world_model.data_classes import CPUData, MemoryData, DiskData, DiskPartition, ProcessInfo
+
+from world_model.data_classes import CPUData, DiskData, DiskPartition, MemoryData, ProcessInfo
 
 
 class TestGetPCStatus:
@@ -14,7 +16,10 @@ class TestGetPCStatus:
     @pytest.mark.asyncio
     async def test_returns_cpu_metrics(self, tool_executor, world_model):
         world_model.pc_state.cpu = CPUData(
-            usage_percent=42, core_count=8, temp_c=55, last_update=1.0,
+            usage_percent=42,
+            core_count=8,
+            temp_c=55,
+            last_update=1.0,
         )
         result = await tool_executor.execute("get_pc_status", {})
         assert result["success"] is True
@@ -25,7 +30,10 @@ class TestGetPCStatus:
     @pytest.mark.asyncio
     async def test_returns_memory_metrics(self, tool_executor, world_model):
         world_model.pc_state.memory = MemoryData(
-            used_gb=12.5, total_gb=32.0, percent=39.1, last_update=1.0,
+            used_gb=12.5,
+            total_gb=32.0,
+            percent=39.1,
+            last_update=1.0,
         )
         result = await tool_executor.execute("get_pc_status", {})
         data = json.loads(result["result"])
@@ -117,9 +125,13 @@ class TestControlBrowser:
         resp = mock_session._make_response(200, {"result": {}})
         mock_session.post = MagicMock(return_value=resp)
 
-        result = await tool_executor.execute("control_browser", {
-            "action": "navigate", "url": "https://example.com",
-        })
+        result = await tool_executor.execute(
+            "control_browser",
+            {
+                "action": "navigate",
+                "url": "https://example.com",
+            },
+        )
         assert result["success"] is True
         call_url = mock_session.post.call_args[0][0]
         assert "/api/pc/browser/navigate" in call_url
@@ -138,9 +150,13 @@ class TestSendPCNotification:
     @pytest.mark.asyncio
     async def test_not_configured_returns_error(self, tool_executor):
         tool_executor.openclaw_url = ""
-        result = await tool_executor.execute("send_pc_notification", {
-            "title": "Test", "body": "Hello",
-        })
+        result = await tool_executor.execute(
+            "send_pc_notification",
+            {
+                "title": "Test",
+                "body": "Hello",
+            },
+        )
         assert result["success"] is False
 
     @pytest.mark.asyncio
@@ -149,9 +165,13 @@ class TestSendPCNotification:
         resp = mock_session._make_response(200, {"result": {}})
         mock_session.post = MagicMock(return_value=resp)
 
-        result = await tool_executor.execute("send_pc_notification", {
-            "title": "HEMS Alert", "body": "GPU is hot!",
-        })
+        result = await tool_executor.execute(
+            "send_pc_notification",
+            {
+                "title": "HEMS Alert",
+                "body": "GPU is hot!",
+            },
+        )
         assert result["success"] is True
         call_url = mock_session.post.call_args[0][0]
         assert "/api/pc/notify" in call_url

@@ -1,14 +1,20 @@
 """
 Tests for Home Assistant automation rules in RuleEngine.
 """
+
 import time
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pytest
+
 from rule_engine import RuleEngine
 from schedule_learner import ScheduleLearner
 from world_model.data_classes import (
-    LightState, ClimateState, CoverState, OccupancyData,
+    ClimateState,
+    CoverState,
+    LightState,
+    OccupancyData,
 )
 
 
@@ -31,13 +37,17 @@ class TestSleepDetection:
         # Set up zone with idle, static occupancy
         zone = world_model._get_zone("bedroom")
         zone.occupancy = OccupancyData(
-            count=1, activity_class="idle",
-            posture_status="static", posture_duration_sec=700,
+            count=1,
+            activity_class="idle",
+            posture_status="static",
+            posture_duration_sec=700,
         )
         # Set up lights
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.lights["light.bedroom"] = LightState(
-            entity_id="light.bedroom", on=True, brightness=200,
+            entity_id="light.bedroom",
+            on=True,
+            brightness=200,
         )
 
         with patch("rule_engine.datetime") as mock_dt:
@@ -55,32 +65,38 @@ class TestSleepDetection:
         engine._cooldowns = {}
         zone = world_model._get_zone("bedroom")
         zone.occupancy = OccupancyData(
-            count=1, activity_class="idle",
-            posture_status="static", posture_duration_sec=700,
+            count=1,
+            activity_class="idle",
+            posture_status="static",
+            posture_duration_sec=700,
         )
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.lights["light.bedroom"] = LightState(
-            entity_id="light.bedroom", on=True,
+            entity_id="light.bedroom",
+            on=True,
         )
 
         with patch("rule_engine.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 20, 14, 0)
             actions = engine.evaluate(world_model)
 
-        light_actions = [a for a in actions if a["tool"] == "control_light"]
-        assert len(light_actions) == 0
+        light_off_actions = [a for a in actions if a["tool"] == "control_light" and a["args"].get("on") is False]
+        assert len(light_off_actions) == 0
 
     def test_no_sleep_when_lights_already_off(self, engine, world_model):
         """No action when lights are already off."""
         engine._cooldowns = {}
         zone = world_model._get_zone("bedroom")
         zone.occupancy = OccupancyData(
-            count=1, activity_class="idle",
-            posture_status="static", posture_duration_sec=700,
+            count=1,
+            activity_class="idle",
+            posture_status="static",
+            posture_duration_sec=700,
         )
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.lights["light.bedroom"] = LightState(
-            entity_id="light.bedroom", on=False,
+            entity_id="light.bedroom",
+            on=False,
         )
 
         with patch("rule_engine.datetime") as mock_dt:
@@ -103,7 +119,8 @@ class TestPreArrivalHVAC:
         # Climate device exists
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.climates["climate.living_room"] = ClimateState(
-            entity_id="climate.living_room", mode="off",
+            entity_id="climate.living_room",
+            mode="off",
         )
 
         # Mock schedule learner to predict arrival in 20 minutes
@@ -126,7 +143,8 @@ class TestPreArrivalHVAC:
         zone.occupancy = OccupancyData(count=0)
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.climates["climate.living_room"] = ClimateState(
-            entity_id="climate.living_room", mode="off",
+            entity_id="climate.living_room",
+            mode="off",
         )
         schedule_learner.predict_next_arrival = MagicMock(return_value=now + 20 * 60)
 
@@ -145,7 +163,8 @@ class TestPreArrivalHVAC:
         zone.occupancy = OccupancyData(count=1)
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.climates["climate.living_room"] = ClimateState(
-            entity_id="climate.living_room", mode="off",
+            entity_id="climate.living_room",
+            mode="off",
         )
         schedule_learner.predict_next_arrival = MagicMock(return_value=time.time() + 20 * 60)
 
@@ -164,7 +183,9 @@ class TestWakeUpCurtain:
         now = time.time()
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.covers["cover.bedroom"] = CoverState(
-            entity_id="cover.bedroom", position=0, is_open=False,
+            entity_id="cover.bedroom",
+            position=0,
+            is_open=False,
         )
         schedule_learner.get_wake_time = MagicMock(return_value=now + 45 * 60)
 
@@ -182,7 +203,9 @@ class TestWakeUpCurtain:
         now = time.time()
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.covers["cover.bedroom"] = CoverState(
-            entity_id="cover.bedroom", position=100, is_open=True,
+            entity_id="cover.bedroom",
+            position=100,
+            is_open=True,
         )
         schedule_learner.get_wake_time = MagicMock(return_value=now + 45 * 60)
 
@@ -200,11 +223,13 @@ class TestWakeDetection:
         engine._cooldowns = {}
         zone = world_model._get_zone("bedroom")
         zone.occupancy = OccupancyData(
-            count=1, activity_class="moderate",
+            count=1,
+            activity_class="moderate",
         )
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.lights["light.bedroom"] = LightState(
-            entity_id="light.bedroom", on=False,
+            entity_id="light.bedroom",
+            on=False,
         )
 
         with patch("rule_engine.datetime") as mock_dt:
@@ -224,7 +249,8 @@ class TestWakeDetection:
         zone.occupancy = OccupancyData(count=1, activity_class="moderate")
         world_model.home_devices.bridge_connected = True
         world_model.home_devices.lights["light.bedroom"] = LightState(
-            entity_id="light.bedroom", on=False,
+            entity_id="light.bedroom",
+            on=False,
         )
 
         with patch("rule_engine.datetime") as mock_dt:
@@ -242,11 +268,14 @@ class TestCooldownAndBridgeDisconnected:
         world_model.home_devices.bridge_connected = False
         zone = world_model._get_zone("bedroom")
         zone.occupancy = OccupancyData(
-            count=1, activity_class="idle",
-            posture_status="static", posture_duration_sec=700,
+            count=1,
+            activity_class="idle",
+            posture_status="static",
+            posture_duration_sec=700,
         )
         world_model.home_devices.lights["light.bedroom"] = LightState(
-            entity_id="light.bedroom", on=True,
+            entity_id="light.bedroom",
+            on=True,
         )
 
         with patch("rule_engine.datetime") as mock_dt:

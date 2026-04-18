@@ -4,6 +4,7 @@ Tests for HEMS Perception Service.
 Covers: Detector, ActivityTracker, CameraManager, MQTT topic compliance,
 and WorldModel integration.
 """
+
 import json
 import sys
 import time
@@ -25,7 +26,7 @@ for _mod_name in ("cv2", "ultralytics"):
 # Import perception modules using importlib to avoid polluting sys.modules.
 # Multiple services share module names (e.g., mqtt_publisher, config) so we
 # must not let perception's versions shadow openclaw-bridge's.
-import importlib.util as _ilu  # noqa: E402
+import importlib.util as _ilu
 
 _PERCEP_SRC = Path(__file__).resolve().parent.parent / "services" / "perception" / "src"
 
@@ -67,6 +68,7 @@ for _name in ("config", "mqtt_publisher", "detector", "activity_tracker", "camer
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_keypoints(posture: str = "standing") -> np.ndarray:
     """Generate synthetic COCO 17-keypoint data for a given posture."""
     kps = np.zeros((17, 3), dtype=np.float32)
@@ -74,9 +76,9 @@ def _make_keypoints(posture: str = "standing") -> np.ndarray:
 
     if posture == "standing":
         # Vertical layout: nose(0), shoulders(5,6), hips(11,12), knees(13,14), ankles(15,16)
-        kps[0] = [320, 50, conf]    # nose
-        kps[5] = [300, 100, conf]   # left shoulder
-        kps[6] = [340, 100, conf]   # right shoulder
+        kps[0] = [320, 50, conf]  # nose
+        kps[5] = [300, 100, conf]  # left shoulder
+        kps[6] = [340, 100, conf]  # right shoulder
         kps[11] = [300, 250, conf]  # left hip
         kps[12] = [340, 250, conf]  # right hip
         kps[13] = [300, 370, conf]  # left knee
@@ -119,6 +121,7 @@ def _make_frame(width: int = 640, height: int = 480) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Detector Tests
 # ---------------------------------------------------------------------------
+
 
 class TestDetector:
     def test_detect_returns_frame_result_structure(self):
@@ -198,6 +201,7 @@ class TestDetector:
 # ---------------------------------------------------------------------------
 # ActivityTracker Tests
 # ---------------------------------------------------------------------------
+
 
 class TestActivityTracker:
     def test_standing_classification(self):
@@ -307,6 +311,7 @@ class TestActivityTracker:
 # CameraManager Tests
 # ---------------------------------------------------------------------------
 
+
 class TestCameraManager:
     def test_add_mcp_camera(self):
         mock_mqtt = MagicMock(spec=MQTTPublisher)
@@ -319,10 +324,14 @@ class TestCameraManager:
 
     def test_add_stream_camera(self):
         mgr = CameraManager()
-        mgr.add_camera({
-            "device_id": "cam02", "zone": "bedroom",
-            "type": "stream", "url": "rtsp://192.168.1.100/stream",
-        })
+        mgr.add_camera(
+            {
+                "device_id": "cam02",
+                "zone": "bedroom",
+                "type": "stream",
+                "url": "rtsp://192.168.1.100/stream",
+            }
+        )
 
         assert "cam02" in mgr.cameras
         assert isinstance(mgr.cameras["cam02"], StreamCamera)
@@ -370,6 +379,7 @@ class TestCameraManager:
 # MQTT Topic Compliance Tests
 # ---------------------------------------------------------------------------
 
+
 class TestMQTTTopicCompliance:
     """Verify topic formats match WorldModel expectations."""
 
@@ -410,8 +420,7 @@ class TestMQTTTopicCompliance:
             "posture_duration_sec": 1800.0,
             "posture_status": "mostly_static",
         }
-        for field in ["activity_level", "activity_class",
-                      "posture_duration_sec", "posture_status"]:
+        for field in ["activity_level", "activity_class", "posture_duration_sec", "posture_status"]:
             assert field in payload
 
     def test_bridge_status_topic(self):
@@ -428,6 +437,7 @@ class TestMQTTTopicCompliance:
 # WorldModel Integration Tests
 # ---------------------------------------------------------------------------
 
+
 class TestWorldModelIntegration:
     """Verify perception data flows correctly into Brain WorldModel."""
 
@@ -439,6 +449,7 @@ class TestWorldModelIntegration:
             sys.path.insert(0, str(brain_src))
             sys.path.insert(0, str(wm_path))
         from world_model import WorldModel
+
         return WorldModel
 
     def test_camera_topic_updates_occupancy(self):
@@ -495,16 +506,18 @@ class TestWorldModelIntegration:
         wm = WorldModel()
 
         # Set person present
-        wm.update_from_mqtt("office/living_room/camera/cam01/status",
-                            {"person_count": 1})
+        wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
 
         # Set static posture for > SEDENTARY_MINUTES
-        wm.update_from_mqtt("office/living_room/activity/cam01", {
-            "activity_level": 0.02,
-            "activity_class": "idle",
-            "posture_duration_sec": 4000.0,
-            "posture_status": "static",
-        })
+        wm.update_from_mqtt(
+            "office/living_room/activity/cam01",
+            {
+                "activity_level": 0.02,
+                "activity_class": "idle",
+                "posture_duration_sec": 4000.0,
+                "posture_status": "static",
+            },
+        )
 
         zone = wm.zones["living_room"]
         assert zone.occupancy.count == 1
@@ -515,6 +528,7 @@ class TestWorldModelIntegration:
 # ---------------------------------------------------------------------------
 # End-to-end Publish Simulation
 # ---------------------------------------------------------------------------
+
 
 class TestPublishSimulation:
     """Test the full detect → track → publish data flow with mocked components."""

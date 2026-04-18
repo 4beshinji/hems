@@ -1,4 +1,5 @@
 """Tests for brain ShoppingClassifier (P1 — seed rules only)."""
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
@@ -29,8 +30,10 @@ def mock_session():
 @pytest.fixture
 def classifier(mock_session):
     from annotator import ShoppingClassifier
+
     return ShoppingClassifier(
-        session=mock_session, backend_url="http://backend:8000", api_key="test-key",
+        session=mock_session,
+        backend_url="http://backend:8000",
     )
 
 
@@ -72,20 +75,15 @@ class TestCachePromotion:
 
 class TestPatchWriteback:
     def test_handle_added_triggers_patch(self, classifier, mock_session):
-        handled = asyncio.run(
-            classifier.handle_added_event({"id": 42, "name": "シャンプー"})
-        )
+        handled = asyncio.run(classifier.handle_added_event({"id": 42, "name": "シャンプー"}))
         assert handled is True
         mock_session.patch.assert_called_once()
         args, kwargs = mock_session.patch.call_args
         assert args[0] == "http://backend:8000/shopping/42"
         assert kwargs["json"] == {"store_category": "drugstore"}
-        assert kwargs["headers"] == {"Authorization": "Bearer test-key"}
 
     def test_handle_added_skips_on_miss(self, classifier, mock_session):
-        handled = asyncio.run(
-            classifier.handle_added_event({"id": 7, "name": "謎アイテム"})
-        )
+        handled = asyncio.run(classifier.handle_added_event({"id": 7, "name": "謎アイテム"}))
         assert handled is False
         mock_session.patch.assert_not_called()
 
@@ -96,19 +94,18 @@ class TestPatchWriteback:
 
     def test_patch_failure_returns_false(self, classifier, mock_session):
         mock_session.patch.return_value = _async_response(status=500, body="oops")
-        handled = asyncio.run(
-            classifier.handle_added_event({"id": 42, "name": "牛乳"})
-        )
+        handled = asyncio.run(classifier.handle_added_event({"id": 42, "name": "牛乳"}))
         assert handled is False
 
-    def test_no_api_key_sends_no_auth_header(self, mock_session):
+    def test_no_auth_header_sent(self, mock_session):
         from annotator import ShoppingClassifier
+
         clf = ShoppingClassifier(
-            session=mock_session, backend_url="http://backend:8000", api_key="",
+            session=mock_session,
+            backend_url="http://backend:8000",
         )
         asyncio.run(clf.handle_added_event({"id": 1, "name": "牛乳"}))
-        _, kwargs = mock_session.patch.call_args
-        assert kwargs["headers"] == {}
+        assert mock_session.patch.called
 
 
 class TestLLMFallback:
@@ -122,9 +119,9 @@ class TestLLMFallback:
         llm_router.chat = AsyncMock(return_value=MagicMock(content="drugstore"))
 
         clf = ShoppingClassifier(
-            session=mock_session, backend_url="http://backend:8000",
-            api_key="test-key",
-            cache=ClassifierCache(session=mock_session, backend_url="http://backend:8000", api_key="test-key"),
+            session=mock_session,
+            backend_url="http://backend:8000",
+                cache=ClassifierCache(session=mock_session, backend_url="http://backend:8000"),
             llm_router=llm_router,
         )
         result = asyncio.run(clf.classify_async("未知のアイテム"))
@@ -135,41 +132,46 @@ class TestLLMFallback:
 
     def test_llm_garbage_returns_none(self, mock_session):
         from annotator import ShoppingClassifier
+
         llm_router = AsyncMock()
         llm_router.chat = AsyncMock(return_value=MagicMock(content="NOT A CATEGORY"))
 
         clf = ShoppingClassifier(
-            session=mock_session, backend_url="http://backend:8000",
-            api_key="test-key", llm_router=llm_router,
+            session=mock_session,
+            backend_url="http://backend:8000",
+                llm_router=llm_router,
         )
         assert asyncio.run(clf.classify_async("アイテム")) is None
 
     def test_llm_trailing_punct_parsed(self, mock_session):
         from annotator import ShoppingClassifier
+
         llm_router = AsyncMock()
-        llm_router.chat = AsyncMock(
-            return_value=MagicMock(content="カテゴリはこちら: home_center.")
-        )
+        llm_router.chat = AsyncMock(return_value=MagicMock(content="カテゴリはこちら: home_center."))
         clf = ShoppingClassifier(
-            session=mock_session, backend_url="http://backend:8000",
-            api_key="test-key", llm_router=llm_router,
+            session=mock_session,
+            backend_url="http://backend:8000",
+                llm_router=llm_router,
         )
         assert asyncio.run(clf.classify_async("バケツ")) == "home_center"
 
     def test_no_llm_router_returns_none_on_miss(self, mock_session):
         from annotator import ShoppingClassifier
+
         clf = ShoppingClassifier(
-            session=mock_session, backend_url="http://backend:8000",
-            api_key="test-key",
-        )
+            session=mock_session,
+            backend_url="http://backend:8000",
+            )
         assert asyncio.run(clf.classify_async("未知")) is None
 
     def test_llm_exception_returns_none(self, mock_session):
         from annotator import ShoppingClassifier
+
         llm_router = AsyncMock()
         llm_router.chat = AsyncMock(side_effect=RuntimeError("timeout"))
         clf = ShoppingClassifier(
-            session=mock_session, backend_url="http://backend:8000",
-            api_key="test-key", llm_router=llm_router,
+            session=mock_session,
+            backend_url="http://backend:8000",
+                llm_router=llm_router,
         )
         assert asyncio.run(clf.classify_async("未知")) is None

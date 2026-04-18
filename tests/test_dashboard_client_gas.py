@@ -1,18 +1,23 @@
 """
 Tests for DashboardClient.push_gas_snapshot.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
+
 from world_model.data_classes import (
-    CalendarEvent, GoogleTask, GmailLabel, FreeSlot,
+    CalendarEvent,
+    FreeSlot,
+    GmailLabel,
+    GoogleTask,
 )
 
 
 class TestPushGASSnapshot:
-
     def _make_client(self, mock_session):
         from dashboard_client import DashboardClient
+
         client = DashboardClient(session=mock_session)
         return client
 
@@ -29,8 +34,7 @@ class TestPushGASSnapshot:
         client = self._make_client(mock_session)
         world_model.gas_state.bridge_connected = True
         world_model.gas_state.calendar_events = [
-            CalendarEvent(id="e1", title="Meeting", start="2026-02-19T10:00:00Z",
-                          end="2026-02-19T11:00:00Z"),
+            CalendarEvent(id="e1", title="Meeting", start="2026-02-19T10:00:00Z", end="2026-02-19T11:00:00Z"),
         ]
 
         resp = mock_session._make_response(200, {"updated": True})
@@ -47,14 +51,22 @@ class TestPushGASSnapshot:
         gs = world_model.gas_state
         gs.bridge_connected = True
         gs.calendar_events = [
-            CalendarEvent(id="e1", title="Standup", start="2026-02-19T10:00:00Z",
-                          end="2026-02-19T10:30:00Z", is_all_day=False, calendar_name="Work"),
+            CalendarEvent(
+                id="e1",
+                title="Standup",
+                start="2026-02-19T10:00:00Z",
+                end="2026-02-19T10:30:00Z",
+                is_all_day=False,
+                calendar_name="Work",
+            ),
         ]
         gs.tasks = [
-            GoogleTask(id="t1", title="Buy milk", due="2026-02-19", status="needsAction",
-                       list_name="Tasks", is_overdue=True),
-            GoogleTask(id="t2", title="Read paper", due="2026-02-20", status="needsAction",
-                       list_name="Tasks", is_overdue=False),
+            GoogleTask(
+                id="t1", title="Buy milk", due="2026-02-19", status="needsAction", list_name="Tasks", is_overdue=True
+            ),
+            GoogleTask(
+                id="t2", title="Read paper", due="2026-02-20", status="needsAction", list_name="Tasks", is_overdue=False
+            ),
         ]
         gs.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=8)}
         gs.free_slots = [

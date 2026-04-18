@@ -1,15 +1,15 @@
 """
 Tests for HEMS GPU auto-detection and setup script.
 """
+
 import sys
 from pathlib import Path
 from unittest.mock import patch
 
-
 # Import gpu_setup from infra/scripts
 _scripts_dir = str(Path(__file__).resolve().parent.parent / "infra" / "scripts")
 sys.path.insert(0, _scripts_dir)
-import gpu_setup  # noqa: E402
+import gpu_setup
 
 sys.path.remove(_scripts_dir)
 
@@ -29,15 +29,14 @@ class TestDetectNvidia:
         assert gpu.driver_version == "550.54"
 
     def test_nvidia_not_available(self):
-        with patch("gpu_setup.subprocess.check_output",
-                   side_effect=FileNotFoundError):
+        with patch("gpu_setup.subprocess.check_output", side_effect=FileNotFoundError):
             gpu = gpu_setup.detect_nvidia()
         assert gpu is None
 
     def test_nvidia_smi_fails(self):
         from subprocess import CalledProcessError
-        with patch("gpu_setup.subprocess.check_output",
-                   side_effect=CalledProcessError(1, "nvidia-smi")):
+
+        with patch("gpu_setup.subprocess.check_output", side_effect=CalledProcessError(1, "nvidia-smi")):
             gpu = gpu_setup.detect_nvidia()
         assert gpu is None
 
@@ -72,9 +71,11 @@ class TestDetectAmd:
                 return ""
             raise FileNotFoundError
 
-        with patch("gpu_setup.subprocess.check_output", side_effect=mock_check_output), \
-             patch("gpu_setup.os.path.exists", return_value=True), \
-             patch("gpu_setup.os.path.isdir", return_value=False):
+        with (
+            patch("gpu_setup.subprocess.check_output", side_effect=mock_check_output),
+            patch("gpu_setup.os.path.exists", return_value=True),
+            patch("gpu_setup.os.path.isdir", return_value=False),
+        ):
             gpu = gpu_setup.detect_amd(card_override="/dev/dri/card1")
 
         assert gpu is not None
@@ -90,10 +91,11 @@ class TestDetectAmd:
         assert gpu is None
 
     def test_amd_card_override_card0(self):
-        with patch("gpu_setup.subprocess.check_output",
-                   side_effect=FileNotFoundError), \
-             patch("gpu_setup.os.path.exists", return_value=True), \
-             patch("gpu_setup.os.path.isdir", return_value=False):
+        with (
+            patch("gpu_setup.subprocess.check_output", side_effect=FileNotFoundError),
+            patch("gpu_setup.os.path.exists", return_value=True),
+            patch("gpu_setup.os.path.isdir", return_value=False),
+        ):
             gpu = gpu_setup.detect_amd(card_override="/dev/dri/card0")
         assert gpu is not None
         assert gpu.card_device == "/dev/dri/card0"
@@ -125,8 +127,7 @@ class TestDetectGpuLspci:
         assert gpu is None
 
     def test_lspci_not_available(self):
-        with patch("gpu_setup.subprocess.check_output",
-                   side_effect=FileNotFoundError):
+        with patch("gpu_setup.subprocess.check_output", side_effect=FileNotFoundError):
             gpu = gpu_setup.detect_gpu_lspci()
         assert gpu is None
 
@@ -140,19 +141,18 @@ class TestDetectGpu:
         assert gpu.vram_mb == 12288
 
     def test_force_nvidia_no_smi(self):
-        with patch("gpu_setup.subprocess.check_output",
-                   side_effect=FileNotFoundError):
+        with patch("gpu_setup.subprocess.check_output", side_effect=FileNotFoundError):
             gpu = gpu_setup.detect_gpu(force_vendor="nvidia")
         assert gpu.vendor == "nvidia"
         assert gpu.name == "NVIDIA GPU (forced)"
 
     def test_force_amd(self):
-        with patch("gpu_setup.subprocess.check_output",
-                   side_effect=FileNotFoundError), \
-             patch("gpu_setup.os.path.exists", return_value=False), \
-             patch("gpu_setup.os.path.isdir", return_value=False):
-            gpu = gpu_setup.detect_gpu(force_vendor="amd",
-                                       amd_card="/dev/dri/card1")
+        with (
+            patch("gpu_setup.subprocess.check_output", side_effect=FileNotFoundError),
+            patch("gpu_setup.os.path.exists", return_value=False),
+            patch("gpu_setup.os.path.isdir", return_value=False),
+        ):
+            gpu = gpu_setup.detect_gpu(force_vendor="amd", amd_card="/dev/dri/card1")
         assert gpu.vendor == "amd"
         assert gpu.card_device == "/dev/dri/card1"
         assert gpu.render_device == "/dev/dri/renderD129"
@@ -163,9 +163,11 @@ class TestDetectGpu:
 
     def test_auto_detect_order(self):
         """NVIDIA checked first, then AMD, then lspci."""
-        with patch("gpu_setup.detect_nvidia", return_value=None) as nvidia_mock, \
-             patch("gpu_setup.detect_amd", return_value=None) as amd_mock, \
-             patch("gpu_setup.detect_gpu_lspci", return_value=None) as lspci_mock:
+        with (
+            patch("gpu_setup.detect_nvidia", return_value=None) as nvidia_mock,
+            patch("gpu_setup.detect_amd", return_value=None) as amd_mock,
+            patch("gpu_setup.detect_gpu_lspci", return_value=None) as lspci_mock,
+        ):
             gpu = gpu_setup.detect_gpu()
             nvidia_mock.assert_called_once()
             amd_mock.assert_called_once()
@@ -189,7 +191,9 @@ class TestGenerateComposeOverride:
 
     def test_amd_override(self):
         gpu = gpu_setup.GPUInfo(
-            vendor="amd", name="RX 7900 XT", vram_mb=16384,
+            vendor="amd",
+            name="RX 7900 XT",
+            vram_mb=16384,
             card_device="/dev/dri/card1",
             render_device="/dev/dri/renderD129",
             hsa_version="12.0.1",
@@ -246,7 +250,7 @@ class TestRecommendModels:
 
     def test_12gb_includes_14b(self):
         models = gpu_setup.recommend_models(12288)
-        tier_14 = [m for m in models if m["tier"] == "~14GB"][0]
+        tier_14 = next(m for m in models if m["tier"] == "~14GB")
         assert "qwen2.5:14b" in tier_14["models"]
 
     def test_16gb_vram(self):
@@ -269,8 +273,7 @@ class TestMatchingHfModels:
     def test_hf_models_with_enough_vram(self):
         hf = gpu_setup._matching_hf_models(16384)
         assert "gpt-oss-swallow:20b" in hf
-        assert hf["gpt-oss-swallow:20b"]["hf_repo"] == \
-            "tokyotech-llm/GPT-OSS-Swallow-20B-RL-v0.1"
+        assert hf["gpt-oss-swallow:20b"]["hf_repo"] == "tokyotech-llm/GPT-OSS-Swallow-20B-RL-v0.1"
 
     def test_hf_models_insufficient_vram(self):
         hf = gpu_setup._matching_hf_models(4000)
@@ -280,8 +283,7 @@ class TestMatchingHfModels:
         """Ensure HF model tiers exist in MODEL_RECOMMENDATIONS."""
         valid_tiers = {t["tier"] for t in gpu_setup.MODEL_RECOMMENDATIONS}
         for name, info in gpu_setup.HUGGINGFACE_MODELS.items():
-            assert info["tier"] in valid_tiers, \
-                f"HF model {name} has tier {info['tier']} not in {valid_tiers}"
+            assert info["tier"] in valid_tiers, f"HF model {name} has tier {info['tier']} not in {valid_tiers}"
 
     def test_hf_models_unknown_vram_returns_all(self):
         hf = gpu_setup._matching_hf_models(0)
@@ -321,7 +323,9 @@ class TestUpdateEnv:
         env_file.write_text("GPU_TYPE=none\n")
 
         gpu = gpu_setup.GPUInfo(
-            vendor="amd", name="RX 7900", vram_mb=16384,
+            vendor="amd",
+            name="RX 7900",
+            vram_mb=16384,
             hsa_version="11.0.0",
         )
         gpu_setup.update_env(gpu, env_path=env_file)
@@ -360,8 +364,7 @@ class TestCheckNvidiaContainerToolkit:
             assert gpu_setup.check_nvidia_container_toolkit() is True
 
     def test_nothing_installed(self):
-        with patch("gpu_setup.subprocess.check_output",
-                   side_effect=FileNotFoundError):
+        with patch("gpu_setup.subprocess.check_output", side_effect=FileNotFoundError):
             assert gpu_setup.check_nvidia_container_toolkit() is False
 
 
@@ -380,8 +383,10 @@ class TestResolveAmdDevices:
         assert render == "/dev/dri/renderD128"
 
     def test_no_devices_found(self):
-        with patch("gpu_setup.os.path.isdir", return_value=False), \
-             patch("gpu_setup.os.path.exists", return_value=False):
+        with (
+            patch("gpu_setup.os.path.isdir", return_value=False),
+            patch("gpu_setup.os.path.exists", return_value=False),
+        ):
             card, render = gpu_setup._resolve_amd_devices()
         assert card == ""
         assert render == ""

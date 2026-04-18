@@ -1,8 +1,10 @@
 """
 Tests for backend home (HA control) router — in-memory store + httpx proxy.
 """
+
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
 
@@ -11,11 +13,13 @@ def client():
     """Create a test client for the home router."""
     import sys
     from pathlib import Path
+
     backend_path = Path(__file__).resolve().parent.parent / "services" / "backend"
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
 
     from fastapi import FastAPI
+
     from routers.home import router
 
     app = FastAPI()
@@ -50,39 +54,51 @@ class TestHomeGetStatus:
 
 class TestHomeLightControl:
     def test_returns_503_without_ha_bridge(self, client):
-        resp = client.post("/home/light/control", json={
-            "entity_id": "light.living_room",
-            "on": True,
-        })
+        resp = client.post(
+            "/home/light/control",
+            json={
+                "entity_id": "light.living_room",
+                "on": True,
+            },
+        )
         assert resp.status_code == 503
 
     @patch("routers.home.HA_BRIDGE_URL", "http://fake-ha:8000")
     @patch("routers.home._ha_proxy_call", new_callable=AsyncMock)
     def test_light_toggle(self, mock_call, client):
         mock_call.return_value = {"success": True, "result": "light/turn_on -> light.living_room"}
-        resp = client.post("/home/light/control", json={
-            "entity_id": "light.living_room",
-            "on": True,
-            "brightness": 200,
-        })
+        resp = client.post(
+            "/home/light/control",
+            json={
+                "entity_id": "light.living_room",
+                "on": True,
+                "brightness": 200,
+            },
+        )
         assert resp.status_code == 200
         mock_call.assert_called_once()
 
 
 class TestHomeClimateControl:
     def test_returns_503_without_ha_bridge(self, client):
-        resp = client.post("/home/climate/control", json={
-            "entity_id": "climate.living_room",
-            "mode": "cool",
-            "temperature": 26,
-        })
+        resp = client.post(
+            "/home/climate/control",
+            json={
+                "entity_id": "climate.living_room",
+                "mode": "cool",
+                "temperature": 26,
+            },
+        )
         assert resp.status_code == 503
 
 
 class TestHomeCoverControl:
     def test_returns_503_without_ha_bridge(self, client):
-        resp = client.post("/home/cover/control", json={
-            "entity_id": "cover.living_room",
-            "action": "open",
-        })
+        resp = client.post(
+            "/home/cover/control",
+            json={
+                "entity_id": "cover.living_room",
+                "action": "open",
+            },
+        )
         assert resp.status_code == 503

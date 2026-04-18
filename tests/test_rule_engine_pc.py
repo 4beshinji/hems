@@ -1,7 +1,8 @@
 """
 Tests for RuleEngine PC rules.
 """
-from world_model.data_classes import GPUData, DiskData, DiskPartition
+
+from world_model.data_classes import DiskData, DiskPartition, GPUData
 
 
 class TestRuleEnginePCRules:
@@ -9,6 +10,7 @@ class TestRuleEnginePCRules:
 
     def _make_engine(self):
         from rule_engine import RuleEngine
+
         engine = RuleEngine()
         engine._cooldowns = {}  # reset cooldowns
         return engine
