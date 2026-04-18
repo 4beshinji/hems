@@ -3,10 +3,11 @@
 PoC V4: Obsidian path traversal テスト
 HEMS/../../../etc/passwd 等で vault 外ファイルに書き込めるか確認
 """
-import sys
+
 import os
-import tempfile
 import shutil
+import sys
+import tempfile
 
 # Add obsidian-bridge src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../services/obsidian-bridge/src"))
@@ -16,6 +17,7 @@ try:
     import loguru  # noqa: F401
 except ImportError:
     from unittest.mock import MagicMock
+
     sys.modules["loguru"] = MagicMock()
     sys.modules["loguru"].logger = MagicMock()
 
@@ -69,6 +71,7 @@ def test_note_writer_directly():
             # If write succeeded, check where the file ended up
             # Resolve the actual path
             from pathlib import Path
+
             actual_path = (Path(vault_dir) / result).resolve()
             vault_resolved = Path(vault_dir).resolve()
 
@@ -105,10 +108,13 @@ def test_brain_sanitizer():
     sanitizer = Sanitizer()
 
     for title, description in SANITIZER_TESTS:
-        result = sanitizer.validate_tool_call("write_note", {
-            "title": title,
-            "content": "test",
-        })
+        result = sanitizer.validate_tool_call(
+            "write_note",
+            {
+                "title": title,
+                "content": "test",
+            },
+        )
         if not result["allowed"]:
             print(f"[PASS] BLOCKED by sanitizer: {description}")
             PASS_COUNT += 1

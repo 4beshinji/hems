@@ -1,0 +1,66 @@
+# HEMS MQTT per-service ACL
+# Each service writes only to its own topic namespace; reads are broad
+# (blast-radius risk on a private Docker network is write pollution, not eavesdrop).
+# Syntax: topic [read|write|readwrite] <pattern>  — multiple lines are OR'd.
+
+user hems-health
+topic write hems/healthcheck
+
+user hems-brain
+topic read #
+topic write hems/#
+topic write zigbee2mqtt/#
+
+user hems-backend
+topic read #
+topic write hems/shopping/#
+topic write hems/brain/#
+
+user hems-voice
+topic read hems/#
+
+user hems-localcraw
+topic read #
+topic write hems/pc/#
+topic write hems/services/#
+
+user hems-obsidian
+topic read #
+topic write hems/personal/notes/#
+
+user hems-gas
+topic read #
+topic write hems/gas/#
+
+user hems-ha
+topic read #
+topic write hems/home/#
+topic write hems/weather/#
+
+user hems-biometric
+topic read #
+topic write hems/personal/biometrics/#
+
+user hems-perception
+topic read #
+topic write office/#
+topic write hems/perception/#
+
+user hems-switchbot
+topic read #
+topic write hems/switchbot/#
+
+user hems-tapo
+topic read #
+topic write hems/tapo/#
+
+user hems-zigbee
+topic readwrite zigbee2mqtt/#
+
+user hems-news
+topic read #
+topic write hems/news/#
+
+user hems-knowledge
+topic read #
+topic write hems/personal/knowledge/#

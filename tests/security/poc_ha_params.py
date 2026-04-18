@@ -3,9 +3,10 @@
 PoC V8: HA bridge パラメータバリデーションテスト
 範囲外の値や危険なドメインが受け入れられるか確認
 """
-import sys
-import os
+
 import asyncio
+import os
+import sys
 
 try:
     import aiohttp
@@ -26,53 +27,45 @@ TEST_CASES = [
     # Out-of-range light brightness
     (
         "Light brightness = -100 (out of range)",
-        {"entity_id": "light.bedroom", "service": "light/turn_on",
-         "data": {"brightness": -100}},
+        {"entity_id": "light.bedroom", "service": "light/turn_on", "data": {"brightness": -100}},
         True,
     ),
     (
         "Light brightness = 9999 (out of range)",
-        {"entity_id": "light.bedroom", "service": "light/turn_on",
-         "data": {"brightness": 9999}},
+        {"entity_id": "light.bedroom", "service": "light/turn_on", "data": {"brightness": 9999}},
         True,
     ),
     # Out-of-range climate temperature
     (
         "Climate temperature = 99°C (out of range)",
-        {"entity_id": "climate.living", "service": "climate/set_temperature",
-         "data": {"temperature": 99}},
+        {"entity_id": "climate.living", "service": "climate/set_temperature", "data": {"temperature": 99}},
         True,
     ),
     (
         "Climate temperature = -50°C (out of range)",
-        {"entity_id": "climate.living", "service": "climate/set_temperature",
-         "data": {"temperature": -50}},
+        {"entity_id": "climate.living", "service": "climate/set_temperature", "data": {"temperature": -50}},
         True,
     ),
     # Dangerous domain
     (
         "shell_command domain (should be blocked)",
-        {"entity_id": "shell_command.dangerous", "service": "shell_command/run",
-         "data": {}},
+        {"entity_id": "shell_command.dangerous", "service": "shell_command/run", "data": {}},
         True,
     ),
     (
         "script domain with dangerous service",
-        {"entity_id": "script.evil", "service": "script/turn_on",
-         "data": {"variables": {"cmd": "$(rm -rf /)"}}},
+        {"entity_id": "script.evil", "service": "script/turn_on", "data": {"variables": {"cmd": "$(rm -rf /)"}}},
         True,
     ),
     # Valid commands (should be allowed)
     (
         "Light turn on (valid)",
-        {"entity_id": "light.bedroom", "service": "light/turn_on",
-         "data": {"brightness": 128}},
+        {"entity_id": "light.bedroom", "service": "light/turn_on", "data": {"brightness": 128}},
         False,
     ),
     (
         "Climate set temp 22°C (valid)",
-        {"entity_id": "climate.living", "service": "climate/set_temperature",
-         "data": {"temperature": 22}},
+        {"entity_id": "climate.living", "service": "climate/set_temperature", "data": {"temperature": 22}},
         False,
     ),
 ]
@@ -84,9 +77,7 @@ async def test_ha_params():
     print(f"=== V8: HA Bridge Parameter Validation Test ({BASE_URL}) ===\n")
 
     try:
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=5)
-        ) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             for description, payload, should_block in TEST_CASES:
                 try:
                     async with session.post(
