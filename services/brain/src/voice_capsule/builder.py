@@ -12,14 +12,21 @@ produces a day-keyed manifest and pushes it through:
 The output is a dict that matches :class:`schemas.VoiceCapsuleManifest` —
 deliberately JSON-shaped so the backend receives it verbatim.
 """
+
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from loguru import logger
+
+
+def _internal_headers() -> dict:
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 from .generic_bank import GenericSpec, default_bank
 from .persist import push_manifest
@@ -28,6 +35,7 @@ from .transcript_writer import TranscriptWriter
 if TYPE_CHECKING:
     import aiohttp
     import paho.mqtt.client as mqtt
+
     from annotator import EventClassifier
     from persona_rewriter import PersonaRewriter
 
@@ -35,13 +43,14 @@ if TYPE_CHECKING:
 @dataclass
 class ClipSpec:
     """Planner output — feeds both the TTS batch call and the manifest."""
+
     id: str
-    trigger_kind: str              # "time" | "pre_event" | "geofence" | "biometric_threshold"
+    trigger_kind: str  # "time" | "pre_event" | "geofence" | "biometric_threshold"
     tone: str
-    transcript_seed: str           # pre-PersonaRewriter raw line
+    transcript_seed: str  # pre-PersonaRewriter raw line
     trigger_at_ts: int | None = None
     event_ref: str | None = None
-    event_offset_min: int | None = None   # lead time in minutes for pre_event triggers
+    event_offset_min: int | None = None  # lead time in minutes for pre_event triggers
     tags: list[str] = field(default_factory=list)
     priority: int = 5
 
@@ -54,8 +63,8 @@ class ClipSpec:
     cooldown_min: int | None = None
 
     # Biometric-threshold payload (trigger_kind="biometric_threshold").
-    biometric_metric: str | None = None        # heart_rate | stress | fatigue | ...
-    biometric_op: str | None = None            # "gt" | "lt"
+    biometric_metric: str | None = None  # heart_rate | stress | fatigue | ...
+    biometric_op: str | None = None  # "gt" | "lt"
     biometric_value: float | None = None
 
     # Populated by the builder after transcript/synth.
@@ -67,19 +76,17 @@ class CapsuleBuilder:
     def __init__(
         self,
         *,
-        session: "aiohttp.ClientSession",
+        session: aiohttp.ClientSession,
         voice_service_url: str,
         backend_url: str,
-        api_key: str,
-        persona_rewriter: "PersonaRewriter | None" = None,
-        mqtt_client: "mqtt.Client | None" = None,
+        persona_rewriter: PersonaRewriter | None = None,
+        mqtt_client: mqtt.Client | None = None,
         character_version: str | None = None,
-        event_classifier: "EventClassifier | None" = None,
+        event_classifier: EventClassifier | None = None,
     ):
         self.session = session
         self.voice_service_url = voice_service_url.rstrip("/")
         self.backend_url = backend_url.rstrip("/")
-        self.api_key = api_key
         self.writer = TranscriptWriter(persona_rewriter)
         self.mqtt_client = mqtt_client
         self.character_version = character_version
@@ -99,7 +106,9 @@ class CapsuleBuilder:
         pending_shopping = await self._fetch_pending_shopping()
 
         clips = await plan_day(
-            date=date, wake_ts=wake_ts, world_model=world_model,
+            date=date,
+            wake_ts=wake_ts,
+            world_model=world_model,
             event_classifier=self.event_classifier,
             frequent_places=places,
             pending_shopping=pending_shopping,
@@ -121,7 +130,6 @@ class CapsuleBuilder:
         persisted = await push_manifest(
             session=self.session,
             backend_url=self.backend_url,
-            api_key=self.api_key,
             manifest=manifest,
         )
         if persisted:
@@ -133,24 +141,22 @@ class CapsuleBuilder:
     async def _fetch_frequent_places(self) -> list[dict]:
         """GET /frequent-places/ — returns enabled places only."""
         url = f"{self.backend_url}/frequent-places/?enabled_only=true"
-        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
-            async with self.session.get(url, headers=headers, timeout=10) as resp:
+            async with self.session.get(url, timeout=10) as resp:
                 if resp.status == 200:
                     return await resp.json()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("[capsule] frequent-places fetch failed: {}", exc)
         return []
 
     async def _fetch_pending_shopping(self) -> list[dict]:
         """GET /shopping/ — pending (not purchased) items only."""
         url = f"{self.backend_url}/shopping/?include_purchased=false"
-        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
-            async with self.session.get(url, headers=headers, timeout=10) as resp:
+            async with self.session.get(url, timeout=10) as resp:
                 if resp.status == 200:
                     return await resp.json()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("[capsule] shopping fetch failed: {}", exc)
         return []
 
@@ -162,15 +168,19 @@ class CapsuleBuilder:
         # Boot-load can tighten this later; for now seed text is shipped as-is.
 
     def _synth_items(
-        self, clips: list[ClipSpec], bank: list[GenericSpec],
+        self,
+        clips: list[ClipSpec],
+        bank: list[GenericSpec],
     ) -> list[dict]:
         items: list[dict] = []
         for c in clips:
-            items.append({
-                "clip_id": c.id,
-                "text": c.transcript or c.transcript_seed,
-                "tone": c.tone,
-            })
+            items.append(
+                {
+                    "clip_id": c.id,
+                    "text": c.transcript or c.transcript_seed,
+                    "tone": c.tone,
+                }
+            )
         for b in bank:
             items.append({"clip_id": b.id, "text": b.text, "tone": b.tone})
         return items
@@ -182,17 +192,21 @@ class CapsuleBuilder:
         url = f"{self.voice_service_url}/api/voice/batch-synthesize"
         try:
             async with self.session.post(
-                url, json={"prefix": prefix, "items": items}, timeout=120,
+                url,
+                json={"prefix": prefix, "items": items},
+                headers=_internal_headers(),
+                timeout=120,
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()
                     logger.warning(
                         "[capsule] batch-synth failed: status={} body={}",
-                        resp.status, text[:200],
+                        resp.status,
+                        text[:200],
                     )
                     return {}
                 data = await resp.json()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("[capsule] batch-synth error: {}", exc)
             return {}
 
@@ -203,7 +217,10 @@ class CapsuleBuilder:
         return out
 
     def _apply_audio_urls(
-        self, clips: list[ClipSpec], bank: list[GenericSpec], synth_map: dict[str, str],
+        self,
+        clips: list[ClipSpec],
+        bank: list[GenericSpec],
+        synth_map: dict[str, str],
     ) -> None:
         for c in clips:
             c.audio_url = synth_map.get(c.id, "")
@@ -211,9 +228,12 @@ class CapsuleBuilder:
         # when building the manifest below.
 
     def _build_manifest(
-        self, *, date: str, clips: list[ClipSpec], bank: list[GenericSpec],
+        self,
+        *,
+        date: str,
+        clips: list[ClipSpec],
+        bank: list[GenericSpec],
     ) -> dict:
-        synth_for_bank = {b.id: b for b in bank}
         manifest_clips = [
             {
                 "id": c.id,
@@ -239,7 +259,7 @@ class CapsuleBuilder:
         return {
             "capsule_id": date,
             "character_version": self.character_version,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "clips": manifest_clips,
             "generic_bank": manifest_bank,
         }
@@ -254,7 +274,7 @@ class CapsuleBuilder:
                 qos=1,
                 retain=False,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("[capsule] MQTT ready publish failed: {}", exc)
 
 

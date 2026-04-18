@@ -2,22 +2,57 @@
 WorldModel — maintains unified zone state from MQTT messages.
 Forked from SOMS with HEMS personal topic support.
 """
+
+import logging
 import os
 import re
 import time
-import logging
-from typing import Optional
+
 from .data_classes import (
-    ZoneState, OccupancyData, Event,
-    PCState, CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
-    ServicesState, ServiceStatusData,
+    BinarySensorState,
+    BiometricState,
+    CalendarEvent,
+    ClimateState,
+    CoverState,
+    CPUData,
+    DigitalSpace,
+    DiskData,
+    DiskPartition,
+    DriveFile,
+    Event,
+    FreeSlot,
+    GASState,
+    GmailLabel,
+    GoogleTask,
+    GPUData,
+    HASensorState,
+    HeartRateData,
+    HomeDevicesState,
     KnowledgeState,
-    GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
-    HomeDevicesState, LightState, ClimateState, CoverState, BinarySensorState, HASensorState,
-    BiometricState, HeartRateData, StressData, PhysicalSpace, DigitalSpace, UserState,
+    LightState,
+    MemoryData,
     NewsState,
+    OccupancyData,
+    PCState,
+    PhysicalSpace,
+    ProcessInfo,
+    ServicesState,
+    ServiceStatusData,
+    SheetData,
+    ShoppingState,
+    StressData,
+    UserState,
+    WeatherState,
+    ZoneState,
 )
-from .sensor_fusion import SensorFusion
+from .sensor_fusion import (
+    ChannelType,
+    EventCounter,
+    SensorFusion,
+    StateTracker,
+    TrendDetector,
+    classify_channel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +79,7 @@ def _sanitize_text(text: str, max_len: int = 200) -> str:
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len] + "…"
     return cleaned
+
 
 # Environment thresholds for event generation (configurable via env vars)
 CO2_HIGH = int(os.getenv("HEMS_THRESHOLD_CO2_HIGH", "1000"))
@@ -84,9 +120,9 @@ class WorldModel:
     # Slow-changing conditions get longer suppression to avoid duplicate tasks
     # while the physical environment slowly responds (e.g., AC cooling a room).
     SUPPRESSION_DEFAULTS: dict[str, float] = {
-        "temp_high": 1800,    # 30 min — AC takes time to cool
-        "temp_low": 1800,     # 30 min — heating takes time
-        "co2_high": 600,      # 10 min — ventilation is faster
+        "temp_high": 1800,  # 30 min — AC takes time to cool
+        "temp_low": 1800,  # 30 min — heating takes time
+        "co2_high": 600,  # 10 min — ventilation is faster
         "co2_critical": 600,  # 10 min
     }
 
@@ -97,10 +133,16 @@ class WorldModel:
         self.user = UserState()
 
         self._sensor_fusions: dict[str, SensorFusion] = {}
+        self._event_counter = EventCounter()
+        self._state_tracker = StateTracker()
+        self._trend_detector = TrendDetector()
         self.event_writer = None  # Set by Brain if event_store is available
 
         # VLM model swap coordination flag — brain skips LLM calls when True
         self.vlm_model_swap_active: bool = False
+
+        # Guest mode: suppresses personal rules (biometric, etc.) for privacy
+        self._guest_mode_expiry: float = 0
 
         # Alert suppression: {(zone_id, alert_type): expiry_timestamp}
         # Prevents repeated task creation for slow-changing conditions.
@@ -173,6 +215,32 @@ class WorldModel:
     def news_state(self, value: NewsState):
         self.digital.news_state = value
 
+    @property
+    def shopping_state(self) -> ShoppingState:
+        return self.digital.shopping_state
+
+    @shopping_state.setter
+    def shopping_state(self, value: ShoppingState):
+        self.digital.shopping_state = value
+
+    @property
+    def weather(self) -> WeatherState:
+        return self.physical.weather
+
+    @weather.setter
+    def weather(self, value: WeatherState):
+        self.physical.weather = value
+
+    @property
+    def is_guest_mode(self) -> bool:
+        return time.time() < self._guest_mode_expiry
+
+    def set_guest_mode(self, enabled: bool, duration_hours: float = 0):
+        if enabled:
+            self._guest_mode_expiry = time.time() + (duration_hours * 3600)
+        else:
+            self._guest_mode_expiry = 0
+
     def suppress_alert(self, zone_id: str, alert_type: str, duration: float = None):
         """Suppress an alert for a zone after a task has been created for it.
 
@@ -200,7 +268,7 @@ class WorldModel:
         """Clear a suppression when the condition has resolved."""
         self._suppressed_alerts.pop((zone_id, alert_type), None)
 
-    def get_zone(self, zone_id: str) -> Optional[ZoneState]:
+    def get_zone(self, zone_id: str) -> ZoneState | None:
         """Get state of a specific zone (returns None if zone not yet seen)."""
         return self.zones.get(zone_id)
 
@@ -226,10 +294,17 @@ class WorldModel:
         # office/{zone}/sensor/{device_id}/{channel}
         if len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
             zone_id = parts[1]
+            device_id = parts[3]
             channel = parts[4]
             value = payload.get(channel) or payload.get("value")
             if value is not None:
-                self._update_sensor(zone_id, channel, float(value))
+                ch_type = classify_channel(channel)
+                if ch_type == ChannelType.ANALOG:
+                    self._update_sensor(zone_id, channel, float(value))
+                elif ch_type == ChannelType.EVENT:
+                    self._update_event_channel(zone_id, channel, value, device_id)
+                elif ch_type == ChannelType.STATE:
+                    self._update_state_channel(zone_id, channel, value, device_id)
 
         # office/{zone}/camera/{camera_id}/status (occupancy)
         elif len(parts) >= 5 and parts[0] == "office" and parts[2] == "camera":
@@ -258,13 +333,15 @@ class WorldModel:
             if activity == "sedentary":
                 duration = payload.get("duration_minutes", 0)
                 if duration >= SEDENTARY_MINUTES:
-                    zone.add_event(Event(
-                        event_type="sedentary_alert",
-                        description=f"長時間着座検知: {duration}分",
-                        severity=1,
-                        zone=zone_id,
-                        data={"duration_minutes": duration},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="sedentary_alert",
+                            description=f"長時間着座検知: {duration}分",
+                            severity=1,
+                            zone=zone_id,
+                            data={"duration_minutes": duration},
+                        )
+                    )
 
         # office/{zone}/task_report/{task_id}
         elif "task_report" in topic:
@@ -272,13 +349,15 @@ class WorldModel:
             zone = self._get_zone(zone_id)
             safe_title = _sanitize_text(payload.get("title", ""), 100)
             safe_status = _sanitize_text(payload.get("report_status", ""), 30)
-            zone.add_event(Event(
-                event_type="task_report",
-                description=f"タスク報告: {safe_title} ({safe_status})",
-                severity=1 if payload.get("report_status") in ("needs_followup", "cannot_resolve") else 0,
-                zone=zone_id,
-                data=payload,
-            ))
+            zone.add_event(
+                Event(
+                    event_type="task_report",
+                    description=f"タスク報告: {safe_title} ({safe_status})",
+                    severity=1 if payload.get("report_status") in ("needs_followup", "cannot_resolve") else 0,
+                    zone=zone_id,
+                    data=payload,
+                )
+            )
 
         # hems/pc/* topics (OpenClaw bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "pc":
@@ -342,10 +421,89 @@ class WorldModel:
         elif channel == "voc":
             env.voc = round(fused, 1)
 
-        env.last_update = time.time()
+        # Trend detection
+        now = time.time()
+        self._trend_detector.record(fusion_key, fused, now)
+        env.trends[channel] = self._trend_detector.get_trend(fusion_key, fused, channel)
+
+        env.last_update = now
 
         # Generate events from threshold crossings
         self._check_thresholds(zone, channel, fused, prev)
+
+    def _update_event_channel(self, zone_id: str, channel: str, value, device_id: str):
+        """Process event/pulse sensor data (motion, vibration)."""
+        zone = self._get_zone(zone_id)
+        reading_key = f"{zone_id}:{channel}"
+        now = time.time()
+
+        if channel == "motion_count":
+            self._event_counter.record_count(reading_key, int(value), now)
+        elif value:
+            self._event_counter.record_event(reading_key, now)
+
+        # Aggregate all motion-type events for this zone
+        total = sum(
+            self._event_counter.get_count(f"{zone_id}:{ch}")
+            for ch in ("motion", "motion_count", "vibration")
+        )
+        zone.occupancy.motion_event_count_5min = total
+        zone.occupancy.motion_frequency_per_min = total / 5.0
+
+    def _update_state_channel(self, zone_id: str, channel: str, value, device_id: str):
+        """Process binary state sensor data (door, presence, contact, occupancy)."""
+        zone = self._get_zone(zone_id)
+        bool_value = bool(value)
+        state_key = f"{zone_id}:{device_id}:{channel}"
+        now = time.time()
+        changed = self._state_tracker.update(state_key, bool_value, now)
+
+        if channel == "door":
+            state_info = self._state_tracker.get_state(state_key)
+            if state_info:
+                zone.occupancy.door_states[device_id] = {
+                    "open": state_info["state"],
+                    "duration_sec": state_info["duration_sec"],
+                    "changes_1h": state_info["changes_1h"],
+                }
+            if changed:
+                zone.add_event(
+                    Event(
+                        event_type="door_opened" if bool_value else "door_closed",
+                        description=f"ドアが{'開' if bool_value else '閉'}きました ({device_id})",
+                        severity=0,
+                        zone=zone_id,
+                        data={"device_id": device_id, "state": bool_value},
+                    )
+                )
+
+        elif channel == "contact":
+            # contact=false → door open (contact sensor logic inverted)
+            door_open = not bool_value
+            door_key = f"{zone_id}:{device_id}:door"
+            self._state_tracker.update(door_key, door_open, now)
+            state_info = self._state_tracker.get_state(door_key)
+            if state_info:
+                zone.occupancy.door_states[device_id] = {
+                    "open": state_info["state"],
+                    "duration_sec": state_info["duration_sec"],
+                    "changes_1h": state_info["changes_1h"],
+                }
+
+        elif channel in ("presence", "occupancy"):
+            zone.occupancy.presence_state = bool_value
+            state_info = self._state_tracker.get_state(state_key)
+            if state_info:
+                zone.occupancy.presence_duration_sec = state_info["duration_sec"]
+            # Each activation also counts as a motion event for the zone
+            if bool_value:
+                self._event_counter.record_event(f"{zone_id}:motion", now)
+                total = sum(
+                    self._event_counter.get_count(f"{zone_id}:{ch}")
+                    for ch in ("motion", "motion_count", "vibration")
+                )
+                zone.occupancy.motion_event_count_5min = total
+                zone.occupancy.motion_frequency_per_min = total / 5.0
 
     def _check_thresholds(self, zone: ZoneState, channel: str, value: float, prev: float | None):
         zid = zone.zone_id
@@ -357,22 +515,26 @@ class WorldModel:
 
             if value > CO2_CRITICAL and (prev is None or prev <= CO2_CRITICAL):
                 if not self._is_suppressed(zid, "co2_critical"):
-                    zone.add_event(Event(
-                        event_type="co2_critical",
-                        description=f"CO2危険レベル: {int(value)}ppm",
-                        severity=2,
-                        zone=zid,
-                        data={"co2": value},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="co2_critical",
+                            description=f"CO2危険レベル: {int(value)}ppm",
+                            severity=2,
+                            zone=zid,
+                            data={"co2": value},
+                        )
+                    )
             elif value > CO2_HIGH and (prev is None or prev <= CO2_HIGH):
                 if not self._is_suppressed(zid, "co2_high"):
-                    zone.add_event(Event(
-                        event_type="co2_high",
-                        description=f"CO2上昇: {int(value)}ppm",
-                        severity=1,
-                        zone=zid,
-                        data={"co2": value},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="co2_high",
+                            description=f"CO2上昇: {int(value)}ppm",
+                            severity=1,
+                            zone=zid,
+                            data={"co2": value},
+                        )
+                    )
 
         elif channel == "temperature":
             # Auto-clear suppression when temperature returns to normal range
@@ -382,22 +544,26 @@ class WorldModel:
 
             if value > TEMP_HIGH and (prev is None or prev <= TEMP_HIGH):
                 if not self._is_suppressed(zid, "temp_high"):
-                    zone.add_event(Event(
-                        event_type="temp_high",
-                        description=f"室温上昇: {value:.1f}度",
-                        severity=1,
-                        zone=zid,
-                        data={"temperature": value},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="temp_high",
+                            description=f"室温上昇: {value:.1f}度",
+                            severity=1,
+                            zone=zid,
+                            data={"temperature": value},
+                        )
+                    )
             elif value < TEMP_LOW and (prev is None or prev >= TEMP_LOW):
                 if not self._is_suppressed(zid, "temp_low"):
-                    zone.add_event(Event(
-                        event_type="temp_low",
-                        description=f"室温低下: {value:.1f}度",
-                        severity=1,
-                        zone=zid,
-                        data={"temperature": value},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="temp_low",
+                            description=f"室温低下: {value:.1f}度",
+                            severity=1,
+                            zone=zid,
+                            data={"temperature": value},
+                        )
+                    )
 
     def _update_pc_state(self, path_parts: list[str], payload: dict):
         """Handle hems/pc/* topics from OpenClaw bridge."""
@@ -452,12 +618,14 @@ class WorldModel:
                 pc.disk = DiskData(partitions=partitions, last_update=now)
                 for p in partitions:
                     if p.percent > PC_DISK_HIGH:
-                        pc.add_event(Event(
-                            event_type="pc_disk_high",
-                            description=f"ディスク残量警告: {p.mount} ({p.percent:.0f}%使用)",
-                            severity=1,
-                            data={"mount": p.mount, "percent": p.percent},
-                        ))
+                        pc.add_event(
+                            Event(
+                                event_type="pc_disk_high",
+                                description=f"ディスク残量警告: {p.mount} ({p.percent:.0f}%使用)",
+                                severity=1,
+                                data={"mount": p.mount, "percent": p.percent},
+                            )
+                        )
             elif metric == "temperature":
                 if "cpu_temp_c" in payload:
                     pc.cpu.temp_c = payload["cpu_temp_c"]
@@ -481,12 +649,14 @@ class WorldModel:
         elif category == "events":
             # Threshold events from bridge (cpu_high, memory_high, gpu_hot, disk_low)
             event_type = path_parts[1] if len(path_parts) >= 2 else "unknown"
-            pc.add_event(Event(
-                event_type=f"pc_{event_type}",
-                description=f"PC閾値イベント: {event_type}",
-                severity=1 if "hot" not in event_type else 2,
-                data=payload,
-            ))
+            pc.add_event(
+                Event(
+                    event_type=f"pc_{event_type}",
+                    description=f"PC閾値イベント: {event_type}",
+                    severity=1 if "hot" not in event_type else 2,
+                    data=payload,
+                )
+            )
 
         # Update screen time tracking when PC metrics are received
         if pc.bridge_connected and pc.cpu.last_update > 0:
@@ -496,6 +666,7 @@ class WorldModel:
         """Track daily screen time based on PC activity."""
         st = self.user.screen_time
         from datetime import datetime
+
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
         # Reset daily counter if new day
@@ -516,26 +687,32 @@ class WorldModel:
         """Generate events from PC metric threshold crossings."""
         pc = self.pc_state
         if metric == "cpu" and value > PC_CPU_HIGH and prev <= PC_CPU_HIGH:
-            pc.add_event(Event(
-                event_type="pc_cpu_high",
-                description=f"PC CPU使用率高: {value:.0f}%",
-                severity=1,
-                data={"usage_percent": value},
-            ))
+            pc.add_event(
+                Event(
+                    event_type="pc_cpu_high",
+                    description=f"PC CPU使用率高: {value:.0f}%",
+                    severity=1,
+                    data={"usage_percent": value},
+                )
+            )
         elif metric == "memory" and value > PC_MEMORY_HIGH and prev <= PC_MEMORY_HIGH:
-            pc.add_event(Event(
-                event_type="pc_memory_high",
-                description=f"PCメモリ使用率高: {value:.0f}%",
-                severity=1,
-                data={"percent": value},
-            ))
+            pc.add_event(
+                Event(
+                    event_type="pc_memory_high",
+                    description=f"PCメモリ使用率高: {value:.0f}%",
+                    severity=1,
+                    data={"percent": value},
+                )
+            )
         elif metric == "gpu_temp" and value > PC_GPU_TEMP_HIGH and prev <= PC_GPU_TEMP_HIGH:
-            pc.add_event(Event(
-                event_type="pc_gpu_hot",
-                description=f"GPU温度警告: {value:.0f}°C",
-                severity=2,
-                data={"temp_c": value},
-            ))
+            pc.add_event(
+                Event(
+                    event_type="pc_gpu_hot",
+                    description=f"GPU温度警告: {value:.0f}°C",
+                    severity=2,
+                    data={"temp_c": value},
+                )
+            )
 
     def _update_service_state(self, service_name: str, msg_type: str, payload: dict):
         """Handle hems/services/{name}/status and hems/services/{name}/event topics."""
@@ -558,20 +735,24 @@ class WorldModel:
 
             # Generate event on unread increase
             if ssd.unread_count > prev_count:
-                ss.add_event(Event(
-                    event_type="service_unread_increase",
-                    description=ssd.summary,
-                    severity=0,
-                    data={"service": service_name, "prev": prev_count, "new": ssd.unread_count},
-                ))
+                ss.add_event(
+                    Event(
+                        event_type="service_unread_increase",
+                        description=ssd.summary,
+                        severity=0,
+                        data={"service": service_name, "prev": prev_count, "new": ssd.unread_count},
+                    )
+                )
 
         elif msg_type == "event":
-            ss.add_event(Event(
-                event_type=f"service_{payload.get('type', 'unknown')}",
-                description=_sanitize_text(payload.get("summary", f"{service_name} event")),
-                severity=0,
-                data=payload,
-            ))
+            ss.add_event(
+                Event(
+                    event_type=f"service_{payload.get('type', 'unknown')}",
+                    description=_sanitize_text(payload.get("summary", f"{service_name} event")),
+                    severity=0,
+                    data=payload,
+                )
+            )
 
     def _update_gas_state(self, path_parts: list[str], payload: dict):
         """Handle hems/gas/* topics from GAS bridge."""
@@ -588,18 +769,20 @@ class WorldModel:
                 for ev in payload.get("events", []):
                     start_ts = self._parse_iso_ts(ev.get("start", ""))
                     end_ts = self._parse_iso_ts(ev.get("end", ""))
-                    events.append(CalendarEvent(
-                        id=ev.get("id", ""),
-                        title=ev.get("title", ""),
-                        start=ev.get("start", ""),
-                        end=ev.get("end", ""),
-                        location=ev.get("location", ""),
-                        calendar_name=ev.get("calendarName", ""),
-                        is_all_day=ev.get("isAllDay", False),
-                        description=ev.get("description", ""),
-                        start_ts=start_ts,
-                        end_ts=end_ts,
-                    ))
+                    events.append(
+                        CalendarEvent(
+                            id=ev.get("id", ""),
+                            title=ev.get("title", ""),
+                            start=ev.get("start", ""),
+                            end=ev.get("end", ""),
+                            location=ev.get("location", ""),
+                            calendar_name=ev.get("calendarName", ""),
+                            is_all_day=ev.get("isAllDay", False),
+                            description=ev.get("description", ""),
+                            start_ts=start_ts,
+                            end_ts=end_ts,
+                        )
+                    )
                 gs.calendar_events = events
                 gs.last_calendar_update = time.time()
                 gs.bridge_connected = True
@@ -620,15 +803,17 @@ class WorldModel:
             for tl in payload.get("taskLists", []):
                 list_name = tl.get("title", "")
                 for t in tl.get("tasks", []):
-                    tasks.append(GoogleTask(
-                        id=t.get("id", ""),
-                        title=t.get("title", ""),
-                        notes=t.get("notes", ""),
-                        due=t.get("due", ""),
-                        status=t.get("status", ""),
-                        list_name=list_name,
-                        is_overdue=t.get("is_overdue", False),
-                    ))
+                    tasks.append(
+                        GoogleTask(
+                            id=t.get("id", ""),
+                            title=t.get("title", ""),
+                            notes=t.get("notes", ""),
+                            due=t.get("due", ""),
+                            status=t.get("status", ""),
+                            list_name=list_name,
+                            is_overdue=t.get("is_overdue", False),
+                        )
+                    )
             if sub == "all":
                 gs.tasks = tasks
                 gs.last_tasks_update = time.time()
@@ -688,6 +873,7 @@ class WorldModel:
             return 0
         try:
             from datetime import datetime
+
             # Handle Z suffix and various formats
             s = iso_str.replace("Z", "+00:00")
             dt = datetime.fromisoformat(s)
@@ -701,7 +887,12 @@ class WorldModel:
             return
 
         # hems/perception/vlm/{zone} — scene analysis result
-        if len(path_parts) >= 2 and path_parts[0] == "vlm" and path_parts[1] != "model_swap" and path_parts[1] != "status":
+        if (
+            len(path_parts) >= 2
+            and path_parts[0] == "vlm"
+            and path_parts[1] != "model_swap"
+            and path_parts[1] != "status"
+        ):
             zone_id = path_parts[1]
             zone = self._get_zone(zone_id)
             now = time.time()
@@ -729,18 +920,20 @@ class WorldModel:
 
             # Generate events for anomalies
             if anomalies:
-                zone.add_event(Event(
-                    event_type="vlm_anomaly",
-                    description=f"VLM検知: {', '.join(anomalies[:3])}",
-                    severity=1,
-                    zone=zone_id,
-                    data={
-                        "anomalies": anomalies,
-                        "description": description[:200],
-                        "model": payload.get("model", ""),
-                        "tier": payload.get("tier", ""),
-                    },
-                ))
+                zone.add_event(
+                    Event(
+                        event_type="vlm_anomaly",
+                        description=f"VLM検知: {', '.join(anomalies[:3])}",
+                        severity=1,
+                        zone=zone_id,
+                        data={
+                            "anomalies": anomalies,
+                            "description": description[:200],
+                            "model": payload.get("model", ""),
+                            "tier": payload.get("tier", ""),
+                        },
+                    )
+                )
 
         # hems/perception/vlm/model_swap — VRAM coordination
         elif len(path_parts) >= 2 and path_parts[0] == "vlm" and path_parts[1] == "model_swap":
@@ -763,36 +956,48 @@ class WorldModel:
         power = payload.get("power_watts")
         if power is not None:
             zone = self._get_zone(zone_id)
-            zone.add_event(Event(
-                event_type="tapo_power",
-                description=f"{vendor_ref}: {power:.1f}W",
-                severity=0,
-                zone=zone_id,
-                data={"power_watts": float(power), "vendor_ref": vendor_ref},
-            ))
+            zone.add_event(
+                Event(
+                    event_type="tapo_power",
+                    description=f"{vendor_ref}: {power:.1f}W",
+                    severity=0,
+                    zone=zone_id,
+                    data={"power_watts": float(power), "vendor_ref": vendor_ref},
+                )
+            )
 
     def _update_zigbee_state(self, vendor_ref: str, payload: dict):
         """Zigbee2MQTT device update → feed sensor channels into zone state.
 
         Z2M publishes the full payload per device (state + sensor readings).
         Device auto-registration is handled separately via parse_mqtt;
-        here we only route sensor values to the zone.
+        here we route sensor values to the zone using channel classification.
         """
-        # Zone lookup: payload may carry "zone"; if not, skip zone routing.
-        # (Zigbee zone assignment is typically done via UI after auto-registration.)
         zone_id = payload.get("zone")
         if not zone_id:
             return
-        for channel in ("temperature", "humidity", "co2", "pressure", "illuminance",
-                        "soil_moisture", "voc", "pm25"):
-            if channel in payload:
+
+        _SKIP_KEYS = {
+            "zone", "linkquality", "battery", "voltage", "update",
+            "update_available", "last_seen", "elapsed", "state", "power_on_behavior",
+        }
+        device_id = f"zigbee.{vendor_ref}"
+
+        for key, value in payload.items():
+            if key in _SKIP_KEYS or value is None:
+                continue
+            ch_type = classify_channel(key)
+            if ch_type == ChannelType.ANALOG:
                 try:
-                    value = float(payload[channel])
+                    fval = float(value)
                 except (TypeError, ValueError):
                     continue
-                # Normalize Z2M-specific channel names
-                mapped = "light" if channel == "illuminance" else channel
-                self._update_sensor(zone_id, mapped, value)
+                mapped = "light" if key == "illuminance" else key
+                self._update_sensor(zone_id, mapped, fval)
+            elif ch_type == ChannelType.EVENT:
+                self._update_event_channel(zone_id, key, value, device_id)
+            elif ch_type == ChannelType.STATE:
+                self._update_state_channel(zone_id, key, value, device_id)
 
     def _update_personal(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/* topics."""
@@ -820,11 +1025,13 @@ class WorldModel:
             ns.daily_summary = payload.get("summary", "")
             ns.daily_chunks = payload.get("chunks", [])
             ns.daily_timestamp = payload.get("timestamp", time.time())
-            ns.add_event(Event(
-                event_type="news_daily",
-                description=f"日次ニュースサマリ更新 ({payload.get('article_count', 0)}件)",
-                severity=0,
-            ))
+            ns.add_event(
+                Event(
+                    event_type="news_daily",
+                    description=f"日次ニュースサマリ更新 ({payload.get('article_count', 0)}件)",
+                    severity=0,
+                )
+            )
 
         elif sub_topic == "urgent":
             article = {
@@ -839,12 +1046,14 @@ class WorldModel:
             # Keep only recent 10 urgent articles
             if len(ns.urgent_articles) > 10:
                 ns.urgent_articles = ns.urgent_articles[-10:]
-            ns.add_event(Event(
-                event_type="news_urgent",
-                description=f"速報: {article['title'][:50]}",
-                severity=1,
-                data=article,
-            ))
+            ns.add_event(
+                Event(
+                    event_type="news_urgent",
+                    description=f"速報: {article['title'][:50]}",
+                    severity=1,
+                    data=article,
+                )
+            )
 
         elif sub_topic == "bridge":
             # hems/news/bridge/status
@@ -950,12 +1159,14 @@ class WorldModel:
                 bio.hrv.last_update = now
                 bio.bridge_connected = True
                 if int(rmssd) < HRV_LOW and (prev_rmssd is None or prev_rmssd >= HRV_LOW):
-                    bio.add_event(Event(
-                        event_type="hrv_low",
-                        description=f"HRV低下: {int(rmssd)}ms",
-                        severity=1,
-                        data={"rmssd_ms": int(rmssd)},
-                    ))
+                    bio.add_event(
+                        Event(
+                            event_type="hrv_low",
+                            description=f"HRV低下: {int(rmssd)}ms",
+                            severity=1,
+                            data={"rmssd_ms": int(rmssd)},
+                        )
+                    )
 
         elif metric == "body_temperature":
             celsius = payload.get("celsius")
@@ -965,12 +1176,14 @@ class WorldModel:
                 bio.body_temperature.last_update = now
                 bio.bridge_connected = True
                 if float(celsius) > BODY_TEMP_HIGH and (prev_temp is None or prev_temp <= BODY_TEMP_HIGH):
-                    bio.add_event(Event(
-                        event_type="body_temp_high",
-                        description=f"体温上昇: {float(celsius):.1f}°C",
-                        severity=1,
-                        data={"celsius": float(celsius)},
-                    ))
+                    bio.add_event(
+                        Event(
+                            event_type="body_temp_high",
+                            description=f"体温上昇: {float(celsius):.1f}°C",
+                            severity=1,
+                            data={"celsius": float(celsius)},
+                        )
+                    )
 
         elif metric == "respiratory_rate":
             rate = payload.get("breaths_per_minute")
@@ -980,12 +1193,14 @@ class WorldModel:
                 bio.respiratory_rate.last_update = now
                 bio.bridge_connected = True
                 if int(rate) > RESPIRATORY_RATE_HIGH and (prev_rate is None or prev_rate <= RESPIRATORY_RATE_HIGH):
-                    bio.add_event(Event(
-                        event_type="respiratory_rate_high",
-                        description=f"呼吸数上昇: {int(rate)}回/分",
-                        severity=1,
-                        data={"breaths_per_minute": int(rate)},
-                    ))
+                    bio.add_event(
+                        Event(
+                            event_type="respiratory_rate_high",
+                            description=f"呼吸数上昇: {int(rate)}回/分",
+                            severity=1,
+                            data={"breaths_per_minute": int(rate)},
+                        )
+                    )
 
         elif metric == "steps":
             # Alternative topic: hems/personal/biometrics/{provider}/steps
@@ -1002,37 +1217,45 @@ class WorldModel:
 
         if metric == "heart_rate":
             if value > HR_HIGH and (prev is None or prev <= HR_HIGH):
-                bio.add_event(Event(
-                    event_type="hr_high",
-                    description=f"心拍数上昇: {int(value)}bpm",
-                    severity=1,
-                    data={"bpm": value},
-                ))
+                bio.add_event(
+                    Event(
+                        event_type="hr_high",
+                        description=f"心拍数上昇: {int(value)}bpm",
+                        severity=1,
+                        data={"bpm": value},
+                    )
+                )
             elif value < HR_LOW and (prev is None or prev >= HR_LOW):
-                bio.add_event(Event(
-                    event_type="hr_low",
-                    description=f"心拍数低下: {int(value)}bpm",
-                    severity=1,
-                    data={"bpm": value},
-                ))
+                bio.add_event(
+                    Event(
+                        event_type="hr_low",
+                        description=f"心拍数低下: {int(value)}bpm",
+                        severity=1,
+                        data={"bpm": value},
+                    )
+                )
 
         elif metric == "spo2":
             if value < SPO2_LOW and (prev is None or prev >= SPO2_LOW):
-                bio.add_event(Event(
-                    event_type="spo2_low",
-                    description=f"SpO2低下: {int(value)}%",
-                    severity=2,
-                    data={"percent": value},
-                ))
+                bio.add_event(
+                    Event(
+                        event_type="spo2_low",
+                        description=f"SpO2低下: {int(value)}%",
+                        severity=2,
+                        data={"percent": value},
+                    )
+                )
 
         elif metric == "stress":
             if value > STRESS_HIGH and (prev is None or prev <= STRESS_HIGH):
-                bio.add_event(Event(
-                    event_type="stress_high",
-                    description=f"ストレス高: {int(value)}",
-                    severity=1,
-                    data={"level": value},
-                ))
+                bio.add_event(
+                    Event(
+                        event_type="stress_high",
+                        description=f"ストレス高: {int(value)}",
+                        severity=1,
+                        data={"level": value},
+                    )
+                )
 
     def _update_home_device(self, path_parts: list[str], payload: dict):
         """Handle hems/home/{zone}/{domain}/{entity_id}/state topics from HA bridge."""
@@ -1092,8 +1315,9 @@ class WorldModel:
                 previous_state=prev_state,
             )
             if changed and existing is not None:
-                self._handle_binary_sensor_event(hd, entity_id, new_state, prev_state,
-                                                  hd.binary_sensors[entity_id].device_class)
+                self._handle_binary_sensor_event(
+                    hd, entity_id, new_state, prev_state, hd.binary_sensors[entity_id].device_class
+                )
         elif domain == "sensor":
             try:
                 raw_val = payload.get("state", payload.get("value", 0))
@@ -1114,42 +1338,49 @@ class WorldModel:
             if device_class == "power":
                 self._check_power_thresholds(hd, entity_id, value, prev_value)
 
-    def _handle_binary_sensor_event(self, hd, entity_id: str, new_state: bool,
-                                     prev_state: bool, device_class: str):
+    def _handle_binary_sensor_event(self, hd, entity_id: str, new_state: bool, prev_state: bool, device_class: str):
         """Generate events for binary sensor state transitions."""
         if device_class in ("door", "window"):
             event_type = f"{device_class}_{'opened' if new_state else 'closed'}"
             desc = f"{'開' if new_state else '閉'}きました ({entity_id})"
-            hd.add_event(Event(
-                event_type=event_type,
-                description=desc,
-                severity=0,
-                data={"entity_id": entity_id, "device_class": device_class, "state": new_state},
-            ))
+            hd.add_event(
+                Event(
+                    event_type=event_type,
+                    description=desc,
+                    severity=0,
+                    data={"entity_id": entity_id, "device_class": device_class, "state": new_state},
+                )
+            )
         elif device_class == "moisture" and new_state:
-            hd.add_event(Event(
-                event_type="moisture_detected",
-                description=f"水漏れ検知 ({entity_id})",
-                severity=2,
-                data={"entity_id": entity_id},
-            ))
+            hd.add_event(
+                Event(
+                    event_type="moisture_detected",
+                    description=f"水漏れ検知 ({entity_id})",
+                    severity=2,
+                    data={"entity_id": entity_id},
+                )
+            )
         elif device_class == "vibration" and not new_state:
-            hd.add_event(Event(
-                event_type="vibration_stopped",
-                description=f"振動停止 ({entity_id})",
-                severity=0,
-                data={"entity_id": entity_id},
-            ))
+            hd.add_event(
+                Event(
+                    event_type="vibration_stopped",
+                    description=f"振動停止 ({entity_id})",
+                    severity=0,
+                    data={"entity_id": entity_id},
+                )
+            )
 
     def _check_power_thresholds(self, hd, entity_id: str, value: float, prev_value: float):
         """Generate event when power drops to idle level."""
         if prev_value > POWER_IDLE_WATTS and value <= POWER_IDLE_WATTS:
-            hd.add_event(Event(
-                event_type="power_drop_idle",
-                description=f"電力がアイドルに低下 ({entity_id}: {prev_value:.1f}W → {value:.1f}W)",
-                severity=0,
-                data={"entity_id": entity_id, "value": value, "previous_value": prev_value},
-            ))
+            hd.add_event(
+                Event(
+                    event_type="power_drop_idle",
+                    description=f"電力がアイドルに低下 ({entity_id}: {prev_value:.1f}W → {value:.1f}W)",
+                    severity=0,
+                    data={"entity_id": entity_id, "value": value, "previous_value": prev_value},
+                )
+            )
 
     def _update_knowledge_state(self, msg_type: str, payload: dict):
         """Handle hems/personal/notes/stats and hems/personal/notes/changed."""
@@ -1168,16 +1399,19 @@ class WorldModel:
                 "action": _sanitize_text(payload.get("action", ""), 30),
             }
             ks.add_recent_change(change)
-            ks.add_event(Event(
-                event_type="note_changed",
-                description=f"ノート変更: {change['title']} ({change['action']})",
-                severity=0,
-                data=payload,
-            ))
+            ks.add_event(
+                Event(
+                    event_type="note_changed",
+                    description=f"ノート変更: {change['title']} ({change['action']})",
+                    severity=0,
+                    data=payload,
+                )
+            )
 
     def _update_external_knowledge_state(self, msg_type: str, payload: dict):
         """Handle hems/personal/knowledge/stats and hems/personal/knowledge/changed."""
         from world_model.data_classes import KnowledgeSourceInfo
+
         ks = self.knowledge_state
 
         if msg_type == "stats":
@@ -1198,12 +1432,14 @@ class WorldModel:
             title = _sanitize_text(payload.get("title", ""), 100)
             source = _sanitize_text(payload.get("source", ""), 50)
             action = _sanitize_text(payload.get("action", ""), 30)
-            ks.add_event(Event(
-                event_type="knowledge_changed",
-                description=f"外部ナレッジ変更: {source}/{title} ({action})",
-                severity=0,
-                data=payload,
-            ))
+            ks.add_event(
+                Event(
+                    event_type="knowledge_changed",
+                    description=f"外部ナレッジ変更: {source}/{title} ({action})",
+                    severity=0,
+                    data=payload,
+                )
+            )
 
     def get_llm_context(self) -> str:
         """Build text context for LLM from current world state (tri-domain)."""
@@ -1227,30 +1463,56 @@ class WorldModel:
         """Build physical space context (zones + smart home)."""
         lines = []
 
+        # Trend arrows for analog channels
+        _TREND = {"rising": "↑", "falling": "↓", "stable": ""}
+
         # Zone data
         for zone_id, zone in self.zones.items():
             env = zone.environment
             parts = [f"### {zone_id}"]
 
+            def _t(ch: str) -> str:
+                return _TREND.get(env.trends.get(ch, "stable"), "")
+
             if env.temperature is not None:
-                temp_str = f"  温度: {env.temperature}度 ({env.thermal_comfort})"
-                if env.temperature > TEMP_HIGH and self._is_suppressed(zone_id, "temp_high"):
-                    temp_str += " (対応中)"
-                elif env.temperature < TEMP_LOW and self._is_suppressed(zone_id, "temp_low"):
+                temp_str = f"  温度: {env.temperature}度 ({env.thermal_comfort}){_t('temperature')}"
+                if (env.temperature > TEMP_HIGH and self._is_suppressed(zone_id, "temp_high")) or (
+                    env.temperature < TEMP_LOW and self._is_suppressed(zone_id, "temp_low")
+                ):
                     temp_str += " (対応中)"
                 parts.append(temp_str)
             if env.humidity is not None:
-                parts.append(f"  湿度: {env.humidity}%")
+                parts.append(f"  湿度: {env.humidity}%{_t('humidity')}")
             if env.co2 is not None:
-                co2_str = f"  CO2: {int(env.co2)}ppm"
+                co2_str = f"  CO2: {int(env.co2)}ppm{_t('co2')}"
                 if env.is_stuffy and (
-                    self._is_suppressed(zone_id, "co2_high") or
-                    self._is_suppressed(zone_id, "co2_critical")
+                    self._is_suppressed(zone_id, "co2_high") or self._is_suppressed(zone_id, "co2_critical")
                 ):
                     co2_str += " (対応中)"
                 elif env.is_stuffy:
                     co2_str += " (換気推奨)"
                 parts.append(co2_str)
+
+            # Motion event frequency (EventCounter)
+            if zone.occupancy.motion_event_count_5min > 0:
+                parts.append(f"  動体検知: 直近5分で{zone.occupancy.motion_event_count_5min}回")
+
+            # Presence state (StateTracker)
+            if zone.occupancy.presence_state is not None:
+                dur_min = int(zone.occupancy.presence_duration_sec / 60)
+                state_str = "在室検知中" if zone.occupancy.presence_state else "不在"
+                parts.append(f"  在室センサー: {state_str} ({dur_min}分間)")
+
+            # Door states (StateTracker)
+            for dev_id, door_info in zone.occupancy.door_states.items():
+                dur_min = int(door_info["duration_sec"] / 60)
+                state_str = "開放中" if door_info["open"] else "閉鎖中"
+                changes = door_info.get("changes_1h", 0)
+                door_line = f"  ドア({dev_id}): {state_str} ({dur_min}分間)"
+                if changes > 0:
+                    door_line += f" [1h内 {changes}回開閉]"
+                parts.append(door_line)
+
             if zone.occupancy and zone.occupancy.count > 0:
                 parts.append(f"  在室: {zone.occupancy.count}人")
                 if zone.occupancy.activity_class != "unknown":
@@ -1280,15 +1542,20 @@ class WorldModel:
                     home_parts.append(f"  照明: {name} ON({pct}%)")
             if lights_off:
                 names = ", ".join(
-                    lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id
-                    for lt in lights_off
+                    lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id for lt in lights_off
                 )
                 home_parts.append(f"  照明: {names} OFF")
 
             for c in hd.climates.values():
                 name = c.entity_id.split(".")[-1] if "." in c.entity_id else c.entity_id
-                mode_names = {"off": "停止", "cool": "冷房", "heat": "暖房",
-                              "dry": "除湿", "fan_only": "送風", "auto": "自動"}
+                mode_names = {
+                    "off": "停止",
+                    "cool": "冷房",
+                    "heat": "暖房",
+                    "dry": "除湿",
+                    "fan_only": "送風",
+                    "auto": "自動",
+                }
                 mode_ja = mode_names.get(c.mode, c.mode)
                 temp_str = f"{c.target_temp:.0f}°C" if c.target_temp else ""
                 curr_str = f" (室温{c.current_temp:.1f}°C)" if c.current_temp else ""
@@ -1300,10 +1567,8 @@ class WorldModel:
                 home_parts.append(f"  カーテン: {name} {status}")
 
             if hd.switches:
-                on_switches = [k.split(".")[-1] if "." in k else k
-                               for k, v in hd.switches.items() if v]
-                off_switches = [k.split(".")[-1] if "." in k else k
-                                for k, v in hd.switches.items() if not v]
+                on_switches = [k.split(".")[-1] if "." in k else k for k, v in hd.switches.items() if v]
+                off_switches = [k.split(".")[-1] if "." in k else k for k, v in hd.switches.items() if not v]
                 if on_switches:
                     home_parts.append(f"  スイッチ: {', '.join(on_switches)} ON")
                 if off_switches:
@@ -1311,8 +1576,12 @@ class WorldModel:
 
             # Binary sensors
             _DEVICE_CLASS_JA = {
-                "door": "ドア", "window": "窓", "moisture": "水漏れ",
-                "vibration": "振動", "motion": "モーション", "occupancy": "在室",
+                "door": "ドア",
+                "window": "窓",
+                "moisture": "水漏れ",
+                "vibration": "振動",
+                "motion": "モーション",
+                "occupancy": "在室",
             }
             for bs in hd.binary_sensors.values():
                 if bs.device_class == "moisture":
@@ -1355,9 +1624,13 @@ class WorldModel:
                 if pc.cpu.temp_c > 0:
                     pc_parts.append(f"  CPU温度: {pc.cpu.temp_c:.0f}°C")
             if pc.memory.last_update > 0:
-                pc_parts.append(f"  メモリ: {pc.memory.used_gb:.1f}/{pc.memory.total_gb:.1f}GB ({pc.memory.percent:.0f}%)")
+                pc_parts.append(
+                    f"  メモリ: {pc.memory.used_gb:.1f}/{pc.memory.total_gb:.1f}GB ({pc.memory.percent:.0f}%)"
+                )
             if pc.gpu.last_update > 0:
-                pc_parts.append(f"  GPU: {pc.gpu.usage_percent:.0f}%, VRAM {pc.gpu.vram_used_gb:.1f}/{pc.gpu.vram_total_gb:.1f}GB")
+                pc_parts.append(
+                    f"  GPU: {pc.gpu.usage_percent:.0f}%, VRAM {pc.gpu.vram_used_gb:.1f}/{pc.gpu.vram_total_gb:.1f}GB"
+                )
                 if pc.gpu.temp_c > 0:
                     pc_parts.append(f"  GPU温度: {pc.gpu.temp_c:.0f}°C")
             if pc.disk.partitions:
@@ -1432,6 +1705,7 @@ class WorldModel:
             news_parts = ["### ニュース"]
             if ns.daily_timestamp > 0:
                 from datetime import datetime as _dt
+
                 ts_str = _dt.fromtimestamp(ns.daily_timestamp).strftime("%H:%M")
                 news_parts.append(f"  最終サマリ: {ts_str} ({len(ns.daily_chunks)}カテゴリ)")
             if ns.urgent_articles:
@@ -1449,8 +1723,7 @@ class WorldModel:
         lines = []
 
         # Occupancy summary (aggregated from zones)
-        occupied_zones = {zid: z for zid, z in self.zones.items()
-                         if z.occupancy and z.occupancy.count > 0}
+        occupied_zones = {zid: z for zid, z in self.zones.items() if z.occupancy and z.occupancy.count > 0}
         if occupied_zones:
             occ_parts = ["### 在室状態"]
             for zid, z in occupied_zones.items():

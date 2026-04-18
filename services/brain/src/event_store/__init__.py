@@ -1,5 +1,5 @@
-from .database import init_db, get_engine
-from .writer import EventWriter
 from .aggregator import HourlyAggregator
+from .database import get_engine, init_db
+from .writer import EventWriter
 
-__all__ = ["EventWriter", "HourlyAggregator", "init_db", "get_engine"]
+__all__ = ["EventWriter", "HourlyAggregator", "get_engine", "init_db"]

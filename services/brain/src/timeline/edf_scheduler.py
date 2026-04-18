@@ -1,7 +1,9 @@
 """Classical Earliest-Deadline-First scheduler with priority + cognitive-load tie-breakers."""
+
 from datetime import datetime, timedelta
-from .models import TimelineSlot, CandidateTask, FreeWindow
+
 from .free_window import bucket_of
+from .models import CandidateTask, FreeWindow, TimelineSlot
 
 # Margin added after each task to avoid back-to-back cognitive strain
 TASK_MARGIN_MIN = 5
@@ -26,9 +28,7 @@ def _cognitive_match_score(task_load: int | None, bucket: str) -> int:
 
 
 def _sort_key(task: CandidateTask):
-    deadline_val = (
-        task.deadline.replace(tzinfo=None) if task.deadline else _FAR_FUTURE
-    )
+    deadline_val = task.deadline.replace(tzinfo=None) if task.deadline else _FAR_FUTURE
     return (deadline_val, -task.urgency, -(task.cognitive_load or 0))
 
 

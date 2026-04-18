@@ -9,14 +9,14 @@ Two responsibilities:
 1. Parse incoming MQTT topic/payload → DeviceObservation for auto-registration
 2. Execute action on a Device (DB row) → dispatch to the right bridge/MQTT publisher
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
 from loguru import logger
@@ -26,25 +26,28 @@ SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
 TAPO_BRIDGE_URL = os.getenv("TAPO_BRIDGE_URL", "")
 DASHBOARD_API_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
 
-_HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
-_AUTH_HEADERS = {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY else {}
 
 
 @dataclass
 class DeviceObservation:
     """Parsed from MQTT topic/payload, used for auto-registration heartbeat."""
+
     device_id: str
     vendor: str
-    vendor_ref: Optional[str] = None
+    vendor_ref: str | None = None
     kind: str = "actuator"
-    device_class: Optional[str] = None
+    device_class: str | None = None
     capabilities: list[str] = field(default_factory=list)
     channels: list[str] = field(default_factory=list)
     units: dict[str, str] = field(default_factory=dict)
-    zone: Optional[str] = None
+    zone: str | None = None
+    display_name: str | None = None
+    description: str | None = None
+    model_id: str | None = None
+    manufacturer: str | None = None
     last_state: dict[str, Any] = field(default_factory=dict)
     last_value: dict[str, Any] = field(default_factory=dict)
-    battery_pct: Optional[int] = None
+    battery_pct: int | None = None
 
 
 # ── MQTT topic → DeviceObservation ─────────────────────────────────
@@ -62,7 +65,7 @@ _SENSOR_CHANNEL_UNITS = {
 }
 
 
-def parse_mqtt(topic: str, payload: dict) -> Optional[DeviceObservation]:
+def parse_mqtt(topic: str, payload: dict) -> DeviceObservation | None:
     """Return a DeviceObservation if topic matches a known device pattern."""
     parts = topic.split("/")
 
@@ -91,8 +94,7 @@ def parse_mqtt(topic: str, payload: dict) -> Optional[DeviceObservation]:
         )
 
     # hems/switchbot/{device_id}/state
-    if len(parts) >= 3 and parts[0] == "hems" and parts[1] == "switchbot" and \
-       len(parts) >= 4 and parts[3] == "state":
+    if len(parts) >= 3 and parts[0] == "hems" and parts[1] == "switchbot" and len(parts) >= 4 and parts[3] == "state":
         vendor_ref = parts[2]
         device_id = f"switchbot.{vendor_ref}"
         return DeviceObservation(
@@ -121,10 +123,7 @@ def parse_mqtt(topic: str, payload: dict) -> Optional[DeviceObservation]:
             capabilities=["on_off", "pulse"],
             zone=payload.get("zone"),
             last_state={"on": payload.get("state") == "on" or bool(payload.get("on"))},
-            last_value={
-                k: payload[k] for k in ("power_watts", "voltage", "current", "energy_kwh")
-                if k in payload
-            },
+            last_value={k: payload[k] for k in ("power_watts", "voltage", "current", "energy_kwh") if k in payload},
         )
 
     # zigbee2mqtt/{device}
@@ -142,6 +141,14 @@ def parse_mqtt(topic: str, payload: dict) -> Optional[DeviceObservation]:
         if "color_temp" in payload:
             caps.append("color_temp")
             last_state["color_temp"] = payload["color_temp"]
+        if "color" in payload and isinstance(payload["color"], dict):
+            color = payload["color"]
+            if "x" in color and "y" in color:
+                caps.append("color_xy")
+                last_state["color_xy"] = {"x": color["x"], "y": color["y"]}
+            if "hue" in color and "saturation" in color:
+                caps.append("color_hs")
+                last_state["color_hs"] = {"hue": color["hue"], "saturation": color["saturation"]}
         channels = []
         units = {}
         last_value = {}
@@ -315,15 +322,133 @@ def _extract_ha_state(domain: str, payload: dict) -> dict[str, Any]:
 
 def _extract_sensor_values(payload: dict) -> dict[str, Any]:
     values = {}
-    for k in ("temperature", "humidity", "co2", "pressure", "light", "illuminance",
-              "voc", "soil_moisture", "pm25", "power_watts", "voltage", "current",
-              "energy_kwh", "power"):
+    for k in (
+        "temperature",
+        "humidity",
+        "co2",
+        "pressure",
+        "light",
+        "illuminance",
+        "voc",
+        "soil_moisture",
+        "pm25",
+        "power_watts",
+        "voltage",
+        "current",
+        "energy_kwh",
+        "power",
+    ):
         if k in payload:
             values[k] = payload[k]
     return values
 
 
+# ── Z2M bridge/devices metadata parser ────────────────────────────
+
+_EXPOSE_TYPE_MAP = {
+    "light": ("actuator", "light"),
+    "switch": ("actuator", "switch"),
+    "cover": ("actuator", "cover"),
+    "climate": ("actuator", "climate"),
+    "lock": ("actuator", "lock"),
+    "fan": ("actuator", "fan"),
+}
+
+_EXPOSE_FEATURE_MAP = {
+    "occupancy": ("sensor", "motion"),
+    "contact": ("sensor", "door"),
+    "temperature": ("sensor", "climate"),
+    "humidity": ("sensor", "climate"),
+    "illuminance": ("sensor", "illuminance"),
+    "soil_moisture": ("sensor", "soil"),
+    "water_leak": ("sensor", "leak"),
+    "vibration": ("sensor", "vibration"),
+    "power": ("sensor", "power"),
+}
+
+_FEATURE_TO_CAPABILITY = {
+    "state": "on_off",
+    "brightness": "brightness",
+    "color_temp": "color_temp",
+    "color_xy": "color_xy",
+    "color_hs": "color_hs",
+    "position": "set_position",
+    "tilt": "set_tilt",
+}
+
+
+def parse_z2m_bridge_devices(payload: list[dict]) -> list[DeviceObservation]:
+    """Parse zigbee2mqtt/bridge/devices retained message into DeviceObservations."""
+    observations: list[DeviceObservation] = []
+    for dev in payload:
+        friendly = dev.get("friendly_name")
+        if not friendly or friendly == "Coordinator":
+            continue
+        definition = dev.get("definition") or {}
+        if not definition:
+            continue
+
+        device_id = f"zigbee.{friendly}"
+        model = definition.get("model")
+        vendor = definition.get("vendor")
+        desc = definition.get("description")
+        exposes = definition.get("exposes") or []
+
+        kind = "sensor"
+        device_class = None
+        capabilities: list[str] = []
+        channels: list[str] = []
+
+        for expose in exposes:
+            etype = expose.get("type", "")
+
+            if etype in _EXPOSE_TYPE_MAP:
+                kind = _EXPOSE_TYPE_MAP[etype][0]
+                device_class = _EXPOSE_TYPE_MAP[etype][1]
+                for feat in expose.get("features") or []:
+                    fname = feat.get("name", "")
+                    cap = _FEATURE_TO_CAPABILITY.get(fname)
+                    if cap and cap not in capabilities:
+                        capabilities.append(cap)
+
+            if etype == "enum" or etype == "binary" or etype == "numeric":
+                fname = expose.get("name", "")
+                if fname in _EXPOSE_FEATURE_MAP:
+                    fkind, fclass = _EXPOSE_FEATURE_MAP[fname]
+                    if kind == "sensor" and fkind == "sensor":
+                        device_class = fclass
+                    elif fkind == "sensor" and kind == "actuator":
+                        kind = "both"
+                    if fname not in channels:
+                        channels.append(fname)
+
+        if not device_class:
+            continue
+
+        is_battery = dev.get("power_source") == "Battery"
+        description_text = f"{vendor} {desc}" if vendor and desc else (desc or model or "")
+
+        obs = DeviceObservation(
+            device_id=device_id,
+            vendor="zigbee",
+            vendor_ref=friendly,
+            kind=kind,
+            device_class=device_class,
+            capabilities=capabilities,
+            channels=channels,
+            display_name=friendly,
+            description=description_text,
+            model_id=model,
+            manufacturer=vendor,
+            battery_pct=dev.get("battery"),
+        )
+        observations.append(obs)
+
+    return observations
+
+
 # ── Action → vendor bridge dispatch ────────────────────────────────
+
 
 class DeviceDispatcher:
     """Central router for actuator commands across bridges.
@@ -337,12 +462,11 @@ class DeviceDispatcher:
         self.mqtt_client = mqtt_client  # paho client for zigbee2mqtt publish
         self.backend_url = DASHBOARD_API_URL
 
-    async def lookup(self, device_id: str) -> Optional[dict]:
+    async def lookup(self, device_id: str) -> dict | None:
         """Fetch device record from backend."""
         try:
             async with self.session.get(
                 f"{self.backend_url}/devices/{device_id}",
-                headers=_AUTH_HEADERS,
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status == 200:
@@ -352,19 +476,29 @@ class DeviceDispatcher:
             logger.warning(f"Device lookup failed for {device_id}: {e}")
             return None
 
-    async def list_all(self, kind: Optional[str] = None, zone: Optional[str] = None,
-                       vendor: Optional[str] = None) -> list[dict]:
-        params = {}
+    async def list_all(
+        self,
+        kind: str | None = None,
+        zone: str | None = None,
+        vendor: str | None = None,
+        device_class: str | None = None,
+        capability: str | None = None,
+    ) -> list[dict]:
+        params: dict[str, str] = {}
         if kind:
             params["kind"] = kind
         if zone:
             params["zone"] = zone
         if vendor:
             params["vendor"] = vendor
+        if device_class:
+            params["device_class"] = device_class
+        if capability:
+            params["capability"] = capability
         try:
             async with self.session.get(
                 f"{self.backend_url}/devices/",
-                params=params, headers=_AUTH_HEADERS,
+                params=params,
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status == 200:
@@ -373,8 +507,7 @@ class DeviceDispatcher:
             logger.warning(f"Device list failed: {e}")
         return []
 
-    async def dispatch(self, device_id: str, action: str,
-                       params: Optional[dict] = None) -> dict:
+    async def dispatch(self, device_id: str, action: str, params: dict | None = None) -> dict:
         """Execute action on a device. Returns {"success": bool, "result"|"error": str}."""
         params = params or {}
         device = await self.lookup(device_id)
@@ -389,9 +522,7 @@ class DeviceDispatcher:
             return {"success": False, "error": f"Unknown action '{action}'"}
         required_cap = _ACTION_CAPABILITY.get(action)
         if required_cap and required_cap not in caps:
-            return {"success": False,
-                    "error": f"Device does not advertise capability '{required_cap}' "
-                             f"(has: {caps})"}
+            return {"success": False, "error": f"Device does not advertise capability '{required_cap}' (has: {caps})"}
 
         if vendor == "ha":
             return await self._dispatch_ha(device, action, params)
@@ -402,8 +533,7 @@ class DeviceDispatcher:
         if vendor == "zigbee":
             return self._dispatch_zigbee(device, action, params)
         if vendor == "mcp":
-            return {"success": False,
-                    "error": "MCP actuator control uses send_device_command tool"}
+            return {"success": False, "error": "MCP actuator control uses send_device_command tool"}
 
         return {"success": False, "error": f"Unsupported vendor '{vendor}'"}
 
@@ -412,6 +542,14 @@ class DeviceDispatcher:
             return {"success": False, "error": "HA bridge not configured"}
         entity_id = device.get("vendor_ref") or device.get("device_id", "").replace("ha.", "")
         domain = entity_id.split(".")[0] if "." in entity_id else ""
+
+        # rainbow: async hue cycling via repeated HA calls
+        if action == "rainbow":
+            duration = int(params.get("duration_s", 10))
+            if duration > 60:
+                return {"success": False, "error": "rainbow duration_s > 60 rejected"}
+            asyncio.ensure_future(self._ha_rainbow(entity_id, duration))
+            return {"success": True, "result": f"ha rainbow {duration}s -> {entity_id}"}
 
         service, data = _ha_service_for(action, params, domain)
         if service is None:
@@ -426,6 +564,35 @@ class DeviceDispatcher:
             if resp.status == 200:
                 return {"success": True, "result": f"ha {action} -> {entity_id}"}
             return {"success": False, "error": result.get("detail", f"HTTP {resp.status}")}
+
+    async def _ha_rainbow(self, entity_id: str, duration: int):
+        """Cycle through rainbow hues via HA light/turn_on calls."""
+        steps = min(duration * 2, 20)
+        interval = duration / steps
+        for i in range(steps):
+            hue = 360.0 * i / steps
+            try:
+                async with self.session.post(
+                    f"{HA_BRIDGE_URL}/api/device/control",
+                    json={"entity_id": entity_id, "service": "light/turn_on",
+                           "data": {"hs_color": [hue, 100], "brightness": 254}},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    await resp.read()
+            except Exception:
+                pass
+            await asyncio.sleep(interval)
+        # Restore warm white
+        try:
+            async with self.session.post(
+                f"{HA_BRIDGE_URL}/api/device/control",
+                json={"entity_id": entity_id, "service": "light/turn_on",
+                       "data": {"color_temp": 350}},
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                await resp.read()
+        except Exception:
+            pass
 
     async def _dispatch_switchbot(self, device: dict, action: str, params: dict) -> dict:
         if not SWITCHBOT_BRIDGE_URL:
@@ -489,7 +656,7 @@ class DeviceDispatcher:
             return {"success": False, "error": "MQTT client not available for Zigbee dispatch"}
         device_ref = device.get("vendor_ref") or device.get("device_id", "").replace("zigbee.", "")
         payload = _zigbee_payload_for(action, params)
-        if payload is None:
+        if payload is None and action not in ("pulse", "rainbow"):
             return {"success": False, "error": f"action '{action}' not mapped for Zigbee"}
 
         # pulse: on → schedule off (non-blocking via asyncio)
@@ -510,6 +677,37 @@ class DeviceDispatcher:
                 ),
             )
             return {"success": True, "result": f"zigbee pulse {duration}s -> {device_ref}"}
+
+        # rainbow: cycle through hues over duration_s, then restore warm white
+        if action == "rainbow":
+            duration = int(params.get("duration_s", 10))
+            if duration > 60:
+                return {"success": False, "error": "rainbow duration_s > 60 rejected"}
+            steps = min(duration * 2, 20)
+            interval = duration / steps
+            topic = f"zigbee2mqtt/{device_ref}/set"
+            # Ensure light is on + full brightness
+            self.mqtt_client.publish(topic, json.dumps({"state": "ON", "brightness": 254}))
+            loop = asyncio.get_running_loop()
+            for i in range(steps):
+                hue = 360.0 * i / steps
+                delay = interval * (i + 1)
+                loop.call_later(
+                    delay,
+                    lambda h=hue: self.mqtt_client.publish(
+                        topic,
+                        json.dumps({"color": {"hue": h, "saturation": 100}}),
+                    ),
+                )
+            # Restore warm white after rainbow
+            loop.call_later(
+                duration + 0.5,
+                lambda: self.mqtt_client.publish(
+                    topic,
+                    json.dumps({"color_temp": 350}),
+                ),
+            )
+            return {"success": True, "result": f"zigbee rainbow {duration}s ({steps} steps) -> {device_ref}"}
 
         self.mqtt_client.publish(f"zigbee2mqtt/{device_ref}/set", json.dumps(payload))
         return {"success": True, "result": f"zigbee {action} -> {device_ref}"}
@@ -538,8 +736,18 @@ class DeviceDispatcher:
 # ── Action capability allowlist ───────────────────────────────────
 
 _ALLOWED_ACTIONS = {
-    "on", "off", "toggle", "set_brightness", "set_color_temp",
-    "set_position", "set_temperature", "pulse", "ir_send",
+    "on",
+    "off",
+    "toggle",
+    "set_brightness",
+    "set_color_temp",
+    "set_color_xy",
+    "set_color_hs",
+    "set_position",
+    "set_temperature",
+    "pulse",
+    "rainbow",
+    "ir_send",
 }
 
 _ACTION_CAPABILITY = {
@@ -548,14 +756,17 @@ _ACTION_CAPABILITY = {
     "toggle": "on_off",
     "set_brightness": "brightness",
     "set_color_temp": "color_temp",
+    "set_color_xy": "color_xy",
+    "set_color_hs": "color_hs",
     "set_position": "set_position",
     "set_temperature": "set_temperature",
     "pulse": "pulse",
+    "rainbow": "color_hs",
     "ir_send": "ir_send",
 }
 
 
-def _ha_service_for(action: str, params: dict, domain: str) -> tuple[Optional[str], dict]:
+def _ha_service_for(action: str, params: dict, domain: str) -> tuple[str | None, dict]:
     if action == "on":
         return f"{domain}/turn_on", {}
     if action == "off":
@@ -566,6 +777,10 @@ def _ha_service_for(action: str, params: dict, domain: str) -> tuple[Optional[st
         return "light/turn_on", {"brightness": int(params.get("value", 128))}
     if action == "set_color_temp":
         return "light/turn_on", {"color_temp": int(params.get("value", 300))}
+    if action == "set_color_xy":
+        return "light/turn_on", {"xy_color": [float(params.get("x", 0.3)), float(params.get("y", 0.3))]}
+    if action == "set_color_hs":
+        return "light/turn_on", {"hs_color": [float(params.get("hue", 0)), float(params.get("saturation", 100))]}
     if action == "set_position":
         return "cover/set_cover_position", {"position": int(params.get("value", 100))}
     if action == "set_temperature":
@@ -573,7 +788,7 @@ def _ha_service_for(action: str, params: dict, domain: str) -> tuple[Optional[st
     return None, {}
 
 
-def _switchbot_cmd_for(action: str, params: dict) -> tuple[Optional[str], str, str]:
+def _switchbot_cmd_for(action: str, params: dict) -> tuple[str | None, str, str]:
     if action == "on":
         return "turnOn", "default", "command"
     if action == "off":
@@ -591,7 +806,7 @@ def _switchbot_cmd_for(action: str, params: dict) -> tuple[Optional[str], str, s
     return None, "", ""
 
 
-def _zigbee_payload_for(action: str, params: dict) -> Optional[dict]:
+def _zigbee_payload_for(action: str, params: dict) -> dict | None:
     if action == "on":
         return {"state": "ON"}
     if action == "off":
@@ -602,6 +817,10 @@ def _zigbee_payload_for(action: str, params: dict) -> Optional[dict]:
         return {"state": "ON", "brightness": int(params.get("value", 128))}
     if action == "set_color_temp":
         return {"color_temp": int(params.get("value", 300))}
+    if action == "set_color_xy":
+        return {"color": {"x": float(params.get("x", 0.3)), "y": float(params.get("y", 0.3))}}
+    if action == "set_color_hs":
+        return {"color": {"hue": float(params.get("hue", 0)), "saturation": float(params.get("saturation", 100))}}
     if action == "pulse":
         return {"state": "ON"}  # pulse itself is handled separately
     return None

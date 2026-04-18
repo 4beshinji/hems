@@ -8,6 +8,7 @@ If ``session`` / ``backend_url`` aren't provided the cache works purely
 in-memory — useful for unit tests and for P1-style seed-only flows that
 don't need cross-restart persistence.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -26,13 +27,13 @@ def _normalize(text: str) -> str:
 
 
 def hash_key(kind: str, key: str) -> str:
-    return hashlib.sha256(f"{kind}:{_normalize(key)}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{kind}:{_normalize(key)}".encode()).hexdigest()
 
 
 @dataclass
 class CacheEntry:
-    value: str       # opaque — JSON-encoded by the caller if needed
-    source: str      # seed | llm | user_override | promoted
+    value: str  # opaque — JSON-encoded by the caller if needed
+    source: str  # seed | llm | user_override | promoted
     hit_count: int = 1
 
 
@@ -40,13 +41,11 @@ class ClassifierCache:
     def __init__(
         self,
         *,
-        session: "aiohttp.ClientSession | None" = None,
+        session: aiohttp.ClientSession | None = None,
         backend_url: str = "",
-        api_key: str = "",
     ) -> None:
         self.session = session
         self.backend_url = backend_url.rstrip("/")
-        self.auth_headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._memory: dict[str, CacheEntry] = {}
 
     # --- synchronous seed-path (no network) ------------------------------- #
@@ -73,7 +72,7 @@ class ClassifierCache:
         h = hash_key(kind, key)
         url = f"{self.backend_url}/classifier-cache/{kind}/{h}"
         try:
-            async with self.session.get(url, headers=self.auth_headers, timeout=10) as resp:
+            async with self.session.get(url, timeout=10) as resp:
                 if resp.status == 404:
                     return None
                 if resp.status != 200:
@@ -87,7 +86,7 @@ class ClassifierCache:
                 )
                 self._memory[h] = entry
                 return entry
-        except Exception as exc:  # noqa: BLE001 — cache miss is non-fatal
+        except Exception as exc:
             logger.debug("classifier-cache GET error: {}", exc)
             return None
 
@@ -106,16 +105,19 @@ class ClassifierCache:
         }
         try:
             async with self.session.post(
-                url, json=payload, headers=self.auth_headers, timeout=10,
+                url,
+                json=payload,
+                timeout=10,
             ) as resp:
                 if resp.status == 201:
                     return True
                 text = await resp.text()
                 logger.warning(
                     "classifier-cache PUT failed status={} body={}",
-                    resp.status, text[:200],
+                    resp.status,
+                    text[:200],
                 )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("classifier-cache PUT error: {}", exc)
         return False
 

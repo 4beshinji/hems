@@ -1,17 +1,8 @@
 """
 Shared utilities for HEMS Brain modules.
 """
-import os
+
 import re
-
-# --------------------------------------------------------------------------- #
-#  Auth                                                                        #
-# --------------------------------------------------------------------------- #
-
-_HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
-AUTH_HEADERS: dict[str, str] = (
-    {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY else {}
-)
 
 # --------------------------------------------------------------------------- #
 #  Voice / TTS constants                                                       #
@@ -23,6 +14,7 @@ SPEAK_CHUNK_LIMIT = 70  # max chars per speak tool call
 # --------------------------------------------------------------------------- #
 #  Text splitting                                                              #
 # --------------------------------------------------------------------------- #
+
 
 def split_for_speak(text: str, limit: int = SPEAK_CHUNK_LIMIT) -> list[str]:
     """Split text into chunks of at most *limit* characters, breaking at 。."""

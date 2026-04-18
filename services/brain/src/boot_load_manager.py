@@ -13,34 +13,39 @@ Triggered by cognitive_cycle() when:
 On wake_up event, EventAutomation checks is_ready and plays cached audio via
 VoiceEvent injection, bypassing LLM and TTS entirely.
 """
+
 import asyncio
 import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 import aiohttp
 from loguru import logger
 
-from brain_utils import AUTH_HEADERS as _AUTH_HEADERS, SPEAK_CHUNK_LIMIT, split_for_speak as _split_for_speak
+from brain_utils import split_for_speak as _split_for_speak
 
 BOOT_LOAD_WINDOW_SEC = int(os.getenv("BOOT_LOAD_WINDOW_SEC", "2700"))  # 45 min
 BOOT_LOAD_NEWS_STALE_HOURS = int(os.getenv("BOOT_LOAD_NEWS_STALE_HOURS", "20"))
 BOOT_LOAD_MAX_TOKENS = int(os.getenv("BOOT_LOAD_MAX_TOKENS", "1600"))  # thinking uses ~1200, response ~400
 
 
+def _internal_headers() -> dict:
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 @dataclass
 class BootLoadCache:
     briefing_chunks: list[str] = field(default_factory=list)  # speak 用テキストチャンク
-    audio_urls: list[str] = field(default_factory=list)        # 事前合成済み MP3 URL
-    news_chunks: list[str] = field(default_factory=list)       # ニュース個別チャンク
+    audio_urls: list[str] = field(default_factory=list)  # 事前合成済み MP3 URL
+    news_chunks: list[str] = field(default_factory=list)  # ニュース個別チャンク
     generated_at: float = 0.0
     is_complete: bool = False
 
 
-class BootLoadState(str, Enum):
+class BootLoadState(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
     READY = "ready"
@@ -51,25 +56,23 @@ class BootLoadManager:
 
     def __init__(self):
         self._state: BootLoadState = BootLoadState.IDLE
-        self._cache: Optional[BootLoadCache] = None
-        self._task: Optional[asyncio.Task] = None
-        self._last_run_date: Optional[str] = None  # YYYY-MM-DD
+        self._cache: BootLoadCache | None = None
+        self._task: asyncio.Task | None = None
+        self._last_run_date: str | None = None  # YYYY-MM-DD
 
         # Capsule deps — wired from main.Brain.run() once, referenced each run.
-        self._capsule_api_key: str = ""
         self._capsule_persona = None
         self._capsule_mqtt = None
-        self._capsule_character_version: Optional[str] = None
+        self._capsule_character_version: str | None = None
         self._capsule_schedule_learner = None
         self._capsule_event_classifier = None
 
     def configure_capsule(
         self,
         *,
-        api_key: str,
         persona_rewriter=None,
         mqtt_client=None,
-        character_version: Optional[str] = None,
+        character_version: str | None = None,
         schedule_learner=None,
         event_classifier=None,
     ) -> None:
@@ -78,7 +81,6 @@ class BootLoadManager:
         Keeps the public ``start()`` signature stable — main.Brain just calls
         this once after its other components are initialized.
         """
-        self._capsule_api_key = api_key
         self._capsule_persona = persona_rewriter
         self._capsule_mqtt = mqtt_client
         self._capsule_character_version = character_version
@@ -95,14 +97,10 @@ class BootLoadManager:
 
     @property
     def is_ready(self) -> bool:
-        return (
-            self._state == BootLoadState.READY
-            and self._cache is not None
-            and self._cache.is_complete
-        )
+        return self._state == BootLoadState.READY and self._cache is not None and self._cache.is_complete
 
     @property
-    def cache(self) -> Optional[BootLoadCache]:
+    def cache(self) -> BootLoadCache | None:
         return self._cache
 
     @property
@@ -147,9 +145,7 @@ class BootLoadManager:
         self._cache = BootLoadCache()
         self._last_run_date = datetime.now().strftime("%Y-%m-%d")
 
-        self._task = asyncio.create_task(
-            self._run(world_model, llm_router, voice_url, news_url, backend_url, session)
-        )
+        self._task = asyncio.create_task(self._run(world_model, llm_router, voice_url, news_url, backend_url, session))
         return self._task
 
     def reset(self):
@@ -183,9 +179,7 @@ class BootLoadManager:
             schedule_text = _build_schedule_summary(world_model)
 
             # Step 3: Generate integrated morning briefing via heavy LLM
-            briefing_text = await self._generate_briefing(
-                llm_router, world_model, news_chunks, schedule_text
-            )
+            briefing_text = await self._generate_briefing(llm_router, world_model, news_chunks, schedule_text)
             self._cache.briefing_chunks = _split_for_speak(briefing_text)
             logger.info(
                 "[BootLoad] ブリーフィング生成完了: %d チャンク",
@@ -194,9 +188,7 @@ class BootLoadManager:
 
             # Step 4: Pre-synthesize audio (best-effort; silently skips on failure)
             if voice_url and self._cache.briefing_chunks:
-                self._cache.audio_urls = await self._presynthesize(
-                    voice_url, self._cache.briefing_chunks, session
-                )
+                self._cache.audio_urls = await self._presynthesize(voice_url, self._cache.briefing_chunks, session)
                 logger.info(
                     "[BootLoad] TTS事前合成完了: %d / %d ファイル",
                     len(self._cache.audio_urls),
@@ -204,7 +196,7 @@ class BootLoadManager:
                 )
 
             # Step 5: Build the mobile voice capsule (best-effort).
-            if voice_url and backend_url and self._capsule_api_key:
+            if voice_url and backend_url:
                 await self._build_capsule(voice_url, backend_url, session, world_model)
 
             self._cache.generated_at = time.time()
@@ -235,9 +227,7 @@ class BootLoadManager:
             ns = world_model.news_state
             age_hours = (time.time() - ns.daily_timestamp) / 3600
             if age_hours <= BOOT_LOAD_NEWS_STALE_HOURS:
-                logger.debug(
-                    "[BootLoad] ニュースキャッシュは新鮮 (%.1fh前), スキップ", age_hours
-                )
+                logger.debug("[BootLoad] ニュースキャッシュは新鮮 (%.1fh前), スキップ", age_hours)
                 return list(ns.daily_chunks)
         except Exception:
             pass
@@ -292,10 +282,7 @@ class BootLoadManager:
         try:
             bio = world_model.biometric_state
             if bio.sleep.last_update > 0:
-                context_parts.append(
-                    f"昨夜の睡眠: {bio.sleep.duration_minutes}分"
-                    f" (品質 {bio.sleep.quality_score}/100)"
-                )
+                context_parts.append(f"昨夜の睡眠: {bio.sleep.duration_minutes}分 (品質 {bio.sleep.quality_score}/100)")
         except Exception:
             pass
 
@@ -303,7 +290,7 @@ class BootLoadManager:
             context_parts.append(f"今日の予定:\n{schedule_text}")
 
         if news_chunks:
-            context_parts.append(f"ニュース概要:\n" + "\n".join(news_chunks[:5]))
+            context_parts.append("ニュース概要:\n" + "\n".join(news_chunks[:5]))
 
         context = "\n".join(context_parts)
         prompt = (
@@ -357,7 +344,6 @@ class BootLoadManager:
                 session=session,
                 voice_service_url=voice_url,
                 backend_url=backend_url,
-                api_key=self._capsule_api_key,
                 persona_rewriter=self._capsule_persona,
                 mqtt_client=self._capsule_mqtt,
                 character_version=self._capsule_character_version,
@@ -368,10 +354,12 @@ class BootLoadManager:
             if self._capsule_schedule_learner is not None:
                 try:
                     wake_ts = self._capsule_schedule_learner.get_wake_time()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     wake_ts = None
             manifest = await builder.build_daily_capsule(
-                today, world_model=world_model, wake_ts=wake_ts,
+                today,
+                world_model=world_model,
+                wake_ts=wake_ts,
             )
             if manifest:
                 logger.info(
@@ -380,7 +368,7 @@ class BootLoadManager:
                     len(manifest.get("clips", [])),
                     len(manifest.get("generic_bank", [])),
                 )
-        except Exception as exc:  # noqa: BLE001 — capsule must not break briefing
+        except Exception as exc:
             logger.warning("[BootLoad] capsule build failed: {}", exc)
 
     async def _presynthesize(
@@ -396,6 +384,7 @@ class BootLoadManager:
                 async with session.post(
                     f"{voice_url}/api/voice/synthesize",
                     json={"text": chunk, "tone": "caring"},
+                    headers=_internal_headers(),
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as resp:
                     if resp.status == 200:
@@ -404,9 +393,7 @@ class BootLoadManager:
                         if url:
                             audio_urls.append(url)
             except Exception as e:
-                logger.warning(
-                    f"[BootLoad] TTS事前合成エラー (chunk: {chunk[:20]}…): {e}"
-                )
+                logger.warning(f"[BootLoad] TTS事前合成エラー (chunk: {chunk[:20]}…): {e}")
         return audio_urls
 
 
@@ -414,20 +401,16 @@ class BootLoadManager:
 #  Helpers (module-level, reusable)                                   #
 # ------------------------------------------------------------------ #
 
+
 def _build_schedule_summary(world_model) -> str:
     """Extract today's calendar events as a plain-text summary."""
     try:
         events = world_model.digital.gas_state.calendar_events
         if not events:
             return ""
-        today_start = datetime.now().replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ).timestamp()
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         today_end = today_start + 86400
-        today_events = [
-            ev for ev in events
-            if today_start <= ev.start_ts < today_end
-        ]
+        today_events = [ev for ev in events if today_start <= ev.start_ts < today_end]
         if not today_events:
             return ""
         lines = []
@@ -437,5 +420,3 @@ def _build_schedule_summary(world_model) -> str:
         return "\n".join(lines)
     except Exception:
         return ""
-
-

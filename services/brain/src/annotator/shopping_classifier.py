@@ -7,6 +7,7 @@ Sync path (``classify``) covers seed + in-memory cache only.
 Async path (``classify_async``) adds the HTTP cache + LLM fallback.
 The MQTT handler uses the async path.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -18,6 +19,7 @@ from .rules import match_rule
 
 if TYPE_CHECKING:
     import aiohttp
+
     from llm_router import LLMRouter
 
 
@@ -41,18 +43,17 @@ LLM_PROMPT = (
 class ShoppingClassifier:
     def __init__(
         self,
-        session: "aiohttp.ClientSession",
+        session: aiohttp.ClientSession,
         backend_url: str,
-        api_key: str,
         *,
         cache: ClassifierCache | None = None,
-        llm_router: "LLMRouter | None" = None,
+        llm_router: LLMRouter | None = None,
     ) -> None:
         self.session = session
         self.backend_url = backend_url.rstrip("/")
-        self.auth_headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.cache = cache or ClassifierCache(
-            session=session, backend_url=backend_url, api_key=api_key,
+            session=session,
+            backend_url=backend_url,
         )
         self.llm_router = llm_router
 
@@ -93,14 +94,17 @@ class ShoppingClassifier:
         try:
             resp = await self.llm_router.chat(
                 [
-                    {"role": "system", "content": "You classify shopping items. Output only a single lowercase category word."},
+                    {
+                        "role": "system",
+                        "content": "You classify shopping items. Output only a single lowercase category word.",
+                    },
                     {"role": "user", "content": LLM_PROMPT.format(name=name)},
                 ],
                 task_type="shopping_classify",
                 temperature=0.0,
                 max_tokens=16,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("shopping LLM classify error for {!r}: {}", name, exc)
             return None
 
@@ -131,20 +135,23 @@ class ShoppingClassifier:
             async with self.session.patch(
                 url,
                 json={"store_category": store_category},
-                headers=self.auth_headers,
+
                 timeout=10,
             ) as resp:
                 if resp.status == 200:
                     logger.info(
                         "Shopping classified: id={} → store_category={}",
-                        item_id, store_category,
+                        item_id,
+                        store_category,
                     )
                     return True
                 text = await resp.text()
                 logger.warning(
                     "Shopping PATCH failed: id={} status={} body={}",
-                    item_id, resp.status, text[:200],
+                    item_id,
+                    resp.status,
+                    text[:200],
                 )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("Shopping PATCH error: id={} err={}", item_id, exc)
         return False

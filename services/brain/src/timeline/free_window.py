@@ -1,6 +1,8 @@
 """Free-window computation: subtract locked slots from the day bounds."""
+
 from datetime import datetime, timedelta
-from .models import TimelineSlot, FreeWindow
+
+from .models import FreeWindow, TimelineSlot
 
 
 def compute_free_windows(
@@ -51,9 +53,7 @@ def bucket_of(dt: datetime) -> str:
     return "deep_night"
 
 
-def split_window(
-    window: FreeWindow, at: datetime, consume_min: int
-) -> tuple[FreeWindow | None, FreeWindow | None]:
+def split_window(window: FreeWindow, at: datetime, consume_min: int) -> tuple[FreeWindow | None, FreeWindow | None]:
     """Place a task of consume_min starting at `at` inside the window.
 
     Returns (before, after) — sub-windows left over (may be None if too short).

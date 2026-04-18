@@ -5,16 +5,21 @@ Data sources:
 - OccupancyData count transitions (0→1 = arrival, 1→0 = departure)
 - Google Calendar events (for schedule-aware predictions)
 """
-import time
-import statistics
-from datetime import datetime, timedelta
-from loguru import logger
 
+import os
+import statistics
+import time
+from datetime import datetime, timedelta
+
+from loguru import logger
 
 # Minimum weeks of data before predictions are reliable
 MIN_WEEKS_FOR_PREDICTION = 2
 # Maximum weeks of history to retain
 MAX_HISTORY_WEEKS = 4
+
+# Fallback wake time when no calendar/history data (HH:MM, empty=disabled)
+FALLBACK_WAKE_TIME = os.getenv("FALLBACK_WAKE_TIME", "07:00")
 
 
 class ScheduleLearner:
@@ -141,7 +146,8 @@ class ScheduleLearner:
         predicted_dt = now.replace(
             hour=int(median_hour),
             minute=int((median_hour % 1) * 60),
-            second=0, microsecond=0,
+            second=0,
+            microsecond=0,
         )
         return predicted_dt.timestamp()
 
@@ -183,16 +189,26 @@ class ScheduleLearner:
 
         # Historical pattern
         history = self._wake_history.get(tomorrow_weekday, [])
-        if len(history) < MIN_WEEKS_FOR_PREDICTION:
-            return None
+        if len(history) >= MIN_WEEKS_FOR_PREDICTION:
+            median_hour = statistics.median(history)
+            wake_dt = tomorrow.replace(
+                hour=int(median_hour),
+                minute=int((median_hour % 1) * 60),
+                second=0,
+                microsecond=0,
+            )
+            return wake_dt.timestamp()
 
-        median_hour = statistics.median(history)
-        wake_dt = tomorrow.replace(
-            hour=int(median_hour),
-            minute=int((median_hour % 1) * 60),
-            second=0, microsecond=0,
-        )
-        return wake_dt.timestamp()
+        # Fallback: fixed time from env var
+        if FALLBACK_WAKE_TIME:
+            try:
+                h, m = (int(x) for x in FALLBACK_WAKE_TIME.split(":"))
+                wake_dt = tomorrow.replace(hour=h, minute=m, second=0, microsecond=0)
+                return wake_dt.timestamp()
+            except (ValueError, TypeError):
+                pass
+
+        return None
 
     def get_arrival_stats(self) -> dict:
         """Return summary statistics for LLM context."""

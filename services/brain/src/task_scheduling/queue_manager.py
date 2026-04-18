@@ -2,9 +2,11 @@
 Task queue manager — dispatches queued tasks based on priority.
 Simplified from SOMS for single-user home use.
 """
+
 from loguru import logger
-from .priority import QueuedTask
+
 from .decision import should_dispatch
+from .priority import QueuedTask
 
 
 class TaskQueueManager:
@@ -25,6 +27,7 @@ class TaskQueueManager:
         try:
             # Fetch queued tasks from backend
             import aiohttp
+
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(f"{self.dashboard.backend_url}/tasks/queue") as resp:
                     if resp.status != 200:

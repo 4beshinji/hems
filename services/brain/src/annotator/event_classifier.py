@@ -10,6 +10,7 @@ Runs only at boot-load time (CapsuleBuilder) so the heavy ``event_classify``
 LLM route (``BOOT_LOAD_MODEL``) is acceptable. Results cache to the
 ``event_lead`` kind.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,10 +28,7 @@ if TYPE_CHECKING:
 DEFAULT_PLAN_LEAD_MIN = 30
 DEFAULT_PRIORITY = 3
 
-_SYSTEM = (
-    "You classify calendar events for an in-home voice assistant. "
-    "Output only a compact JSON object, no prose."
-)
+_SYSTEM = "You classify calendar events for an in-home voice assistant. Output only a compact JSON object, no prose."
 
 _USER_TMPL = (
     "以下のイベントについて、リマインド用のプランを JSON で返してください。\n\n"
@@ -39,9 +37,9 @@ _USER_TMPL = (
     "  説明: {description}\n"
     "  場所: {location}\n\n"
     "返す JSON キー:\n"
-    '  lead_time_min   — 何分前に音声リマインドするか (5〜120の整数)\n'
-    '  needs_pre_event — そもそもリマインドが必要か (true/false)\n'
-    '  priority        — 1=最重要 ... 5=低優先 (整数)\n'
+    "  lead_time_min   — 何分前に音声リマインドするか (5〜120の整数)\n"
+    "  needs_pre_event — そもそもリマインドが必要か (true/false)\n"
+    "  priority        — 1=最重要 ... 5=低優先 (整数)\n"
     '  context_hint    — 分類ヒント短い英小文字スネークケース (例: "doctor_visit", "meeting")\n\n'
     '例: {{"lead_time_min": 20, "needs_pre_event": true, "priority": 2, '
     '"context_hint": "meeting"}}'
@@ -67,7 +65,7 @@ class EventPlan:
         )
 
     @classmethod
-    def from_json(cls, raw: str) -> "EventPlan":
+    def from_json(cls, raw: str) -> EventPlan:
         try:
             d = json.loads(raw)
         except Exception:
@@ -88,7 +86,7 @@ class EventClassifier:
     def __init__(
         self,
         *,
-        llm_router: "LLMRouter | None" = None,
+        llm_router: LLMRouter | None = None,
         cache: ClassifierCache | None = None,
     ):
         self.llm_router = llm_router
@@ -116,7 +114,9 @@ class EventClassifier:
         description = getattr(event, "description", "") or ""
         location = getattr(event, "location", "") or ""
         prompt = _USER_TMPL.format(
-            title=title, description=description or "(なし)", location=location or "(なし)",
+            title=title,
+            description=description or "(なし)",
+            location=location or "(なし)",
         )
         try:
             resp = await self.llm_router.chat(
@@ -128,7 +128,7 @@ class EventClassifier:
                 temperature=0.0,
                 max_tokens=128,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("event LLM classify error for {!r}: {}", title, exc)
             return EventPlan()
 
@@ -139,5 +139,5 @@ class EventClassifier:
             content = content.replace("json", "", 1).strip()
         # Locate the JSON object by the first/last braces.
         if "{" in content and "}" in content:
-            content = content[content.index("{"): content.rindex("}") + 1]
+            content = content[content.index("{") : content.rindex("}") + 1]
         return EventPlan.from_json(content)

@@ -6,7 +6,7 @@ Serves dual purpose:
   1. Makes the AI character feel alive with proactive comments
   2. Exercises VoiSona TTS pipeline as an implicit health check
 """
-import asyncio
+
 import os
 import time
 from datetime import datetime
@@ -136,10 +136,12 @@ class AmbientSpeaker:
 
         # Stage 1: raw factual generation (no character hint in prompt).
         try:
-            response = await self.llm.chat([
-                {"role": "system", "content": "短い日本語のセリフを1つだけ素のまま生成してください。"},
-                {"role": "user", "content": prompt},
-            ])
+            response = await self.llm.chat(
+                [
+                    {"role": "system", "content": "短い日本語のセリフを1つだけ素のまま生成してください。"},
+                    {"role": "user", "content": prompt},
+                ]
+            )
 
             if response.error:
                 self._consecutive_failures += 1

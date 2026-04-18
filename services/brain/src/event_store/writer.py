@@ -7,10 +7,11 @@ The MQTT callback thread calls record_*() methods, which only append to
 a list; the flush loop runs on the asyncio event loop. An asyncio.Lock
 guards buffer access to prevent races during flush.
 """
+
 import asyncio
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from loguru import logger
@@ -44,27 +45,33 @@ class EventWriter:
         topic: str | None = None,
     ):
         """Buffer a sensor reading as a raw_event."""
-        self._events.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "zone": zone,
-            "event_type": "sensor_reading",
-            "source_device": device_id,
-            "data": json.dumps({
-                "channel": channel,
-                "value": value,
-                "topic": topic,
-            }),
-        })
+        self._events.append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "zone": zone,
+                "event_type": "sensor_reading",
+                "source_device": device_id,
+                "data": json.dumps(
+                    {
+                        "channel": channel,
+                        "value": value,
+                        "topic": topic,
+                    }
+                ),
+            }
+        )
 
     def record_event(self, zone: str, event_type: str, data: dict = None):
         """Buffer a generic event as a raw_event."""
-        self._events.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "zone": zone,
-            "event_type": event_type,
-            "source_device": None,
-            "data": json.dumps(data or {}),
-        })
+        self._events.append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "zone": zone,
+                "event_type": event_type,
+                "source_device": None,
+                "data": json.dumps(data or {}),
+            }
+        )
 
     def record_world_event(
         self,
@@ -74,13 +81,15 @@ class EventWriter:
         data: dict,
     ):
         """Buffer a WorldModel event (person_entered, co2_threshold, etc.)."""
-        self._events.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "zone": zone,
-            "event_type": f"world_model_{event_type}",
-            "source_device": None,
-            "data": json.dumps({"severity": severity, **data}),
-        })
+        self._events.append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "zone": zone,
+                "event_type": f"world_model_{event_type}",
+                "source_device": None,
+                "data": json.dumps({"severity": severity, **data}),
+            }
+        )
 
     def record_decision(
         self,
@@ -92,15 +101,17 @@ class EventWriter:
         world_state_snapshot: dict | None = None,
     ):
         """Buffer an LLM cognitive cycle decision."""
-        self._decisions.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "cycle_duration_sec": cycle_duration,
-            "iterations": iterations,
-            "total_tool_calls": total_tool_calls,
-            "trigger_events": json.dumps(trigger_events or []),
-            "tool_calls": json.dumps(tool_calls or []),
-            "world_state_snapshot": json.dumps(world_state_snapshot or {}),
-        })
+        self._decisions.append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "cycle_duration_sec": cycle_duration,
+                "iterations": iterations,
+                "total_tool_calls": total_tool_calls,
+                "trigger_events": json.dumps(trigger_events or []),
+                "tool_calls": json.dumps(tool_calls or []),
+                "world_state_snapshot": json.dumps(world_state_snapshot or {}),
+            }
+        )
 
     # ------------------------------------------------------------------
     # Flush loop

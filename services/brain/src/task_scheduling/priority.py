@@ -2,8 +2,9 @@
 Task priority scoring for HEMS.
 Simplified from SOMS (removed min_people_required).
 """
-from enum import IntEnum
+
 from dataclasses import dataclass
+from enum import IntEnum
 
 
 class TaskUrgency(IntEnum):
@@ -27,6 +28,7 @@ class QueuedTask:
     def compute_priority(self) -> float:
         """Compute priority score. Higher = more urgent."""
         import time
+
         age_minutes = (time.time() - self.created_at) / 60 if self.created_at else 0
         urgency_weight = self.urgency * 100
         age_bonus = min(age_minutes * 0.5, 50)  # Max 50 points from aging

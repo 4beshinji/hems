@@ -10,10 +10,12 @@ Supported task types:
   "event_classify"     → boot_load (quality matters; only runs during capsule
                          build so heavy-model latency is acceptable)
 """
+
 import os
 
-from llm_client import LLMClient, LLMResponse
 from loguru import logger
+
+from llm_client import LLMClient, LLMResponse
 
 BOOT_LOAD_MODEL = os.getenv("BOOT_LOAD_MODEL", "")
 BOOT_LOAD_API_URL = os.getenv("BOOT_LOAD_API_URL", "")
@@ -59,7 +61,8 @@ class LLMRouter:
         # Enable thinking for boot_load: time budget is generous and quality matters
         think = is_boot_load and client.provider == "ollama"
         return await client.chat(
-            messages, tools,
+            messages,
+            tools,
             temperature=temperature,
             max_tokens=max_tokens,
             think=think,

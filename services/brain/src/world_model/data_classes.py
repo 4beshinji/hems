@@ -2,20 +2,21 @@
 Data classes for HEMS WorldModel — zone state, environment, events, PC state,
 Home Assistant smart home devices, biometrics, and tri-domain facades.
 """
-from dataclasses import dataclass, field
-from typing import Optional
+
 import time
+from dataclasses import dataclass, field
 
 
 @dataclass
 class EnvironmentData:
-    temperature: Optional[float] = None
-    humidity: Optional[float] = None
-    co2: Optional[float] = None
-    pressure: Optional[float] = None
-    light: Optional[float] = None
-    voc: Optional[float] = None
+    temperature: float | None = None
+    humidity: float | None = None
+    co2: float | None = None
+    pressure: float | None = None
+    light: float | None = None
+    voc: float | None = None
     last_update: float = 0
+    trends: dict[str, str] = field(default_factory=dict)  # channel → rising/falling/stable
 
     @property
     def is_stuffy(self) -> bool:
@@ -39,11 +40,18 @@ class OccupancyData:
     count: int = 0
     last_update: float = 0
     # Perception ActivityMonitor data
-    activity_level: float = 0.0            # 0.0-1.0 (short-term motion)
-    activity_class: str = "unknown"        # "idle"|"low"|"moderate"|"high"
-    posture: str = "unknown"               # "standing"|"sitting"|"lying"|"walking"|"unknown"
-    posture_duration_sec: float = 0.0      # Current posture duration (seconds)
-    posture_status: str = "unknown"        # "changing"|"mostly_static"|"static"
+    activity_level: float = 0.0  # 0.0-1.0 (short-term motion)
+    activity_class: str = "unknown"  # "idle"|"low"|"moderate"|"high"
+    posture: str = "unknown"  # "standing"|"sitting"|"lying"|"walking"|"unknown"
+    posture_duration_sec: float = 0.0  # Current posture duration (seconds)
+    posture_status: str = "unknown"  # "changing"|"mostly_static"|"static"
+    # Sensor pooling: motion event tracking
+    motion_event_count_5min: int = 0
+    motion_frequency_per_min: float = 0.0
+    # Sensor pooling: binary state tracking
+    door_states: dict[str, dict] = field(default_factory=dict)
+    presence_state: bool | None = None
+    presence_duration_sec: float = 0.0
     # VLM scene analysis data
     scene_description: str = ""
     scene_objects: list[str] = field(default_factory=list)
@@ -87,11 +95,11 @@ class Event:
         elif self.event_type in ("temp_high", "temp_low"):
             return self.description or f"イベント: {self.event_type}"
         elif self.event_type == "sedentary_alert":
-            minutes = int(self.data.get('duration_sec', self.data.get('duration_minutes', 0) * 60) / 60)
+            minutes = int(self.data.get("duration_sec", self.data.get("duration_minutes", 0) * 60) / 60)
             return f"同じ姿勢で{minutes}分以上座り続けています"
         elif self.event_type == "sensor_tamper":
-            channel = self.data.get('channel', '?')
-            change = self.data.get('change', 0)
+            channel = self.data.get("channel", "?")
+            change = self.data.get("change", 0)
             return f"センサー異常: {channel}が急変({change:.1f}変化)"
         elif self.event_type == "door_opened":
             return f"ドアが開きました ({self.data.get('device_id', '')})"
@@ -130,10 +138,11 @@ class ZoneState:
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
-            self.events = self.events[-self.max_events:]
+            self.events = self.events[-self.max_events :]
 
 
 # --- Service Status (Service Monitor) ---
+
 
 @dataclass
 class ServiceStatusData:
@@ -155,16 +164,18 @@ class ServicesState:
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
-            self.events = self.events[-self.max_events:]
+            self.events = self.events[-self.max_events :]
 
 
 # --- Knowledge State (Obsidian integration + external knowledge) ---
+
 
 @dataclass
 class KnowledgeSourceInfo:
     name: str = ""
     doc_count: int = 0
     type_counts: dict = field(default_factory=dict)
+
 
 @dataclass
 class KnowledgeState:
@@ -183,15 +194,16 @@ class KnowledgeState:
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
-            self.events = self.events[-self.max_events:]
+            self.events = self.events[-self.max_events :]
 
     def add_recent_change(self, change: dict):
         self.recent_changes.append(change)
         if len(self.recent_changes) > self.max_recent:
-            self.recent_changes = self.recent_changes[-self.max_recent:]
+            self.recent_changes = self.recent_changes[-self.max_recent :]
 
 
 # --- PC State (localcraw integration) ---
+
 
 @dataclass
 class CPUData:
@@ -255,10 +267,11 @@ class PCState:
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
-            self.events = self.events[-self.max_events:]
+            self.events = self.events[-self.max_events :]
 
 
 # --- GAS State (Google Apps Script integration) ---
+
 
 @dataclass
 class CalendarEvent:
@@ -334,24 +347,25 @@ class GASState:
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
-            self.events = self.events[-self.max_events:]
+            self.events = self.events[-self.max_events :]
 
 
 # --- Home Devices State (Home Assistant integration) ---
+
 
 @dataclass
 class LightState:
     entity_id: str = ""
     on: bool = False
-    brightness: int = 0        # 0-255
-    color_temp: int = 0        # mirek
+    brightness: int = 0  # 0-255
+    color_temp: int = 0  # mirek
     last_update: float = 0
 
 
 @dataclass
 class ClimateState:
     entity_id: str = ""
-    mode: str = "off"          # off, cool, heat, dry, fan_only, auto
+    mode: str = "off"  # off, cool, heat, dry, fan_only, auto
     target_temp: float = 0
     current_temp: float = 0
     fan_mode: str = "auto"
@@ -361,7 +375,7 @@ class ClimateState:
 @dataclass
 class CoverState:
     entity_id: str = ""
-    position: int = 0          # 0=closed, 100=open
+    position: int = 0  # 0=closed, 100=open
     is_open: bool = False
     last_update: float = 0
 
@@ -369,10 +383,10 @@ class CoverState:
 @dataclass
 class BinarySensorState:
     entity_id: str = ""
-    state: bool = False           # True = on/detected/open/wet
-    device_class: str = ""        # door, window, moisture, vibration, motion, occupancy
+    state: bool = False  # True = on/detected/open/wet
+    device_class: str = ""  # door, window, moisture, vibration, motion, occupancy
     last_update: float = 0
-    last_changed: float = 0       # 状態が実際に変化したタイミング
+    last_changed: float = 0  # 状態が実際に変化したタイミング
     previous_state: bool = False  # 遷移検知用（open→closed等）
 
 
@@ -381,9 +395,9 @@ class HASensorState:
     entity_id: str = ""
     value: float = 0
     unit: str = ""
-    device_class: str = ""        # power, energy, carbon_dioxide, pm25, voc, temperature, humidity
+    device_class: str = ""  # power, energy, carbon_dioxide, pm25, voc, temperature, humidity
     last_update: float = 0
-    previous_value: float = 0     # 電力変化検知用
+    previous_value: float = 0  # 電力変化検知用
 
 
 @dataclass
@@ -401,15 +415,16 @@ class HomeDevicesState:
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
-            self.events = self.events[-self.max_events:]
+            self.events = self.events[-self.max_events :]
 
 
 # --- Biometric State (Smartband / Gadgetbridge integration) ---
 
+
 @dataclass
 class HeartRateData:
-    bpm: Optional[int] = None
-    resting_bpm: Optional[int] = None
+    bpm: int | None = None
+    resting_bpm: int | None = None
     zone: str = "unknown"  # rest | fat_burn | cardio | peak
     last_update: float = 0
 
@@ -479,25 +494,25 @@ class FatigueData:
 
 @dataclass
 class SpO2Data:
-    percent: Optional[int] = None
+    percent: int | None = None
     last_update: float = 0
 
 
 @dataclass
 class HRVData:
-    rmssd_ms: Optional[int] = None  # Root Mean Square of Successive Differences
+    rmssd_ms: int | None = None  # Root Mean Square of Successive Differences
     last_update: float = 0
 
 
 @dataclass
 class BodyTemperatureData:
-    celsius: Optional[float] = None
+    celsius: float | None = None
     last_update: float = 0
 
 
 @dataclass
 class RespiratoryRateData:
-    breaths_per_minute: Optional[int] = None
+    breaths_per_minute: int | None = None
     last_update: float = 0
 
 
@@ -528,7 +543,7 @@ class BiometricState:
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
-            self.events = self.events[-self.max_events:]
+            self.events = self.events[-self.max_events :]
 
     @property
     def last_update(self) -> float:
@@ -547,10 +562,11 @@ class BiometricState:
 
 # --- Weather State (from HA weather entity) ---
 
+
 @dataclass
 class WeatherForecast:
     datetime: str = ""
-    condition: str = ""       # sunny, cloudy, rainy, snowy, etc.
+    condition: str = ""  # sunny, cloudy, rainy, snowy, etc.
     temperature: float = 0
     precipitation_probability: int = 0
     wind_speed: float = 0
@@ -567,6 +583,7 @@ class WeatherState:
 
 
 # --- Shopping List State ---
+
 
 @dataclass
 class ShoppingItemData:
@@ -598,7 +615,7 @@ class NewsState:
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
-            self.events = self.events[-self.max_events:]
+            self.events = self.events[-self.max_events :]
 
 
 @dataclass
@@ -611,7 +628,7 @@ class ShoppingState:
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
-            self.events = self.events[-self.max_events:]
+            self.events = self.events[-self.max_events :]
 
     @property
     def pending_count(self) -> int:
@@ -625,9 +642,11 @@ class ShoppingState:
 
 # --- Tri-Domain Facades ---
 
+
 @dataclass
 class PhysicalSpace:
     """Physical environment domain — zones and smart home devices."""
+
     zones: dict[str, ZoneState] = field(default_factory=dict)
     home_devices: HomeDevicesState = field(default_factory=HomeDevicesState)
     weather: WeatherState = field(default_factory=WeatherState)
@@ -636,6 +655,7 @@ class PhysicalSpace:
 @dataclass
 class DigitalSpace:
     """Digital environment domain — PC, services, GAS, knowledge, shopping, news."""
+
     pc_state: PCState = field(default_factory=PCState)
     services_state: ServicesState = field(default_factory=ServicesState)
     gas_state: GASState = field(default_factory=GASState)
@@ -647,5 +667,6 @@ class DigitalSpace:
 @dataclass
 class UserState:
     """User state domain — biometrics and personal data."""
+
     biometrics: BiometricState = field(default_factory=BiometricState)
     screen_time: ScreenTimeData = field(default_factory=ScreenTimeData)

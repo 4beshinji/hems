@@ -1,18 +1,22 @@
 """
 System prompt builder for HEMS Brain with character injection.
 """
+
 from dataclasses import fields as dc_fields
 
 
-def build_system_message(character=None, openclaw_enabled: bool = False,
-                         services_enabled: bool = False,
-                         obsidian_enabled: bool = False,
-                         ha_enabled: bool = False,
-                         biometric_enabled: bool = False,
-                         perception_enabled: bool = False,
-                         switchbot_enabled: bool = False,
-                         knowledge_enabled: bool = False,
-                         devices: list | None = None) -> dict:
+def build_system_message(
+    character=None,
+    openclaw_enabled: bool = False,
+    services_enabled: bool = False,
+    obsidian_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    switchbot_enabled: bool = False,
+    knowledge_enabled: bool = False,
+    devices: list | None = None,
+) -> dict:
     """Build system message with safety rules + character personality.
 
     Args:
@@ -277,25 +281,31 @@ def _build_tool_call_examples() -> str:
     """
     return """
 
-## ツール呼出例（これらの device_id は例示 — 実際は list_devices で確認してから使用）
+## ツール呼出例
 
-例1 (センサー照会):
+例1 (センサー照会 — device_id はプロンプト内デバイス配置から特定):
 User: 寝室の温度は?
 → describe_device(device_id="mcp.bme680_01")
 → tool_result: {"last_value":{"temperature":22.5,...}, "zone":"bedroom"}
 Assistant: 寝室の温度は22.5℃です。
 
-例2 (用途ベース検索):
+例2 (自然言語 → device_id 推定 — プロンプト内の manufacturer/model から直接特定):
+User: IKEAの電球を虹色にして
+→ (プロンプト内に `zigbee.0x781c... [IKEA LED2109G6]` がある → device_id 確定)
+→ control_actuator(device_id="zigbee.0x781c...", action="rainbow", params={"duration_s":10})
+→ tool_result: {"success":true}
+Assistant: 虹色に光らせています。
+
+例3 (用途ベース検索):
 User: 水やりに使うデバイスは?
 → list_devices(purpose_contains="水")
 → tool_result: [{"device_id":"tapo.plug_pump","purpose":"観葉植物の自動水やり用ポンプ",...}]
 Assistant: tapo.plug_pump が水やり用に登録されています。
 
-例3 (制御 — 2ステップ連鎖):
+例4 (制御 — プロンプト内で device_id が不明なら list_devices で確認):
 User: 寝室の電気つけて
-→ list_devices(zone="bedroom", capability="on_off")
-→ tool_result: [{"device_id":"zigbee.bulb_bedroom",...}]
-→ control_actuator(device_id="zigbee.bulb_bedroom", action="on")
+→ (プロンプト内の bedroom zone を確認 → 該当 light デバイスの device_id を特定)
+→ control_actuator(device_id="zigbee.0x...", action="on")
 → tool_result: {"success":true, "result":"..."}
 Assistant: 点灯しました。"""
 
@@ -304,11 +314,12 @@ def _build_device_section(devices: list) -> str:
     """Inject Device Registry metadata so LLM can pick devices by purpose/zone.
 
     devices is a list of dicts (from backend /devices/). Limit to enabled + recent.
+    Each device line includes manufacturer/model for natural-language matching
+    (e.g. "IKEAの電球") and user-written notes for operational context.
     """
     if not devices:
         return ""
 
-    # Bucket by zone
     by_zone: dict[str, list] = {}
     for d in devices:
         if not d.get("is_enabled", True):
@@ -324,8 +335,8 @@ def _build_device_section(devices: list) -> str:
         "",
         "## 登録デバイス配置",
         "control_actuator / list_devices で下記デバイスを制御可能。",
-        "purposeはユーザーが付与した用途、location は物理的設置場所。",
-        "実行前にdescribe_deviceで現状確認することを推奨。",
+        "ユーザーが自然言語で指定した場合（「IKEAの電球」等）は manufacturer/model/purpose から該当を推定し、",
+        "device_id を特定してから control_actuator を呼ぶ。曖昧な場合は list_devices で確認。",
     ]
 
     for zone, devs in sorted(by_zone.items()):
@@ -334,11 +345,14 @@ def _build_device_section(devices: list) -> str:
             parts = [f"`{d['device_id']}`"]
             if d.get("display_name"):
                 parts.append(d["display_name"])
+            # Manufacturer + model for natural-language matching
+            mfr = d.get("manufacturer") or ""
+            model = d.get("model_id") or ""
+            if mfr or model:
+                parts.append(f"[{' '.join(filter(None, [mfr, model]))}]")
             meta = []
             if d.get("device_class"):
                 meta.append(d["device_class"])
-            if d.get("vendor"):
-                meta.append(d["vendor"])
             if meta:
                 parts.append(f"({', '.join(meta)})")
             tail = []
@@ -352,6 +366,9 @@ def _build_device_section(devices: list) -> str:
             chans = d.get("channels") or []
             if chans:
                 tail.append(f"ch: {','.join(chans)}")
+            # User-written notes — free-form operational context
+            if d.get("notes"):
+                tail.append(f"備考: {d['notes']}")
             line = "  - " + " ".join(parts)
             if tail:
                 line += " — " + " / ".join(tail)
@@ -360,13 +377,17 @@ def _build_device_section(devices: list) -> str:
     return "\n".join(lines)
 
 
-def build_chat_system_message(character=None, world_context: str = "",
-                              obsidian_enabled: bool = False,
-                              knowledge_enabled: bool = False,
-                              ha_enabled: bool = False,
-                              biometric_enabled: bool = False,
-                              perception_enabled: bool = False,
-                              news_enabled: bool = False) -> dict:
+def build_chat_system_message(
+    character=None,
+    world_context: str = "",
+    obsidian_enabled: bool = False,
+    knowledge_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    news_enabled: bool = False,
+    devices: list | None = None,
+) -> dict:
     """Build system message for conversational chat (separate from automation).
 
     Chat-specific: conversational tone, read-only tools, no autonomous actions.
@@ -388,7 +409,7 @@ def build_chat_system_message(character=None, world_context: str = "",
 - 平易で事実ベースの日本語で答える（キャラクター口調は後段で付与されるので、ここでは素のままで良い）
 - 不確かな情報は推測せず、根拠のある情報のみ提示
 - 簡潔に答える（200字以内目安、複雑な質問は長くてもよい）
-- ツールは情報取得のみに使用する（タスク作成・デバイス操作・音声通知は行わない）
+- ツールは情報取得とデバイス制御に使用する（タスク作成・音声通知は行わない）
 - 検索結果を引用する場合、出典（ソース名、パス）を添える"""
 
     if world_context:
@@ -414,6 +435,10 @@ def build_chat_system_message(character=None, world_context: str = "",
 
     # Explicit tool-use rules (v1) — ensure tool calls actually happen
     base += _build_tool_usage_rules()
+
+    # Device Registry context — same as cognitive loop prompt
+    if devices:
+        base += _build_device_section(devices)
 
     # Few-shot examples (v2) — always include in chat for non-trivial queries
     base += _build_tool_call_examples()

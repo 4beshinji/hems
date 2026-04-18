@@ -4,8 +4,10 @@ SQLAlchemy ORM models for the events schema.
 Used for typed queries in the aggregator. Tables are created via raw DDL
 in database.py (not via ORM metadata).
 """
+
 from datetime import datetime
-from sqlalchemy import Integer, BigInteger, Text, Float, DateTime
+
+from sqlalchemy import BigInteger, DateTime, Float, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -45,9 +47,7 @@ class HourlyAggregate(Base):
     __table_args__ = {"schema": "events"}
 
     hub_id: Mapped[str] = mapped_column(Text, primary_key=True, default="hems-brain")
-    period_start: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), primary_key=True
-    )
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     zones: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     tasks_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     llm_cycles: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -59,9 +59,5 @@ class AggregationState(Base):
     __table_args__ = {"schema": "events"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    last_aggregated_hour: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    last_run_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_aggregated_hour: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

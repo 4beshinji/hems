@@ -8,10 +8,11 @@ on any error.
 Includes a TTL-based cache to avoid redundant LLM calls for recurring
 (message, tone) pairs from rule-engine templates.
 """
+
 import os
 import time
-from loguru import logger
 
+from loguru import logger
 
 PERSONA_REWRITE_ENABLED = os.getenv("PERSONA_REWRITE_ENABLED", "true").lower() == "true"
 PERSONA_REWRITE_CACHE_TTL = int(os.getenv("PERSONA_REWRITE_CACHE_TTL", "3600"))
@@ -64,7 +65,9 @@ class PersonaRewriter:
 
         try:
             response = await self.llm_client.chat(
-                messages, temperature=0.7, max_tokens=80,
+                messages,
+                temperature=0.7,
+                max_tokens=80,
             )
             if response.error or not response.content:
                 logger.debug(f"Persona rewrite failed: {response.error}")
@@ -94,8 +97,7 @@ class PersonaRewriter:
             logger.debug(f"Persona rewrite exception: {e}")
             return message
 
-    async def rewrite_long(self, message: str, tone: str = "neutral",
-                           max_chars: int = 500) -> str:
+    async def rewrite_long(self, message: str, tone: str = "neutral", max_chars: int = 500) -> str:
         """Rewrite a longer message (e.g. chat response) in character voice.
 
         Like rewrite() but without the 70-char truncation. Used for chat
@@ -127,7 +129,8 @@ class PersonaRewriter:
 
         try:
             response = await self.llm_client.chat(
-                messages, temperature=0.7,
+                messages,
+                temperature=0.7,
                 max_tokens=min(max_chars * 2, 1024),
             )
             if response.error or not response.content:
@@ -157,10 +160,7 @@ class PersonaRewriter:
         """Remove expired entries from the cache."""
         if PERSONA_REWRITE_CACHE_TTL <= 0:
             return
-        expired = [
-            key for key, (_, ts) in self._cache.items()
-            if (now - ts) >= PERSONA_REWRITE_CACHE_TTL
-        ]
+        expired = [key for key, (_, ts) in self._cache.items() if (now - ts) >= PERSONA_REWRITE_CACHE_TTL]
         for key in expired:
             del self._cache[key]
 

@@ -16,24 +16,21 @@ Modes:
 - llm_review: ask the LLM whether to fire (given context); useful for
   context-dependent decisions (e.g. skip watering if rain is forecast)
 """
+
 from __future__ import annotations
 
 import asyncio
 import os
 import time
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
 
 import aiohttp
 from loguru import logger
-
 
 EVAL_INTERVAL_SEC = float(os.getenv("AUTOMATION_EVAL_INTERVAL", "15"))
 EVAL_REFRESH_SEC = float(os.getenv("AUTOMATION_REFRESH_INTERVAL", "60"))
 LLM_REVIEW_TIMEOUT = float(os.getenv("AUTOMATION_LLM_REVIEW_TIMEOUT", "30"))
 BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
-_API_KEY = os.getenv("HEMS_API_KEY", "")
-_AUTH = {"Authorization": f"Bearer {_API_KEY}"} if _API_KEY else {}
 
 _OPS = {
     "<": lambda a, b: a < b,
@@ -46,8 +43,7 @@ _OPS = {
 
 
 class AutomationEngine:
-    def __init__(self, dispatcher, scene_executor, dashboard_client,
-                 llm_client, world_model, sanitizer):
+    def __init__(self, dispatcher, scene_executor, dashboard_client, llm_client, world_model, sanitizer):
         self.dispatcher = dispatcher
         self.scenes = scene_executor
         self.dashboard = dashboard_client
@@ -100,8 +96,9 @@ class AutomationEngine:
             return
         try:
             async with self.dashboard.session.get(
-                f"{BACKEND_URL}/automations/", params={"enabled_only": "true"},
-                timeout=aiohttp.ClientTimeout(total=5), headers=_AUTH,
+                f"{BACKEND_URL}/automations/",
+                params={"enabled_only": "true"},
+                timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status == 200:
                     self._rules = await resp.json()
@@ -121,9 +118,7 @@ class AutomationEngine:
             cooldown = rule.get("cooldown_s", 600)
             if last_fired:
                 try:
-                    last_ts = datetime.fromisoformat(
-                        last_fired.replace("Z", "+00:00")
-                    ).timestamp()
+                    last_ts = datetime.fromisoformat(last_fired.replace("Z", "+00:00")).timestamp()
                     if now - last_ts < cooldown:
                         continue
                 except (ValueError, TypeError):
@@ -264,8 +259,7 @@ class AutomationEngine:
         await self._record_fire(rule_id)
 
         logger.info(
-            f"Rule#{rule_id} '{rule.get('name')}' fired: "
-            f"{result['executed']} actions, errors={result['errors']}"
+            f"Rule#{rule_id} '{rule.get('name')}' fired: {result['executed']} actions, errors={result['errors']}"
         )
 
     async def _llm_review(self, rule: dict) -> tuple[bool, str]:
@@ -306,7 +300,7 @@ class AutomationEngine:
             # Ambiguous response — default to skip (safe)
             logger.warning(f"llm_review ambiguous response: {text[:100]}")
             return False, f"ambiguous response: {first_line}"
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("llm_review timeout — defaulting to skip")
             return False, "llm timeout"
         except Exception as e:
@@ -322,7 +316,7 @@ class AutomationEngine:
             return
         new_count = (rule.get("fire_count") or 0) + 1
         rule["fire_count"] = new_count
-        rule["last_fired_at"] = datetime.now(timezone.utc).isoformat()
+        rule["last_fired_at"] = datetime.now(UTC).isoformat()
         try:
             async with self.dashboard.session.put(
                 f"{BACKEND_URL}/automations/{rule_id}/fire",
@@ -330,7 +324,7 @@ class AutomationEngine:
                     "last_fired_at": rule["last_fired_at"],
                     "fire_count": new_count,
                 },
-                headers=_AUTH, timeout=aiohttp.ClientTimeout(total=5),
+                timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status != 200:
                     logger.debug(f"record_fire failed: HTTP {resp.status}")
@@ -341,7 +335,6 @@ class AutomationEngine:
 
     async def evaluate_trigger(self, trigger_type: str, trigger_config: dict) -> dict:
         """Evaluate a trigger condition without firing. Used by backend /test."""
-        now = time.time()
         if trigger_type == "sensor_threshold":
             cfg = trigger_config
             device_id = cfg.get("device_id", "")
@@ -350,24 +343,17 @@ class AutomationEngine:
             value = cfg.get("value")
             device = await self.dispatcher.lookup(device_id) if device_id else None
             if device is None:
-                return {"would_fire": False,
-                        "reason": f"device '{device_id}' not registered",
-                        "sampled_value": None}
+                return {"would_fire": False, "reason": f"device '{device_id}' not registered", "sampled_value": None}
             reading = (device.get("last_value") or {}).get(channel)
             if reading is None:
-                return {"would_fire": False,
-                        "reason": f"no reading for {device_id}.{channel}",
-                        "sampled_value": None}
+                return {"would_fire": False, "reason": f"no reading for {device_id}.{channel}", "sampled_value": None}
             try:
                 holds = _OPS.get(op, lambda a, b: False)(float(reading), float(value))
             except (TypeError, ValueError):
                 holds = False
             return {
                 "would_fire": holds,
-                "reason": (
-                    f"{device_id}.{channel}={reading} {op} {value} "
-                    f"→ {'holds' if holds else 'does not hold'}"
-                ),
+                "reason": (f"{device_id}.{channel}={reading} {op} {value} → {'holds' if holds else 'does not hold'}"),
                 "sampled_value": reading,
             }
         if trigger_type == "schedule":
@@ -390,5 +376,4 @@ class AutomationEngine:
                 "reason": f"device_state held={holds}",
                 "sampled_value": None,
             }
-        return {"would_fire": False, "reason": f"unknown trigger_type {trigger_type}",
-                "sampled_value": None}
+        return {"would_fire": False, "reason": f"unknown trigger_type {trigger_type}", "sampled_value": None}

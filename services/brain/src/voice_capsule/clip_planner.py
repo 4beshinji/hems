@@ -9,6 +9,7 @@ For events the trigger kind is ``pre_event`` (carries ``event_id`` and
 ``offset_min``) but ``absolute_ts`` is pre-filled so the Android scheduler
 doesn't need calendar context.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -43,7 +44,7 @@ async def plan_day(
     date: str,
     wake_ts: float | None,
     world_model,
-    event_classifier: "EventClassifier | None" = None,
+    event_classifier: EventClassifier | None = None,
     frequent_places: list[dict] | None = None,
     pending_shopping: list[dict] | None = None,
 ) -> list[ClipSpec]:
@@ -64,27 +65,31 @@ async def plan_day(
     # Core morning pair — tone "caring" keeps wake-up gentle.
     weather_ctx = _weather_context(world_model)
     greet_weather_suffix = f" 今日の天気は{weather_ctx}です。" if weather_ctx else ""
-    clips.append(ClipSpec(
-        id="morning_greet",
-        trigger_kind="time",
-        trigger_at_ts=int(wake_dt.timestamp()),
-        tone="caring",
-        transcript_seed=f"おはようございます。{greet_weather_suffix}",
-        tags=["morning", "greet"],
-        priority=1,
-    ))
+    clips.append(
+        ClipSpec(
+            id="morning_greet",
+            trigger_kind="time",
+            trigger_at_ts=int(wake_dt.timestamp()),
+            tone="caring",
+            transcript_seed=f"おはようございます。{greet_weather_suffix}",
+            tags=["morning", "greet"],
+            priority=1,
+        )
+    )
 
     weather_body = _weather_body(world_model)
     if weather_body:
-        clips.append(ClipSpec(
-            id="weather_morning",
-            trigger_kind="time",
-            trigger_at_ts=int((wake_dt + timedelta(minutes=2)).timestamp()),
-            tone="caring",
-            transcript_seed=weather_body,
-            tags=["morning", "weather"],
-            priority=2,
-        ))
+        clips.append(
+            ClipSpec(
+                id="weather_morning",
+                trigger_kind="time",
+                trigger_at_ts=int((wake_dt + timedelta(minutes=2)).timestamp()),
+                tone="caring",
+                transcript_seed=weather_body,
+                tags=["morning", "weather"],
+                priority=2,
+            )
+        )
 
     # Per-event reminders.
     seen_ids: set[str] = set()
@@ -114,20 +119,19 @@ async def plan_day(
             continue
         seen_ids.add(raw_id)
         event_ref = getattr(ev, "id", None)
-        clips.append(ClipSpec(
-            id=raw_id,
-            trigger_kind="pre_event" if event_ref else "time",
-            trigger_at_ts=int(trigger.timestamp()),
-            tone="neutral",
-            transcript_seed=(
-                f"{lead_min}分後、{event_time.strftime('%H:%M')}から"
-                f"「{title}」です。"
-            ),
-            tags=["schedule", "reminder"] + ([context_hint] if context_hint else []),
-            priority=priority,
-            event_ref=event_ref,
-            event_offset_min=lead_min,
-        ))
+        clips.append(
+            ClipSpec(
+                id=raw_id,
+                trigger_kind="pre_event" if event_ref else "time",
+                trigger_at_ts=int(trigger.timestamp()),
+                tone="neutral",
+                transcript_seed=(f"{lead_min}分後、{event_time.strftime('%H:%M')}から「{title}」です。"),
+                tags=["schedule", "reminder"] + ([context_hint] if context_hint else []),
+                priority=priority,
+                event_ref=event_ref,
+                event_offset_min=lead_min,
+            )
+        )
 
     # Geofence clips for pending shopping items matched to FrequentPlaces.
     clips.extend(_geofence_clips(frequent_places or [], pending_shopping or []))
@@ -142,12 +146,25 @@ async def plan_day(
 
 _BIOMETRIC_RULES = [
     # (clip_id, metric, op, threshold, tone, transcript_seed, priority)
-    ("bio_high_stress", "stress", "gt", 80.0, "caring",
-     "少し深呼吸しましょう。肩の力を抜いて、3回ゆっくり息を吐いてみてください。", 2),
-    ("bio_high_fatigue", "fatigue", "gt", 80.0, "caring",
-     "だいぶ疲れが溜まっているみたい。短くでも目を閉じて休んでみませんか。", 2),
-    ("bio_high_hr_at_rest", "heart_rate", "gt", 120.0, "neutral",
-     "心拍が高めです。座って水を少し飲みましょう。", 1),
+    (
+        "bio_high_stress",
+        "stress",
+        "gt",
+        80.0,
+        "caring",
+        "少し深呼吸しましょう。肩の力を抜いて、3回ゆっくり息を吐いてみてください。",
+        2,
+    ),
+    (
+        "bio_high_fatigue",
+        "fatigue",
+        "gt",
+        80.0,
+        "caring",
+        "だいぶ疲れが溜まっているみたい。短くでも目を閉じて休んでみませんか。",
+        2,
+    ),
+    ("bio_high_hr_at_rest", "heart_rate", "gt", 120.0, "neutral", "心拍が高めです。座って水を少し飲みましょう。", 1),
 ]
 
 
@@ -159,19 +176,21 @@ def _biometric_clips() -> list[ClipSpec]:
     — P6 will let the user tune them via config.
     """
     out: list[ClipSpec] = []
-    for (clip_id, metric, op, threshold, tone, seed, prio) in _BIOMETRIC_RULES:
-        out.append(ClipSpec(
-            id=clip_id,
-            trigger_kind="biometric_threshold",
-            trigger_at_ts=None,
-            tone=tone,
-            transcript_seed=seed,
-            tags=["biometric", metric],
-            priority=prio,
-            biometric_metric=metric,
-            biometric_op=op,
-            biometric_value=threshold,
-        ))
+    for clip_id, metric, op, threshold, tone, seed, prio in _BIOMETRIC_RULES:
+        out.append(
+            ClipSpec(
+                id=clip_id,
+                trigger_kind="biometric_threshold",
+                trigger_at_ts=None,
+                tone=tone,
+                transcript_seed=seed,
+                tags=["biometric", metric],
+                priority=prio,
+                biometric_metric=metric,
+                biometric_op=op,
+                biometric_value=threshold,
+            )
+        )
     return out
 
 
@@ -205,25 +224,28 @@ def _geofence_clips(places: list[dict], shopping: list[dict]) -> list[ClipSpec]:
         if len(matched) > 3:
             preview += f" ほか{len(matched) - 3}件"
         clip_id = f"geofence_place_{place_id}"
-        out.append(ClipSpec(
-            id=clip_id,
-            trigger_kind="geofence",
-            trigger_at_ts=None,
-            tone="caring",
-            transcript_seed=f"{label}の近くです。買いたいものは{preview}。",
-            tags=["shopping", "geofence", category],
-            priority=3,
-            place_id=place_id,
-            place_category=category,
-            place_lat=place.get("lat"),
-            place_lon=place.get("lon"),
-            place_radius_m=place.get("radius_m"),
-            cooldown_min=place.get("cooldown_min"),
-        ))
+        out.append(
+            ClipSpec(
+                id=clip_id,
+                trigger_kind="geofence",
+                trigger_at_ts=None,
+                tone="caring",
+                transcript_seed=f"{label}の近くです。買いたいものは{preview}。",
+                tags=["shopping", "geofence", category],
+                priority=3,
+                place_id=place_id,
+                place_category=category,
+                place_lat=place.get("lat"),
+                place_lon=place.get("lon"),
+                place_radius_m=place.get("radius_m"),
+                cooldown_min=place.get("cooldown_min"),
+            )
+        )
     return out
 
 
 # --- internals ------------------------------------------------------------ #
+
 
 def _weather_context(world_model) -> str:
     try:

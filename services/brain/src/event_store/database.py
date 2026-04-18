@@ -4,10 +4,12 @@ Event store database initialization — SQLite compatible (SOMS-compatible schem
 Uses raw SQL DDL (no Alembic) — Phase 0 simplicity.
 Tables are created with IF NOT EXISTS for idempotent startup.
 """
+
 import os
+
 from loguru import logger
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 _engine: AsyncEngine | None = None
 
@@ -146,14 +148,10 @@ async def init_db() -> AsyncEngine | None:
         if not is_postgres:
             cols = [r[1] for r in await conn.execute(text("PRAGMA table_info(llm_decisions)"))]
             if "cycle_duration" in cols and "cycle_duration_sec" not in cols:
-                await conn.execute(text(
-                    "ALTER TABLE llm_decisions RENAME COLUMN cycle_duration TO cycle_duration_sec"
-                ))
+                await conn.execute(text("ALTER TABLE llm_decisions RENAME COLUMN cycle_duration TO cycle_duration_sec"))
                 logger.info("Migrated llm_decisions: cycle_duration → cycle_duration_sec")
             if "world_state_snapshot" not in cols:
-                await conn.execute(text(
-                    "ALTER TABLE llm_decisions ADD COLUMN world_state_snapshot TEXT DEFAULT '{}'"
-                ))
+                await conn.execute(text("ALTER TABLE llm_decisions ADD COLUMN world_state_snapshot TEXT DEFAULT '{}'"))
                 logger.info("Migrated llm_decisions: added world_state_snapshot")
 
     logger.info(f"Event store initialized ({'PostgreSQL' if is_postgres else 'SQLite'})")

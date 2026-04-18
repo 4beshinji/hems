@@ -3,10 +3,11 @@ Tool executor — routes tool calls through sanitizer to handlers.
 Forked from SOMS: extended with PC tools (OpenClaw), Obsidian tools, and
 adaptive device timeout + queued response handling.
 """
-import asyncio
+
 import json
 import os
-from typing import Dict, Any
+from typing import Any
+
 import aiohttp
 from loguru import logger
 
@@ -19,14 +20,26 @@ SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 KNOWLEDGE_BRIDGE_URL = os.getenv("KNOWLEDGE_BRIDGE_URL", "")
 
-_HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
-_AUTH_HEADERS = {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY else {}
+
+def _internal_headers() -> dict:
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 class ToolExecutor:
-    def __init__(self, sanitizer, mcp_bridge, dashboard_client, world_model,
-                 task_queue, session: aiohttp.ClientSession = None, device_registry=None,
-                 device_dispatcher=None, scene_executor=None, persona_rewriter=None):
+    def __init__(
+        self,
+        sanitizer,
+        mcp_bridge,
+        dashboard_client,
+        world_model,
+        task_queue,
+        session: aiohttp.ClientSession = None,
+        device_registry=None,
+        device_dispatcher=None,
+        scene_executor=None,
+        persona_rewriter=None,
+    ):
         self.sanitizer = sanitizer
         self.mcp = mcp_bridge
         self.dashboard = dashboard_client
@@ -53,12 +66,13 @@ class ToolExecutor:
         # Motion retriever for avatar gesture selection
         try:
             from motion_retriever import MotionRetriever
+
             self.motion_retriever = MotionRetriever()
         except Exception as e:
             logger.warning(f"Motion retriever init failed: {e}")
             self.motion_retriever = None
 
-    async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a tool call with sanitizer validation.
 
         Returns:
@@ -161,7 +175,7 @@ class ToolExecutor:
             logger.error(f"Tool execution error ({tool_name}): {e}")
             return {"success": False, "error": str(e)}
 
-    async def _handle_create_task(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_create_task(self, args: dict[str, Any]) -> dict[str, Any]:
         """Create a task via DashboardClient and register with TaskQueueManager."""
         title = args.get("title", "")
         urgency = args.get("urgency", 2)
@@ -191,7 +205,7 @@ class ToolExecutor:
         else:
             return {"success": False, "error": "タスクの作成に失敗しました"}
 
-    async def _handle_device_command(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_device_command(self, args: dict[str, Any]) -> dict[str, Any]:
         """Send command to edge device via MCPBridge with adaptive timeout."""
         agent_id = args.get("agent_id", "")
         tool_name = args.get("tool_name", "")
@@ -226,7 +240,7 @@ class ToolExecutor:
             }
         return {"success": False, "error": f"MCP call to {agent_id}/{tool_name} failed or timed out"}
 
-    async def _handle_get_zone_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_zone_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get detailed zone status from WorldModel."""
         zone_id = args.get("zone_id", "")
         zone = self.world_model.zones.get(zone_id)
@@ -241,13 +255,12 @@ class ToolExecutor:
             "co2": env.co2,
             "occupancy_count": zone.occupancy.count if zone.occupancy else 0,
             "recent_events": [
-                {"type": e.event_type, "description": e.description, "severity": e.severity}
-                for e in zone.events[-5:]
+                {"type": e.event_type, "description": e.description, "severity": e.severity} for e in zone.events[-5:]
             ],
         }
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
 
-    async def _handle_speak(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_speak(self, args: dict[str, Any]) -> dict[str, Any]:
         """Synthesize speech and record as ephemeral voice event.
 
         Stage 2 character overlay: if a PersonaRewriter is wired, rewrite the raw
@@ -283,6 +296,7 @@ class ToolExecutor:
                 async with self._session.post(
                     f"{self.voice_url}/api/voice/synthesize",
                     json={"text": message, "tone": tone},
+                    headers=_internal_headers(),
                     timeout=aiohttp.ClientTimeout(total=60),
                 ) as resp:
                     if resp.status == 200:
@@ -305,7 +319,7 @@ class ToolExecutor:
                         "motion_id": motion_id,
                     },
                     timeout=aiohttp.ClientTimeout(total=10),
-                    headers=_AUTH_HEADERS,
+
                 )
             except Exception as e:
                 logger.warning(f"Failed to record voice event: {e}")
@@ -324,7 +338,7 @@ class ToolExecutor:
             "motion_id": motion_id,
         }
 
-    async def _handle_get_active_tasks(self) -> Dict[str, Any]:
+    async def _handle_get_active_tasks(self) -> dict[str, Any]:
         """Get active tasks from DashboardClient."""
         tasks = await self.dashboard.get_active_tasks()
         if not tasks:
@@ -346,7 +360,7 @@ class ToolExecutor:
             "result": f"アクティブなタスク ({len(tasks)}件):\n" + "\n".join(summaries),
         }
 
-    async def _handle_get_device_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_device_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get device network status from DeviceRegistry."""
         if not self.device_registry:
             return {"success": False, "error": "DeviceRegistry が初期化されていません"}
@@ -357,7 +371,7 @@ class ToolExecutor:
 
     # --- PC tools (OpenClaw) ---
 
-    async def _handle_get_pc_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_pc_status(self, args: dict[str, Any]) -> dict[str, Any]:
         pc = self.world_model.pc_state
         status = {
             "cpu_percent": pc.cpu.usage_percent,
@@ -379,12 +393,11 @@ class ToolExecutor:
             ]
         if args.get("include_processes") and pc.top_processes:
             status["processes"] = [
-                {"pid": p.pid, "name": p.name, "cpu": p.cpu_percent, "mem_mb": p.mem_mb}
-                for p in pc.top_processes[:10]
+                {"pid": p.pid, "name": p.name, "cpu": p.cpu_percent, "mem_mb": p.mem_mb} for p in pc.top_processes[:10]
             ]
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
 
-    async def _handle_run_pc_command(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_run_pc_command(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.openclaw_url:
             return {"success": False, "error": "OpenClaw bridge not configured"}
         try:
@@ -404,7 +417,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _handle_control_browser(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_control_browser(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.openclaw_url:
             return {"success": False, "error": "OpenClaw bridge not configured"}
         action = args.get("action", "")
@@ -430,7 +443,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _handle_send_pc_notification(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_send_pc_notification(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.openclaw_url:
             return {"success": False, "error": "OpenClaw bridge not configured"}
         try:
@@ -452,7 +465,7 @@ class ToolExecutor:
 
     # --- Service tools ---
 
-    async def _handle_get_service_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_service_status(self, args: dict[str, Any]) -> dict[str, Any]:
         ss = self.world_model.services_state
         service_name = args.get("service_name")
         if service_name:
@@ -460,16 +473,22 @@ class ToolExecutor:
             if not svc:
                 return {"success": False, "error": f"Service '{service_name}' not found"}
             status = {
-                "name": svc.name, "available": svc.available,
-                "unread_count": svc.unread_count, "summary": svc.summary,
-                "last_check": svc.last_check, "error": svc.error,
+                "name": svc.name,
+                "available": svc.available,
+                "unread_count": svc.unread_count,
+                "summary": svc.summary,
+                "last_check": svc.last_check,
+                "error": svc.error,
             }
         else:
             status = {
                 name: {
-                    "name": svc.name, "available": svc.available,
-                    "unread_count": svc.unread_count, "summary": svc.summary,
-                    "last_check": svc.last_check, "error": svc.error,
+                    "name": svc.name,
+                    "available": svc.available,
+                    "unread_count": svc.unread_count,
+                    "summary": svc.summary,
+                    "last_check": svc.last_check,
+                    "error": svc.error,
                 }
                 for name, svc in ss.services.items()
             }
@@ -477,7 +496,7 @@ class ToolExecutor:
 
     # --- Obsidian tools ---
 
-    async def _handle_search_notes(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_search_notes(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.obsidian_url:
             return {"success": False, "error": "Obsidian bridge not configured"}
         try:
@@ -498,7 +517,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _handle_write_note(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_write_note(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.obsidian_url:
             return {"success": False, "error": "Obsidian bridge not configured"}
         try:
@@ -519,7 +538,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _handle_get_recent_notes(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_recent_notes(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.obsidian_url:
             return {"success": False, "error": "Obsidian bridge not configured"}
         try:
@@ -537,7 +556,7 @@ class ToolExecutor:
 
     # --- Home Assistant tools ---
 
-    async def _handle_control_light(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_control_light(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.ha_url:
             return {"success": False, "error": "HA bridge not configured"}
         entity_id = args.get("entity_id", "")
@@ -550,7 +569,7 @@ class ToolExecutor:
             data["color_temp"] = args["color_temp"]
         return await self._ha_service_call(entity_id, service, data)
 
-    async def _handle_control_climate(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_control_climate(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.ha_url:
             return {"success": False, "error": "HA bridge not configured"}
         entity_id = args.get("entity_id", "")
@@ -569,13 +588,17 @@ class ToolExecutor:
         if mode and data.get("temperature"):
             # Set mode first, then temperature
             await self._ha_service_call(entity_id, "climate/set_hvac_mode", {"hvac_mode": mode})
-            return await self._ha_service_call(entity_id, "climate/set_temperature", {
-                "temperature": data["temperature"],
-                **({"fan_mode": data["fan_mode"]} if "fan_mode" in data else {}),
-            })
+            return await self._ha_service_call(
+                entity_id,
+                "climate/set_temperature",
+                {
+                    "temperature": data["temperature"],
+                    **({"fan_mode": data["fan_mode"]} if "fan_mode" in data else {}),
+                },
+            )
         return await self._ha_service_call(entity_id, service, data)
 
-    async def _handle_control_cover(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_control_cover(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.ha_url:
             return {"success": False, "error": "HA bridge not configured"}
         entity_id = args.get("entity_id", "")
@@ -583,8 +606,7 @@ class ToolExecutor:
         position = args.get("position")
 
         if position is not None:
-            return await self._ha_service_call(entity_id, "cover/set_cover_position",
-                                               {"position": position})
+            return await self._ha_service_call(entity_id, "cover/set_cover_position", {"position": position})
         if action == "open":
             return await self._ha_service_call(entity_id, "cover/open_cover")
         elif action == "close":
@@ -593,7 +615,7 @@ class ToolExecutor:
             return await self._ha_service_call(entity_id, "cover/stop_cover")
         return {"success": False, "error": "No action or position specified"}
 
-    async def _handle_control_switch(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_control_switch(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.ha_url:
             return {"success": False, "error": "HA bridge not configured"}
         entity_id = args.get("entity_id", "")
@@ -601,7 +623,7 @@ class ToolExecutor:
         service = "switch/turn_on" if on else "switch/turn_off"
         return await self._ha_service_call(entity_id, service)
 
-    async def _handle_get_sensor_data(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_sensor_data(self, args: dict[str, Any]) -> dict[str, Any]:
         hd = self.world_model.home_devices
         entity_id = args.get("entity_id")
         device_class = args.get("device_class")
@@ -610,80 +632,74 @@ class ToolExecutor:
             s = hd.sensors.get(entity_id)
             if not s:
                 return {"success": False, "error": f"Sensor '{entity_id}' not found"}
-            data = {"entity_id": s.entity_id, "value": s.value,
-                    "unit": s.unit, "device_class": s.device_class}
+            data = {"entity_id": s.entity_id, "value": s.value, "unit": s.unit, "device_class": s.device_class}
             return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
 
         sensors = hd.sensors.values()
         if device_class:
             sensors = [s for s in sensors if s.device_class == device_class]
-        data = {
-            s.entity_id: {"value": s.value, "unit": s.unit, "device_class": s.device_class}
-            for s in sensors
-        }
+        data = {s.entity_id: {"value": s.value, "unit": s.unit, "device_class": s.device_class} for s in sensors}
         return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
 
-    async def _handle_execute_scene(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_execute_scene(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.ha_url:
             return {"success": False, "error": "HA bridge not configured"}
         entity_id = args.get("entity_id", "")
         return await self._ha_service_call(entity_id, "scene/turn_on")
 
-    async def _handle_get_home_devices(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_home_devices(self, args: dict[str, Any]) -> dict[str, Any]:
         hd = self.world_model.home_devices
         status = {
             "bridge_connected": hd.bridge_connected,
-            "lights": {
-                eid: {"on": lt.on, "brightness": lt.brightness}
-                for eid, lt in hd.lights.items()
-            },
+            "lights": {eid: {"on": lt.on, "brightness": lt.brightness} for eid, lt in hd.lights.items()},
             "climates": {
                 eid: {"mode": c.mode, "target_temp": c.target_temp, "current_temp": c.current_temp}
                 for eid, c in hd.climates.items()
             },
-            "covers": {
-                eid: {"position": c.position, "is_open": c.is_open}
-                for eid, c in hd.covers.items()
-            },
+            "covers": {eid: {"position": c.position, "is_open": c.is_open} for eid, c in hd.covers.items()},
             "switches": hd.switches,
             "binary_sensors": {
-                eid: {"state": bs.state, "device_class": bs.device_class}
-                for eid, bs in hd.binary_sensors.items()
+                eid: {"state": bs.state, "device_class": bs.device_class} for eid, bs in hd.binary_sensors.items()
             },
             "sensors": {
-                eid: {"value": s.value, "unit": s.unit, "device_class": s.device_class}
-                for eid, s in hd.sensors.items()
+                eid: {"value": s.value, "unit": s.unit, "device_class": s.device_class} for eid, s in hd.sensors.items()
             },
         }
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
 
     # --- System tools ---
 
-    def _handle_set_guest_mode(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _handle_set_guest_mode(self, args: dict[str, Any]) -> dict[str, Any]:
         enabled = args.get("enabled", False)
         duration = args.get("duration_hours", 4)
         self.world_model.set_guest_mode(enabled, duration)
         return {"success": True, "result": f"ゲストモード{'ON' if enabled else 'OFF'} ({duration}時間)"}
 
-    def _handle_get_weather(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _handle_get_weather(self, args: dict[str, Any]) -> dict[str, Any]:
         w = self.world_model.weather
         if w.last_update == 0:
             return {"success": True, "result": "天気データなし"}
         forecast = [
-            {"datetime": f.datetime, "condition": f.condition,
-             "temperature": f.temperature, "precipitation": f.precipitation_probability}
+            {
+                "datetime": f.datetime,
+                "condition": f.condition,
+                "temperature": f.temperature,
+                "precipitation": f.precipitation_probability,
+            }
             for f in w.forecast[:6]
         ]
         result = {
-            "condition": w.condition, "temperature": w.temperature,
-            "humidity": w.humidity, "wind_speed": w.wind_speed,
+            "condition": w.condition,
+            "temperature": w.temperature,
+            "humidity": w.humidity,
+            "wind_speed": w.wind_speed,
             "forecast": forecast,
         }
         return {"success": True, "result": json.dumps(result, ensure_ascii=False)}
 
     # --- Biometric tools ---
 
-    async def _handle_get_biometrics(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_biometrics(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get current biometric readings from world model."""
         bio = self.world_model.biometric_state
         status = {"bridge_connected": bio.bridge_connected, "provider": bio.provider}
@@ -708,7 +724,7 @@ class ToolExecutor:
             }
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
 
-    async def _handle_get_sleep_summary(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_sleep_summary(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get sleep data from world model or bridge API."""
         bio = self.world_model.biometric_state
         if bio.sleep.last_update > 0:
@@ -739,7 +755,7 @@ class ToolExecutor:
 
     # --- Perception tools ---
 
-    async def _handle_get_perception_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_perception_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get camera-based occupancy and activity data from world model."""
         zones_data = {}
         for zone_id, zone in self.world_model.zones.items():
@@ -758,7 +774,7 @@ class ToolExecutor:
             return {"success": True, "result": "カメラデータがまだありません"}
         return {"success": True, "result": json.dumps({"zones": zones_data}, ensure_ascii=False)}
 
-    async def _handle_describe_scene(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_describe_scene(self, args: dict[str, Any]) -> dict[str, Any]:
         """Analyze camera scene via VLM (on-demand). Uses cached data if recent."""
         zone_id = args.get("zone_id", "")
         custom_prompt = args.get("prompt", "")
@@ -770,6 +786,7 @@ class ToolExecutor:
                     continue
                 occ = zone.occupancy
                 import time as _time
+
                 if occ.vlm_last_update > 0 and _time.time() - occ.vlm_last_update < 60:
                     data = {
                         "zone": zid,
@@ -799,14 +816,14 @@ class ToolExecutor:
                         return {"success": False, "error": data["error"]}
                     return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
                 return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {"success": False, "error": "VLM分析がタイムアウトしました"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     # --- Shopping tools ---
 
-    async def _handle_add_shopping_item(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_add_shopping_item(self, args: dict[str, Any]) -> dict[str, Any]:
         """Add item to shopping list via backend API."""
         name = args.get("name", "")
         try:
@@ -825,7 +842,6 @@ class ToolExecutor:
                     "created_by": "brain",
                 },
                 timeout=aiohttp.ClientTimeout(total=10),
-                headers=_AUTH_HEADERS,
             ) as resp:
                 data = await resp.json()
                 if resp.status == 200:
@@ -834,7 +850,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _handle_get_shopping_list(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_shopping_list(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get shopping list from backend API."""
         params = {}
         if args.get("category"):
@@ -846,7 +862,6 @@ class ToolExecutor:
                 f"{self.dashboard_api_url}/shopping/",
                 params=params,
                 timeout=aiohttp.ClientTimeout(total=10),
-                headers=_AUTH_HEADERS,
             ) as resp:
                 data = await resp.json()
                 if resp.status == 200:
@@ -879,13 +894,14 @@ class ToolExecutor:
 
     # --- News tools ---
 
-    async def _handle_get_news_summary(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_news_summary(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get latest news summary from world model cache or news-bridge API."""
         ns = self.world_model.news_state
 
         # Try cached data first
         if ns.daily_timestamp > 0:
             import time as _time
+
             age_min = int((_time.time() - ns.daily_timestamp) / 60)
             result = {
                 "summary": ns.daily_summary,
@@ -917,7 +933,7 @@ class ToolExecutor:
 
     # --- SwitchBot tools ---
 
-    async def _handle_get_switchbot_devices(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_switchbot_devices(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get SwitchBot device list from bridge."""
         if not self.switchbot_url:
             return {"success": False, "error": "SwitchBot bridge not configured"}
@@ -949,7 +965,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _handle_control_switchbot(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_control_switchbot(self, args: dict[str, Any]) -> dict[str, Any]:
         """Send command to a SwitchBot device via bridge."""
         if not self.switchbot_url:
             return {"success": False, "error": "SwitchBot bridge not configured"}
@@ -973,7 +989,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _handle_send_switchbot_ir(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_send_switchbot_ir(self, args: dict[str, Any]) -> dict[str, Any]:
         """Send IR command via SwitchBot Hub."""
         if not self.switchbot_url:
             return {"success": False, "error": "SwitchBot bridge not configured"}
@@ -999,7 +1015,7 @@ class ToolExecutor:
 
     # --- Knowledge tools ---
 
-    async def _handle_search_knowledge(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_search_knowledge(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.knowledge_url:
             return {"success": False, "error": "Knowledge bridge not configured"}
         try:
@@ -1021,7 +1037,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _handle_get_knowledge_sources(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_get_knowledge_sources(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.knowledge_url:
             return {"success": False, "error": "Knowledge bridge not configured"}
         try:
@@ -1036,7 +1052,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _handle_read_knowledge_document(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_read_knowledge_document(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.knowledge_url:
             return {"success": False, "error": "Knowledge bridge not configured"}
         try:
@@ -1052,8 +1068,7 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _ha_service_call(self, entity_id: str, service: str,
-                               data: dict = None) -> Dict[str, Any]:
+    async def _ha_service_call(self, entity_id: str, service: str, data: dict = None) -> dict[str, Any]:
         """Call HA bridge REST API to execute a service call."""
         try:
             async with self._session.post(
@@ -1074,7 +1089,7 @@ class ToolExecutor:
 
     # --- Device Registry tools ---
 
-    async def _handle_control_actuator(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_control_actuator(self, args: dict[str, Any]) -> dict[str, Any]:
         if self.device_dispatcher is None:
             return {"success": False, "error": "Device dispatcher not configured"}
         device_id = args.get("device_id", "")
@@ -1084,7 +1099,7 @@ class ToolExecutor:
             return {"success": False, "error": "device_id and action are required"}
         return await self.device_dispatcher.dispatch(device_id, action, params)
 
-    async def _handle_list_devices(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_list_devices(self, args: dict[str, Any]) -> dict[str, Any]:
         if self.device_dispatcher is None:
             return {"success": False, "error": "Device dispatcher not configured"}
         devices = await self.device_dispatcher.list_all(
@@ -1124,7 +1139,7 @@ class ToolExecutor:
         ]
         return {"success": True, "result": json.dumps(summary, ensure_ascii=False)}
 
-    async def _handle_describe_device(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_describe_device(self, args: dict[str, Any]) -> dict[str, Any]:
         if self.device_dispatcher is None:
             return {"success": False, "error": "Device dispatcher not configured"}
         device_id = args.get("device_id", "")
@@ -1135,14 +1150,14 @@ class ToolExecutor:
             return {"success": False, "error": f"Device '{device_id}' not found"}
         return {"success": True, "result": json.dumps(device, ensure_ascii=False)}
 
-    async def _handle_zigbee_permit_join(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_zigbee_permit_join(self, args: dict[str, Any]) -> dict[str, Any]:
         if self.device_dispatcher is None:
             return {"success": False, "error": "Device dispatcher not configured"}
         enable = bool(args.get("enable", False))
         duration_s = int(args.get("duration_s", 60) or 0)
         return self.device_dispatcher.zigbee_permit_join(enable, duration_s)
 
-    async def _handle_execute_scene_by_name(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_execute_scene_by_name(self, args: dict[str, Any]) -> dict[str, Any]:
         if self.scene_executor is None:
             return {"success": False, "error": "Scene executor not configured"}
         name = args.get("name", "")
@@ -1150,12 +1165,10 @@ class ToolExecutor:
             return {"success": False, "error": "name is required"}
         result = await self.scene_executor.execute_by_name(name)
         if result.get("success"):
-            return {"success": True,
-                    "result": f"scene '{name}': {result['executed']} actions executed"}
-        return {"success": False,
-                "error": f"scene '{name}' failed: {'; '.join(result.get('errors', []))}"}
+            return {"success": True, "result": f"scene '{name}': {result['executed']} actions executed"}
+        return {"success": False, "error": f"scene '{name}' failed: {'; '.join(result.get('errors', []))}"}
 
-    async def _handle_list_scenes(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_list_scenes(self, args: dict[str, Any]) -> dict[str, Any]:
         if self.scene_executor is None:
             return {"success": False, "error": "Scene executor not configured"}
         scenes = await self.scene_executor.list_scenes()

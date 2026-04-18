@@ -3,15 +3,16 @@ Event Automation — event-driven action execution for HEMS Brain.
 Maps events (wake_up, arrival, departure, scheduled) to actions
 (news_briefing, morning_greeting, weather_report).
 """
+
 import json
 import os
-import time
 from datetime import datetime
 
 import aiohttp
 from loguru import logger
 
-from brain_utils import AUTH_HEADERS as _AUTH_HEADERS, SPEAK_CHUNK_LIMIT, split_for_speak as _split_for_speak
+from brain_utils import SPEAK_CHUNK_LIMIT
+from brain_utils import split_for_speak as _split_for_speak
 
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
@@ -28,8 +29,7 @@ class EventAutomation:
     EVENTS = {"wake_up", "arrival", "departure", "scheduled"}
     ACTIONS = {"news_briefing", "morning_greeting", "weather_report", "speak_custom", "task_planning"}
 
-    def __init__(self, tool_executor, world_model, llm_client=None, character=None,
-                 boot_load_manager=None):
+    def __init__(self, tool_executor, world_model, llm_client=None, character=None, boot_load_manager=None):
         self.tool_executor = tool_executor
         self.world_model = world_model
         self.llm = llm_client
@@ -87,20 +87,21 @@ class EventAutomation:
 
         logger.info(f"Event triggered: {event_type}")
 
-        # Boot Load cache: play pre-generated briefing instantly if ready
-        if (
-            event_type == "wake_up"
-            and self.boot_load_manager
-            and self.boot_load_manager.is_ready
-        ):
+        # Boot Load cache: play pre-generated briefing instantly if ready.
+        # Voice actions (greeting/news/weather) are replaced by the cache,
+        # but device actions (scene:*) still run below.
+        boot_load_used = False
+        if event_type == "wake_up" and self.boot_load_manager and self.boot_load_manager.is_ready:
             logger.info("[BootLoad] キャッシュ済みブリーフィングを再生")
             try:
                 await self._execute_boot_load_briefing()
+                boot_load_used = True
+                self.boot_load_manager.reset()
             except Exception as e:
                 logger.error(f"[BootLoad] キャッシュ再生失敗、通常パスにフォールバック: {e}")
-            else:
-                self.boot_load_manager.reset()
-                return
+
+        # Voice-only actions that boot load already covers
+        _BOOT_LOAD_ACTIONS = {"morning_greeting", "news_briefing", "weather_report"}
 
         for automation in self.automations:
             if automation.get("event") != event_type:
@@ -109,6 +110,9 @@ class EventAutomation:
             for action in actions:
                 action_name = action if isinstance(action, str) else action.get("name", "")
                 action_config = None if isinstance(action, str) else action
+                # Skip voice actions already played by boot load cache
+                if boot_load_used and action_name in _BOOT_LOAD_ACTIONS:
+                    continue
                 try:
                     await self._execute_action(action_name, action_config)
                 except Exception as e:
@@ -146,7 +150,8 @@ class EventAutomation:
         if action_name.startswith("scene:"):
             scene_name = action_name.split(":", 1)[1]
             await self.tool_executor.execute(
-                "execute_scene_by_name", {"name": scene_name},
+                "execute_scene_by_name",
+                {"name": scene_name},
             )
             return
 
@@ -161,11 +166,14 @@ class EventAutomation:
         elif action_name == "speak_custom":
             text = (action_config or {}).get("text", "")
             if text:
-                await self.tool_executor.execute("speak", {
-                    "message": text[:SPEAK_CHUNK_LIMIT],
-                    "zone": "home",
-                    "tone": (action_config or {}).get("tone", "neutral"),
-                })
+                await self.tool_executor.execute(
+                    "speak",
+                    {
+                        "message": text[:SPEAK_CHUNK_LIMIT],
+                        "zone": "home",
+                        "tone": (action_config or {}).get("tone", "neutral"),
+                    },
+                )
         else:
             logger.warning(f"Unknown action: {action_name}")
 
@@ -192,7 +200,7 @@ class EventAutomation:
                 logger.warning(f"News bridge request failed: {e}")
 
         # Fallback: use cached summary from world model
-        if not chunks and hasattr(self.world_model, 'news_state'):
+        if not chunks and hasattr(self.world_model, "news_state"):
             ns = self.world_model.news_state
             if ns.daily_chunks:
                 chunks = ns.daily_chunks
@@ -202,21 +210,27 @@ class EventAutomation:
             return
 
         # Speak intro
-        await self.tool_executor.execute("speak", {
-            "message": "ニュースをお伝えします。",
-            "zone": "home",
-            "tone": "neutral",
-        })
+        await self.tool_executor.execute(
+            "speak",
+            {
+                "message": "ニュースをお伝えします。",
+                "zone": "home",
+                "tone": "neutral",
+            },
+        )
 
         # Speak each chunk, re-splitting if needed for 70-char limit
         for chunk in chunks:
             sub_chunks = _split_for_speak(chunk)
             for sub in sub_chunks:
-                await self.tool_executor.execute("speak", {
-                    "message": sub,
-                    "zone": "home",
-                    "tone": "neutral",
-                })
+                await self.tool_executor.execute(
+                    "speak",
+                    {
+                        "message": sub,
+                        "zone": "home",
+                        "tone": "neutral",
+                    },
+                )
 
     async def _action_morning_greeting(self):
         """Generate and speak a morning greeting using LLM."""
@@ -250,10 +264,12 @@ class EventAutomation:
                     f"キャラ口調や装飾語尾は付けないでください（後段で付与されます）。\n"
                     f"セリフのみ出力してください。\n\n{context}"
                 )
-                response = await self.llm.chat([
-                    {"role": "system", "content": "短い日本語の朝の挨拶を素のまま生成してください。"},
-                    {"role": "user", "content": prompt},
-                ])
+                response = await self.llm.chat(
+                    [
+                        {"role": "system", "content": "短い日本語の朝の挨拶を素のまま生成してください。"},
+                        {"role": "user", "content": prompt},
+                    ]
+                )
                 if not response.error and response.content:
                     message = response.content.strip().strip("「」『』\"'")[:67]
             except Exception as e:
@@ -268,11 +284,14 @@ class EventAutomation:
             else:
                 message = "こんにちは。"
 
-        await self.tool_executor.execute("speak", {
-            "message": message,
-            "zone": "home",
-            "tone": "caring",
-        })
+        await self.tool_executor.execute(
+            "speak",
+            {
+                "message": message,
+                "zone": "home",
+                "tone": "caring",
+            },
+        )
 
     async def _execute_boot_load_briefing(self):
         """Play pre-generated boot load briefing cache.
@@ -300,13 +319,10 @@ class EventAutomation:
                             "zone": "home",
                             "tone": "caring",
                         },
-                        headers=_AUTH_HEADERS,
                         timeout=aiohttp.ClientTimeout(total=10),
                     ) as resp:
                         if resp.status not in (200, 201):
-                            logger.warning(
-                                "[BootLoad] VoiceEvent inject HTTP %d", resp.status
-                            )
+                            logger.warning("[BootLoad] VoiceEvent inject HTTP %d", resp.status)
                 except Exception as e:
                     logger.warning(f"[BootLoad] VoiceEvent inject エラー: {e}")
         else:
@@ -314,11 +330,14 @@ class EventAutomation:
             logger.debug("[BootLoad] audio_urls なし — テキストチャンクでTTS再生")
             for chunk in cache.briefing_chunks:
                 try:
-                    await self.tool_executor.execute("speak", {
-                        "message": chunk,
-                        "zone": "home",
-                        "tone": "caring",
-                    })
+                    await self.tool_executor.execute(
+                        "speak",
+                        {
+                            "message": chunk,
+                            "zone": "home",
+                            "tone": "caring",
+                        },
+                    )
                 except Exception as e:
                     logger.warning(f"[BootLoad] speak エラー: {e}")
 
@@ -331,25 +350,28 @@ class EventAutomation:
             tasks = await self.tool_executor.dashboard.get_active_tasks()
             if not tasks:
                 logger.info("[task_planning] アクティブタスクなし")
-                await self.tool_executor.execute("speak", {
-                    "message": "現在アクティブなタスクはありません。",
-                    "zone": "home",
-                    "tone": "neutral",
-                })
+                await self.tool_executor.execute(
+                    "speak",
+                    {
+                        "message": "現在アクティブなタスクはありません。",
+                        "zone": "home",
+                        "tone": "neutral",
+                    },
+                )
                 return
 
-            tasks_text = "\n".join(
-                f"- [{t['id']}] {t['title']}: {t.get('description', '')}"
-                for t in tasks[:10]
-            )
+            tasks_text = "\n".join(f"- [{t['id']}] {t['title']}: {t.get('description', '')}" for t in tasks[:10])
             prompt = (
                 f"以下のアクティブタスクについて、各タスクの詳細な実行手順・目安時間・注意点を"
                 f"日本語で簡潔にまとめてください。発話用なので200文字以内でお願いします。\n\n{tasks_text}"
             )
-            resp = await self.llm.chat([
-                {"role": "system", "content": "あなたはタスク管理アシスタントです。簡潔に答えてください。"},
-                {"role": "user", "content": prompt},
-            ], max_tokens=300)
+            resp = await self.llm.chat(
+                [
+                    {"role": "system", "content": "あなたはタスク管理アシスタントです。簡潔に答えてください。"},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=300,
+            )
             if resp.error:
                 logger.warning("[task_planning] LLMエラー: %s", resp.error)
                 return
@@ -357,11 +379,14 @@ class EventAutomation:
             content = resp.content.strip()
             if content:
                 for chunk in _split_for_speak(content, SPEAK_CHUNK_LIMIT):
-                    await self.tool_executor.execute("speak", {
-                        "message": chunk,
-                        "zone": "home",
-                        "tone": "informative",
-                    })
+                    await self.tool_executor.execute(
+                        "speak",
+                        {
+                            "message": chunk,
+                            "zone": "home",
+                            "tone": "informative",
+                        },
+                    )
             logger.info("[task_planning] 完了 (%d tasks)", len(tasks))
         except Exception as e:
             logger.error("[task_planning] エラー: %s", e)
@@ -397,12 +422,13 @@ class EventAutomation:
         message = "、".join(parts) + "です。"
         # Truncate if too long
         if len(message) > SPEAK_CHUNK_LIMIT:
-            message = message[:SPEAK_CHUNK_LIMIT - 1] + "。"
+            message = message[: SPEAK_CHUNK_LIMIT - 1] + "。"
 
-        await self.tool_executor.execute("speak", {
-            "message": message,
-            "zone": "home",
-            "tone": "neutral",
-        })
-
-
+        await self.tool_executor.execute(
+            "speak",
+            {
+                "message": message,
+                "zone": "home",
+                "tone": "neutral",
+            },
+        )

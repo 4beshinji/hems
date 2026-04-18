@@ -3,16 +3,31 @@ Rule-based fallback engine for HEMS Brain.
 Used when GPU load is high or LLM is unavailable.
 Evaluates simple threshold rules and returns tool call actions.
 """
+
 import os
 import random
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from loguru import logger
+
 from world_model.world_model import (
-    CO2_HIGH, CO2_CRITICAL, TEMP_HIGH, TEMP_LOW, PC_GPU_TEMP_HIGH, PC_DISK_HIGH,
-    SEDENTARY_MINUTES, HUMIDITY_HIGH, HUMIDITY_LOW, HRV_LOW, BODY_TEMP_HIGH, RESPIRATORY_RATE_HIGH, SCREEN_TIME_ALERT_MINUTES,
-    POWER_IDLE_WATTS, PM25_HIGH,
+    BODY_TEMP_HIGH,
+    CO2_CRITICAL,
+    CO2_HIGH,
+    HRV_LOW,
+    HUMIDITY_HIGH,
+    HUMIDITY_LOW,
+    PC_DISK_HIGH,
+    PC_GPU_TEMP_HIGH,
+    PM25_HIGH,
+    POWER_IDLE_WATTS,
+    RESPIRATORY_RATE_HIGH,
+    SCREEN_TIME_ALERT_MINUTES,
+    SEDENTARY_MINUTES,
+    TEMP_HIGH,
+    TEMP_LOW,
 )
 
 # Critical thresholds used only in low-power mode (more extreme than normal alerts)
@@ -20,8 +35,7 @@ TEMP_CRITICAL_HIGH = float(os.getenv("HEMS_THRESHOLD_TEMP_CRITICAL_HIGH", "40.0"
 TEMP_CRITICAL_LOW = float(os.getenv("HEMS_THRESHOLD_TEMP_CRITICAL_LOW", "5.0"))
 SPO2_CRITICAL_LOW = int(os.getenv("HEMS_THRESHOLD_SPO2_CRITICAL_LOW", "88"))
 HR_CRITICAL_SLEEP = int(os.getenv("HEMS_THRESHOLD_HR_CRITICAL_SLEEP", "150"))
-from schedule_learner import ScheduleLearner  # noqa: E402
-
+from schedule_learner import ScheduleLearner
 
 # Biometric stale data detection (minutes without update before alerting)
 BIOMETRIC_STALE_MINUTES = int(os.getenv("HEMS_BIOMETRIC_STALE_MINUTES", "30"))
@@ -42,11 +56,11 @@ CIRCADIAN_INTERVAL = int(os.getenv("HEMS_CIRCADIAN_INTERVAL", "1800"))
 # Circadian color temp curve (hour → mirek, brightness_pct)
 # 153 mirek = 6500K (cold), 500 mirek = 2000K (warm)
 CIRCADIAN_CURVE = [
-    (0, 450, 30),   # midnight: very warm, dim
-    (6, 400, 50),   # early morning: warm
+    (0, 450, 30),  # midnight: very warm, dim
+    (6, 400, 50),  # early morning: warm
     (8, 270, 100),  # morning: cool/energizing
-    (12, 250, 100), # noon: daylight
-    (17, 300, 100), # afternoon: neutral
+    (12, 250, 100),  # noon: daylight
+    (17, 300, 100),  # afternoon: neutral
     (20, 380, 80),  # evening: warm
     (22, 430, 50),  # late evening: very warm, dim
 ]
@@ -58,13 +72,15 @@ def _get_gpu_utilization() -> float | None:
         if GPU_TYPE == "nvidia":
             out = subprocess.check_output(
                 ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
-                timeout=5, text=True,
+                timeout=5,
+                text=True,
             )
             return float(out.strip().split("\n")[0])
         elif GPU_TYPE == "amd":
             out = subprocess.check_output(
                 ["rocm-smi", "--showuse", "--csv"],
-                timeout=5, text=True,
+                timeout=5,
+                text=True,
             )
             for line in out.strip().split("\n"):
                 if "," in line and not line.startswith("device"):
@@ -86,9 +102,51 @@ class RuleEngine:
 
     def __init__(self, schedule_learner: ScheduleLearner | None = None):
         self.schedule_learner = schedule_learner
+        self.device_dispatcher = None
         self._cooldowns: dict[str, float] = {}
         self._pressure_history: dict[str, float] = {}  # zone_id → last known pressure
-        self._absence_light_state: dict[str, bool] = {}  # entity_id → simulated on
+        self._absence_light_state: dict[str, bool] = {}  # device_id → simulated on
+        self._device_cache: list[dict] = []
+        self._device_cache_ts: float = 0
+        self._DEVICE_CACHE_TTL = 60
+
+    async def refresh_devices(self):
+        if self.device_dispatcher is None:
+            return
+        now = time.time()
+        if now - self._device_cache_ts < self._DEVICE_CACHE_TTL:
+            return
+        self._device_cache = await self.device_dispatcher.list_all()
+        self._device_cache_ts = now
+
+    def _get_devices(self, device_class=None, capability=None, zone=None, kind=None) -> list[dict]:
+        results = []
+        for d in self._device_cache:
+            if not d.get("is_enabled", True):
+                continue
+            if device_class and d.get("device_class") != device_class:
+                continue
+            if capability and capability not in (d.get("capabilities") or []):
+                continue
+            if zone and d.get("zone") != zone:
+                continue
+            if kind and d.get("kind") != kind:
+                continue
+            results.append(d)
+        return results
+
+    def _device_is_on(self, device: dict) -> bool:
+        return (device.get("last_state") or {}).get("on", False)
+
+    def _device_brightness(self, device: dict) -> int:
+        return (device.get("last_state") or {}).get("brightness", 0)
+
+    @staticmethod
+    def _make_action(device_id: str, action: str, params: dict | None = None) -> dict:
+        return {
+            "tool": "control_actuator",
+            "args": {"device_id": device_id, "action": action, "params": params or {}},
+        }
 
     def should_use_rules(self) -> bool:
         """Check if we should use rule-based mode instead of LLM."""
@@ -110,89 +168,104 @@ class RuleEngine:
             # CO2 above threshold -> create ventilation task
             if env.co2 is not None and env.co2 > CO2_HIGH:
                 if self._check_cooldown(f"co2_{zone_id}", now):
-                    actions.append({
-                        "tool": "create_task",
-                        "args": {
-                            "title": f"{zone_id}の換気",
-                            "description": f"CO2濃度が{int(env.co2)}ppmです。窓を開けて換気してください。",
-
-                            "urgency": 3,
-                            "zone": zone_id,
-                            "task_type": ["ventilation"],
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"{zone_id}の換気",
+                                "description": f"CO2濃度が{int(env.co2)}ppmです。窓を開けて換気してください。",
+                                "urgency": 3,
+                                "zone": zone_id,
+                                "task_type": ["ventilation"],
+                            },
+                        }
+                    )
 
             # Temperature too high or too low
             if env.temperature is not None:
                 if env.temperature > TEMP_HIGH and self._check_cooldown(f"temp_high_{zone_id}", now):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"{zone_id}の室温が{env.temperature:.1f}度です。エアコンをつけましょう。",
-                            "zone": zone_id,
-                            "tone": "caring",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"{zone_id}の室温が{env.temperature:.1f}度です。エアコンをつけましょう。",
+                                "zone": zone_id,
+                                "tone": "caring",
+                            },
+                        }
+                    )
                 elif env.temperature < TEMP_LOW and self._check_cooldown(f"temp_low_{zone_id}", now):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"{zone_id}の室温が{env.temperature:.1f}度と低めです。暖房をつけましょう。",
-                            "zone": zone_id,
-                            "tone": "caring",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"{zone_id}の室温が{env.temperature:.1f}度と低めです。暖房をつけましょう。",
+                                "zone": zone_id,
+                                "tone": "caring",
+                            },
+                        }
+                    )
 
             # Sedentary detection (from events)
             for event in zone.events:
                 if event.event_type == "sedentary_alert" and self._check_cooldown(f"sed_{zone_id}", now):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": "長時間座っていますね。少し休憩しましょう。",
-                            "zone": zone_id,
-                            "tone": "caring",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": "長時間座っていますね。少し休憩しましょう。",
+                                "zone": zone_id,
+                                "tone": "caring",
+                            },
+                        }
+                    )
 
             # Long static posture detection
             occ = zone.occupancy
-            if (occ.posture_status == "static"
-                    and occ.posture_duration_sec > SEDENTARY_MINUTES * 60
-                    and self._check_cooldown(f"posture_{zone_id}", now)):
+            if (
+                occ.posture_status == "static"
+                and occ.posture_duration_sec > SEDENTARY_MINUTES * 60
+                and self._check_cooldown(f"posture_{zone_id}", now)
+            ):
                 duration_min = int(occ.posture_duration_sec / 60)
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": f"同じ姿勢で{duration_min}分経っています。少しストレッチしましょう。",
-                        "zone": zone_id,
-                        "tone": "caring",
-                    },
-                })
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": f"同じ姿勢で{duration_min}分経っています。少しストレッチしましょう。",
+                            "zone": zone_id,
+                            "tone": "caring",
+                        },
+                    }
+                )
 
             # Humidity high
             if env.humidity is not None and env.humidity > HUMIDITY_HIGH:
                 if self._check_cooldown(f"humidity_high_{zone_id}", now):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"{zone_id}の湿度が{env.humidity:.0f}%です。除湿しましょう。",
-                            "zone": zone_id,
-                            "tone": "caring",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"{zone_id}の湿度が{env.humidity:.0f}%です。除湿しましょう。",
+                                "zone": zone_id,
+                                "tone": "caring",
+                            },
+                        }
+                    )
 
             # Humidity low
             if env.humidity is not None and env.humidity < HUMIDITY_LOW:
                 if self._check_cooldown(f"humidity_low_{zone_id}", now):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"{zone_id}の湿度が{env.humidity:.0f}%と低めです。加湿しましょう。",
-                            "zone": zone_id,
-                            "tone": "caring",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"{zone_id}の湿度が{env.humidity:.0f}%と低めです。加湿しましょう。",
+                                "zone": zone_id,
+                                "tone": "caring",
+                            },
+                        }
+                    )
 
             # Pressure drop detection (weather pain / 気象病)
             if env.pressure is not None:
@@ -200,65 +273,75 @@ class RuleEngine:
                 self._pressure_history[zone_id] = env.pressure
                 if prev_pressure is not None and prev_pressure - env.pressure >= 5:
                     if self._check_cooldown(f"pressure_drop_{zone_id}", now):
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": f"気圧が低下しています（{prev_pressure:.0f}→{env.pressure:.0f}hPa）。頭痛に注意してください。",
-                                "zone": zone_id,
-                                "tone": "caring",
-                            },
-                        })
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": f"気圧が低下しています（{prev_pressure:.0f}→{env.pressure:.0f}hPa）。頭痛に注意してください。",
+                                    "zone": zone_id,
+                                    "tone": "caring",
+                                },
+                            }
+                        )
 
             # Late night low activity — suggest sleep
             hour = datetime.now().hour
-            if ((hour >= 23 or hour < 5)
-                    and occ.activity_class == "idle"
-                    and occ.count > 0
-                    and self._check_cooldown(f"late_idle_{zone_id}", now)):
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": "深夜ですね。そろそろ休みましょう。",
-                        "zone": zone_id,
-                        "tone": "caring",
-                    },
-                })
+            if (
+                (hour >= 23 or hour < 5)
+                and occ.activity_class == "idle"
+                and occ.count > 0
+                and self._check_cooldown(f"late_idle_{zone_id}", now)
+            ):
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": "深夜ですね。そろそろ休みましょう。",
+                            "zone": zone_id,
+                            "tone": "caring",
+                        },
+                    }
+                )
 
         # --- PC rules ---
         pc = world_model.pc_state
         if pc.gpu.temp_c > PC_GPU_TEMP_HIGH and self._check_cooldown("pc_gpu_hot", now):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": f"GPU温度が{pc.gpu.temp_c:.0f}度です。負荷を下げてください。",
-                    "zone": "pc",
-                    "tone": "alert",
-                },
-            })
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"GPU温度が{pc.gpu.temp_c:.0f}度です。負荷を下げてください。",
+                        "zone": "pc",
+                        "tone": "alert",
+                    },
+                }
+            )
 
         if pc.disk.partitions:
             for p in pc.disk.partitions:
                 if p.percent > PC_DISK_HIGH and self._check_cooldown(f"pc_disk_{p.mount}", now):
-                    actions.append({
-                        "tool": "create_task",
-                        "args": {
-                            "title": f"ディスク容量不足: {p.mount}",
-                            "description": f"{p.mount}の使用率が{p.percent:.0f}%です。不要ファイルを削除してください。",
-
-                            "urgency": 2,
-                            "zone": "pc",
-                            "task_type": ["maintenance"],
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"ディスク容量不足: {p.mount}",
+                                "description": f"{p.mount}の使用率が{p.percent:.0f}%です。不要ファイルを削除してください。",
+                                "urgency": 2,
+                                "zone": "pc",
+                                "task_type": ["maintenance"],
+                            },
+                        }
+                    )
 
         # --- GAS rules ---
         gas = world_model.gas_state
         if gas.bridge_connected:
-            actions.extend(self._evaluate_gas_rules(gas, now))
+            actions.extend(self._evaluate_gas_rules(gas, now, world_model))
 
-        # --- Home Assistant rules ---
+        # --- Home / device rules ---
         hd = world_model.home_devices
-        if hd.bridge_connected:
+        has_devices = hd.bridge_connected or bool(self._device_cache)
+        if has_devices:
             if not world_model.is_guest_mode:
                 actions.extend(self._evaluate_home_rules(world_model, now))
                 actions.extend(self._evaluate_zigbee_sensor_rules(world_model, now))
@@ -271,17 +354,18 @@ class RuleEngine:
 
         # --- Screen time rule ---
         st = world_model.user.screen_time
-        if (st.total_minutes >= SCREEN_TIME_ALERT_MINUTES
-                and self._check_cooldown("screen_time_alert", now)):
+        if st.total_minutes >= SCREEN_TIME_ALERT_MINUTES and self._check_cooldown("screen_time_alert", now):
             hours = st.total_minutes // 60
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": f"画面を{hours}時間以上見ています。目を休めましょう。",
-                    "zone": "home",
-                    "tone": "caring",
-                },
-            })
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"画面を{hours}時間以上見ています。目を休めましょう。",
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                }
+            )
 
         # --- Biometric rules (skip in guest mode for privacy) ---
         bio = world_model.biometric_state
@@ -296,14 +380,14 @@ class RuleEngine:
 
         return actions
 
-    def _evaluate_gas_rules(self, gas, now: float) -> list[dict]:
+    def _evaluate_gas_rules(self, gas, now: float, world_model=None) -> list[dict]:
         """Evaluate GAS-related rules. Returns list of tool call actions."""
         actions = []
 
         try:
             local_now = datetime.now()
         except Exception:
-            local_now = datetime.now(timezone.utc)
+            local_now = datetime.now(UTC)
         hour = local_now.hour
         weekday = local_now.weekday()  # 0=Monday, 6=Sunday
 
@@ -320,25 +404,30 @@ class RuleEngine:
                     msg = f"あと{int(minutes_until)}分で「{ev.title}」が始まります。"
                     if ev.location:
                         msg += f"（{ev.location}）"
-                    actions.append({
-                        "tool": "speak",
-                        "args": {"message": msg[:70], "zone": "home", "tone": "alert"},
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {"message": msg[:70], "zone": "home", "tone": "alert"},
+                        }
+                    )
 
         # 2. Overlapping events detection
         timed_events = [e for e in gas.calendar_events if not e.is_all_day and e.start_ts > 0]
         for i, ev1 in enumerate(timed_events):
-            for ev2 in timed_events[i + 1:]:
+            for ev2 in timed_events[i + 1 :]:
                 if ev1.start_ts < ev2.end_ts and ev2.start_ts < ev1.end_ts:
                     key = f"gas_overlap_{ev1.id}_{ev2.id}"
                     if self._check_cooldown(key, now):
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": f"予定が重複しています: 「{ev1.title}」と「{ev2.title}」",
-                                "zone": "home", "tone": "alert",
-                            },
-                        })
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": f"予定が重複しています: 「{ev1.title}」と「{ev2.title}」",
+                                    "zone": "home",
+                                    "tone": "alert",
+                                },
+                            }
+                        )
 
         # 3. Morning briefing — 8:00-9:00, once per day
         if 8 <= hour < 9 and self._check_cooldown_daily("gas_morning_brief", now):
@@ -355,10 +444,12 @@ class RuleEngine:
             if unread > 0:
                 msg += f"、未読{unread}通"
             msg += "です。"
-            actions.append({
-                "tool": "speak",
-                "args": {"message": msg[:70], "zone": "home", "tone": "neutral"},
-            })
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {"message": msg[:70], "zone": "home", "tone": "neutral"},
+                }
+            )
 
         # 4. Evening summary — 21:00-22:00, once per day
         if 21 <= hour < 22 and self._check_cooldown_daily("gas_evening_summary", now):
@@ -366,8 +457,7 @@ class RuleEngine:
             tomorrow_start = now + (24 - hour) * 3600
             tomorrow_end = tomorrow_start + 24 * 3600
             tomorrow_events = [
-                e for e in gas.calendar_events
-                if not e.is_all_day and tomorrow_start <= e.start_ts < tomorrow_end
+                e for e in gas.calendar_events if not e.is_all_day and tomorrow_start <= e.start_ts < tomorrow_end
             ]
             if tomorrow_events:
                 first = tomorrow_events[0]
@@ -375,10 +465,12 @@ class RuleEngine:
                 msg = f"明日は{len(tomorrow_events)}件の予定があります。最初は{t_str}「{first.title}」です。"
             else:
                 msg = "明日の予定はありません。ゆっくり休んでください。"
-            actions.append({
-                "tool": "speak",
-                "args": {"message": msg[:70], "zone": "home", "tone": "caring"},
-            })
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {"message": msg[:70], "zone": "home", "tone": "caring"},
+                }
+            )
 
         # 5. Long free slot detection — 9:00-18:00, 2h+ free slots
         if 9 <= hour < 18:
@@ -387,32 +479,37 @@ class RuleEngine:
                 key = f"gas_free_slot_{slot.start[:13]}"
                 if self._check_cooldown(key, now):
                     t_str = slot.start.split("T")[1][:5] if "T" in slot.start else "?"
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"{t_str}から{slot.duration_minutes}分の空き時間があります。集中作業に最適です。",
-                            "zone": "home", "tone": "neutral",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"{t_str}から{slot.duration_minutes}分の空き時間があります。集中作業に最適です。",
+                                "zone": "home",
+                                "tone": "neutral",
+                            },
+                        }
+                    )
 
         # 6. Early bedtime suggestion — tomorrow's first event before 8:00
         if hour == 22:
             tomorrow_start = now + 2 * 3600  # ~midnight
             early_cutoff = tomorrow_start + 8 * 3600  # ~8:00 tomorrow
             early_events = [
-                e for e in gas.calendar_events
-                if not e.is_all_day and tomorrow_start <= e.start_ts < early_cutoff
+                e for e in gas.calendar_events if not e.is_all_day and tomorrow_start <= e.start_ts < early_cutoff
             ]
             if early_events and self._check_cooldown_daily("gas_early_bed", now):
                 first = early_events[0]
                 t_str = first.start.split("T")[1][:5] if "T" in first.start else "?"
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": f"明日は{t_str}に予定があります。早めに休みましょう。",
-                        "zone": "home", "tone": "caring",
-                    },
-                })
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": f"明日は{t_str}に予定があります。早めに休みましょう。",
+                            "zone": "home",
+                            "tone": "caring",
+                        },
+                    }
+                )
 
         # --- Task rules ---
 
@@ -420,29 +517,35 @@ class RuleEngine:
         overdue_tasks = [t for t in gas.tasks if t.is_overdue]
         if overdue_tasks and self._check_cooldown("gas_overdue_alert", now):
             names = ", ".join(t.title[:15] for t in overdue_tasks[:3])
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": f"期限切れのタスクが{len(overdue_tasks)}件あります: {names}",
-                    "zone": "home", "tone": "alert",
-                },
-            })
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"期限切れのタスクが{len(overdue_tasks)}件あります: {names}",
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                }
+            )
 
         # 8. Daily task sync — 8:00-10:00, sync Google Tasks to HEMS tasks
         if 8 <= hour < 10 and self._check_cooldown_daily("gas_task_sync", now):
             pending = [t for t in gas.tasks if t.status != "completed" and t.due]
             for task in pending[:3]:
-                actions.append({
-                    "tool": "create_task",
-                    "args": {
-                        "title": f"[Google] {task.title}",
-                        "description": f"Google Tasks: {task.notes}" if task.notes else f"Google Tasksから同期: {task.title}",
-
-                        "urgency": 3 if task.is_overdue else 2,
-                        "zone": "home",
-                        "task_type": ["google_tasks"],
-                    },
-                })
+                actions.append(
+                    {
+                        "tool": "create_task",
+                        "args": {
+                            "title": f"[Google] {task.title}",
+                            "description": f"Google Tasks: {task.notes}"
+                            if task.notes
+                            else f"Google Tasksから同期: {task.title}",
+                            "urgency": 3 if task.is_overdue else 2,
+                            "zone": "home",
+                            "task_type": ["google_tasks"],
+                        },
+                    }
+                )
 
         # --- Gmail rules ---
 
@@ -450,27 +553,31 @@ class RuleEngine:
         if inbox:
             # 9. Unread alert — 10+ unread
             if inbox.unread >= 10 and self._check_cooldown("gas_gmail_unread", now):
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": f"未読メールが{inbox.unread}通あります。確認しましょう。",
-                        "zone": "home", "tone": "neutral",
-                    },
-                })
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": f"未読メールが{inbox.unread}通あります。確認しましょう。",
+                            "zone": "home",
+                            "tone": "neutral",
+                        },
+                    }
+                )
 
             # 10. Unread critical — 20+ unread
             if inbox.unread >= 20 and self._check_cooldown("gas_gmail_critical", now):
-                actions.append({
-                    "tool": "create_task",
-                    "args": {
-                        "title": "メール整理",
-                        "description": f"未読メールが{inbox.unread}通溜まっています。整理してください。",
-
-                        "urgency": 2,
-                        "zone": "home",
-                        "task_type": ["email"],
-                    },
-                })
+                actions.append(
+                    {
+                        "tool": "create_task",
+                        "args": {
+                            "title": "メール整理",
+                            "description": f"未読メールが{inbox.unread}通溜まっています。整理してください。",
+                            "urgency": 2,
+                            "zone": "home",
+                            "task_type": ["email"],
+                        },
+                    }
+                )
 
         # --- Drive rules ---
 
@@ -485,13 +592,16 @@ class RuleEngine:
                 key = f"gas_drive_{f.name[:20]}_{f.modified_time[:10]}"
                 if self._check_cooldown(key, now):
                     type_name = doc_types[f.mime_type]
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"{type_name}「{f.name[:20]}」が更新されました。",
-                            "zone": "home", "tone": "neutral",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"{type_name}「{f.name[:20]}」が更新されました。",
+                                "zone": "home",
+                                "tone": "neutral",
+                            },
+                        }
+                    )
                     break  # Only one drive notification per cycle
 
         # --- Sheets rules ---
@@ -521,83 +631,86 @@ class RuleEngine:
                 if value > threshold:
                     key = f"gas_sheet_{name}_{metric_name}"
                     if self._check_cooldown(key, now):
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": f"[{name}] {metric_name}が閾値超過: {value} > {threshold}",
-                                "zone": "home", "tone": "alert",
-                            },
-                        })
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": f"[{name}] {metric_name}が閾値超過: {value} > {threshold}",
+                                    "zone": "home",
+                                    "tone": "alert",
+                                },
+                            }
+                        )
 
         # --- Weekly rules ---
 
         # 13. Weekly review — Sunday 18:00-20:00
         if weekday == 6 and 18 <= hour < 20:
             if self._check_cooldown_daily("gas_weekly_review", now):
-                actions.append({
-                    "tool": "create_task",
-                    "args": {
-                        "title": "週次レビュー",
-                        "description": "今週の振り返りと来週の計画を立てましょう。",
-
-                        "urgency": 2,
-                        "zone": "home",
-                        "task_type": ["review"],
-                    },
-                })
+                actions.append(
+                    {
+                        "tool": "create_task",
+                        "args": {
+                            "title": "週次レビュー",
+                            "description": "今週の振り返りと来週の計画を立てましょう。",
+                            "urgency": 2,
+                            "zone": "home",
+                            "task_type": ["review"],
+                        },
+                    }
+                )
 
         # Urgent news notification
-        if hasattr(world_model, 'news_state'):
+        if hasattr(world_model, "news_state"):
             ns = world_model.news_state
             for article in ns.urgent_articles:
                 url_key = article.get("url", "")[:50]
                 if url_key and self._check_cooldown(f"news_urgent_{url_key}", now):
                     title = article.get("title", "")[:50]
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"速報です。{title}",
-                            "zone": "home",
-                            "tone": "alert",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"速報です。{title}",
+                                "zone": "home",
+                                "tone": "alert",
+                            },
+                        }
+                    )
 
         return actions
 
     def _evaluate_home_rules(self, world_model, now: float) -> list[dict]:
-        """Evaluate Home Assistant automation rules."""
+        """Evaluate home automation rules (vendor-agnostic via Device Registry)."""
         actions = []
-        hd = world_model.home_devices
         hour = datetime.now().hour
 
         # --- 1. Sleep detection → lights off ---
-        # Conditions: 23:00-5:00 AND idle AND static posture > 10 min AND lights on
-        if (hour >= 23 or hour < 5):
+        if hour >= 23 or hour < 5:
             for zone_id, zone in world_model.zones.items():
                 occ = zone.occupancy
-                if (occ.count > 0
-                        and occ.activity_class == "idle"
-                        and occ.posture_status == "static"
-                        and occ.posture_duration_sec > 600):
-                    # Check if any lights are on
-                    lights_on = [eid for eid, lt in hd.lights.items() if lt.on]
+                if (
+                    occ.count > 0
+                    and occ.activity_class == "idle"
+                    and occ.posture_status == "static"
+                    and occ.posture_duration_sec > 600
+                ):
+                    lights_on = [d for d in self._get_devices(device_class="light") if self._device_is_on(d)]
                     if lights_on and self._check_cooldown_daily(f"ha_sleep_detect_{zone_id}", now):
-                        for eid in lights_on:
-                            actions.append({
-                                "tool": "control_light",
-                                "args": {"entity_id": eid, "on": False},
-                            })
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": "おやすみなさい。照明を消しますね。",
-                                "zone": zone_id,
-                                "tone": "caring",
-                            },
-                        })
+                        for d in lights_on:
+                            actions.append(self._make_action(d["device_id"], "off"))
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": "おやすみなさい。照明を消しますね。",
+                                    "zone": zone_id,
+                                    "tone": "caring",
+                                },
+                            }
+                        )
 
         # --- 2. Pre-arrival HVAC ---
-        # Conditions: nobody home AND predicted arrival in 30 min
         if self.schedule_learner:
             calendar_events = None
             if world_model.gas_state.bridge_connected:
@@ -610,7 +723,6 @@ class RuleEngine:
 
                 if all_away and 0 < minutes_until <= 30:
                     if self._check_cooldown("ha_prearrival_hvac", now):
-                        # Determine season from month
                         month = datetime.now().month
                         if 6 <= month <= 9:
                             mode, temp = "cool", 26
@@ -619,22 +731,20 @@ class RuleEngine:
                         else:
                             mode, temp = "auto", 24
 
-                        for eid in hd.climates:
-                            actions.append({
-                                "tool": "control_climate",
-                                "args": {"entity_id": eid, "mode": mode, "temperature": temp},
-                            })
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": f"もうすぐ帰宅ですね。エアコンを{mode}モード{temp}度でつけました。",
-                                "zone": "home",
-                                "tone": "caring",
-                            },
-                        })
+                        for d in self._get_devices(device_class="climate"):
+                            actions.append(self._make_action(d["device_id"], "set_temperature", {"value": temp, "mode": mode}))
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": f"もうすぐ帰宅ですね。エアコンを{mode}モード{temp}度でつけました。",
+                                    "zone": "home",
+                                    "tone": "caring",
+                                },
+                            }
+                        )
 
         # --- 3. Wake-up curtain → natural light ---
-        # Conditions: 60 min before predicted wake AND covers closed
         if self.schedule_learner:
             calendar_events = None
             if world_model.gas_state.bridge_connected:
@@ -644,37 +754,38 @@ class RuleEngine:
             if wake_time:
                 minutes_until_wake = (wake_time - now) / 60
                 if 0 < minutes_until_wake <= 60:
-                    closed_covers = [eid for eid, c in hd.covers.items() if not c.is_open]
+                    covers = self._get_devices(device_class="cover")
+                    closed_covers = [d for d in covers if not (d.get("last_state") or {}).get("position", 0) > 0]
                     if closed_covers and self._check_cooldown_daily("ha_wake_curtain", now):
-                        for eid in closed_covers:
-                            actions.append({
-                                "tool": "control_cover",
-                                "args": {"entity_id": eid, "action": "open"},
-                            })
+                        for d in closed_covers:
+                            actions.append(self._make_action(d["device_id"], "set_position", {"value": 100}))
 
         # --- 4. Wake-up detection → lights on + morning greeting ---
-        # Conditions: 5:00-10:00 AND activity transitions from idle to low/moderate
         if 5 <= hour < 10:
             for zone_id, zone in world_model.zones.items():
                 occ = zone.occupancy
-                if (occ.count > 0
-                        and occ.activity_class in ("low", "moderate", "high")
-                        and self._check_cooldown_daily(f"ha_wake_detect_{zone_id}", now)):
-                    lights_off = [eid for eid, lt in hd.lights.items() if not lt.on]
+                if (
+                    occ.count > 0
+                    and occ.activity_class in ("low", "moderate", "high")
+                    and self._check_cooldown_daily(f"ha_wake_detect_{zone_id}", now)
+                ):
+                    lights_off = [d for d in self._get_devices(device_class="light") if not self._device_is_on(d)]
                     if lights_off:
-                        for eid in lights_off:
-                            actions.append({
-                                "tool": "control_light",
-                                "args": {"entity_id": eid, "on": True, "brightness": 255},
-                            })
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": "おはようございます。",
-                            "zone": zone_id,
-                            "tone": "neutral",
-                        },
-                    })
+                        for d in lights_off:
+                            actions.append(self._make_action(d["device_id"], "on"))
+                            actions.append(self._make_action(d["device_id"], "set_brightness", {"value": 255}))
+                            if "color_temp" in (d.get("capabilities") or []):
+                                actions.append(self._make_action(d["device_id"], "set_color_temp", {"value": 400}))
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": "おはようございます。",
+                                "zone": zone_id,
+                                "tone": "neutral",
+                            },
+                        }
+                    )
 
         return actions
 
@@ -685,166 +796,187 @@ class RuleEngine:
         hour = datetime.now().hour
 
         # 0. Stale biometric data alert
-        if (bio.bridge_connected
-                and bio.last_update > 0
-                and (now - bio.last_update) > BIOMETRIC_STALE_MINUTES * 60
-                and self._check_cooldown("bio_stale_data", now)):
+        if (
+            bio.bridge_connected
+            and bio.last_update > 0
+            and (now - bio.last_update) > BIOMETRIC_STALE_MINUTES * 60
+            and self._check_cooldown("bio_stale_data", now)
+        ):
             stale_minutes = int((now - bio.last_update) / 60)
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": f"バイオメトリクスデータが{stale_minutes}分間更新されていません。スマートバンドの接続を確認してください。",
-                    "zone": "home",
-                    "tone": "alert",
-                },
-            })
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"バイオメトリクスデータが{stale_minutes}分間更新されていません。スマートバンドの接続を確認してください。",
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                }
+            )
 
         # 1. High heart rate alert
-        if (bio.heart_rate.bpm is not None and bio.heart_rate.bpm > 120
-                and self._check_cooldown("bio_hr_high", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": f"心拍数が{bio.heart_rate.bpm}bpmです。少し休憩しましょう。",
-                    "zone": "home",
-                    "tone": "caring",
-                },
-            })
+        if bio.heart_rate.bpm is not None and bio.heart_rate.bpm > 120 and self._check_cooldown("bio_hr_high", now):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"心拍数が{bio.heart_rate.bpm}bpmです。少し休憩しましょう。",
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                }
+            )
 
         # 2. High stress alert
-        if (bio.stress.level > 80
-                and bio.stress.last_update > 0
-                and self._check_cooldown("bio_stress_high", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": "ストレスが高めです。深呼吸してリラックスしましょう。",
-                    "zone": "home",
-                    "tone": "caring",
-                },
-            })
+        if bio.stress.level > 80 and bio.stress.last_update > 0 and self._check_cooldown("bio_stress_high", now):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": "ストレスが高めです。深呼吸してリラックスしましょう。",
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                }
+            )
 
         # 3. High fatigue alert
-        if (bio.fatigue.score > 70
-                and bio.fatigue.last_update > 0
-                and self._check_cooldown("bio_fatigue_high", now)):
+        if bio.fatigue.score > 70 and bio.fatigue.last_update > 0 and self._check_cooldown("bio_fatigue_high", now):
             if 21 <= hour <= 23:
                 msg = "疲労が溜まっていますね。今日は早めに休みましょう。"
             else:
                 msg = "疲れが溜まっていますね。少し休憩しましょう。"
-            actions.append({
-                "tool": "speak",
-                "args": {"message": msg, "zone": "home", "tone": "caring"},
-            })
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {"message": msg, "zone": "home", "tone": "caring"},
+                }
+            )
 
         # 4. Poor sleep quality morning notification (8-10 AM)
-        if (8 <= hour < 10
-                and bio.sleep.quality_score > 0
-                and bio.sleep.quality_score < 50
-                and self._check_cooldown_daily("bio_sleep_poor", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": f"昨夜の睡眠品質が{bio.sleep.quality_score}点でした。今日は無理しないでくださいね。",
-                    "zone": "home",
-                    "tone": "caring",
-                },
-            })
-
-        # 5. Step goal achievement
-        if (bio.activity.steps > 0
-                and bio.activity.steps_goal > 0
-                and bio.activity.steps >= bio.activity.steps_goal
-                and self._check_cooldown_daily("bio_steps_goal", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": f"歩数{bio.activity.steps}歩で目標達成です！お疲れさまでした！",
-                    "zone": "home",
-                    "tone": "humorous",
-                },
-            })
-
-        # 6. Enhanced sleep detection (biometric + HA)
-        # If sleep stage detected and HA connected, turn off lights
-        hd = world_model.home_devices
-        if (hd.bridge_connected
-                and bio.sleep.stage in ("deep", "light", "rem")
-                and self._check_cooldown_daily("bio_sleep_lights", now)):
-            lights_on = [eid for eid, lt in hd.lights.items() if lt.on]
-            if lights_on:
-                for eid in lights_on:
-                    actions.append({
-                        "tool": "control_light",
-                        "args": {"entity_id": eid, "on": False},
-                    })
-                actions.append({
+        if (
+            8 <= hour < 10
+            and bio.sleep.quality_score > 0
+            and bio.sleep.quality_score < 50
+            and self._check_cooldown_daily("bio_sleep_poor", now)
+        ):
+            actions.append(
+                {
                     "tool": "speak",
                     "args": {
-                        "message": "おやすみなさい。照明を消しますね。",
+                        "message": f"昨夜の睡眠品質が{bio.sleep.quality_score}点でした。今日は無理しないでくださいね。",
                         "zone": "home",
                         "tone": "caring",
                     },
-                })
+                }
+            )
+
+        # 5. Step goal achievement
+        if (
+            bio.activity.steps > 0
+            and bio.activity.steps_goal > 0
+            and bio.activity.steps >= bio.activity.steps_goal
+            and self._check_cooldown_daily("bio_steps_goal", now)
+        ):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"歩数{bio.activity.steps}歩で目標達成です！お疲れさまでした！",
+                        "zone": "home",
+                        "tone": "humorous",
+                    },
+                }
+            )
+
+        # 6. Enhanced sleep detection (biometric) → turn off lights
+        if (
+            bio.sleep.stage in ("deep", "light", "rem")
+            and self._device_cache
+            and self._check_cooldown_daily("bio_sleep_lights", now)
+        ):
+            lights_on = [d for d in self._get_devices(device_class="light") if self._device_is_on(d)]
+            if lights_on:
+                for d in lights_on:
+                    actions.append(self._make_action(d["device_id"], "off"))
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": "おやすみなさい。照明を消しますね。",
+                            "zone": "home",
+                            "tone": "caring",
+                        },
+                    }
+                )
 
         # 8. Low HRV alert (autonomic stress)
-        if (bio.hrv.rmssd_ms is not None and bio.hrv.rmssd_ms < HRV_LOW
-                and bio.hrv.last_update > 0
-                and self._check_cooldown("bio_hrv_low", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": f"HRVが{bio.hrv.rmssd_ms}msと低めです。自律神経の疲れが出ています。",
-                    "zone": "home",
-                    "tone": "caring",
-                },
-            })
+        if (
+            bio.hrv.rmssd_ms is not None
+            and bio.hrv.rmssd_ms < HRV_LOW
+            and bio.hrv.last_update > 0
+            and self._check_cooldown("bio_hrv_low", now)
+        ):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"HRVが{bio.hrv.rmssd_ms}msと低めです。自律神経の疲れが出ています。",
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                }
+            )
 
         # 9. Body temperature high
-        if (bio.body_temperature.celsius is not None
-                and bio.body_temperature.celsius > BODY_TEMP_HIGH
-                and bio.body_temperature.last_update > 0
-                and self._check_cooldown("bio_body_temp_high", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": f"体温が{bio.body_temperature.celsius:.1f}°Cです。体調に気をつけてください。",
-                    "zone": "home",
-                    "tone": "caring",
-                },
-            })
+        if (
+            bio.body_temperature.celsius is not None
+            and bio.body_temperature.celsius > BODY_TEMP_HIGH
+            and bio.body_temperature.last_update > 0
+            and self._check_cooldown("bio_body_temp_high", now)
+        ):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"体温が{bio.body_temperature.celsius:.1f}°Cです。体調に気をつけてください。",
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                }
+            )
 
         # 10. Respiratory rate high
-        if (bio.respiratory_rate.breaths_per_minute is not None
-                and bio.respiratory_rate.breaths_per_minute > RESPIRATORY_RATE_HIGH
-                and bio.respiratory_rate.last_update > 0
-                and self._check_cooldown("bio_resp_high", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": "呼吸が速くなっています。落ち着いて深呼吸しましょう。",
-                    "zone": "home",
-                    "tone": "caring",
-                },
-            })
+        if (
+            bio.respiratory_rate.breaths_per_minute is not None
+            and bio.respiratory_rate.breaths_per_minute > RESPIRATORY_RATE_HIGH
+            and bio.respiratory_rate.last_update > 0
+            and self._check_cooldown("bio_resp_high", now)
+        ):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": "呼吸が速くなっています。落ち着いて深呼吸しましょう。",
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                }
+            )
 
-        # 11. Fatigue-linked dimming (21-23h, fatigue > 60, HA connected)
-        if (hd.bridge_connected
-                and 21 <= hour <= 23
-                and bio.fatigue.score > 60
-                and bio.fatigue.last_update > 0
-                and self._check_cooldown("bio_fatigue_dim", now)):
-            for eid, light in hd.lights.items():
-                if light.on and light.brightness > 100:
-                    actions.append({
-                        "tool": "control_light",
-                        "args": {
-                            "entity_id": eid,
-                            "on": True,
-                            "brightness": 80,
-                            "color_temp": 400,  # warm
-                        },
-                    })
+        # 11. Fatigue-linked dimming (21-23h, fatigue > 60)
+        if (
+            self._device_cache
+            and 21 <= hour <= 23
+            and bio.fatigue.score > 60
+            and bio.fatigue.last_update > 0
+            and self._check_cooldown("bio_fatigue_dim", now)
+        ):
+            for d in self._get_devices(device_class="light"):
+                if self._device_is_on(d) and self._device_brightness(d) > 100:
+                    actions.append(self._make_action(d["device_id"], "set_brightness", {"value": 80}))
+                    if "color_temp" in (d.get("capabilities") or []):
+                        actions.append(self._make_action(d["device_id"], "set_color_temp", {"value": 400}))
 
         return actions
 
@@ -858,93 +990,101 @@ class RuleEngine:
             occ = zone.occupancy
 
             # 1. Sedentary sitting detection (camera posture)
-            if (occ.posture == "sitting"
-                    and occ.posture_duration_sec > SEDENTARY_MINUTES * 60
-                    and self._check_cooldown(f"percep_sitting_{zone_id}", now)):
+            if (
+                occ.posture == "sitting"
+                and occ.posture_duration_sec > SEDENTARY_MINUTES * 60
+                and self._check_cooldown(f"percep_sitting_{zone_id}", now)
+            ):
                 duration_min = int(occ.posture_duration_sec / 60)
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": f"{duration_min}分座りっぱなしです。少し体を動かしましょう。",
-                        "zone": zone_id,
-                        "tone": "caring",
-                    },
-                })
-
-            # 2. Empty room with lights/climate on → turn off (HA required)
-            if (ha_enabled
-                    and occ.count == 0
-                    and occ.last_update > 0
-                    and now - occ.last_update < 300):
-                hd = world_model.home_devices
-                lights_on = [eid for eid, lt in hd.lights.items()
-                             if lt.on and zone_id in eid]
-                if lights_on and self._check_cooldown(f"percep_empty_lights_{zone_id}", now):
-                    for eid in lights_on:
-                        actions.append({
-                            "tool": "control_light",
-                            "args": {"entity_id": eid, "on": False},
-                        })
-                    actions.append({
+                actions.append(
+                    {
                         "tool": "speak",
                         "args": {
-                            "message": f"{zone_id}は空室です。照明を消しますね。",
+                            "message": f"{duration_min}分座りっぱなしです。少し体を動かしましょう。",
                             "zone": zone_id,
-                            "tone": "neutral",
+                            "tone": "caring",
                         },
-                    })
-                climates_on = [eid for eid, c in hd.climates.items()
-                               if c.mode != "off" and zone_id in eid]
+                    }
+                )
+
+            # 2. Empty room with lights/climate on → turn off
+            has_devs = ha_enabled or bool(self._device_cache)
+            if has_devs and occ.count == 0 and occ.last_update > 0 and now - occ.last_update < 300:
+                lights_on = [d for d in self._get_devices(device_class="light", zone=zone_id) if self._device_is_on(d)]
+                if lights_on and self._check_cooldown(f"percep_empty_lights_{zone_id}", now):
+                    for d in lights_on:
+                        actions.append(self._make_action(d["device_id"], "off"))
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"{zone_id}は空室です。照明を消しますね。",
+                                "zone": zone_id,
+                                "tone": "neutral",
+                            },
+                        }
+                    )
+                climates_on = [d for d in self._get_devices(device_class="climate", zone=zone_id)
+                               if (d.get("last_state") or {}).get("hvac_mode", "off") != "off"]
                 if climates_on and self._check_cooldown(f"percep_empty_climate_{zone_id}", now):
-                    for eid in climates_on:
-                        actions.append({
-                            "tool": "control_climate",
-                            "args": {"entity_id": eid, "mode": "off"},
-                        })
+                    for d in climates_on:
+                        actions.append(self._make_action(d["device_id"], "set_temperature", {"mode": "off"}))
 
             # 3. Daytime lying detection → health check
-            if (6 <= hour <= 21
-                    and occ.posture == "lying"
-                    and occ.posture_duration_sec > 600
-                    and self._check_cooldown(f"percep_lying_{zone_id}", now)):
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": "日中に横になっていますね。体調は大丈夫ですか？",
-                        "zone": zone_id,
-                        "tone": "caring",
-                    },
-                })
+            if (
+                6 <= hour <= 21
+                and occ.posture == "lying"
+                and occ.posture_duration_sec > 600
+                and self._check_cooldown(f"percep_lying_{zone_id}", now)
+            ):
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": "日中に横になっていますね。体調は大丈夫ですか？",
+                            "zone": zone_id,
+                            "tone": "caring",
+                        },
+                    }
+                )
 
             # 4. Activity level sudden drop (>0.5 → <0.1 sustained 15min)
-            if (occ.activity_level is not None
-                    and occ.activity_level < 0.1
-                    and occ.count > 0
-                    and occ.posture_duration_sec > 900
-                    and self._check_cooldown(f"percep_activity_drop_{zone_id}", now)):
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": "しばらく動きがないようです。大丈夫ですか？",
-                        "zone": zone_id,
-                        "tone": "caring",
-                    },
-                })
+            if (
+                occ.activity_level is not None
+                and occ.activity_level < 0.1
+                and occ.count > 0
+                and occ.posture_duration_sec > 900
+                and self._check_cooldown(f"percep_activity_drop_{zone_id}", now)
+            ):
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": "しばらく動きがないようです。大丈夫ですか？",
+                            "zone": zone_id,
+                            "tone": "caring",
+                        },
+                    }
+                )
 
             # 5. VLM anomaly detected (recent, <120s)
-            if (occ.scene_anomalies
-                    and occ.vlm_last_update > 0
-                    and now - occ.vlm_last_update < 120
-                    and self._check_cooldown(f"percep_vlm_anomaly_{zone_id}", now)):
+            if (
+                occ.scene_anomalies
+                and occ.vlm_last_update > 0
+                and now - occ.vlm_last_update < 120
+                and self._check_cooldown(f"percep_vlm_anomaly_{zone_id}", now)
+            ):
                 anomaly_text = "、".join(occ.scene_anomalies[:3])
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": f"カメラで異常を検知しました: {anomaly_text}。確認をお願いします。",
-                        "zone": zone_id,
-                        "tone": "alert",
-                    },
-                })
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": f"カメラで異常を検知しました: {anomaly_text}。確認をお願いします。",
+                            "zone": zone_id,
+                            "tone": "alert",
+                        },
+                    }
+                )
 
         return actions
 
@@ -958,25 +1098,28 @@ class RuleEngine:
             if bs.device_class == "moisture" and bs.state:
                 if self._check_cooldown(f"zigbee_moisture_{eid}", now):
                     name = eid.split(".")[-1] if "." in eid else eid
-                    actions.append({
-                        "tool": "create_task",
-                        "args": {
-                            "title": f"【緊急】水漏れ検知: {name}",
-                            "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
-    
-                            "urgency": 4,
-                            "zone": "home",
-                            "task_type": ["water_leak"],
-                        },
-                    })
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"緊急！{name}で水漏れを検知しました！すぐに確認してください！",
-                            "zone": "home",
-                            "tone": "alert",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"【緊急】水漏れ検知: {name}",
+                                "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
+                                "urgency": 4,
+                                "zone": "home",
+                                "task_type": ["water_leak"],
+                            },
+                        }
+                    )
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"緊急！{name}で水漏れを検知しました！すぐに確認してください！",
+                                "zone": "home",
+                                "tone": "alert",
+                            },
+                        }
+                    )
 
         # --- Z2: Door arrival/departure ---
         for eid, bs in hd.binary_sensors.items():
@@ -985,48 +1128,40 @@ class RuleEngine:
                 if now - bs.last_changed > 60:
                     continue  # too old
                 if self._check_cooldown(f"zigbee_door_{eid}", now):
-                    # Check occupancy to determine arrival vs departure
-                    any_occupied = any(
-                        z.occupancy.count > 0 for z in world_model.zones.values()
-                    )
+                    any_occupied = any(z.occupancy.count > 0 for z in world_model.zones.values())
                     if any_occupied:
                         # Arrival: turn on lights
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": "おかえりなさい。",
-                                "zone": "home",
-                                "tone": "neutral",
-                            },
-                        })
-                        lights_off = [lid for lid, lt in hd.lights.items() if not lt.on]
-                        for lid in lights_off:
-                            actions.append({
-                                "tool": "control_light",
-                                "args": {"entity_id": lid, "on": True},
-                            })
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": "おかえりなさい。",
+                                    "zone": "home",
+                                    "tone": "neutral",
+                                },
+                            }
+                        )
+                        for d in self._get_devices(device_class="light"):
+                            if not self._device_is_on(d):
+                                actions.append(self._make_action(d["device_id"], "on"))
                     else:
                         # Departure: turn off lights + switches
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": "いってらっしゃい。照明とスイッチを切りますね。",
-                                "zone": "home",
-                                "tone": "neutral",
-                            },
-                        })
-                        lights_on = [lid for lid, lt in hd.lights.items() if lt.on]
-                        for lid in lights_on:
-                            actions.append({
-                                "tool": "control_light",
-                                "args": {"entity_id": lid, "on": False},
-                            })
-                        switches_on = [sid for sid, v in hd.switches.items() if v]
-                        for sid in switches_on:
-                            actions.append({
-                                "tool": "control_switch",
-                                "args": {"entity_id": sid, "on": False},
-                            })
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": "いってらっしゃい。照明とスイッチを切りますね。",
+                                    "zone": "home",
+                                    "tone": "neutral",
+                                },
+                            }
+                        )
+                        for d in self._get_devices(device_class="light"):
+                            if self._device_is_on(d):
+                                actions.append(self._make_action(d["device_id"], "off"))
+                        for d in self._get_devices(device_class="switch"):
+                            if self._device_is_on(d):
+                                actions.append(self._make_action(d["device_id"], "off"))
 
         # --- Z3: Appliance finished (power drop to idle) ---
         for eid, s in hd.sensors.items():
@@ -1035,43 +1170,50 @@ class RuleEngine:
                     name = eid.split(".")[-1] if "." in eid else eid
                     name_lower = name.lower()
                     if any(w in name_lower for w in ("washing", "laundry", "washer", "洗濯")):
-                        actions.append({
-                            "tool": "create_task",
-                            "args": {
-                                "title": "洗濯物を干す",
-                                "description": f"{name}の運転が完了しました。洗濯物を干してください。",
-    
-                                "urgency": 2,
-                                "zone": "home",
-                                "task_type": ["laundry"],
-                            },
-                        })
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": "洗濯が完了しました。洗濯物を干しましょう。",
-                                "zone": "home",
-                                "tone": "neutral",
-                            },
-                        })
+                        actions.append(
+                            {
+                                "tool": "create_task",
+                                "args": {
+                                    "title": "洗濯物を干す",
+                                    "description": f"{name}の運転が完了しました。洗濯物を干してください。",
+                                    "urgency": 2,
+                                    "zone": "home",
+                                    "task_type": ["laundry"],
+                                },
+                            }
+                        )
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": "洗濯が完了しました。洗濯物を干しましょう。",
+                                    "zone": "home",
+                                    "tone": "neutral",
+                                },
+                            }
+                        )
                     elif any(w in name_lower for w in ("kettle", "ケトル", "pot")):
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": "お湯が沸きました。",
-                                "zone": "home",
-                                "tone": "neutral",
-                            },
-                        })
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": "お湯が沸きました。",
+                                    "zone": "home",
+                                    "tone": "neutral",
+                                },
+                            }
+                        )
                     else:
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": f"{name}の運転が完了しました。",
-                                "zone": "home",
-                                "tone": "neutral",
-                            },
-                        })
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": f"{name}の運転が完了しました。",
+                                    "zone": "home",
+                                    "tone": "neutral",
+                                },
+                            }
+                        )
 
         # --- Z4: CO2 high + all windows closed → ventilation suggestion ---
         co2_sensors = [s for s in hd.sensors.values() if s.device_class == "carbon_dioxide"]
@@ -1080,65 +1222,66 @@ class RuleEngine:
             if s.value > CO2_HIGH:
                 all_closed = all(not ws.state for ws in window_sensors) if window_sensors else False
                 if all_closed and self._check_cooldown(f"zigbee_co2_window_{s.entity_id}", now):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"CO2が{int(s.value)}ppmです。窓を開けて換気しましょう。",
-                            "zone": "home",
-                            "tone": "caring",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"CO2が{int(s.value)}ppmです。窓を開けて換気しましょう。",
+                                "zone": "home",
+                                "tone": "caring",
+                            },
+                        }
+                    )
 
         # --- Z5: PM2.5 high → purifier on ---
         pm25_sensors = [s for s in hd.sensors.values() if s.device_class == "pm25"]
         for s in pm25_sensors:
             if s.value > PM25_HIGH:
                 if self._check_cooldown(f"zigbee_pm25_{s.entity_id}", now):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"PM2.5が{int(s.value)}μg/m³です。空気清浄機をつけます。",
-                            "zone": "home",
-                            "tone": "caring",
-                        },
-                    })
-                    # Turn on purifier switches
-                    purifier_switches = [
-                        sid for sid in hd.switches
-                        if any(w in sid.lower() for w in ("purifier", "清浄", "air"))
-                    ]
-                    for sid in purifier_switches:
-                        actions.append({
-                            "tool": "control_switch",
-                            "args": {"entity_id": sid, "on": True},
-                        })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"PM2.5が{int(s.value)}μg/m³です。空気清浄機をつけます。",
+                                "zone": "home",
+                                "tone": "caring",
+                            },
+                        }
+                    )
+                    for d in self._get_devices(device_class="switch"):
+                        did = d.get("device_id", "").lower()
+                        purpose = (d.get("purpose") or "").lower()
+                        if any(w in did or w in purpose for w in ("purifier", "清浄", "air")):
+                            actions.append(self._make_action(d["device_id"], "on"))
 
         # --- Z6: Vibration stopped (washing machine) ---
         for eid, bs in hd.binary_sensors.items():
-            if (bs.device_class == "vibration"
-                    and not bs.state and bs.previous_state):
+            if bs.device_class == "vibration" and not bs.state and bs.previous_state:
                 name_lower = eid.lower()
                 if any(w in name_lower for w in ("washing", "laundry", "washer", "洗濯")):
                     if self._check_cooldown(f"zigbee_vibration_{eid}", now):
-                        actions.append({
-                            "tool": "create_task",
-                            "args": {
-                                "title": "洗濯物を干す",
-                                "description": "洗濯機の振動が停止しました。洗濯物を干してください。",
-    
-                                "urgency": 2,
-                                "zone": "home",
-                                "task_type": ["laundry"],
-                            },
-                        })
-                        actions.append({
-                            "tool": "speak",
-                            "args": {
-                                "message": "洗濯機が止まりました。洗濯物を干しましょう。",
-                                "zone": "home",
-                                "tone": "neutral",
-                            },
-                        })
+                        actions.append(
+                            {
+                                "tool": "create_task",
+                                "args": {
+                                    "title": "洗濯物を干す",
+                                    "description": "洗濯機の振動が停止しました。洗濯物を干してください。",
+                                    "urgency": 2,
+                                    "zone": "home",
+                                    "task_type": ["laundry"],
+                                },
+                            }
+                        )
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": "洗濯機が止まりました。洗濯物を干しましょう。",
+                                    "zone": "home",
+                                    "tone": "neutral",
+                                },
+                            }
+                        )
 
         return actions
 
@@ -1150,15 +1293,18 @@ class RuleEngine:
             if bs.device_class == "moisture" and bs.state:
                 if self._check_cooldown(f"zigbee_moisture_{eid}", now):
                     name = eid.split(".")[-1] if "." in eid else eid
-                    actions.append({
-                        "tool": "create_task",
-                        "args": {
-                            "title": f"【緊急】水漏れ検知: {name}",
-                            "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
-                            "urgency": 4, "zone": "home",
-                            "task_type": ["water_leak"],
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"【緊急】水漏れ検知: {name}",
+                                "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
+                                "urgency": 4,
+                                "zone": "home",
+                                "task_type": ["water_leak"],
+                            },
+                        }
+                    )
         return actions
 
     def _evaluate_circadian_lighting(self, world_model, now: float) -> list[dict]:
@@ -1168,31 +1314,23 @@ class RuleEngine:
         if not self._check_cooldown("circadian_update", now):
             return []
 
-        hd = world_model.home_devices
-        lights_on = [l for l in hd.lights.values() if l.on]
+        lights_on = [d for d in self._get_devices(device_class="light", capability="color_temp") if self._device_is_on(d)]
         if not lights_on:
             return []
 
-        # Interpolate circadian curve
         hour = datetime.now().hour + datetime.now().minute / 60.0
         target_mirek, target_brightness_pct = self._interpolate_circadian(hour)
         target_brightness = int(target_brightness_pct / 100 * 255)
 
         actions = []
-        for light in lights_on:
-            # Skip lights that already match (within tolerance)
-            if (light.color_temp and abs(light.color_temp - target_mirek) < 20
-                    and abs(light.brightness - target_brightness) < 15):
+        for d in lights_on:
+            state = d.get("last_state") or {}
+            ct = state.get("color_temp", 0)
+            br = state.get("brightness", 0)
+            if ct and abs(ct - target_mirek) < 20 and abs(br - target_brightness) < 15:
                 continue
-            actions.append({
-                "tool": "control_light",
-                "args": {
-                    "entity_id": light.entity_id,
-                    "on": True,
-                    "brightness": target_brightness,
-                    "color_temp": target_mirek,
-                },
-            })
+            actions.append(self._make_action(d["device_id"], "set_brightness", {"value": target_brightness}))
+            actions.append(self._make_action(d["device_id"], "set_color_temp", {"value": target_mirek}))
         return actions
 
     @staticmethod
@@ -1214,50 +1352,40 @@ class RuleEngine:
         if not ABSENCE_LIGHTING_ENABLED:
             return []
 
-        # Only when in away mode (all zones empty)
-        all_empty = world_model.zones and all(
-            z.occupancy.count == 0 for z in world_model.zones.values()
-        )
+        all_empty = world_model.zones and all(z.occupancy.count == 0 for z in world_model.zones.values())
         if not all_empty:
-            # Turn off any simulated lights when returning
             actions = []
-            for eid in list(self._absence_light_state.keys()):
-                if self._absence_light_state[eid]:
-                    actions.append({
-                        "tool": "control_light",
-                        "args": {"entity_id": eid, "on": False},
-                    })
+            for did in list(self._absence_light_state.keys()):
+                if self._absence_light_state[did]:
+                    actions.append(self._make_action(did, "off"))
             self._absence_light_state.clear()
             return actions
 
-        # Only during evening hours
         hour = datetime.now().hour
         if not (ABSENCE_LIGHTING_START_HOUR <= hour < ABSENCE_LIGHTING_END_HOUR):
             return []
 
         if not self._check_cooldown("absence_lighting", now):
             return []
-        # Randomize next interval
-        self._cooldowns["absence_lighting"] = now - self.COOLDOWN_SECONDS + random.randint(
-            ABSENCE_LIGHTING_INTERVAL // 2, ABSENCE_LIGHTING_INTERVAL
+        self._cooldowns["absence_lighting"] = (
+            now - self.COOLDOWN_SECONDS + random.randint(ABSENCE_LIGHTING_INTERVAL // 2, ABSENCE_LIGHTING_INTERVAL)
         )
 
-        hd = world_model.home_devices
-        all_lights = list(hd.lights.keys())
+        all_lights = [d["device_id"] for d in self._get_devices(device_class="light")]
         if not all_lights:
             return []
 
         actions = []
-        # Toggle 1-2 lights
         targets = random.sample(all_lights, min(2, len(all_lights)))
-        for eid in targets:
-            currently_simulated = self._absence_light_state.get(eid, False)
+        for did in targets:
+            currently_simulated = self._absence_light_state.get(did, False)
             new_state = not currently_simulated
-            self._absence_light_state[eid] = new_state
-            args = {"entity_id": eid, "on": new_state}
+            self._absence_light_state[did] = new_state
             if new_state:
-                args["brightness"] = random.randint(100, 200)
-            actions.append({"tool": "control_light", "args": args})
+                actions.append(self._make_action(did, "on"))
+                actions.append(self._make_action(did, "set_brightness", {"value": random.randint(100, 200)}))
+            else:
+                actions.append(self._make_action(did, "off"))
 
         return actions
 
@@ -1276,31 +1404,32 @@ class RuleEngine:
             for f in w.forecast[:4]  # next ~4 hours
         )
         if rain_soon:
-            open_windows = [
-                bs for bs in hd.binary_sensors.values()
-                if bs.device_class == "window" and bs.state
-            ]
+            open_windows = [bs for bs in hd.binary_sensors.values() if bs.device_class == "window" and bs.state]
             if open_windows and self._check_cooldown("weather_rain_window", now):
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": "雨の予報が出ています。窓を閉めてください。",
-                        "zone": "home",
-                        "tone": "caring",
-                    },
-                })
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": "雨の予報が出ています。窓を閉めてください。",
+                            "zone": "home",
+                            "tone": "caring",
+                        },
+                    }
+                )
 
         # High temperature forecast → pre-cool advice
         hot_forecast = any(f.temperature > 33 for f in w.forecast[:6])
-        if (hot_forecast and self._check_cooldown_daily("weather_hot_forecast", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": "本日は猛暑の予報です。エアコンの早めの稼働をお勧めします。",
-                    "zone": "home",
-                    "tone": "caring",
-                },
-            })
+        if hot_forecast and self._check_cooldown_daily("weather_hot_forecast", now):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": "本日は猛暑の予報です。エアコンの早めの稼働をお勧めします。",
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                }
+            )
 
         return actions
 
@@ -1333,61 +1462,61 @@ class RuleEngine:
         # --- Environmental: CO2 danger level ---
         for zone_id, zone in world_model.zones.items():
             env = zone.environment
-            if (env.co2 is not None and env.co2 > CO2_CRITICAL
-                    and self._check_cooldown(f"critical_co2_{zone_id}", now)):
-                actions.append({
-                    "tool": "create_task",
-                    "args": {
-                        "title": f"【緊急】{zone_id}のCO2危険レベル",
-                        "description": (
-                            f"CO2濃度が{int(env.co2)}ppmです。直ちに換気してください。"
-                        ),
-
-                        "urgency": 4,
-                        "zone": zone_id,
-                        "task_type": ["ventilation"],
-                    },
-                })
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": (
-                            f"緊急です！{zone_id}のCO2濃度が{int(env.co2)}ppmです。"
-                            "すぐに換気してください！"
-                        ),
-                        "zone": zone_id,
-                        "tone": "alert",
-                    },
-                })
+            if env.co2 is not None and env.co2 > CO2_CRITICAL and self._check_cooldown(f"critical_co2_{zone_id}", now):
+                actions.append(
+                    {
+                        "tool": "create_task",
+                        "args": {
+                            "title": f"【緊急】{zone_id}のCO2危険レベル",
+                            "description": (f"CO2濃度が{int(env.co2)}ppmです。直ちに換気してください。"),
+                            "urgency": 4,
+                            "zone": zone_id,
+                            "task_type": ["ventilation"],
+                        },
+                    }
+                )
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": (
+                                f"緊急です！{zone_id}のCO2濃度が{int(env.co2)}ppmです。すぐに換気してください！"
+                            ),
+                            "zone": zone_id,
+                            "tone": "alert",
+                        },
+                    }
+                )
 
             # --- Environmental: extreme temperature ---
             if env.temperature is not None:
-                if (env.temperature > TEMP_CRITICAL_HIGH
-                        and self._check_cooldown(f"critical_temp_high_{zone_id}", now)):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": (
-                                f"危険！{zone_id}の室温が{env.temperature:.1f}℃です。"
-                                "熱中症に注意してください！"
-                            ),
-                            "zone": zone_id,
-                            "tone": "alert",
-                        },
-                    })
-                elif (env.temperature < TEMP_CRITICAL_LOW
-                        and self._check_cooldown(f"critical_temp_low_{zone_id}", now)):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": (
-                                f"危険！{zone_id}の室温が{env.temperature:.1f}℃まで低下しています。"
-                                "暖房を確認してください！"
-                            ),
-                            "zone": zone_id,
-                            "tone": "alert",
-                        },
-                    })
+                if env.temperature > TEMP_CRITICAL_HIGH and self._check_cooldown(f"critical_temp_high_{zone_id}", now):
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": (
+                                    f"危険！{zone_id}の室温が{env.temperature:.1f}℃です。熱中症に注意してください！"
+                                ),
+                                "zone": zone_id,
+                                "tone": "alert",
+                            },
+                        }
+                    )
+                elif env.temperature < TEMP_CRITICAL_LOW and self._check_cooldown(f"critical_temp_low_{zone_id}", now):
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": (
+                                    f"危険！{zone_id}の室温が{env.temperature:.1f}℃まで低下しています。"
+                                    "暖房を確認してください！"
+                                ),
+                                "zone": zone_id,
+                                "tone": "alert",
+                            },
+                        }
+                    )
 
         # --- Zigbee: Moisture emergency (water leak) ---
         hd = world_model.home_devices
@@ -1395,61 +1524,68 @@ class RuleEngine:
             if bs.device_class == "moisture" and bs.state:
                 if self._check_cooldown(f"critical_moisture_{eid}", now):
                     name = eid.split(".")[-1] if "." in eid else eid
-                    actions.append({
-                        "tool": "create_task",
-                        "args": {
-                            "title": f"【緊急】水漏れ検知: {name}",
-                            "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
-    
-                            "urgency": 4,
-                            "zone": "home",
-                            "task_type": ["water_leak"],
-                        },
-                    })
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"緊急！{name}で水漏れを検知しました！すぐに確認してください！",
-                            "zone": "home",
-                            "tone": "alert",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"【緊急】水漏れ検知: {name}",
+                                "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
+                                "urgency": 4,
+                                "zone": "home",
+                                "task_type": ["water_leak"],
+                            },
+                        }
+                    )
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"緊急！{name}で水漏れを検知しました！すぐに確認してください！",
+                                "zone": "home",
+                                "tone": "alert",
+                            },
+                        }
+                    )
 
         # --- Biometric: SpO2 critical drop (sleep apnea risk) ---
         bio = world_model.biometric_state
-        if (bio.spo2.percent is not None
-                and bio.spo2.percent < SPO2_CRITICAL_LOW
-                and bio.spo2.last_update > now - 300
-                and self._check_cooldown("critical_spo2", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": (
-                        f"緊急！血中酸素濃度が{bio.spo2.percent}%まで低下しています！"
-                        "目を覚ましてください！"
-                    ),
-                    "zone": "home",
-                    "tone": "alert",
-                },
-            })
+        if (
+            bio.spo2.percent is not None
+            and bio.spo2.percent < SPO2_CRITICAL_LOW
+            and bio.spo2.last_update > now - 300
+            and self._check_cooldown("critical_spo2", now)
+        ):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": (
+                            f"緊急！血中酸素濃度が{bio.spo2.percent}%まで低下しています！目を覚ましてください！"
+                        ),
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                }
+            )
 
         # --- Biometric: very high heart rate during sleep ---
-        if (bio.heart_rate.bpm is not None
-                and bio.heart_rate.bpm > HR_CRITICAL_SLEEP
-                and bio.sleep.stage in ("deep", "light", "rem")
-                and bio.heart_rate.last_update > now - 120
-                and self._check_cooldown("critical_hr_sleep", now)):
-            actions.append({
-                "tool": "speak",
-                "args": {
-                    "message": (
-                        f"睡眠中に心拍数が{bio.heart_rate.bpm}bpmに達しています！"
-                        "体調を確認してください！"
-                    ),
-                    "zone": "home",
-                    "tone": "alert",
-                },
-            })
+        if (
+            bio.heart_rate.bpm is not None
+            and bio.heart_rate.bpm > HR_CRITICAL_SLEEP
+            and bio.sleep.stage in ("deep", "light", "rem")
+            and bio.heart_rate.last_update > now - 120
+            and self._check_cooldown("critical_hr_sleep", now)
+        ):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": (f"睡眠中に心拍数が{bio.heart_rate.bpm}bpmに達しています！体調を確認してください！"),
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                }
+            )
 
         return actions
 
@@ -1462,36 +1598,34 @@ class RuleEngine:
         for item in shopping.due_items:
             key = f"shopping_due_{item.name}"
             if self._check_cooldown_daily(key, now):
-                actions.append({
-                    "tool": "speak",
-                    "args": {
-                        "message": f"「{item.name}」がそろそろ必要です。買い物リストを確認してください。",
-                        "zone": "living_room",
-                        "tone": "caring",
-                    },
-                })
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": f"「{item.name}」がそろそろ必要です。買い物リストを確認してください。",
+                            "zone": "living_room",
+                            "tone": "caring",
+                        },
+                    }
+                )
 
         # Departure notification: occupancy drops to 0 with pending items
         if shopping.pending_count > 0:
             all_empty = all(
-                z.occupancy.count == 0
-                for z in wm.zones.values()
-                if z.occupancy and z.occupancy.last_update > now - 300
+                z.occupancy.count == 0 for z in wm.zones.values() if z.occupancy and z.occupancy.last_update > now - 300
             )
-            has_recent_zones = any(
-                z.occupancy.last_update > now - 300
-                for z in wm.zones.values()
-                if z.occupancy
-            )
+            has_recent_zones = any(z.occupancy.last_update > now - 300 for z in wm.zones.values() if z.occupancy)
             if all_empty and has_recent_zones:
                 if self._check_cooldown("shopping_departure", now):
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"外出検知。買い物リストに{shopping.pending_count}件のアイテムがあります。",
-                            "zone": "living_room",
-                            "tone": "caring",
-                        },
-                    })
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"外出検知。買い物リストに{shopping.pending_count}件のアイテムがあります。",
+                                "zone": "living_room",
+                                "tone": "caring",
+                            },
+                        }
+                    )
 
         return actions

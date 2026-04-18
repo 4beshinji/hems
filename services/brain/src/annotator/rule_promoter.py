@@ -14,6 +14,7 @@ Kept intentionally small — the promotion decision has to live somewhere
 and doing it from Python with a regex seed file is clearer than baking it
 into the LLM path.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -33,16 +34,13 @@ class RulePromoter:
     def __init__(
         self,
         *,
-        session: "aiohttp.ClientSession",
+        session: aiohttp.ClientSession,
         backend_url: str,
-        api_key: str,
         obsidian_url: str = "",
     ):
         self.session = session
         self.backend_url = backend_url.rstrip("/")
-        self.api_key = api_key
         self.obsidian_url = obsidian_url.rstrip("/")
-        self._auth = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     async def run(self) -> int:
         """Promote all eligible entries. Returns the number promoted."""
@@ -65,11 +63,11 @@ class RulePromoter:
         params = f"?source=llm&min_hit_count={PROMOTION_THRESHOLD}"
         url = f"{self.backend_url}/classifier-cache{params}"
         try:
-            async with self.session.get(url, headers=self._auth, timeout=15) as resp:
+            async with self.session.get(url, timeout=15) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 logger.warning("[rule_promoter] fetch failed: HTTP {}", resp.status)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("[rule_promoter] fetch error: {}", exc)
         return []
 
@@ -83,15 +81,19 @@ class RulePromoter:
         }
         try:
             async with self.session.post(
-                url, json=payload, headers=self._auth, timeout=10,
+                url,
+                json=payload,
+                timeout=10,
             ) as resp:
                 if resp.status == 201:
                     return True
                 logger.warning(
                     "[rule_promoter] promote failed for {}/{}... status={}",
-                    entry["kind"], entry["key_hash"][:8], resp.status,
+                    entry["kind"],
+                    entry["key_hash"][:8],
+                    resp.status,
                 )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("[rule_promoter] promote error: {}", exc)
         return False
 
@@ -120,5 +122,5 @@ class RulePromoter:
             ) as resp:
                 if resp.status != 200:
                     logger.warning("[rule_promoter] obsidian write HTTP {}", resp.status)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("[rule_promoter] obsidian write error: {}", exc)

@@ -5,6 +5,7 @@ Categories align with FrequentPlace.category values:
 
 Order matters — more specific patterns are matched first.
 """
+
 import re
 
 SHOP_RULES: list[tuple[re.Pattern[str], str]] = [

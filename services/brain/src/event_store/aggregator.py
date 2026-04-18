@@ -10,10 +10,11 @@ hourly_aggregates.
 Retention: raw_events 730 days, llm_decisions 730 days.
 Cleanup runs once daily at 03:00 UTC.
 """
+
 import asyncio
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 from sqlalchemy import text
@@ -24,7 +25,7 @@ IS_POSTGRES = "postgresql" in os.getenv("DATABASE_URL", "")
 
 class HourlyAggregator:
     LOOP_INTERVAL = 600  # 10 minutes
-    RAW_RETENTION_DAYS = 730       # 2 years (ML seasonal pattern learning)
+    RAW_RETENTION_DAYS = 730  # 2 years (ML seasonal pattern learning)
     DECISION_RETENTION_DAYS = 730  # 2 years (LLM quality trend analysis)
     CLEANUP_HOUR_UTC = 3
 
@@ -51,14 +52,12 @@ class HourlyAggregator:
 
     async def aggregate_pending_hours(self):
         """Process all completed hours that haven't been aggregated yet."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         current_hour_start = now.replace(minute=0, second=0, microsecond=0)
         tp = "events." if IS_POSTGRES else ""
 
         async with self._engine.begin() as conn:
-            row = await conn.execute(
-                text(f"SELECT last_aggregated_hour FROM {tp}aggregation_state WHERE id = 1")
-            )
+            row = await conn.execute(text(f"SELECT last_aggregated_hour FROM {tp}aggregation_state WHERE id = 1"))
             result = row.fetchone()
             last_hour = result[0] if result and result[0] else None
 
@@ -75,7 +74,7 @@ class HourlyAggregator:
                 last_hour = datetime.fromisoformat(last_hour)
 
             if last_hour.tzinfo is None:
-                last_hour = last_hour.replace(tzinfo=timezone.utc)
+                last_hour = last_hour.replace(tzinfo=UTC)
 
             # Process each completed hour
             hour = last_hour
@@ -93,7 +92,9 @@ class HourlyAggregator:
             if hours_processed > 0:
                 # Update watermark — use isoformat strings for SQLite compatibility
                 await conn.execute(
-                    text(f"UPDATE {tp}aggregation_state SET last_aggregated_hour = :hour, last_run_at = :now WHERE id = 1"),
+                    text(
+                        f"UPDATE {tp}aggregation_state SET last_aggregated_hour = :hour, last_run_at = :now WHERE id = 1"
+                    ),
                     {"hour": hour.isoformat(), "now": now.isoformat()},
                 )
                 logger.info("Aggregated {} hour(s), watermark at {}", hours_processed, hour)
@@ -152,7 +153,9 @@ class HourlyAggregator:
         else:
             # SQLite: simple event-type count grouped by zone
             rows = await conn.execute(
-                text(f"SELECT zone, event_type, COUNT(*) FROM {tp}raw_events WHERE timestamp >= :start AND timestamp < :end GROUP BY zone, event_type"),
+                text(
+                    f"SELECT zone, event_type, COUNT(*) FROM {tp}raw_events WHERE timestamp >= :start AND timestamp < :end GROUP BY zone, event_type"
+                ),
                 {"start": start_str, "end": end_str},
             )
             for row in rows:
@@ -163,7 +166,9 @@ class HourlyAggregator:
 
         # LLM decision stats
         dr = await conn.execute(
-            text(f"SELECT COUNT(*), COALESCE(SUM(total_tool_calls), 0) FROM {tp}llm_decisions WHERE timestamp >= :start AND timestamp < :end"),
+            text(
+                f"SELECT COUNT(*), COALESCE(SUM(total_tool_calls), 0) FROM {tp}llm_decisions WHERE timestamp >= :start AND timestamp < :end"
+            ),
             {"start": start_str, "end": end_str},
         )
         d = dr.fetchone()
@@ -197,8 +202,13 @@ class HourlyAggregator:
                         llm_cycles = EXCLUDED.llm_cycles,
                         device_health = EXCLUDED.device_health
                 """),
-                {"period_start": start_str, "zones": json.dumps(zones), "tasks_created": tasks_created,
-                 "llm_cycles": llm_cycles, "device_health": json.dumps({"total_tool_calls": total_tool_calls})},
+                {
+                    "period_start": start_str,
+                    "zones": json.dumps(zones),
+                    "tasks_created": tasks_created,
+                    "llm_cycles": llm_cycles,
+                    "device_health": json.dumps({"total_tool_calls": total_tool_calls}),
+                },
             )
         else:
             await conn.execute(
@@ -206,13 +216,18 @@ class HourlyAggregator:
                     INSERT OR REPLACE INTO {tp}hourly_aggregates (hub_id, period_start, zones, tasks_created, llm_cycles, device_health)
                     VALUES ('hems-brain', :period_start, :zones, :tasks_created, :llm_cycles, :device_health)
                 """),
-                {"period_start": start_str, "zones": json.dumps(zones), "tasks_created": tasks_created,
-                 "llm_cycles": llm_cycles, "device_health": json.dumps({"total_tool_calls": total_tool_calls})},
+                {
+                    "period_start": start_str,
+                    "zones": json.dumps(zones),
+                    "tasks_created": tasks_created,
+                    "llm_cycles": llm_cycles,
+                    "device_health": json.dumps({"total_tool_calls": total_tool_calls}),
+                },
             )
 
     async def _maybe_cleanup(self):
         """Run retention cleanup once per day at CLEANUP_HOUR_UTC."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         today = now.strftime("%Y-%m-%d")
         if now.hour != self.CLEANUP_HOUR_UTC or self._last_cleanup_date == today:
             return

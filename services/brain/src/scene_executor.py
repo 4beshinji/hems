@@ -6,6 +6,7 @@ honored via asyncio.sleep; total execution may be long-running (e.g. a wake scen
 spanning 5 minutes), so execute_scene() is fire-and-forget from the caller's
 perspective (task) unless wait=True.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,19 +38,21 @@ class SceneExecutor:
         return await self._fetch_all()
 
     async def _fetch_all(self) -> list[dict]:
-        import aiohttp
         import os
+
+        import aiohttp
+
         backend_url = os.getenv("BACKEND_URL", "http://backend:8000")
-        api_key = os.getenv("HEMS_API_KEY", "")
-        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         try:
-            async with aiohttp.ClientSession(headers=headers) as s:
-                async with s.get(
+            async with (
+                aiohttp.ClientSession() as s,
+                s.get(
                     f"{backend_url}/scenes/?enabled_only=true",
                     timeout=aiohttp.ClientTimeout(total=5),
-                ) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
+                ) as resp,
+            ):
+                if resp.status == 200:
+                    return await resp.json()
         except Exception as e:
             logger.debug(f"Scene fetch failed: {e}")
         return []
@@ -62,9 +65,7 @@ class SceneExecutor:
         if not actions:
             return {"success": True, "executed": 0, "errors": []}
 
-        sorted_actions = sorted(
-            actions, key=lambda a: int(a.get("delay_s") or 0)
-        )
+        sorted_actions = sorted(actions, key=lambda a: int(a.get("delay_s") or 0))
         errors: list[str] = []
         executed = 0
         elapsed = 0
@@ -93,6 +94,5 @@ class SceneExecutor:
     async def execute_by_name(self, name: str) -> dict:
         scene = await self.fetch_scene_by_name(name)
         if scene is None:
-            return {"success": False, "executed": 0,
-                    "errors": [f"Scene '{name}' not found or disabled"]}
+            return {"success": False, "executed": 0, "errors": [f"Scene '{name}' not found or disabled"]}
         return await self.execute(scene.get("actions") or [])

@@ -7,15 +7,19 @@ Knowledge: search_knowledge, get_knowledge_sources, read_knowledge_document
 """
 
 
-def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
-              obsidian_enabled: bool = False, ha_enabled: bool = False,
-              biometric_enabled: bool = False,
-              perception_enabled: bool = False,
-              shopping_enabled: bool = False,
-              switchbot_enabled: bool = False,
-              news_enabled: bool = False,
-              knowledge_enabled: bool = False,
-              device_registry_enabled: bool = True) -> list:
+def get_tools(
+    openclaw_enabled: bool = False,
+    services_enabled: bool = False,
+    obsidian_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    shopping_enabled: bool = False,
+    switchbot_enabled: bool = False,
+    news_enabled: bool = False,
+    knowledge_enabled: bool = False,
+    device_registry_enabled: bool = True,
+) -> list:
     tools = [
         {
             "type": "function",
@@ -27,12 +31,17 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
                     "properties": {
                         "title": {"type": "string", "description": "タスクのタイトル（日本語、簡潔に）"},
                         "description": {"type": "string", "description": "タスクの詳細説明（状況と対応方法を含む）"},
-                        "urgency": {"type": "integer", "description": "緊急度 0=延期可 1=低 2=通常 3=高 4=緊急", "minimum": 0, "maximum": 4},
+                        "urgency": {
+                            "type": "integer",
+                            "description": "緊急度 0=延期可 1=低 2=通常 3=高 4=緊急",
+                            "minimum": 0,
+                            "maximum": 4,
+                        },
                         "zone": {"type": "string", "description": "ゾーン名 (例: living_room, bedroom)"},
                         "task_type": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "タスク種別タグ (例: ['ventilation'], ['cleaning'])"
+                            "description": "タスク種別タグ (例: ['ventilation'], ['cleaning'])",
                         },
                         "location": {"type": "string", "description": "具体的な場所"},
                         "estimated_duration": {"type": "integer", "description": "推定所要時間（分）", "default": 10},
@@ -79,7 +88,11 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "message": {"type": "string", "description": "メッセージ（70文字以内、日本語）", "maxLength": 70},
+                        "message": {
+                            "type": "string",
+                            "description": "メッセージ（70文字以内、日本語）",
+                            "maxLength": 70,
+                        },
                         "zone": {"type": "string", "description": "対象ゾーン"},
                         "tone": {
                             "type": "string",
@@ -160,14 +173,18 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
     return tools
 
 
-def get_chat_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
-                   obsidian_enabled: bool = False, ha_enabled: bool = False,
-                   biometric_enabled: bool = False,
-                   perception_enabled: bool = False,
-                   switchbot_enabled: bool = False,
-                   news_enabled: bool = False,
-                   knowledge_enabled: bool = False,
-                   device_registry_enabled: bool = True) -> list:
+def get_chat_tools(
+    openclaw_enabled: bool = False,
+    services_enabled: bool = False,
+    obsidian_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    switchbot_enabled: bool = False,
+    news_enabled: bool = False,
+    knowledge_enabled: bool = False,
+    device_registry_enabled: bool = True,
+) -> list:
     """Return read-only tool subset for conversational chat.
 
     Excludes action tools: create_task, speak, send_device_command, control_*,
@@ -175,47 +192,75 @@ def get_chat_tools(openclaw_enabled: bool = False, services_enabled: bool = Fals
     """
     # Read-only tool names allowed in chat
     _CHAT_ALLOWED = {
-        "get_zone_status", "get_active_tasks", "get_device_status",
-        "get_pc_status", "get_service_status",
-        "search_notes", "get_recent_notes",
-        "get_home_devices", "get_sensor_data", "get_weather",
-        "get_biometrics", "get_sleep_summary",
+        "get_zone_status",
+        "get_active_tasks",
+        "get_device_status",
+        "get_pc_status",
+        "get_service_status",
+        "search_notes",
+        "get_recent_notes",
+        "get_home_devices",
+        "get_sensor_data",
+        "get_weather",
+        "get_biometrics",
+        "get_sleep_summary",
         "get_perception_status",
         "get_shopping_list",
         "get_switchbot_devices",
         "get_news_summary",
-        "search_knowledge", "get_knowledge_sources", "read_knowledge_document",
-        "list_devices", "describe_device", "list_scenes",
+        "search_knowledge",
+        "get_knowledge_sources",
+        "read_knowledge_document",
+        "list_devices",
+        "describe_device",
+        "control_actuator",
+        "list_scenes",
     }
 
     all_tools = get_tools(
-        openclaw_enabled=openclaw_enabled, services_enabled=services_enabled,
-        obsidian_enabled=obsidian_enabled, ha_enabled=ha_enabled,
-        biometric_enabled=biometric_enabled, perception_enabled=perception_enabled,
+        openclaw_enabled=openclaw_enabled,
+        services_enabled=services_enabled,
+        obsidian_enabled=obsidian_enabled,
+        ha_enabled=ha_enabled,
+        biometric_enabled=biometric_enabled,
+        perception_enabled=perception_enabled,
         device_registry_enabled=device_registry_enabled,
-        shopping_enabled=True, switchbot_enabled=switchbot_enabled,
-        news_enabled=news_enabled, knowledge_enabled=knowledge_enabled,
+        shopping_enabled=True,
+        switchbot_enabled=switchbot_enabled,
+        news_enabled=news_enabled,
+        knowledge_enabled=knowledge_enabled,
     )
     return [t for t in all_tools if t["function"]["name"] in _CHAT_ALLOWED]
 
 
-def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = False,
-                   obsidian_enabled: bool = False, ha_enabled: bool = False,
-                   biometric_enabled: bool = False,
-                   perception_enabled: bool = False,
-                   shopping_enabled: bool = False,
-                   switchbot_enabled: bool = False,
-                   news_enabled: bool = False,
-                   knowledge_enabled: bool = False) -> list:
+def get_tool_names(
+    openclaw_enabled: bool = False,
+    services_enabled: bool = False,
+    obsidian_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    shopping_enabled: bool = False,
+    switchbot_enabled: bool = False,
+    news_enabled: bool = False,
+    knowledge_enabled: bool = False,
+) -> list:
     """Return list of all enabled tool names."""
-    return [t["function"]["name"] for t in get_tools(openclaw_enabled, services_enabled,
-                                                      obsidian_enabled, ha_enabled,
-                                                      biometric_enabled,
-                                                      perception_enabled,
-                                                      shopping_enabled,
-                                                      switchbot_enabled,
-                                                      news_enabled,
-                                                      knowledge_enabled)]
+    return [
+        t["function"]["name"]
+        for t in get_tools(
+            openclaw_enabled,
+            services_enabled,
+            obsidian_enabled,
+            ha_enabled,
+            biometric_enabled,
+            perception_enabled,
+            shopping_enabled,
+            switchbot_enabled,
+            news_enabled,
+            knowledge_enabled,
+        )
+    ]
 
 
 def _get_service_tools() -> list:
@@ -257,7 +302,10 @@ def _get_obsidian_tools() -> list:
                             "items": {"type": "string"},
                             "description": "タグフィルター（例: ['daily', 'project']）",
                         },
-                        "path_prefix": {"type": "string", "description": "パスプレフィックスフィルター（例: 'projects/'）"},
+                        "path_prefix": {
+                            "type": "string",
+                            "description": "パスプレフィックスフィルター（例: 'projects/'）",
+                        },
                         "max_results": {"type": "integer", "description": "最大結果数", "default": 5, "maximum": 10},
                     },
                     "required": ["query"],
@@ -394,8 +442,18 @@ def _get_ha_tools() -> list:
                     "properties": {
                         "entity_id": {"type": "string", "description": "HA entity_id (例: light.living_room)"},
                         "on": {"type": "boolean", "description": "ON/OFF"},
-                        "brightness": {"type": "integer", "description": "明るさ (0-255)", "minimum": 0, "maximum": 255},
-                        "color_temp": {"type": "integer", "description": "色温度 (mirek, 153-500)", "minimum": 153, "maximum": 500},
+                        "brightness": {
+                            "type": "integer",
+                            "description": "明るさ (0-255)",
+                            "minimum": 0,
+                            "maximum": 255,
+                        },
+                        "color_temp": {
+                            "type": "integer",
+                            "description": "色温度 (mirek, 153-500)",
+                            "minimum": 153,
+                            "maximum": 500,
+                        },
                     },
                     "required": ["entity_id", "on"],
                 },
@@ -415,7 +473,12 @@ def _get_ha_tools() -> list:
                             "enum": ["off", "cool", "heat", "dry", "fan_only", "auto"],
                             "description": "運転モード",
                         },
-                        "temperature": {"type": "number", "description": "設定温度 (16-30)", "minimum": 16, "maximum": 30},
+                        "temperature": {
+                            "type": "number",
+                            "description": "設定温度 (16-30)",
+                            "minimum": 16,
+                            "maximum": 30,
+                        },
                         "fan_mode": {
                             "type": "string",
                             "enum": ["auto", "low", "medium", "high"],
@@ -440,7 +503,12 @@ def _get_ha_tools() -> list:
                             "enum": ["open", "close", "stop"],
                             "description": "開閉操作",
                         },
-                        "position": {"type": "integer", "description": "ポジション (0=閉, 100=全開)", "minimum": 0, "maximum": 100},
+                        "position": {
+                            "type": "integer",
+                            "description": "ポジション (0=閉, 100=全開)",
+                            "minimum": 0,
+                            "maximum": 100,
+                        },
                     },
                     "required": ["entity_id"],
                 },
@@ -481,7 +549,10 @@ def _get_ha_tools() -> list:
                     "type": "object",
                     "properties": {
                         "entity_id": {"type": "string", "description": "特定のsensor entity_id（省略で全件）"},
-                        "device_class": {"type": "string", "description": "デバイスクラスでフィルタ（例: power, carbon_dioxide, pm25）"},
+                        "device_class": {
+                            "type": "string",
+                            "description": "デバイスクラスでフィルタ（例: power, carbon_dioxide, pm25）",
+                        },
                     },
                 },
             },
@@ -712,7 +783,10 @@ def _get_switchbot_tools() -> list:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "device_id": {"type": "string", "description": "IRデバイスID（SwitchBotアプリで登録した仮想デバイス）"},
+                        "device_id": {
+                            "type": "string",
+                            "description": "IRデバイスID（SwitchBotアプリで登録した仮想デバイス）",
+                        },
                         "command": {
                             "type": "string",
                             "description": "コマンド (例: turnOn, turnOff, setAll)",
@@ -837,9 +911,10 @@ def _get_device_registry_tools() -> list:
                 "description": (
                     "登録済みデバイスに制御コマンドを送る（ベンダー非依存）。"
                     "list_devicesで対象を確認してからdevice_idを指定。"
-                    "actionは on/off/toggle/set_brightness/set_color_temp/set_position/"
-                    "set_temperature/pulse/ir_send。"
+                    "actionは on/off/toggle/set_brightness/set_color_temp/set_color_xy/"
+                    "set_color_hs/set_position/set_temperature/pulse/rainbow/ir_send。"
                     "pulseは指定秒数ONにしてから自動OFF（水ポンプ等に使う）。"
+                    "rainbowは色相を虹色に循環させる（カラーLED専用、最大60秒）。"
                 ),
                 "parameters": {
                     "type": "object",
@@ -850,16 +925,32 @@ def _get_device_registry_tools() -> list:
                         },
                         "action": {
                             "type": "string",
-                            "enum": ["on", "off", "toggle", "set_brightness", "set_color_temp",
-                                    "set_position", "set_temperature", "pulse", "ir_send"],
+                            "enum": [
+                                "on",
+                                "off",
+                                "toggle",
+                                "set_brightness",
+                                "set_color_temp",
+                                "set_color_xy",
+                                "set_color_hs",
+                                "set_position",
+                                "set_temperature",
+                                "pulse",
+                                "rainbow",
+                                "ir_send",
+                            ],
                             "description": "アクション種別",
                         },
                         "params": {
                             "type": "object",
                             "description": (
                                 "アクション引数。set_brightness={value:0-255}, "
-                                "set_color_temp={value:153-500}, set_position={value:0-100}, "
+                                "set_color_temp={value:153-500}, "
+                                "set_color_xy={x:0.0-1.0, y:0.0-1.0}, "
+                                "set_color_hs={hue:0-360, saturation:0-100}, "
+                                "set_position={value:0-100}, "
                                 "set_temperature={value:16-30}, pulse={duration_s:1-600}, "
+                                "rainbow={duration_s:1-60}, "
                                 "ir_send={command:str, parameter:str}"
                             ),
                         },
@@ -892,8 +983,15 @@ def _get_device_registry_tools() -> list:
                         },
                         "capability": {
                             "type": "string",
-                            "enum": ["on_off", "brightness", "color_temp", "set_position",
-                                    "set_temperature", "pulse", "ir_send"],
+                            "enum": [
+                                "on_off",
+                                "brightness",
+                                "color_temp",
+                                "set_position",
+                                "set_temperature",
+                                "pulse",
+                                "ir_send",
+                            ],
                             "description": "機能フィルタ",
                         },
                         "purpose_contains": {

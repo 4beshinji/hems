@@ -1,10 +1,5 @@
-from .queue_manager import TaskQueueManager
 from .decision import should_dispatch
-from .priority import TaskUrgency, QueuedTask
+from .priority import QueuedTask, TaskUrgency
+from .queue_manager import TaskQueueManager
 
-__all__ = [
-    "TaskQueueManager",
-    "should_dispatch",
-    "TaskUrgency",
-    "QueuedTask"
-]
+__all__ = ["QueuedTask", "TaskQueueManager", "TaskUrgency", "should_dispatch"]

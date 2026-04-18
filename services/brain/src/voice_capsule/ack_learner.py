@@ -10,9 +10,9 @@ user's real preference.
 Scope — this only touches ``kind="event_lead"`` entries; shopping cache
 entries have no temporal component.
 """
+
 from __future__ import annotations
 
-import hashlib
 import json
 import statistics
 from collections import defaultdict
@@ -35,14 +35,11 @@ class AckLearner:
     def __init__(
         self,
         *,
-        session: "aiohttp.ClientSession",
+        session: aiohttp.ClientSession,
         backend_url: str,
-        api_key: str,
     ):
         self.session = session
         self.backend_url = backend_url.rstrip("/")
-        self.api_key = api_key
-        self._auth = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     async def run(self, *, since_days: int = 30) -> int:
         """Consume recent play-log and update cached event_lead entries.
@@ -103,11 +100,11 @@ class AckLearner:
     async def _fetch_play_logs(self, *, since_days: int) -> list[dict]:
         url = f"{self.backend_url}/mobile/voice-capsule/play-log?since_days={since_days}"
         try:
-            async with self.session.get(url, headers=self._auth, timeout=15) as resp:
+            async with self.session.get(url, timeout=15) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 logger.warning("[ack_learner] play-log fetch HTTP {}", resp.status)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("[ack_learner] play-log fetch error: {}", exc)
         return []
 
@@ -115,7 +112,7 @@ class AckLearner:
         """Shift ``lead_time_min`` on an existing event_lead cache row."""
         try:
             plan = json.loads(entry["value_json"])
-        except Exception:  # noqa: BLE001
+        except Exception:
             return False
 
         old = int(plan.get("lead_time_min", 30))
@@ -134,25 +131,32 @@ class AckLearner:
     async def _list_event_lead_entries(self) -> list[dict]:
         url = f"{self.backend_url}/classifier-cache?kind=event_lead"
         try:
-            async with self.session.get(url, headers=self._auth, timeout=15) as resp:
+            async with self.session.get(url, timeout=15) as resp:
                 if resp.status == 200:
                     return await resp.json()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("[ack_learner] cache list error: {}", exc)
         return []
 
     async def _put_cache_entry(
-        self, *, kind: str, key_hash: str, value: str, source: str,
+        self,
+        *,
+        kind: str,
+        key_hash: str,
+        value: str,
+        source: str,
     ) -> bool:
         url = f"{self.backend_url}/classifier-cache"
         payload = {
-            "kind": kind, "key_hash": key_hash,
-            "value_json": value, "source": source,
+            "kind": kind,
+            "key_hash": key_hash,
+            "value_json": value,
+            "source": source,
         }
         try:
-            async with self.session.post(url, json=payload, headers=self._auth, timeout=10) as resp:
+            async with self.session.post(url, json=payload, timeout=10) as resp:
                 return resp.status == 201
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("[ack_learner] cache put error: {}", exc)
             return False
 
@@ -161,7 +165,7 @@ def _title_hash_from_clip_id(clip_id: str) -> str | None:
     """Extract the 12-hex-char title hash from ``event_<hash>_HHMM``."""
     if not clip_id.startswith("event_"):
         return None
-    body = clip_id[len("event_"):]
+    body = clip_id[len("event_") :]
     parts = body.rsplit("_", 1)
     if len(parts) != 2 or not parts[1].isdigit() or len(parts[1]) != 4:
         return None

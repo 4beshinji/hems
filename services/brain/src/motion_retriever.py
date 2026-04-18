@@ -12,7 +12,6 @@ import random
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from loguru import logger
@@ -84,7 +83,7 @@ def _tokenize(text: str) -> set[str]:
 
 
 class MotionRetriever:
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         self.motions: list[MotionEntry] = []
         self._usage: dict[str, dict] = {}  # {motion_id: {count, last_seq}}
         self._global_seq = 0
@@ -95,7 +94,7 @@ class MotionRetriever:
             return
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
         except Exception as e:
             logger.error(f"Failed to load motions.yaml: {e}")
@@ -119,7 +118,7 @@ class MotionRetriever:
 
         logger.info(f"Loaded {len(self.motions)} motions from {path}")
 
-    def select(self, text: str, tone: str = "neutral") -> Optional[str]:
+    def select(self, text: str, tone: str = "neutral") -> str | None:
         """Select a motion_id for the given speech text and tone.
 
         Uses serendipity-focused scoring:
@@ -181,9 +180,7 @@ class MotionRetriever:
             return math.log(2)  # max bonus for never-used
         return math.log(1 + 1 / usage["count"])
 
-    def _softmax_sample(
-        self, scores: list[tuple[str, float]], temperature: float
-    ) -> Optional[str]:
+    def _softmax_sample(self, scores: list[tuple[str, float]], temperature: float) -> str | None:
         """Temperature-scaled softmax sampling. Pure Python, no numpy."""
         if not scores:
             return None
