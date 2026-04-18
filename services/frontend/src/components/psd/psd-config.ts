@@ -9,7 +9,10 @@
 // ── 型定義 ─────────────────────────────────────────────────────────────────
 
 export type PsdExpression = 'neutral' | 'happy' | 'sad' | 'surprised' | 'angry' | 'worried'
-export type PsdMouth      = 'close' | 'smile' | 'hmm' | 'a' | 'i' | 'u' | 'o' | 'o_big'
+export type PsdMouth      = 'close' | 'smile' | 'hmm' | 'smile_open' | 'a' | 'i' | 'i_smile' | 'u' | 'e' | 'o' | 'o_big' | 'a_smile' | 'ahaha' | 'hawawa' | 'tongue' | 'hmph'
+export type PsdEyes       = null | 'blink' | 'closed' | 'closed_smile' | 'normal_half' | 'jito_half' | 'wink_r' | 'wink_l' | 'qq' | 'gt_lt'
+export type PsdArmLeft    = 'default' | 'down' | 'syringe' | 'point' | 'hip' | 'peace' | 'open'
+export type PsdArmRight   = 'default' | 'hip' | 'point' | 'beckon' | 'peace' | 'open' | 'mouth'
 export type PsdCostume    = 'official' | 'patient'
 export type PsdSymbol     = 'exclamation' | 'question' | 'surprise' | null
 
@@ -32,7 +35,10 @@ export interface PsdAccessories {
 
 export interface PsdAvatarState {
   expression:  PsdExpression
+  eyes:        PsdEyes
   mouth:       PsdMouth
+  armLeft:     PsdArmLeft
+  armRight:    PsdArmRight
   costume:     PsdCostume
   fx:          PsdFx
   accessories: PsdAccessories
@@ -52,7 +58,10 @@ export const DEFAULT_ACCESSORIES: PsdAccessories = {
 
 export const DEFAULT_STATE: PsdAvatarState = {
   expression:  'neutral',
+  eyes:        null,
   mouth:       'close',
+  armLeft:     'default',
+  armRight:    'default',
   costume:     'official',
   fx:          DEFAULT_FX,
   accessories: DEFAULT_ACCESSORIES,
@@ -65,13 +74,25 @@ const BASE = '/assets/character/nurserobo'
 
 export const ALL_EXPRESSIONS: PsdExpression[] = ['neutral', 'happy', 'sad', 'surprised', 'angry', 'worried']
 export const ALL_COSTUMES: PsdCostume[]        = ['official', 'patient']
-export const ALL_MOUTHS: PsdMouth[]            = ['close', 'smile', 'hmm', 'a', 'i', 'u', 'o', 'o_big']
+export const ALL_EYES: NonNullable<PsdEyes>[]  = ['blink', 'closed', 'closed_smile', 'normal_half', 'jito_half', 'wink_r', 'wink_l', 'qq', 'gt_lt']
+export const ALL_ARMS_LEFT: PsdArmLeft[]       = ['default', 'down', 'syringe', 'point', 'hip', 'peace', 'open']
+export const ALL_ARMS_RIGHT: PsdArmRight[]     = ['default', 'hip', 'point', 'beckon', 'peace', 'open', 'mouth']
+export const ALL_MOUTHS: PsdMouth[]            = ['close', 'smile', 'hmm', 'smile_open', 'a', 'i', 'i_smile', 'u', 'e', 'o', 'o_big', 'a_smile', 'ahaha', 'hawawa', 'tongue', 'hmph']
 export const ALL_FX_KEYS = ['tears', 'sweat', 'damage', 'damage2', 'blood', 'shadow', 'glow_orange', 'glow_red'] as const
 export const ALL_ACC_KEYS = ['cat_ears', 'flower', 'glasses'] as const
 export const ALL_SYMBOLS: Array<NonNullable<PsdSymbol>> = ['exclamation', 'question', 'surprise']
 
 export const exprUrl = (costume: PsdCostume, expression: PsdExpression) =>
   `${BASE}/expr/${costume}_${expression}.png`
+
+export const eyesUrl = (eyes: NonNullable<PsdEyes>) =>
+  `${BASE}/eyes/${eyes}.png`
+
+export const armLeftUrl = (arm: PsdArmLeft) =>
+  `${BASE}/arms/left_${arm}.png`
+
+export const armRightUrl = (arm: PsdArmRight) =>
+  `${BASE}/arms/right_${arm}.png`
 
 export const mouthUrl = (mouth: PsdMouth) =>
   `${BASE}/mouth/${mouth}.png`

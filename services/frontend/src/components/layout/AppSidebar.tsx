@@ -1,6 +1,6 @@
 import { useRef, useCallback, lazy, Suspense, type ComponentType } from 'react'
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Thermometer, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut, Play, Cpu, MapPin, Smartphone } from 'lucide-react'
+import { LayoutDashboard, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut, Play, Cpu, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -17,12 +17,10 @@ const PsdBustUp = IS_PSD
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/physical', icon: Thermometer, label: 'Physical Space' },
+  { to: '/devices', icon: Cpu, label: 'Devices' },
   { to: '/digital', icon: Monitor, label: 'Digital Space' },
   { to: '/user', icon: Heart, label: 'User State' },
-  { to: '/devices', icon: Cpu, label: 'Devices' },
-  { to: '/places', icon: MapPin, label: 'Places' },
-  { to: '/mobile-devices', icon: Smartphone, label: 'Mobile' },
+  { to: '/mobile', icon: Smartphone, label: 'Mobile' },
 ] as const
 
 const AVATAR_MODE_LABELS: Record<AvatarMode, string> = {

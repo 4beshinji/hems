@@ -1,13 +1,13 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Plus, X, Clock, MapPin, Lock, RefreshCw, Calendar } from 'lucide-react'
+import { Plus, X, Clock, MapPin, Lock, RefreshCw, Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import CreateTaskModal from '@/components/tasks/CreateTaskModal'
-import { fetchTimelineToday, dismissTask, completeTask } from '@/lib/api'
+import { fetchTimelineToday, fetchTimelineDay, dismissTask, completeTask } from '@/lib/api'
 import { formatTime, formatTimeRange, formatDuration } from '@/lib/formatters'
 import { TIMELINE_KIND_LABELS, TIMELINE_KIND_COLORS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,22 @@ import type { ScheduledBlock, TimelineSlotKind } from '@/lib/types'
 const HOUR_HEIGHT_PX = 56
 const START_HOUR = 6
 const END_HOUR = 26 // shows up to 02:00 next day
+const WEEK_DAYS = 7
+
+function toDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d)
+  r.setDate(r.getDate() + n)
+  return r
+}
+
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
 
 function minutesSinceDayStart(iso: string, dayStartMs: number): number {
   const t = new Date(iso).getTime()
@@ -32,11 +48,22 @@ export default function TimelinePanel() {
   const [createOpen, setCreateOpen] = useState(false)
   const [selected, setSelected] = useState<ScheduledBlock | null>(null)
   const [nowMs, setNowMs] = useState(Date.now())
+  const [dayOffset, setDayOffset] = useState(0) // 0 = today
+
+  const today = useMemo(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  }, [])
+
+  const selectedDate = useMemo(() => addDays(today, dayOffset), [today, dayOffset])
+  const selectedDateStr = useMemo(() => toDateStr(selectedDate), [selectedDate])
+  const isToday = dayOffset === 0
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['timeline', 'today'],
-    queryFn: fetchTimelineToday,
-    refetchInterval: 30000,
+    queryKey: ['timeline', selectedDateStr],
+    queryFn: () => isToday ? fetchTimelineToday() : fetchTimelineDay(selectedDateStr),
+    refetchInterval: isToday ? 30000 : 120000,
   })
 
   useEffect(() => {
@@ -45,10 +72,9 @@ export default function TimelinePanel() {
   }, [])
 
   const dayStartMs = useMemo(() => {
-    if (!data?.date) return new Date().setHours(0, 0, 0, 0)
-    const [y, m, d] = data.date.split('-').map(Number)
-    return new Date(y, m - 1, d, 0, 0, 0, 0).getTime()
-  }, [data?.date])
+    const d = selectedDate
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
+  }, [selectedDate])
 
   const hours = useMemo(() => {
     const arr: number[] = []
@@ -58,24 +84,46 @@ export default function TimelinePanel() {
   const totalHeightPx = (END_HOUR - START_HOUR) * HOUR_HEIGHT_PX
   const blocks = data?.blocks ?? []
   const nowOffsetPx = useMemo(() => {
+    if (!isToday) return null
     const diffMin = (nowMs - dayStartMs) / 60000
     const rangeMinStart = START_HOUR * 60
     const rangeMinEnd = END_HOUR * 60
     if (diffMin < rangeMinStart || diffMin > rangeMinEnd) return null
     return ((diffMin - rangeMinStart) / 60) * HOUR_HEIGHT_PX
-  }, [nowMs, dayStartMs])
+  }, [nowMs, dayStartMs, isToday])
+
+  const goToday = useCallback(() => setDayOffset(0), [])
+
+  // Week day tabs
+  const weekDays = useMemo(() => {
+    return Array.from({ length: WEEK_DAYS }, (_, i) => {
+      const d = addDays(today, i)
+      return {
+        offset: i,
+        date: d,
+        dateStr: toDateStr(d),
+        dayNum: d.getDate(),
+        weekday: WEEKDAY_LABELS[d.getDay()],
+        isWeekend: d.getDay() === 0 || d.getDay() === 6,
+      }
+    })
+  }, [today])
 
   return (
     <Card className="h-full flex flex-col min-h-0">
       <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
         <CardTitle className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-primary" />
-          タイムライン
           <span className="text-xs font-normal text-muted-foreground">
-            {data?.date ?? '...'} · {blocks.length}ブロック
+            {blocks.length}ブロック
           </span>
         </CardTitle>
         <div className="flex gap-1">
+          {!isToday && (
+            <Button variant="ghost" size="sm" onClick={goToday} className="h-7 text-xs px-2">
+              今日
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -93,12 +141,57 @@ export default function TimelinePanel() {
           </Button>
         </div>
       </CardHeader>
+
+      {/* Week day tabs */}
+      <div className="flex items-center px-3 pb-2 gap-0.5">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0"
+          disabled={dayOffset <= 0}
+          onClick={() => setDayOffset(Math.max(0, dayOffset - 1))}
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </Button>
+        <div className="flex flex-1 gap-0.5 justify-center">
+          {weekDays.map((d) => (
+            <button
+              key={d.offset}
+              onClick={() => setDayOffset(d.offset)}
+              className={cn(
+                'flex flex-col items-center rounded-md px-1.5 py-1 text-[10px] leading-tight transition-colors min-w-[2rem]',
+                d.offset === dayOffset
+                  ? 'bg-primary text-primary-foreground'
+                  : 'hover:bg-muted',
+                d.isWeekend && d.offset !== dayOffset && 'text-muted-foreground',
+              )}
+            >
+              <span className="font-medium">{d.weekday}</span>
+              <span className={cn('text-xs', d.offset === 0 && d.offset !== dayOffset && 'text-primary font-bold')}>
+                {d.dayNum}
+              </span>
+            </button>
+          ))}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0"
+          disabled={dayOffset >= WEEK_DAYS - 1}
+          onClick={() => setDayOffset(Math.min(WEEK_DAYS - 1, dayOffset + 1))}
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
       <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
         {isLoading ? (
           <div className="p-8 text-center text-muted-foreground">読み込み中...</div>
         ) : blocks.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground">
-            今日のスケジュールはまだ生成されていません
+            {isToday
+              ? '今日のスケジュールはまだ生成されていません'
+              : `${selectedDate.getMonth() + 1}/${selectedDate.getDate()} のスケジュールはまだありません`}
           </div>
         ) : (
           <div className="relative" style={{ height: `${totalHeightPx}px` }}>
@@ -120,7 +213,7 @@ export default function TimelinePanel() {
               })}
             </div>
 
-            {/* Current time line */}
+            {/* Current time line (today only) */}
             {nowOffsetPx !== null && (
               <div
                 className="absolute left-16 right-2 z-10 pointer-events-none"
@@ -182,7 +275,7 @@ export default function TimelinePanel() {
             await dismissTask(id)
             toast.success('タスクを却下しました')
             setSelected(null)
-            queryClient.invalidateQueries({ queryKey: ['timeline', 'today'] })
+            queryClient.invalidateQueries({ queryKey: ['timeline'] })
             queryClient.invalidateQueries({ queryKey: ['tasks'] })
           } catch {
             toast.error('却下に失敗しました')
@@ -193,7 +286,7 @@ export default function TimelinePanel() {
             await completeTask(id, 'no_issue', '')
             toast.success('タスク完了')
             setSelected(null)
-            queryClient.invalidateQueries({ queryKey: ['timeline', 'today'] })
+            queryClient.invalidateQueries({ queryKey: ['timeline'] })
             queryClient.invalidateQueries({ queryKey: ['tasks'] })
           } catch {
             toast.error('完了に失敗しました')
