@@ -1,47 +1,57 @@
-# Zigbee2MQTT configuration for HEMS.
-# First-run tip: network_key: GENERATE will be replaced with a random key on first startup.
-# Keep this directory in gitignore — it contains the network_key and coordinator state.
-
 mqtt:
   server: mqtt://mosquitto:1883
-  # Configure a dedicated MQTT user (run infra/mosquitto/setup-users.sh to create).
-  user: hems-z2m
-  # Password is injected via ZIGBEE2MQTT_CONFIG_MQTT_PASSWORD env var
-  # (docker-compose forwards MQTT_PASS_HEMS_Z2M from .env). secret.yaml is optional.
-
+  user: hems-zigbee
+  password: CHANGE_ME_BEFORE_USE
 serial:
-  # This path is inside the container. The host device is mounted via
-  # HEMS_Z2M_USB_DEVICE env var (default /dev/ttyUSB0 → /dev/ttyACM0 in container).
-  port: /dev/ttyACM0
-  # Some sticks need an explicit adapter (zstack/ember/deconz/zigate/zboss).
-  # adapter: zstack
-
-# Pairing: flip to `true` only when onboarding a new device, then back to `false`.
-permit_join: false
-
+  port: /dev/ttyUSB0
+  adapter: zstack
+  disable_led: false
 advanced:
-  network_key: GENERATE
+  network_key:
+    - 161
+    - 225
+    - 66
+    - 240
+    - 240
+    - 207
+    - 49
+    - 93
+    - 202
+    - 228
+    - 127
+    - 142
+    - 244
+    - 77
+    - 8
+    - 88
+  transmit_power: 20
   log_level: info
-  # Minimize payload size / preserve retain behavior — Brain expects retain=true.
   cache_state: true
   cache_state_persistent: true
   last_seen: ISO_8601
-
-# Management UI — container port 8080 → host port HEMS_PORT_Z2M_UI (default 8090).
-# auth_token is injected via ZIGBEE2MQTT_CONFIG_FRONTEND_AUTH_TOKEN env var
-# (docker-compose forwards HEMS_API_KEY). Nginx also proxies /z2m/ to this service.
 frontend:
+  enabled: true
   port: 8080
-
-# Device-specific overrides can live here after pairing, e.g.:
-# devices:
-#   "0x00124b00...":
-#     friendly_name: bulb_bedroom
-#     retain: true
-
-# MQTT topic base — keep default so brain subscribes zigbee2mqtt/#.
-# mqtt:
-#   base_topic: zigbee2mqtt
-
-# Home Assistant discovery — DISABLED (HEMS consumes Z2M directly via MQTT).
-homeassistant: false
+homeassistant:
+  enabled: false
+version: 5
+devices:
+  '0x781c9dfffee1557e':
+    friendly_name: '0x781c9dfffee1557e'
+  '0xa4c13821dd1c6e60':
+    friendly_name: '0xa4c13821dd1c6e60'
+  '0xa4c138cdb4a972c2':
+    friendly_name: '0xa4c138cdb4a972c2'
+  '0xa4c138fbeb32da9c':
+    friendly_name: '0xa4c138fbeb32da9c'
+  '0xa4c138e17e7ba03a':
+    friendly_name: '0xa4c138e17e7ba03a'
+  '0xa4c13811d0a93ed4':
+    friendly_name: '0xa4c13811d0a93ed4'
+  '0x3ccfb46881f1ac2a':
+    friendly_name: '0x3ccfb46881f1ac2a'
+    description: スマートコンセント
+  '0xa4c138b65ad26965':
+    friendly_name: '0xa4c138b65ad26965'
+  '0xa4c1388f90e1f7ce':
+    friendly_name: '0xa4c1388f90e1f7ce'

@@ -2,6 +2,7 @@
 Home Assistant control proxy router.
 Frontend → Backend → ha-bridge for smart home device control.
 """
+
 import os
 
 import httpx
@@ -16,6 +17,7 @@ _home_store: dict = {}
 
 
 # --- Pydantic models ---
+
 
 class LightControl(BaseModel):
     entity_id: str
@@ -38,6 +40,7 @@ class CoverControl(BaseModel):
 
 
 # --- Endpoints ---
+
 
 @router.get("/")
 async def get_home():
@@ -88,10 +91,14 @@ async def control_climate(cmd: ClimateControl):
 
     if cmd.mode and cmd.temperature is not None:
         await _ha_proxy_call(cmd.entity_id, "climate/set_hvac_mode", {"hvac_mode": cmd.mode})
-        return await _ha_proxy_call(cmd.entity_id, "climate/set_temperature", {
-            "temperature": cmd.temperature,
-            **({"fan_mode": cmd.fan_mode} if cmd.fan_mode else {}),
-        })
+        return await _ha_proxy_call(
+            cmd.entity_id,
+            "climate/set_temperature",
+            {
+                "temperature": cmd.temperature,
+                **({"fan_mode": cmd.fan_mode} if cmd.fan_mode else {}),
+            },
+        )
 
     service = "climate/set_hvac_mode" if cmd.mode else "climate/set_temperature"
     return await _ha_proxy_call(cmd.entity_id, service, data)
@@ -104,8 +111,7 @@ async def control_cover(cmd: CoverControl):
         raise HTTPException(status_code=503, detail="HA bridge not configured")
 
     if cmd.position is not None:
-        return await _ha_proxy_call(cmd.entity_id, "cover/set_cover_position",
-                                    {"position": cmd.position})
+        return await _ha_proxy_call(cmd.entity_id, "cover/set_cover_position", {"position": cmd.position})
     if cmd.action == "open":
         return await _ha_proxy_call(cmd.entity_id, "cover/open_cover")
     elif cmd.action == "close":

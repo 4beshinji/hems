@@ -6,7 +6,26 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  PYTHONPATH: services/brain/src:services/backend:services/openclaw-bridge/src
+
 jobs:
+  # ── Python linting ─���───────────────────────────────────────────────
+  lint-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+
+  # ── Backend tests with coverage ────────────────────────────────────
   test-backend:
     runs-on: ubuntu-latest
     steps:
@@ -14,18 +33,38 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            services/brain/requirements.txt
+            services/backend/requirements.txt
+            services/openclaw-bridge/requirements.txt
       - name: Install dependencies
         run: |
           pip install -r services/brain/requirements.txt
           pip install -r services/backend/requirements.txt
-          pip install pytest pytest-asyncio fastapi httpx websockets
-      - name: Run tests
-        env:
-          PYTHONPATH: services/brain/src:services/backend:services/openclaw-bridge/src
-        run: pytest tests/ -v --tb=short
+          pip install -r services/openclaw-bridge/requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Run tests with coverage
+        run: >
+          pytest tests/ services/brain/tests/
+          -v --tb=short
+          -m "not integration and not e2e and not benchmark"
+          --cov --cov-report=xml:coverage.xml --cov-report=term-missing
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 30
 
+  # ── Frontend lint + type check + build ─────────────────────────────
   lint-frontend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/frontend
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -37,8 +76,70 @@ jobs:
           cache: pnpm
           cache-dependency-path: services/frontend/pnpm-lock.yaml
       - name: Install dependencies
-        run: pnpm install
-        working-directory: services/frontend
+        run: pnpm install --frozen-lockfile
+      - name: ESLint
+        run: pnpm lint
       - name: Type check and build
         run: pnpm build
-        working-directory: services/frontend
+
+  # ── Docker build validation ────────���───────────────────────────────
+  docker-build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - { context: "services/brain",            name: "brain" }
+          - { context: "services/backend",          name: "backend" }
+          - { context: "services/frontend",         name: "frontend" }
+          - { context: "services/voice",            name: "voice" }
+          - { context: "services/openclaw-bridge",  name: "openclaw-bridge" }
+          - { context: "services/gas-bridge",       name: "gas-bridge" }
+          - { context: "services/ha-bridge",        name: "ha-bridge" }
+          - { context: "services/biometric-bridge", name: "biometric-bridge" }
+          - { context: "services/obsidian-bridge",  name: "obsidian-bridge" }
+          - { context: "services/news-bridge",      name: "news-bridge" }
+          - { context: "services/weather-bridge",   name: "weather-bridge" }
+          - { context: "services/switchbot-bridge",  name: "switchbot-bridge" }
+          - { context: "services/tapo-bridge",      name: "tapo-bridge" }
+          - { context: "services/knowledge-bridge", name: "knowledge-bridge" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.service.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          push: false
+          load: false
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+
+  # ── Security scanning ──────────────────────────────────────────────
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: Audit brain dependencies
+        run: pip-audit -r services/brain/requirements.txt
+      - name: Audit backend dependencies
+        run: pip-audit -r services/backend/requirements.txt
+      - name: Audit openclaw-bridge dependencies
+        run: pip-audit -r services/openclaw-bridge/requirements.txt
+      - name: Install hadolint
+        run: |
+          curl -sL https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64 \
+            -o /usr/local/bin/hadolint
+          chmod +x /usr/local/bin/hadolint
+      - name: Lint Dockerfiles
+        run: |
+          find services -name "Dockerfile" -type f | while read -r df; do
+            echo "::group::hadolint $df"
+            hadolint "$df" || true
+            echo "::endgroup::"
+          done

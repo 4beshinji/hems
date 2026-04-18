@@ -1,19 +1,17 @@
+import json
 import logging
 import os
-import json
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import delete
-from sqlalchemy.sql import func
 
-from database import get_db
 import models
 import schemas
+from database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +38,18 @@ def _publish_timeline_today(date: str, blocks: list[dict]):
         {
             "date": date,
             "blocks": blocks,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         },
         ensure_ascii=False,
         default=str,
     )
     try:
         import paho.mqtt.publish as mqtt_publish
+
         mqtt_publish.single(
-            topic, payload, hostname=MQTT_BROKER,
+            topic,
+            payload,
+            hostname=MQTT_BROKER,
             auth={"username": MQTT_USER, "password": MQTT_PASS},
             retain=True,
         )
@@ -119,9 +120,7 @@ async def regenerate_timeline(
     except ValueError:
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
 
-    await db.execute(
-        delete(models.ScheduledBlock).where(models.ScheduledBlock.date == body.date)
-    )
+    await db.execute(delete(models.ScheduledBlock).where(models.ScheduledBlock.date == body.date))
 
     for block in body.blocks:
         db.add(

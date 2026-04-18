@@ -41,6 +41,7 @@ SCALE = 0.5
 
 # ── レイヤーナビゲーション ──────────────────────────────────────────────────
 
+
 def find_child(parent: Any, name: str) -> Any:
     """直下の子レイヤーを名前で検索する。"""
     for layer in parent:
@@ -65,6 +66,7 @@ def get_star_children(group: Any) -> list[Any]:
 
 # ── 可視性制御 ─────────────────────────────────────────────────────────────
 
+
 def save_and_hide(layers: list[Any]) -> dict[int, bool]:
     originals: dict[int, bool] = {}
     for l in layers:
@@ -88,6 +90,7 @@ def restore(layers: list[Any], originals: dict[int, bool]) -> None:
 
 
 # ── レンダリング ────────────────────────────────────────────────────────────
+
 
 def composite_scaled(psd: PSDImage) -> Image.Image:
     img = psd.composite(ignore_preview=True)
@@ -133,9 +136,11 @@ def render_expression(
     brow_group: Any,
     mouth_group: Any,
     ex_group: Any,
+    arm_groups: list[Any] | None = None,
 ) -> Image.Image:
     """
-    全身＋指定目・眉（口なし、EXなし）の表情ベース画像をレンダリングする。
+    全身＋指定目・眉（口なし、EXなし、腕なし）の表情ベース画像をレンダリングする。
+    腕はオーバーレイとして別途合成するため、ベースからは除外する。
     """
     hide_layers: list[Any] = []
     show_layers: list[Any] = []
@@ -162,6 +167,11 @@ def render_expression(
     # EX エフェクト: 全て非表示（返り血・汗等はアバター状態で別途オーバーレイ）
     hide_layers.extend(list(ex_group))
 
+    # 腕: 全て非表示（オーバーレイ���して別途合成、多腕防止）
+    if arm_groups:
+        for ag in arm_groups:
+            hide_layers.extend(get_star_children(ag))
+
     orig_h = save_and_hide(hide_layers)
     orig_s = save_and_show(show_layers)
 
@@ -174,6 +184,7 @@ def render_expression(
 
 
 # ── メイン処理 ──────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract PSDtool character layers")
@@ -191,42 +202,47 @@ def main() -> None:
         data = z.read(psd_entry)
 
     psd = PSDImage.open(io.BytesIO(data))
-    print(f"Canvas: {psd.width}×{psd.height}px → output: {int(psd.width*SCALE)}×{int(psd.height*SCALE)}px")
+    print(f"Canvas: {psd.width}×{psd.height}px → output: {int(psd.width * SCALE)}×{int(psd.height * SCALE)}px")
 
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
 
     # ── キーグループを取得 ───────────────────────────────────────────────
-    face     = find_path(psd, ["頭", "!顔"])
-    mouth_g  = find_child(face, "口")
-    eye_g    = find_child(face, "!まつげ")
-    brow_g   = find_child(face, "!まゆ")
-    ex_g     = find_child(face, "EX")
-    body_g   = find_child(psd, "!身体")
+    face = find_path(psd, ["頭", "!顔"])
+    mouth_g = find_child(face, "口")
+    eye_g = find_child(face, "!まつげ")
+    brow_g = find_child(face, "!まゆ")
+    ex_g = find_child(face, "EX")
+    body_g = find_child(psd, "!身体")
     official = find_child(body_g, "*公式服")
-    patient  = find_child(body_g, "*饕餮（患者着）")
+    patient = find_child(body_g, "*饕餮（患者着）")
+
+    # ── 腕グループ（表情ベースから除外するため先に取得）────────────────
+    arm_g = find_path(psd, ["!身体", "*公式服", "!腕", "*両腕"])
+    left_arm_g = find_child(arm_g, "!左腕")
+    right_arm_g = find_child(arm_g, "!右腕")
 
     # ── 表情×衣装の組み合わせ ──────────────────────────────────────────
     # (eye_layer_name, brow_layer_name)
     EXPRESSIONS: dict[str, tuple[str, str]] = {
-        "neutral":   ("*ジト目",    "*普通"),
-        "happy":     ("*普通",      "*普通"),
-        "surprised": ("*O O",      "*驚き"),
-        "sad":       ("*普通",      "*悲しみ"),
-        "angry":     ("*ジト目",    "*怒り"),
-        "worried":   ("*普通",      "*困惑"),
+        "neutral": ("*ジト目", "*普通"),
+        "happy": ("*普通", "*普通"),
+        "surprised": ("*O O", "*驚き"),
+        "sad": ("*普通", "*悲しみ"),
+        "angry": ("*ジト目", "*怒り"),
+        "worried": ("*普通", "*困惑"),
     }
 
     (out / "expr").mkdir(exist_ok=True)
-    print("\n[1/5] Expression images (costume × expression, no mouth)...")
+    print("\n[1/5] Expression images (costume × expression, no mouth, no arms)...")
 
     for expr_name, (eye_name, brow_name) in EXPRESSIONS.items():
-        eye_target  = find_child(eye_g, eye_name)
+        eye_target = find_child(eye_g, eye_name)
         brow_target = find_child(brow_g, brow_name)
 
         for costume_name, (show_layer, hide_layer) in [
             ("official", (official, patient)),
-            ("patient",  (patient, official)),
+            ("patient", (patient, official)),
         ]:
             orig_show = save_and_show([show_layer])
             orig_hide = save_and_hide([hide_layer])
@@ -239,6 +255,7 @@ def main() -> None:
                 brow_group=brow_g,
                 mouth_group=mouth_g,
                 ex_group=ex_g,
+                arm_groups=[left_arm_g, right_arm_g],
             )
             fname = f"{costume_name}_{expr_name}.png"
             img.save(out / "expr" / fname, optimize=True)
@@ -247,20 +264,109 @@ def main() -> None:
             restore([show_layer], orig_show)
             restore([hide_layer], orig_hide)
 
+    # ── 目オーバーレイ（瞬き・半目・ウィンク等）─────────────────────
+    EYE_VARIANTS: dict[str, str] = {
+        "blink": "*閉じ　(まばたき用)",
+        "closed": "*閉じ",
+        "closed_smile": "*閉じ笑顔",
+        "normal_half": "*普通 半閉じ",
+        "jito_half": "*ジト目 半閉じ",
+        "wink_r": "ウィンク右",
+        "wink_l": "ウィンク左",
+        "qq": "*Q Q",
+        "gt_lt": "*> <",
+    }
+
+    (out / "eyes").mkdir(exist_ok=True)
+    print("\n[2/9] Eye overlays (blink, half-closed, wink)...")
+    extracted_eyes: list[str] = []
+
+    for out_name, layer_name in EYE_VARIANTS.items():
+        try:
+            layer = find_child(eye_g, layer_name)
+        except KeyError as e:
+            print(f"  SKIP eyes/{out_name}.png — {e}")
+            continue
+        img = render_layer_isolated(psd, layer)
+        if img:
+            img.save(out / "eyes" / f"{out_name}.png", optimize=True)
+            print(f"  eyes/{out_name}.png")
+            extracted_eyes.append(out_name)
+
+    # ── 腕オーバーレイ（公式服・左右独立）──────────────────────────
+    # arm_g, left_arm_g, right_arm_g は表情ベース生成時に既に取得済み
+
+    LEFT_ARM_VARIANTS: dict[str, str] = {
+        "default": "*デフォルト",
+        "down": "*下ろ",
+        "syringe": "*注射器",
+        "point": "*1",
+        "hip": "*腰当て",
+        "peace": "*ちょき",
+        "open": "*ぱー",
+    }
+
+    RIGHT_ARM_VARIANTS: dict[str, str] = {
+        "default": "*デフォルト",
+        "hip": "*腰当て ",
+        "point": "*１",
+        "beckon": "*こちらへ",
+        "peace": "*ちょき",
+        "open": "*ぱー",
+        "mouth": "*口元",
+    }
+
+    (out / "arms").mkdir(exist_ok=True)
+    print("\n[3/9] Arm overlays (left + right)...")
+    extracted_arms_l: list[str] = []
+    extracted_arms_r: list[str] = []
+
+    for out_name, layer_name in LEFT_ARM_VARIANTS.items():
+        try:
+            layer = find_child(left_arm_g, layer_name)
+        except KeyError as e:
+            print(f"  SKIP arms/left_{out_name}.png — {e}")
+            continue
+        img = render_layer_isolated(psd, layer)
+        if img:
+            img.save(out / "arms" / f"left_{out_name}.png", optimize=True)
+            print(f"  arms/left_{out_name}.png")
+            extracted_arms_l.append(out_name)
+
+    for out_name, layer_name in RIGHT_ARM_VARIANTS.items():
+        try:
+            layer = find_child(right_arm_g, layer_name)
+        except KeyError as e:
+            print(f"  SKIP arms/right_{out_name}.png — {e}")
+            continue
+        img = render_layer_isolated(psd, layer)
+        if img:
+            img.save(out / "arms" / f"right_{out_name}.png", optimize=True)
+            print(f"  arms/right_{out_name}.png")
+            extracted_arms_r.append(out_name)
+
     # ── 口オーバーレイ ─────────────────────────────────────────────────
     MOUTH_VARIANTS: dict[str, str] = {
         "close": "*閉じ",
         "smile": "*笑",
-        "hmm":   "*ん",
-        "a":     "*あ",
-        "i":     "*い",
-        "u":     "*う",
-        "o":     "*お",
+        "hmm": "*ん",
+        "smile_open": "*笑開き",
+        "a": "*あ",
+        "i": "*い",
+        "i_smile": "*い笑",
+        "u": "*う",
+        "e": "*え",
+        "o": "*お",
         "o_big": "*お大",
+        "a_smile": "*あ笑開き",
+        "ahaha": "*あはは",
+        "hawawa": "*はわわ",
+        "tongue": "*べろ",
+        "hmph": "*ふん",
     }
 
     (out / "mouth").mkdir(exist_ok=True)
-    print("\n[2/5] Mouth overlays...")
+    print("\n[4/9] Mouth overlays...")
     extracted_mouth: list[str] = []
 
     for out_name, layer_name in MOUTH_VARIANTS.items():
@@ -277,18 +383,18 @@ def main() -> None:
 
     # ── EX エフェクトオーバーレイ ────────────────────────────────────
     FX_VARIANTS: dict[str, str] = {
-        "tears":       "涙",
-        "sweat":       "汗",
-        "damage":      "破損",
-        "damage2":     "破損 2",
-        "blood":       "血",
-        "shadow":      "影",
+        "tears": "涙",
+        "sweat": "汗",
+        "damage": "破損",
+        "damage2": "破損 2",
+        "blood": "血",
+        "shadow": "影",
         "glow_orange": "目玉光る・オレンジ",
-        "glow_red":    "目玉光る・赤",
+        "glow_red": "目玉光る・赤",
     }
 
     (out / "fx").mkdir(exist_ok=True)
-    print("\n[3/5] FX overlays (返り血, 汗, etc.)...")
+    print("\n[5/9] FX overlays (返り血, 汗, etc.)...")
     extracted_fx: list[str] = []
 
     for out_name, layer_name in FX_VARIANTS.items():
@@ -313,12 +419,12 @@ def main() -> None:
 
     ACCESSORY_VARIANTS: dict[str, str] = {
         "cat_ears": "猫耳",
-        "flower":   "ヤグルマギク",
-        "glasses":  "メガネ",
+        "flower": "ヤグルマギク",
+        "glasses": "メガネ",
     }
 
     (out / "accessories").mkdir(exist_ok=True)
-    print("\n[4/5] Accessory overlays...")
+    print("\n[6/9] Accessory overlays...")
     extracted_acc: list[str] = []
 
     for out_name, layer_name in ACCESSORY_VARIANTS.items():
@@ -334,12 +440,12 @@ def main() -> None:
     # ── 記号オーバーレイ ────────────────────────────────────────────
     SYMBOL_VARIANTS: dict[str, str] = {
         "exclamation": "！",
-        "question":    "？",
-        "surprise":    "びっくり",
+        "question": "？",
+        "surprise": "びっくり",
     }
 
     (out / "symbols").mkdir(exist_ok=True)
-    print("\n[5/5] Symbol overlays...")
+    print("\n[7/9] Symbol overlays...")
     extracted_sym: list[str] = []
 
     try:
@@ -365,28 +471,28 @@ def main() -> None:
     manifest = {
         "character": "nurserobo",
         "size": {
-            "width":  int(psd.width  * SCALE),
+            "width": int(psd.width * SCALE),
             "height": int(psd.height * SCALE),
         },
         "source_size": {"width": psd.width, "height": psd.height},
         "scale": SCALE,
-        "costumes":     ["official", "patient"],
-        "expressions":  list(EXPRESSIONS.keys()),
-        "mouth":        extracted_mouth,
-        "fx":           extracted_fx,
-        "accessories":  extracted_acc,
-        "symbols":      extracted_sym,
+        "costumes": ["official", "patient"],
+        "expressions": list(EXPRESSIONS.keys()),
+        "eyes": extracted_eyes,
+        "arms_left": extracted_arms_l,
+        "arms_right": extracted_arms_r,
+        "mouth": extracted_mouth,
+        "fx": extracted_fx,
+        "accessories": extracted_acc,
+        "symbols": extracted_sym,
     }
-    (out / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
-    )
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
 
     total = (
         len(EXPRESSIONS) * 2
-        + len(extracted_mouth)
-        + len(extracted_fx)
-        + len(extracted_acc)
-        + len(extracted_sym)
+        + len(extracted_eyes)
+        + len(extracted_arms_l) + len(extracted_arms_r)
+        + len(extracted_mouth) + len(extracted_fx) + len(extracted_acc) + len(extracted_sym)
     )
     print(f"\n✓ Done! {total} PNGs + manifest.json → {out}")
 

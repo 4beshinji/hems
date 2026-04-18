@@ -252,10 +252,13 @@ HEMS_GITHUB_TOKEN=ghp_xxxx
 ### Voice Service (Plugin-based TTS)
 
 TTSProvider ABC with backends:
-- `espeak` — espeak-ng (default fallback, no GPU)
-- `voicevox` — VOICEVOX Docker (profile: voicevox)
+- `voisona` — VoiSona Talk (host app, default)
+- `voicevox` — VOICEVOX Docker (profile: voicevox, default fallback)
+- `espeak` — espeak-ng (no GPU)
 - `edge-tts` — Microsoft Edge TTS (cloud, free)
-- `voisona` — VoiSona Talk (host app)
+
+FallbackProvider: `TTS_FALLBACK` env var or character YAML `voice.fallback` で自動切替。
+Primary 失敗時に fallback へ委譲、復帰時に自動復帰。
 
 ### AI Character System
 
@@ -273,7 +276,7 @@ cp config/character.yaml.example config/character.yaml
 # Hot-reload: mosquitto_pub -t hems/brain/reload-character -m reload
 ```
 
-Templates: `ena` (default), `tsundere`, `gentle-senpai`, `butler`, `nurserobo-typet`, `default`
+Templates: `default` (default), `ena`, `tsundere`, `gentle-senpai`, `butler`, `nurserobo-typet`
 Validator: `python validate_character.py config/character.yaml`
          `python validate_character.py --all`   # validate all templates
          `python validate_character.py --list`  # list available templates
@@ -462,14 +465,12 @@ Zigbee デバイスを公式 Z2M daemon 経由で直接制御 (HA不要)。
 - **Profile**: `docker compose --profile zigbee up -d --build`
 - **Brain tools**: `control_actuator` 経由 (vendor="zigbee") — 直接 MQTT publish、`zigbee_permit_join` でペアリング制御
 - **Device Registry**: `zigbee.{friendly_name}` として自動登録
-- **Admin UI**: `http://localhost:${HEMS_PORT_FRONTEND:-8080}/z2m/` (nginx proxy 経由) または `http://localhost:${HEMS_PORT_Z2M_UI:-8090}/` (直接)、認証トークンは `HEMS_API_KEY`
+- **Admin UI**: `http://localhost:${HEMS_PORT_FRONTEND:-8080}/z2m/` (nginx proxy 経由) または `http://localhost:${HEMS_PORT_Z2M_UI:-8090}/` (直接)
 - **Remote permit_join**: `POST /devices/zigbee/permit_join` で Z2M に `zigbee2mqtt/bridge/request/permit_join` publish、`/devices` ページにボタンあり
 
 **Deploy 手順**:
-1. MQTT 認証情報生成: `bash infra/mosquitto/setup-users.sh --gen`
-2. `.env` に `MQTT_PASS_HEMS_Z2M=...` と `HEMS_API_KEY=...` を設定
-3. (推奨) USB stick を固定名化: `sudo cp infra/udev/99-zigbee.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger` → `.env` に `HEMS_Z2M_USB_DEVICE=/dev/zigbee-coordinator`
-4. `docker compose --profile zigbee up -d --build`
+1. (推奨) USB stick を固定名化: `sudo cp infra/udev/99-zigbee.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger` → `.env` に `HEMS_Z2M_USB_DEVICE=/dev/zigbee-coordinator`
+2. `docker compose --profile zigbee up -d --build`
 
 **IKEA GRILLPLATS ペアリング** (secret Zigbeeモード):
 1. On/Offボタン長押し (10秒) → 工場リセット
@@ -480,8 +481,6 @@ Zigbee デバイスを公式 Z2M daemon 経由で直接制御 (HA不要)。
 Configure in `.env`:
 ```bash
 HEMS_Z2M_USB_DEVICE=/dev/ttyUSB0   # or /dev/zigbee-coordinator with udev rule
-MQTT_PASS_HEMS_Z2M=<from setup-users.sh>
-HEMS_API_KEY=<shared with backend>
 # HEMS_PORT_Z2M_UI=8090
 ```
 

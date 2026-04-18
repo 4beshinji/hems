@@ -8,8 +8,9 @@ Phone signs raw body with HMAC-SHA256 and sends header:
 The signing secret is delivered to the phone once at registration time
 (via QR code) and stored in the device's secure storage.
 """
-import hmac
+
 import hashlib
+import hmac
 
 
 def compute_signature(secret: str, body: bytes) -> str:

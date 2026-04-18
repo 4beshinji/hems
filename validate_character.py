@@ -73,7 +73,7 @@ def validate_file(filepath: Path, verbose: bool = False) -> list[str]:
 
     # --- Parse YAML ---
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except yaml.YAMLError as e:
         return [f"YAML parse error: {e}"]

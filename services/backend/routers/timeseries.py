@@ -2,11 +2,12 @@
 Time series data router — persistent storage for environment, biometric, and PC metrics.
 Supports ingestion (Brain → Backend) and query (Frontend → Backend).
 """
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select, distinct
+from sqlalchemy import distinct, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -34,7 +35,7 @@ async def query_timeseries(
     db: AsyncSession = Depends(get_db),
 ):
     """Query time series data for a given metric and time range."""
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    since = datetime.now(UTC) - timedelta(hours=hours)
     stmt = (
         select(TimeSeriesPoint)
         .where(TimeSeriesPoint.metric == metric)
@@ -73,7 +74,7 @@ async def ingest_timeseries(
             metric=item.metric,
             value=item.value,
             zone=item.zone,
-            recorded_at=recorded or datetime.now(timezone.utc),
+            recorded_at=recorded or datetime.now(UTC),
         )
         db.add(point)
     await db.commit()

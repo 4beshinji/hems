@@ -4,11 +4,10 @@ Entries are keyed by ``(kind, key_hash)`` (unique composite index) so the
 brain treats this as a key-value store. ``value_json`` holds the classified
 payload; the semantics live in brain and are opaque to the backend.
 
-All routes are admin-only (``HEMS_API_KEY``) — the backend ORM is the source
-of truth; no device client needs direct access.
+The backend ORM is the source of truth; no device client needs direct access.
 """
-from datetime import datetime, timezone
-from typing import Optional
+
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,9 +40,9 @@ async def get_entry(kind: str, key_hash: str, db: AsyncSession = Depends(get_db)
 
 @router.get("", response_model=list[schemas.ClassifierCacheRecord])
 async def list_entries(
-    kind: Optional[str] = Query(default=None),
+    kind: str | None = Query(default=None),
     min_hit_count: int = Query(default=0, ge=0),
-    source: Optional[str] = Query(default=None),
+    source: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
@@ -76,7 +75,7 @@ async def upsert_entry(
     if existing is not None:
         existing.value_json = body.value_json
         existing.source = body.source
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(UTC)
     else:
         existing = models.ClassifierCache(
             kind=body.kind,

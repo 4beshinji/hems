@@ -1,16 +1,15 @@
+import json
 import logging
 import os
-import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.sql import func
-from typing import List
 
-from database import get_db
 import models
 import schemas
+from database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -45,17 +44,22 @@ def _publish_task_report(task: models.Task):
     """Publish task completion report to MQTT for Brain consumption."""
     zone = task.zone or "main"
     topic = f"office/{zone}/task_report/{task.id}"
-    payload = json.dumps({
-        "task_id": task.id,
-        "title": task.title,
-        "report_status": task.report_status,
-        "completion_note": task.completion_note,
-        "zone": zone,
-    })
+    payload = json.dumps(
+        {
+            "task_id": task.id,
+            "title": task.title,
+            "report_status": task.report_status,
+            "completion_note": task.completion_note,
+            "zone": zone,
+        }
+    )
     try:
         import paho.mqtt.publish as mqtt_publish
+
         mqtt_publish.single(
-            topic, payload, hostname=MQTT_BROKER,
+            topic,
+            payload,
+            hostname=MQTT_BROKER,
             auth={"username": MQTT_USER, "password": MQTT_PASS},
         )
         logger.info("Published task report to %s", topic)
@@ -76,8 +80,11 @@ def _publish_task_event(event: str, task: models.Task, extra: dict | None = None
         payload.update(extra)
     try:
         import paho.mqtt.publish as mqtt_publish
+
         mqtt_publish.single(
-            topic, json.dumps(payload), hostname=MQTT_BROKER,
+            topic,
+            json.dumps(payload),
+            hostname=MQTT_BROKER,
             auth={"username": MQTT_USER, "password": MQTT_PASS},
         )
     except Exception as e:
@@ -122,7 +129,7 @@ def _task_to_response(task_model: models.Task) -> schemas.Task:
     )
 
 
-@router.get("/", response_model=List[schemas.Task])
+@router.get("/", response_model=list[schemas.Task])
 async def read_tasks(
     skip: int = 0,
     limit: int = 100,
@@ -130,19 +137,11 @@ async def read_tasks(
     include_proposed: bool = True,
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(models.Task).filter(
-        (models.Task.expires_at.is_(None)) | (models.Task.expires_at > func.now())
-    )
+    query = select(models.Task).filter((models.Task.expires_at.is_(None)) | (models.Task.expires_at > func.now()))
     if not include_dismissed:
-        query = query.filter(
-            (models.Task.proposal_status.is_(None))
-            | (models.Task.proposal_status != "dismissed")
-        )
+        query = query.filter((models.Task.proposal_status.is_(None)) | (models.Task.proposal_status != "dismissed"))
     if not include_proposed:
-        query = query.filter(
-            (models.Task.proposal_status.is_(None))
-            | (models.Task.proposal_status != "proposed")
-        )
+        query = query.filter((models.Task.proposal_status.is_(None)) | (models.Task.proposal_status != "proposed"))
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     return [_task_to_response(t) for t in result.scalars().all()]
@@ -152,19 +151,14 @@ async def read_tasks(
 async def create_task(task: schemas.TaskCreate, db: AsyncSession = Depends(get_db)):
     # Duplicate Check Stage 1: exact title + location
     query = select(models.Task).filter(
-        models.Task.title == task.title,
-        models.Task.location == task.location,
-        models.Task.is_completed.is_(False)
+        models.Task.title == task.title, models.Task.location == task.location, models.Task.is_completed.is_(False)
     )
     result = await db.execute(query)
     existing_task = result.scalars().first()
 
     # Duplicate Check Stage 2: same zone + overlapping task_type
     if not existing_task and task.zone and task.task_type:
-        query2 = select(models.Task).filter(
-            models.Task.zone == task.zone,
-            models.Task.is_completed.is_(False)
-        )
+        query2 = select(models.Task).filter(models.Task.zone == task.zone, models.Task.is_completed.is_(False))
         result2 = await db.execute(query2)
         candidates = result2.scalars().all()
         new_types = set(task.task_type)
@@ -208,10 +202,10 @@ async def create_task(task: schemas.TaskCreate, db: AsyncSession = Depends(get_d
         estimated_duration=task.estimated_duration,
         is_queued=False,
         dispatched_at=func.now(),
-        announcement_audio_url=getattr(task, 'announcement_audio_url', None),
-        announcement_text=getattr(task, 'announcement_text', None),
-        completion_audio_url=getattr(task, 'completion_audio_url', None),
-        completion_text=getattr(task, 'completion_text', None),
+        announcement_audio_url=getattr(task, "announcement_audio_url", None),
+        announcement_text=getattr(task, "announcement_text", None),
+        completion_audio_url=getattr(task, "completion_audio_url", None),
+        completion_text=getattr(task, "completion_text", None),
         cognitive_load=task.cognitive_load,
         preferred_time_slot=task.preferred_time_slot,
         deadline=task.deadline,
@@ -299,11 +293,15 @@ async def dismiss_task(
     task.dismiss_reason = reason
 
     from datetime import datetime
+
     hour = datetime.now().hour
     bucket = (
-        "morning" if 5 <= hour < 11
-        else "afternoon" if 11 <= hour < 17
-        else "evening" if 17 <= hour < 22
+        "morning"
+        if 5 <= hour < 11
+        else "afternoon"
+        if 11 <= hour < 17
+        else "evening"
+        if 17 <= hour < 22
         else "deep_night"
     )
     context = {
@@ -357,11 +355,13 @@ async def mark_task_reminded(task_id: int, db: AsyncSession = Depends(get_db)):
     return _task_to_response(task)
 
 
-@router.get("/queue", response_model=List[schemas.Task])
+@router.get("/queue", response_model=list[schemas.Task])
 async def get_queued_tasks(db: AsyncSession = Depends(get_db)):
-    query = select(models.Task).filter(
-        models.Task.is_queued.is_(True)
-    ).order_by(models.Task.urgency.desc(), models.Task.created_at)
+    query = (
+        select(models.Task)
+        .filter(models.Task.is_queued.is_(True))
+        .order_by(models.Task.urgency.desc(), models.Task.created_at)
+    )
     result = await db.execute(query)
     return [_task_to_response(t) for t in result.scalars().all()]
 
@@ -387,19 +387,17 @@ async def get_task_stats(db: AsyncSession = Depends(get_db)):
     queued_count = queued_result.scalar()
 
     active_result = await db.execute(
-        select(func.count()).select_from(models.Task).filter(
-            models.Task.is_completed.is_(False),
-            models.Task.is_queued.is_(False)
-        )
+        select(func.count())
+        .select_from(models.Task)
+        .filter(models.Task.is_completed.is_(False), models.Task.is_queued.is_(False))
     )
     active_count = active_result.scalar()
 
     # completed_last_hour — SQLite compatible
     completed_result = await db.execute(
-        select(func.count()).select_from(models.Task).filter(
-            models.Task.is_completed.is_(True),
-            models.Task.completed_at >= func.datetime("now", "-1 hour")
-        )
+        select(func.count())
+        .select_from(models.Task)
+        .filter(models.Task.is_completed.is_(True), models.Task.completed_at >= func.datetime("now", "-1 hour"))
     )
     completed_last_hour = completed_result.scalar()
 

@@ -41,7 +41,8 @@ speaking_style:
 
 voice:
   credit: "VOICEVOX:ナースロボ＿タイプT"
-  backend: "voicevox"
+  backend: "voisona"
+  fallback: "voicevox"
   voicevox:
     speakers:
       default: 47

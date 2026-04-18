@@ -5,27 +5,24 @@ Rules are evaluated by Brain's AutomationEngine (sensor_threshold / schedule /
 event / device_state). This router only exposes DB CRUD and stats; Brain pulls
 rules via GET /automations/ and pushes fire stats via PUT /automations/{id}/fire.
 """
+
 import logging
 import os
-from datetime import datetime, timezone
-from typing import List
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from database import get_db
 import models
 import schemas
+from database import get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/automations", tags=["automations"])
 
 BRAIN_URL = os.getenv("BRAIN_CHAT_URL", "http://brain:8080")
-HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
-_AUTH_HEADERS = {"Authorization": f"Bearer {HEMS_API_KEY}"} if HEMS_API_KEY else {}
 
 _ALLOWED_TRIGGER_TYPES = {"sensor_threshold", "schedule", "event", "device_state"}
 _ALLOWED_MODES = {"direct", "llm_review"}
@@ -49,7 +46,7 @@ def _validate_trigger(trigger_type: str, cfg: dict) -> str | None:
     return None
 
 
-@router.get("/", response_model=List[schemas.AutomationRule])
+@router.get("/", response_model=list[schemas.AutomationRule])
 async def list_rules(
     enabled_only: bool = False,
     db: AsyncSession = Depends(get_db),
@@ -64,9 +61,7 @@ async def list_rules(
 
 @router.get("/{rule_id}", response_model=schemas.AutomationRule)
 async def get_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(models.AutomationRule).filter(models.AutomationRule.id == rule_id)
-    )
+    result = await db.execute(select(models.AutomationRule).filter(models.AutomationRule.id == rule_id))
     rule = result.scalars().first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -79,11 +74,9 @@ async def create_rule(
     db: AsyncSession = Depends(get_db),
 ):
     if body.trigger_type not in _ALLOWED_TRIGGER_TYPES:
-        raise HTTPException(status_code=400,
-                            detail=f"trigger_type must be one of {sorted(_ALLOWED_TRIGGER_TYPES)}")
+        raise HTTPException(status_code=400, detail=f"trigger_type must be one of {sorted(_ALLOWED_TRIGGER_TYPES)}")
     if body.mode not in _ALLOWED_MODES:
-        raise HTTPException(status_code=400,
-                            detail=f"mode must be one of {sorted(_ALLOWED_MODES)}")
+        raise HTTPException(status_code=400, detail=f"mode must be one of {sorted(_ALLOWED_MODES)}")
     if body.cooldown_s < 60:
         raise HTTPException(status_code=400, detail="cooldown_s must be >= 60")
     err = _validate_trigger(body.trigger_type, body.trigger_config)
@@ -113,9 +106,7 @@ async def update_rule(
     body: schemas.AutomationRuleUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(models.AutomationRule).filter(models.AutomationRule.id == rule_id)
-    )
+    result = await db.execute(select(models.AutomationRule).filter(models.AutomationRule.id == rule_id))
     rule = result.scalars().first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -128,8 +119,7 @@ async def update_rule(
     if "cooldown_s" in updates and updates["cooldown_s"] < 60:
         raise HTTPException(status_code=400, detail="cooldown_s must be >= 60")
     if "actions" in updates and updates["actions"] is not None:
-        updates["actions"] = [a if isinstance(a, dict) else a.model_dump()
-                              for a in updates["actions"]]
+        updates["actions"] = [a if isinstance(a, dict) else a.model_dump() for a in updates["actions"]]
     # Validate trigger if type or config changed
     new_type = updates.get("trigger_type", rule.trigger_type)
     new_cfg = updates.get("trigger_config", rule.trigger_config)
@@ -147,9 +137,7 @@ async def update_rule(
 
 @router.delete("/{rule_id}")
 async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(models.AutomationRule).filter(models.AutomationRule.id == rule_id)
-    )
+    result = await db.execute(select(models.AutomationRule).filter(models.AutomationRule.id == rule_id))
     rule = result.scalars().first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -165,9 +153,7 @@ async def record_fire(
     db: AsyncSession = Depends(get_db),
 ):
     """Brain records a successful rule firing — stats only, no action."""
-    result = await db.execute(
-        select(models.AutomationRule).filter(models.AutomationRule.id == rule_id)
-    )
+    result = await db.execute(select(models.AutomationRule).filter(models.AutomationRule.id == rule_id))
     rule = result.scalars().first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -183,16 +169,15 @@ async def record_fire(
 @router.post("/{rule_id}/test")
 async def test_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
     """Ask Brain to evaluate the rule's trigger without executing actions (dry-run)."""
-    result = await db.execute(
-        select(models.AutomationRule).filter(models.AutomationRule.id == rule_id)
-    )
+    result = await db.execute(select(models.AutomationRule).filter(models.AutomationRule.id == rule_id))
     rule = result.scalars().first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
 
     try:
-        async with aiohttp.ClientSession(headers=_AUTH_HEADERS) as session:
-            async with session.post(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
                 f"{BRAIN_URL}/automations/evaluate",
                 json={
                     "id": rule.id,
@@ -200,15 +185,15 @@ async def test_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
                     "trigger_config": rule.trigger_config,
                 },
                 timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                data = await resp.json()
-                return {
-                    "rule_id": rule.id,
-                    "would_fire": data.get("would_fire", False),
-                    "reason": data.get("reason", ""),
-                    "sampled_value": data.get("sampled_value"),
-                }
+            ) as resp,
+        ):
+            data = await resp.json()
+            return {
+                "rule_id": rule.id,
+                "would_fire": data.get("would_fire", False),
+                "reason": data.get("reason", ""),
+                "sampled_value": data.get("sampled_value"),
+            }
     except Exception as e:
         logger.error(f"Rule test proxy failed: {e}")
-        return {"rule_id": rule.id, "would_fire": False,
-                "reason": f"proxy error: {e}"}
+        return {"rule_id": rule.id, "would_fire": False, "reason": f"proxy error: {e}"}

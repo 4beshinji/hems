@@ -55,7 +55,7 @@ def _load_character_identity() -> dict[str, Any]:
         if extends:
             tmpl_path = characters_dir / f"{extends}.yaml"
             if tmpl_path.is_file():
-                with open(tmpl_path, "r", encoding="utf-8") as f:
+                with open(tmpl_path, encoding="utf-8") as f:
                     base = yaml.safe_load(f) or {}
                 # Merge: data overrides base
                 for key in ("identity", "personality", "voice"):
@@ -80,14 +80,12 @@ def _load_character_identity() -> dict[str, Any]:
         return defaults
 
 
-def _resolve_character_source(
-    config_dir: Path, characters_dir: Path
-) -> dict[str, Any]:
+def _resolve_character_source(config_dir: Path, characters_dir: Path) -> dict[str, Any]:
     char_file = os.environ.get("CHARACTER_FILE")
     if char_file:
         path = Path(char_file)
         if path.is_file():
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
 
     char_name = os.environ.get("CHARACTER")
@@ -95,17 +93,17 @@ def _resolve_character_source(
         for name in [char_name, char_name.replace("_", "-")]:
             tmpl_path = characters_dir / f"{name}.yaml"
             if tmpl_path.is_file():
-                with open(tmpl_path, "r", encoding="utf-8") as f:
+                with open(tmpl_path, encoding="utf-8") as f:
                     return yaml.safe_load(f) or {}
 
     custom_path = config_dir / "character.yaml"
     if custom_path.is_file():
-        with open(custom_path, "r", encoding="utf-8") as f:
+        with open(custom_path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
 
     default_path = characters_dir / "default.yaml"
     if default_path.is_file():
-        with open(default_path, "r", encoding="utf-8") as f:
+        with open(default_path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
 
     return {}

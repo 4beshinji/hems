@@ -1,6 +1,7 @@
 """
 Brain control — power mode + batch jobs + Ollama model list.
 """
+
 import json
 import os
 
@@ -29,6 +30,7 @@ _power_mode_store: dict = {
 
 def _mqtt_publish(topic: str, payload: dict) -> None:
     import paho.mqtt.publish as mqtt_pub
+
     auth = {"username": MQTT_USER, "password": MQTT_PASS} if MQTT_USER else None
     mqtt_pub.single(
         topic,
@@ -40,6 +42,7 @@ def _mqtt_publish(topic: str, payload: dict) -> None:
 
 
 # ── Power mode ────────────────────────────────────────────────────────────────
+
 
 @router.get("/power-mode")
 async def get_power_mode():
@@ -72,28 +75,31 @@ async def receive_brain_snapshot(data: dict):
 
 # ── Ollama models ─────────────────────────────────────────────────────────────
 
+
 @router.get("/ollama/models")
 async def list_ollama_models():
     """List available Ollama models. Returns empty list when Ollama is unreachable."""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
                 f"{OLLAMA_URL}/api/tags",
                 timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                if resp.status != 200:
-                    return {"models": []}
-                data = await resp.json()
-                models = [
-                    {
-                        "name": m.get("name", ""),
-                        "size_gb": round(m.get("size", 0) / 1_073_741_824, 1),
-                        "family": m.get("details", {}).get("family", ""),
-                    }
-                    for m in data.get("models", [])
-                    if m.get("name")
-                ]
-                return {"models": models}
+            ) as resp,
+        ):
+            if resp.status != 200:
+                return {"models": []}
+            data = await resp.json()
+            models = [
+                {
+                    "name": m.get("name", ""),
+                    "size_gb": round(m.get("size", 0) / 1_073_741_824, 1),
+                    "family": m.get("details", {}).get("family", ""),
+                }
+                for m in data.get("models", [])
+                if m.get("name")
+            ]
+            return {"models": models}
     except Exception:
         return {"models": []}
 

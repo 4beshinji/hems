@@ -175,8 +175,8 @@ mosquitto_pub -h localhost -u hems -P hems_dev_mqtt \
 
 | テンプレート | 一人称 | formality | 特徴 |
 |-------------|--------|-----------|------|
-| `ena` | エナ | 0 | ハイテンションデジタル居候 (デフォルト) |
-| `default` | 私 | 2 | フレンドリーアシスタント |
+| `default` | 私 | 2 | フレンドリーアシスタント (デフォルト) |
+| `ena` | エナ | 0 | ハイテンションデジタル居候 |
 | `tsundere` | あたし | 0 | 素直になれない、世話好き |
 | `gentle-senpai` | 私 | 1 | 穏やか、褒め上手 |
 | `butler` | わたくし | 4 | 完璧主義、品格 |
@@ -235,6 +235,8 @@ docker compose --profile obsidian up -d
 docker compose --profile gas up -d
 
 # Home Assistant (スマートホーム制御 + スケジュール学習)
+# ⚠️ セキュリティ注意: privileged + network_mode:host が必要。
+# 同一ホスト運用前に docs/ha-isolation.md を参照すること。
 docker compose --profile ha up -d
 
 # Biometric (スマートバンド心拍/睡眠/疲労スコア)
@@ -297,6 +299,7 @@ pnpm build    # tsc -b && vite build
 | [shopping-list.md](docs/shopping-list.md) | 買い物リスト — API 操作・定期購入・外出連携 |
 | [event-automation.md](docs/event-automation.md) | イベント自動化 — 起床/帰宅/定時トリガー設定 |
 | [SMART_HOME_SETUP.md](docs/SMART_HOME_SETUP.md) | Home Assistant + HEMS 統合セットアップ |
+| [ha-isolation.md](docs/ha-isolation.md) | HA 運用隔離ガイド — privileged リスクと VLAN/別ホスト推奨構成 |
 | [smart-home-device-guide.md](docs/smart-home-device-guide.md) | マルチプロトコルデバイス総合ガイド |
 | [sensor-purchasing-guide-jp.md](docs/sensor-purchasing-guide-jp.md) | センサー購入ガイド (技適準拠・Amazon.co.jp) |
 | [sensor-purchasing-guide-aliexpress.md](docs/sensor-purchasing-guide-aliexpress.md) | センサー購入ガイド (AliExpress・コスト最優先) |

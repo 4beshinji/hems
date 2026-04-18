@@ -1,18 +1,19 @@
 """
 Mobile companion endpoints.
 
-Device registration (``/mobile/register``) is gated by the admin
-``HEMS_API_KEY`` — issued once via the frontend management page (QR flow).
+Device registration (``/mobile/register``) is accessible via the frontend
+management page (QR flow).
 
 All subsequent endpoints authenticate via the per-device key returned at
 registration time, plus an HMAC-SHA256 signature on the raw request body
 for the state webhook (the high-volume sensor path).
 """
+
 import json
 import logging
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -53,7 +54,9 @@ _AUDIO_FILENAME_RE = re.compile(r"^[A-Za-z0-9._-]+\.(?:mp3|wav|ogg)$")
 
 # Admin-only routes (register, list, revoke).
 admin_router = APIRouter(
-    prefix="/mobile", tags=["mobile-admin"], dependencies=[Depends(verify_api_key)],
+    prefix="/mobile",
+    tags=["mobile-admin"],
+    dependencies=[Depends(verify_api_key)],
 )
 
 # Device-authenticated routes (webhooks, capsule retrieval — capsule added later phase).
@@ -69,8 +72,11 @@ def _publish_mobile_event(subtopic: str, payload: dict) -> list[str]:
     body = json.dumps(payload, ensure_ascii=False, default=str)
     try:
         import paho.mqtt.publish as mqtt_publish
+
         mqtt_publish.single(
-            topic, body, hostname=MQTT_BROKER,
+            topic,
+            body,
+            hostname=MQTT_BROKER,
             auth={"username": MQTT_USER, "password": MQTT_PASS},
         )
         return [topic]
@@ -80,6 +86,7 @@ def _publish_mobile_event(subtopic: str, payload: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------- admin ---
+
 
 @admin_router.post("/register", response_model=schemas.MobileDeviceRegisterResponse)
 async def register_device(
@@ -120,7 +127,8 @@ async def list_devices(db: AsyncSession = Depends(get_db)):
 
 
 @admin_router.get(
-    "/voice-capsule/play-log", response_model=list[schemas.VoiceCapsulePlayLogRecord],
+    "/voice-capsule/play-log",
+    response_model=list[schemas.VoiceCapsulePlayLogRecord],
 )
 async def list_play_logs(
     capsule_date: str | None = None,
@@ -130,7 +138,7 @@ async def list_play_logs(
     db: AsyncSession = Depends(get_db),
 ):
     """List playback acks for ack-learning. Brain polls this periodically."""
-    since = datetime.now(timezone.utc) - timedelta(days=since_days)
+    since = datetime.now(UTC) - timedelta(days=since_days)
     query = select(models.VoiceCapsulePlayLog).where(
         models.VoiceCapsulePlayLog.played_at >= since,
     )
@@ -162,18 +170,14 @@ async def upsert_voice_capsule(
     change on their next ``/latest`` poll.
     """
     raw = body.model_dump_json(exclude_none=True)
-    result = await db.execute(
-        select(models.VoiceCapsule).where(
-            models.VoiceCapsule.capsule_date == body.capsule_id
-        )
-    )
+    result = await db.execute(select(models.VoiceCapsule).where(models.VoiceCapsule.capsule_date == body.capsule_id))
     existing = result.scalars().first()
     if existing is not None:
         existing.manifest_json = raw
         existing.character_version = body.character_version or existing.character_version
         existing.expires_at = body.expires_at
         existing.invalidated = False
-        existing.generated_at = datetime.now(timezone.utc)
+        existing.generated_at = datetime.now(UTC)
     else:
         existing = models.VoiceCapsule(
             capsule_date=body.capsule_id,
@@ -202,6 +206,7 @@ async def disable_device(device_id: int, db: AsyncSession = Depends(get_db)):
 
 # --------------------------------------------------------------- device ---
 
+
 @device_router.post("/state/webhook", response_model=schemas.MobileStateWebhookResponse)
 async def state_webhook(
     request: Request,
@@ -228,38 +233,50 @@ async def state_webhook(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Malformed payload: {exc}") from exc
 
-    ts_iso = payload.ts.astimezone(timezone.utc).isoformat()
+    ts_iso = payload.ts.astimezone(UTC).isoformat()
     published: list[str] = []
 
     if payload.location is not None:
-        published += _publish_mobile_event("location", {
-            **payload.location.model_dump(exclude_none=True),
-            "ts": ts_iso,
-            "device_id": device.id,
-        })
+        published += _publish_mobile_event(
+            "location",
+            {
+                **payload.location.model_dump(exclude_none=True),
+                "ts": ts_iso,
+                "device_id": device.id,
+            },
+        )
 
     if payload.activity is not None:
-        published += _publish_mobile_event("activity", {
-            **payload.activity.model_dump(exclude_none=True),
-            "ts": ts_iso,
-            "device_id": device.id,
-        })
+        published += _publish_mobile_event(
+            "activity",
+            {
+                **payload.activity.model_dump(exclude_none=True),
+                "ts": ts_iso,
+                "device_id": device.id,
+            },
+        )
 
     if payload.biometrics is not None:
-        published += _publish_mobile_event("biometrics", {
-            **payload.biometrics.model_dump(exclude_none=True),
-            "ts": ts_iso,
-            "device_id": device.id,
-        })
+        published += _publish_mobile_event(
+            "biometrics",
+            {
+                **payload.biometrics.model_dump(exclude_none=True),
+                "ts": ts_iso,
+                "device_id": device.id,
+            },
+        )
 
     if payload.battery_pct is not None:
-        published += _publish_mobile_event("battery", {
-            "percent": payload.battery_pct,
-            "ts": ts_iso,
-            "device_id": device.id,
-        })
+        published += _publish_mobile_event(
+            "battery",
+            {
+                "percent": payload.battery_pct,
+                "ts": ts_iso,
+                "device_id": device.id,
+            },
+        )
 
-    device.last_seen_at = datetime.now(timezone.utc)
+    device.last_seen_at = datetime.now(UTC)
     await db.commit()
 
     return schemas.MobileStateWebhookResponse(received=True, published_topics=published)
@@ -267,22 +284,24 @@ async def state_webhook(
 
 # ------------------------------------------------------------- voice-capsule ---
 
+
 async def _capsule_to_manifest(capsule: models.VoiceCapsule) -> schemas.VoiceCapsuleManifest:
     raw = json.loads(capsule.manifest_json)
     return schemas.VoiceCapsuleManifest.model_validate(raw)
 
 
 @device_router.get(
-    "/voice-capsule/latest", response_model=schemas.VoiceCapsuleManifest,
+    "/voice-capsule/latest",
+    response_model=schemas.VoiceCapsuleManifest,
 )
 async def get_latest_capsule(
     db: AsyncSession = Depends(get_db),
-    device: models.MobileDevice = Depends(verify_mobile_device),  # noqa: ARG001 — auth only
+    device: models.MobileDevice = Depends(verify_mobile_device),
 ):
     """Return the newest non-invalidated capsule manifest."""
     result = await db.execute(
         select(models.VoiceCapsule)
-        .where(models.VoiceCapsule.invalidated == False)  # noqa: E712 — SQLAlchemy
+        .where(models.VoiceCapsule.invalidated == False)
         .order_by(
             models.VoiceCapsule.generated_at.desc(),
             models.VoiceCapsule.id.desc(),  # tie-breaker when inserts share a second
@@ -296,17 +315,16 @@ async def get_latest_capsule(
 
 
 @device_router.get(
-    "/voice-capsule/{capsule_id}", response_model=schemas.VoiceCapsuleManifest,
+    "/voice-capsule/{capsule_id}",
+    response_model=schemas.VoiceCapsuleManifest,
 )
 async def get_capsule(
     capsule_id: str,
     db: AsyncSession = Depends(get_db),
-    device: models.MobileDevice = Depends(verify_mobile_device),  # noqa: ARG001
+    device: models.MobileDevice = Depends(verify_mobile_device),
 ):
     """Return a specific capsule by its logical id (``capsule_date``)."""
-    result = await db.execute(
-        select(models.VoiceCapsule).where(models.VoiceCapsule.capsule_date == capsule_id)
-    )
+    result = await db.execute(select(models.VoiceCapsule).where(models.VoiceCapsule.capsule_date == capsule_id))
     capsule = result.scalars().first()
     if capsule is None:
         raise HTTPException(status_code=404, detail="Capsule not found")
@@ -317,12 +335,10 @@ async def get_capsule(
 async def ack_capsule_play(
     body: schemas.VoiceCapsulePlayAck,
     db: AsyncSession = Depends(get_db),
-    device: models.MobileDevice = Depends(verify_mobile_device),  # noqa: ARG001
+    device: models.MobileDevice = Depends(verify_mobile_device),
 ):
     """Log one clip playback event from the phone for ack-learning."""
-    result = await db.execute(
-        select(models.VoiceCapsule).where(models.VoiceCapsule.capsule_date == body.capsule_id)
-    )
+    result = await db.execute(select(models.VoiceCapsule).where(models.VoiceCapsule.capsule_date == body.capsule_id))
     capsule = result.scalars().first()
     if capsule is None:
         raise HTTPException(status_code=404, detail="Capsule not found")
@@ -341,7 +357,7 @@ async def ack_capsule_play(
 @device_router.get("/voice-capsule/audio/{filename}")
 async def stream_capsule_audio(
     filename: str,
-    device: models.MobileDevice = Depends(verify_mobile_device),  # noqa: ARG001
+    device: models.MobileDevice = Depends(verify_mobile_device),
 ):
     """Proxy audio download from voice-service, gated by device auth.
 

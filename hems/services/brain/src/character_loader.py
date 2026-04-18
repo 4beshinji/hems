@@ -18,7 +18,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -48,7 +48,7 @@ class IdentityConfig:
     name_reading: str = "ヘムス"
     first_person: str = "私"
     second_person: str = "あなた"
-    honorific_suffix: Optional[str] = "さん"
+    honorific_suffix: str | None = "さん"
 
 
 @dataclass
@@ -72,7 +72,7 @@ class EndingsConfig:
 class VocabularyConfig:
     prefer: list[str] = field(default_factory=list)
     avoid: list[str] = field(default_factory=list)
-    catchphrase: Optional[str] = None
+    catchphrase: str | None = None
 
 
 @dataclass
@@ -111,21 +111,19 @@ class VoiceConfig:
 
 @dataclass
 class PromptTemplatesConfig:
-    system_prompt_override: Optional[str] = None
+    system_prompt_override: str | None = None
 
 
 @dataclass
 class CharacterConfig:
     """Top-level character configuration."""
 
-    extends: Optional[str] = None
+    extends: str | None = None
     identity: IdentityConfig = field(default_factory=IdentityConfig)
     personality: PersonalityConfig = field(default_factory=PersonalityConfig)
     speaking_style: SpeakingStyleConfig = field(default_factory=SpeakingStyleConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
-    prompt_templates: PromptTemplatesConfig = field(
-        default_factory=PromptTemplatesConfig
-    )
+    prompt_templates: PromptTemplatesConfig = field(default_factory=PromptTemplatesConfig)
 
     @property
     def name(self) -> str:
@@ -161,11 +159,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     """
     result = copy.deepcopy(base)
     for key, value in override.items():
-        if (
-            key in result
-            and isinstance(result[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = _deep_merge(result[key], value)
         else:
             result[key] = copy.deepcopy(value)
@@ -177,7 +171,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 # ---------------------------------------------------------------------------
 
 
-def _find_template_path(template_name: str) -> Optional[Path]:
+def _find_template_path(template_name: str) -> Path | None:
     """Resolve a template name to a YAML file path."""
     path = _CHARACTERS_DIR / f"{template_name}.yaml"
     if path.is_file():
@@ -191,7 +185,7 @@ def _find_template_path(template_name: str) -> Optional[Path]:
 
 def _load_yaml_file(path: Path) -> dict[str, Any]:
     """Load a YAML file and return its contents as a dict."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
         raise ValueError(f"Expected a YAML mapping in {path}, got {type(data).__name__}")
@@ -217,9 +211,7 @@ def _resolve_inheritance(data: dict[str, Any], seen: set[str] | None = None) -> 
 
     base_path = _find_template_path(extends)
     if base_path is None:
-        logger.warning(
-            "Character template '%s' not found, ignoring extends directive", extends
-        )
+        logger.warning("Character template '%s' not found, ignoring extends directive", extends)
         return data
 
     base_data = _load_yaml_file(base_path)
@@ -279,9 +271,7 @@ def _dict_to_config(data: dict[str, Any]) -> CharacterConfig:
     rejection_data = speaking_data.get("rejection", {})
     rejection = RejectionConfig(
         directions=rejection_data.get("directions", ["嘆き系", "皮肉系"]),
-        persona_description=rejection_data.get(
-            "persona_description", "丁寧だが少し残念そうに断るアシスタント"
-        ),
+        persona_description=rejection_data.get("persona_description", "丁寧だが少し残念そうに断るアシスタント"),
     )
 
     speaking_style = SpeakingStyleConfig(
@@ -292,9 +282,7 @@ def _dict_to_config(data: dict[str, Any]) -> CharacterConfig:
 
     voicevox_data = voice_data.get("voicevox", {})
     voicevox = VoicevoxConfig(
-        speakers=voicevox_data.get(
-            "speakers", {"default": 47, "caring": 47, "humorous": 48, "alert": 46}
-        ),
+        speakers=voicevox_data.get("speakers", {"default": 47, "caring": 47, "humorous": 48, "alert": 46}),
         speed_scale=voicevox_data.get("speed_scale", 1.0),
         pitch_scale=voicevox_data.get("pitch_scale", 0.0),
         intonation_scale=voicevox_data.get("intonation_scale", 1.0),
@@ -324,7 +312,7 @@ def _dict_to_config(data: dict[str, Any]) -> CharacterConfig:
 # ---------------------------------------------------------------------------
 
 # Module-level cache for the loaded character
-_current_character: Optional[CharacterConfig] = None
+_current_character: CharacterConfig | None = None
 
 
 def load_character(
@@ -374,9 +362,7 @@ def load_character(
         return _load_default_fallback(characters_dir)
 
 
-def _resolve_character_source(
-    cfg_dir: Path, characters_dir: Path
-) -> dict[str, Any]:
+def _resolve_character_source(cfg_dir: Path, characters_dir: Path) -> dict[str, Any]:
     """Determine which YAML file to load based on env vars and file presence."""
 
     # 1. CHARACTER_FILE env var -> explicit path
@@ -546,9 +532,7 @@ def validate_character_data(data: dict[str, Any]) -> list[str]:
         # Type check
         expected_type = spec["type"]
         if value is not None and not isinstance(value, expected_type):
-            errors.append(
-                f"'{key}' should be {expected_type}, got {type(value).__name__}"
-            )
+            errors.append(f"'{key}' should be {expected_type}, got {type(value).__name__}")
             continue
 
         # Nested field validation
@@ -560,24 +544,15 @@ def validate_character_data(data: dict[str, Any]) -> list[str]:
                 field_type = field_spec["type"]
 
                 if field_val is not None and not isinstance(field_val, field_type):
-                    errors.append(
-                        f"'{key}.{field_name}' should be {field_type}, "
-                        f"got {type(field_val).__name__}"
-                    )
+                    errors.append(f"'{key}.{field_name}' should be {field_type}, got {type(field_val).__name__}")
                     continue
 
                 # Range checks for int fields
                 if isinstance(field_val, int):
                     if "min" in field_spec and field_val < field_spec["min"]:
-                        errors.append(
-                            f"'{key}.{field_name}' must be >= {field_spec['min']}, "
-                            f"got {field_val}"
-                        )
+                        errors.append(f"'{key}.{field_name}' must be >= {field_spec['min']}, got {field_val}")
                     if "max" in field_spec and field_val > field_spec["max"]:
-                        errors.append(
-                            f"'{key}.{field_name}' must be <= {field_spec['max']}, "
-                            f"got {field_val}"
-                        )
+                        errors.append(f"'{key}.{field_name}' must be <= {field_spec['max']}, got {field_val}")
 
     # Validate speaking_style.endings has the required tones
     endings = data.get("speaking_style", {}).get("endings", {})
@@ -585,19 +560,14 @@ def validate_character_data(data: dict[str, Any]) -> list[str]:
         required_tones = {"neutral", "caring", "humorous", "alert"}
         for tone in required_tones:
             if tone in endings and not isinstance(endings[tone], list):
-                errors.append(
-                    f"'speaking_style.endings.{tone}' must be a list"
-                )
+                errors.append(f"'speaking_style.endings.{tone}' must be a list")
 
     # Validate voice.voicevox.speakers
     speakers = data.get("voice", {}).get("voicevox", {}).get("speakers", {})
     if isinstance(speakers, dict):
         for tone_key, speaker_id in speakers.items():
             if not isinstance(speaker_id, int):
-                errors.append(
-                    f"'voice.voicevox.speakers.{tone_key}' must be an int, "
-                    f"got {type(speaker_id).__name__}"
-                )
+                errors.append(f"'voice.voicevox.speakers.{tone_key}' must be an int, got {type(speaker_id).__name__}")
 
     # Validate voice.voicevox float ranges
     voicevox = data.get("voice", {}).get("voicevox", {})
@@ -612,14 +582,8 @@ def validate_character_data(data: dict[str, Any]) -> list[str]:
                 val = voicevox[fname]
                 if isinstance(val, (int, float)):
                     if val < lo or val > hi:
-                        errors.append(
-                            f"'voice.voicevox.{fname}' must be between "
-                            f"{lo} and {hi}, got {val}"
-                        )
+                        errors.append(f"'voice.voicevox.{fname}' must be between {lo} and {hi}, got {val}")
                 else:
-                    errors.append(
-                        f"'voice.voicevox.{fname}' must be a number, "
-                        f"got {type(val).__name__}"
-                    )
+                    errors.append(f"'voice.voicevox.{fname}' must be a number, got {type(val).__name__}")
 
     return errors

@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from datetime import datetime, timedelta, timezone
-from typing import List
+from datetime import UTC, datetime, timedelta
 
-from database import get_db
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 import models
 import schemas
+from database import get_db
 
 router = APIRouter(prefix="/voice-events", tags=["voice-events"])
 
@@ -26,9 +26,9 @@ async def create_voice_event(event: schemas.VoiceEventCreate, db: AsyncSession =
     return db_event
 
 
-@router.get("/recent", response_model=List[schemas.VoiceEvent])
+@router.get("/recent", response_model=list[schemas.VoiceEvent])
 async def get_recent_voice_events(db: AsyncSession = Depends(get_db)):
-    max_age = datetime.now(timezone.utc) - timedelta(hours=24)
+    max_age = datetime.now(UTC) - timedelta(hours=24)
     result = await db.execute(
         select(models.VoiceEvent)
         .where(models.VoiceEvent.created_at >= max_age)

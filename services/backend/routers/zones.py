@@ -1,8 +1,10 @@
 """
 Zone sensor data — in-memory store updated by Brain snapshots.
 """
+
 from fastapi import APIRouter
-from schemas import ZonesUpdate, ZoneSnapshot
+
+from schemas import ZoneSnapshot, ZonesUpdate
 
 router = APIRouter(prefix="/zones", tags=["zones"])
 

@@ -5,41 +5,47 @@ Brain pushes heartbeats on MQTT-observed devices (auto-register).
 Frontend performs CRUD on metadata (display_name / purpose / zone / ...).
 Control requests are proxied to Brain which dispatches to the vendor bridge.
 """
+
 import logging
 import os
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from database import get_db
 import models
 import schemas
+from database import get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
 BRAIN_URL = os.getenv("BRAIN_CHAT_URL", "http://brain:8080")
-HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
-_AUTH_HEADERS = {"Authorization": f"Bearer {HEMS_API_KEY}"} if HEMS_API_KEY else {}
 
 
 def _apply_update(device: models.Device, updates: dict) -> None:
     for field, value in updates.items():
-        if value is not None or field in ("notes", "purpose", "location", "description",
-                                          "display_name", "metadata_json"):
+        if value is not None or field in (
+            "notes",
+            "purpose",
+            "location",
+            "description",
+            "display_name",
+            "metadata_json",
+        ):
             setattr(device, field, value)
 
 
-@router.get("/", response_model=List[schemas.Device])
+@router.get("/", response_model=list[schemas.Device])
 async def list_devices(
-    kind: Optional[str] = Query(None, description="sensor|actuator|both"),
-    vendor: Optional[str] = Query(None),
-    zone: Optional[str] = Query(None),
+    kind: str | None = Query(None, description="sensor|actuator|both"),
+    vendor: str | None = Query(None),
+    zone: str | None = Query(None),
+    device_class: str | None = Query(None),
+    capability: str | None = Query(None),
     enabled_only: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
@@ -50,18 +56,21 @@ async def list_devices(
         query = query.filter(models.Device.vendor == vendor)
     if zone:
         query = query.filter(models.Device.zone == zone)
+    if device_class:
+        query = query.filter(models.Device.device_class == device_class)
     if enabled_only:
         query = query.filter(models.Device.is_enabled == True)
     query = query.order_by(models.Device.zone, models.Device.device_id)
     result = await db.execute(query)
-    return result.scalars().all()
+    devices = result.scalars().all()
+    if capability:
+        devices = [d for d in devices if capability in (d.capabilities or [])]
+    return devices
 
 
 @router.get("/{device_id}", response_model=schemas.Device)
 async def get_device(device_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(models.Device).filter(models.Device.device_id == device_id)
-    )
+    result = await db.execute(select(models.Device).filter(models.Device.device_id == device_id))
     device = result.scalars().first()
     if not device:
         raise HTTPException(status_code=404, detail=f"Device '{device_id}' not found")
@@ -70,9 +79,7 @@ async def get_device(device_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/", response_model=schemas.Device)
 async def create_device(body: schemas.DeviceCreate, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(
-        select(models.Device).filter(models.Device.device_id == body.device_id)
-    )
+    existing = await db.execute(select(models.Device).filter(models.Device.device_id == body.device_id))
     if existing.scalars().first():
         raise HTTPException(status_code=409, detail=f"Device '{body.device_id}' already exists")
 
@@ -89,9 +96,7 @@ async def update_device(
     body: schemas.DeviceUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(models.Device).filter(models.Device.device_id == device_id)
-    )
+    result = await db.execute(select(models.Device).filter(models.Device.device_id == device_id))
     device = result.scalars().first()
     if not device:
         raise HTTPException(status_code=404, detail=f"Device '{device_id}' not found")
@@ -104,11 +109,21 @@ async def update_device(
     return device
 
 
+@router.delete("/all")
+async def delete_all_devices(db: AsyncSession = Depends(get_db)):
+    """Delete all registered devices (for test reset)."""
+    result = await db.execute(select(models.Device))
+    devices = result.scalars().all()
+    count = len(devices)
+    for d in devices:
+        await db.delete(d)
+    await db.commit()
+    return {"success": True, "deleted": count}
+
+
 @router.delete("/{device_id}")
 async def delete_device(device_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(models.Device).filter(models.Device.device_id == device_id)
-    )
+    result = await db.execute(select(models.Device).filter(models.Device.device_id == device_id))
     device = result.scalars().first()
     if not device:
         raise HTTPException(status_code=404, detail=f"Device '{device_id}' not found")
@@ -128,11 +143,9 @@ async def device_heartbeat(
     last_state / last_value / last_seen / battery_pct without overwriting
     user-edited fields (display_name / purpose / location / zone).
     """
-    result = await db.execute(
-        select(models.Device).filter(models.Device.device_id == body.device_id)
-    )
+    result = await db.execute(select(models.Device).filter(models.Device.device_id == body.device_id))
     device = result.scalars().first()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     if device is None:
         device = models.Device(
@@ -145,6 +158,10 @@ async def device_heartbeat(
             channels=body.channels or [],
             units=body.units or {},
             zone=body.zone,
+            display_name=body.display_name,
+            description=body.description,
+            model_id=body.model_id,
+            manufacturer=body.manufacturer,
             last_state=body.last_state or {},
             last_value=body.last_value or {},
             last_seen=now,
@@ -163,16 +180,33 @@ async def device_heartbeat(
             device.battery_pct = body.battery_pct
         device.last_seen = now
         # Allow brain to refine type info if metadata was not user-set
+        # Generic fallback values (vendor name as device_class) are overridable
+        _GENERIC_CLASSES = {"zigbee", "switchbot", "tapo", "mcp", "ha", "sensor"}
         if body.vendor_ref and not device.vendor_ref:
             device.vendor_ref = body.vendor_ref
-        if body.device_class and not device.device_class:
+        if body.kind and body.kind != device.kind:
+            # Upgrade: sensor → actuator/both when Z2M reveals it's controllable
+            if device.kind == "sensor" and body.kind in ("actuator", "both"):
+                device.kind = body.kind
+        if body.device_class and (not device.device_class or device.device_class in _GENERIC_CLASSES):
             device.device_class = body.device_class
-        if body.capabilities and not device.capabilities:
-            device.capabilities = body.capabilities
+        if body.capabilities:
+            existing = set(device.capabilities or [])
+            merged = existing | set(body.capabilities)
+            if merged != existing:
+                device.capabilities = sorted(merged)
         if body.channels and not device.channels:
             device.channels = body.channels
         if body.units and not device.units:
             device.units = body.units
+        if body.display_name and not device.display_name:
+            device.display_name = body.display_name
+        if body.description and not device.description:
+            device.description = body.description
+        if body.model_id and not device.model_id:
+            device.model_id = body.model_id
+        if body.manufacturer and not device.manufacturer:
+            device.manufacturer = body.manufacturer
 
     await db.commit()
     await db.refresh(device)
@@ -186,23 +220,25 @@ async def zigbee_permit_join(body: schemas.ZigbeePermitJoinRequest):
     Proxies to Brain, which publishes on `zigbee2mqtt/bridge/request/permit_join`.
     """
     try:
-        async with aiohttp.ClientSession(headers=_AUTH_HEADERS) as session:
-            async with session.post(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
                 f"{BRAIN_URL}/devices/zigbee/permit_join",
                 json={"enable": body.enable, "duration_s": body.duration_s},
                 timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                data = await resp.json()
-                if resp.status == 200:
-                    return schemas.DeviceControlResponse(
-                        success=data.get("success", False),
-                        result=data.get("result"),
-                        error=data.get("error"),
-                    )
+            ) as resp,
+        ):
+            data = await resp.json()
+            if resp.status == 200:
                 return schemas.DeviceControlResponse(
-                    success=False,
-                    error=data.get("detail", f"HTTP {resp.status}"),
+                    success=data.get("success", False),
+                    result=data.get("result"),
+                    error=data.get("error"),
                 )
+            return schemas.DeviceControlResponse(
+                success=False,
+                error=data.get("detail", f"HTTP {resp.status}"),
+            )
     except Exception as e:
         logger.error(f"permit_join proxy failed: {e}")
         return schemas.DeviceControlResponse(success=False, error=str(e))
@@ -215,9 +251,7 @@ async def control_device(
     db: AsyncSession = Depends(get_db),
 ):
     """Proxy a manual control request to Brain (which dispatches to bridge)."""
-    result = await db.execute(
-        select(models.Device).filter(models.Device.device_id == device_id)
-    )
+    result = await db.execute(select(models.Device).filter(models.Device.device_id == device_id))
     device = result.scalars().first()
     if not device:
         raise HTTPException(status_code=404, detail=f"Device '{device_id}' not found")
@@ -225,23 +259,25 @@ async def control_device(
         raise HTTPException(status_code=400, detail=f"Device '{device_id}' is disabled")
 
     try:
-        async with aiohttp.ClientSession(headers=_AUTH_HEADERS) as session:
-            async with session.post(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
                 f"{BRAIN_URL}/devices/control",
                 json={"device_id": device_id, "action": body.action, "params": body.params},
                 timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                data = await resp.json()
-                if resp.status == 200:
-                    return schemas.DeviceControlResponse(
-                        success=data.get("success", False),
-                        result=data.get("result"),
-                        error=data.get("error"),
-                    )
+            ) as resp,
+        ):
+            data = await resp.json()
+            if resp.status == 200:
                 return schemas.DeviceControlResponse(
-                    success=False,
-                    error=data.get("detail", f"HTTP {resp.status}"),
+                    success=data.get("success", False),
+                    result=data.get("result"),
+                    error=data.get("error"),
                 )
+            return schemas.DeviceControlResponse(
+                success=False,
+                error=data.get("detail", f"HTTP {resp.status}"),
+            )
     except Exception as e:
         logger.error(f"Control proxy failed for {device_id}: {e}")
         return schemas.DeviceControlResponse(success=False, error=str(e))
