@@ -109,3 +109,9 @@ services/frontend/public/assets/character/
 /config/zigbee2mqtt/database.db
 /config/zigbee2mqtt/log/
 /config/zigbee2mqtt/secret.yaml.local
+# Zigbee2MQTT migration artifacts
+/config/zigbee2mqtt/configuration_backup_*.yaml
+/config/zigbee2mqtt/migration-*.log
+
+# Claude Code local config
+.claude/
