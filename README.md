@@ -319,4 +319,12 @@ pnpm build    # tsc -b && vite build
 
 ## License
 
-Private project.
+HEMS is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+Personal, hobbyist, research, educational, and other **noncommercial** use on your own hardware is permitted. See the LICENSE file or <https://polyformproject.org/licenses/noncommercial/1.0.0/> for the full terms.
+
+### Commercial use
+
+**Commercial use** — including bundling HEMS with hardware for sale, redistribution as part of a product, or offering HEMS as a service — is **not permitted under the public license**. Commercial use requires a separate, written commercial license agreement with the author. Contact the author via this repository to inquire about commercial licensing terms.
+
+The software is provided **as is, without warranty or support obligation**.
