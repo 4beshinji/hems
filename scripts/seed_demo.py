@@ -6,7 +6,7 @@ Usage:
     python scripts/seed_demo.py [--url http://localhost:8010] [--key change_me_...]
 
 Backend + Frontend だけで見栄えのするダッシュボードを表示するためのスクリプト。
-Brain / MQTT / Ollama は不要。
+Brain / MQTT / LLM は不要。
 """
 import argparse
 import json
@@ -75,7 +75,7 @@ def seed(base: str, key: str):
             {"mount": "/home", "used_gb": 420, "total_gb": 1000, "percent": 42},
         ],
         "top_processes": [
-            {"name": "ollama", "cpu": 15.2, "memory_mb": 4200},
+            {"name": "llama-server", "cpu": 15.2, "memory_mb": 4200},
             {"name": "chrome", "cpu": 8.5, "memory_mb": 2800},
             {"name": "code", "cpu": 5.1, "memory_mb": 1500},
             {"name": "python", "cpu": 3.8, "memory_mb": 900},

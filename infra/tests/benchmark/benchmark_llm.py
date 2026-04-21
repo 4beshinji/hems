@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-LLM Load Test / Benchmark for HEMS Brain
-Tests ollama (qwen2.5:14b) on RX 9700 GPU via OpenAI-compatible API.
+LLM Load Test / Benchmark for HEMS Brain.
+Talks to any OpenAI-compatible server (llama.cpp by default; Ollama/LocalAI also work).
 No external dependencies — uses only Python standard library.
 
 Usage:
-    python3 infra/tests/benchmark/benchmark_llm.py [--url http://localhost:11434/v1]
+    python3 infra/tests/benchmark/benchmark_llm.py \\
+        --url http://localhost:8081/v1 --model qwen2.5-14b-instruct
 """
 
 import json
@@ -234,7 +235,6 @@ def run_benchmark(url: str, model: str):
     print("\nHEMS LLM Benchmark")
     print(f"  Target:  {url}")
     print(f"  Model:   {model}")
-    print("  GPU:     RX 9700 (gfx1201, RDNA4)")
 
     # ── Phase 0: Warmup ──
     print_header("Phase 0: Warmup (1 request)")
@@ -338,8 +338,10 @@ def run_benchmark(url: str, model: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="HEMS LLM Benchmark")
-    parser.add_argument("--url", default="http://localhost:11434/v1", help="Ollama API URL")
-    parser.add_argument("--model", default="qwen2.5:14b", help="Model name")
+    parser.add_argument("--url", default="http://localhost:8081/v1",
+                        help="OpenAI-compatible API URL (llama.cpp default :8081, Ollama :11434)")
+    parser.add_argument("--model", default="qwen2.5-14b-instruct",
+                        help="Model identifier reported by the server")
     args = parser.parse_args()
 
     run_benchmark(args.url, args.model)

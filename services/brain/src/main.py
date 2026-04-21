@@ -288,21 +288,21 @@ class Brain:
             if len(parts) >= 4:
                 self.device_registry.update_from_heartbeat(parts[3], payload)
 
-        current = {zid: len(z.events) for zid, z in self.world_model.zones.items()}
+        current = {zid: len(z.events) for zid, z in self.world_model.physical.zones.items()}
         if OPENCLAW_ENABLED:
-            current["__pc__"] = len(self.world_model.pc_state.events)
+            current["__pc__"] = len(self.world_model.digital.pc_state.events)
         if OPENCLAW_ENABLED:
-            current["__services__"] = len(self.world_model.services_state.events)
+            current["__services__"] = len(self.world_model.digital.services_state.events)
         if OBSIDIAN_ENABLED:
-            current["__knowledge__"] = len(self.world_model.knowledge_state.events)
+            current["__knowledge__"] = len(self.world_model.digital.knowledge_state.events)
         if GAS_ENABLED:
-            current["__gas__"] = len(self.world_model.gas_state.events)
+            current["__gas__"] = len(self.world_model.digital.gas_state.events)
         if HA_ENABLED or SWITCHBOT_ENABLED:
-            current["__home__"] = len(self.world_model.home_devices.events)
+            current["__home__"] = len(self.world_model.physical.home_devices.events)
         if BIOMETRIC_ENABLED:
-            current["__biometric__"] = len(self.world_model.biometric_state.events)
+            current["__biometric__"] = len(self.world_model.user.biometrics.events)
         if NEWS_ENABLED:
-            current["__news__"] = len(self.world_model.news_state.events)
+            current["__news__"] = len(self.world_model.digital.news_state.events)
         if current != self._last_event_count:
             self._last_event_count = current
             self._cycle_triggered.set()
@@ -387,27 +387,6 @@ class Brain:
                 await self._push_all_snapshots()
                 return
 
-        # Rule-based fallback when VLM heavy model is using VRAM
-        if self.world_model.vlm_model_swap_active:
-            logger.info("VLM heavy model active — using rule-based mode")
-            for action in self.rule_engine.evaluate(self.world_model):
-                if action["tool"] == "speak" and self.persona_rewriter:
-                    action["args"]["message"] = await self.persona_rewriter.rewrite(
-                        action["args"].get("message", ""),
-                        tone=action["args"].get("tone", "neutral"),
-                    )
-                result = await self.tool_executor.execute(action["tool"], action["args"])
-                total_tool_calls += 1
-                if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
-                    self.ambient_speaker.record_speak(action["args"].get("message", ""))
-                self._action_history.append({
-                    "time": time.time(), "tool": action["tool"],
-                    "summary": _summarize_action(action["tool"], action["args"]),
-                    "success": result.get("success", True),
-                })
-            await self._push_all_snapshots()
-            return
-
         # Rule-based fallback when GPU is busy
         if self.rule_engine.should_use_rules():
             logger.info("GPU load high — rule-based mode")
@@ -448,8 +427,8 @@ class Brain:
                     llm_context += f"\n  起床パターン: {stats['weekday_wake']}"
             # Add predicted times
             calendar_events = None
-            if GAS_ENABLED and self.world_model.gas_state.bridge_connected:
-                calendar_events = self.world_model.gas_state.calendar_events
+            if GAS_ENABLED and self.world_model.digital.gas_state.bridge_connected:
+                calendar_events = self.world_model.digital.gas_state.calendar_events
             wake_time = self.schedule_learner.get_wake_time(calendar_events)
             if wake_time:
                 from datetime import datetime as _dt
@@ -459,7 +438,7 @@ class Brain:
         now = time.time()
         recent_events = []
         actionable_reports = []  # task_reports needing follow-up
-        for zone_id, zone in self.world_model.zones.items():
+        for zone_id, zone in self.world_model.physical.zones.items():
             for event in zone.events:
                 if now - event.timestamp < 300:
                     recent_events.append(f"[{zone_id}] {event.description}")
@@ -471,21 +450,21 @@ class Brain:
                                 f"[{zone_id}] {event.description} (要対応)"
                             )
         if OPENCLAW_ENABLED:
-            for event in self.world_model.pc_state.events:
+            for event in self.world_model.digital.pc_state.events:
                 if now - event.timestamp < 300:
                     recent_events.append(f"[PC] {event.description}")
         if OPENCLAW_ENABLED:
-            for event in self.world_model.services_state.events:
+            for event in self.world_model.digital.services_state.events:
                 if now - event.timestamp < 300:
                     recent_events.append(f"[サービス] {event.description}")
         if BIOMETRIC_ENABLED:
-            for event in self.world_model.biometric_state.events:
+            for event in self.world_model.user.biometrics.events:
                 if now - event.timestamp < 300:
                     recent_events.append(f"[バイオメトリクス] {event.description}")
 
         active_tasks = await self.dashboard.get_active_tasks()
 
-        services_enabled = OPENCLAW_ENABLED and bool(self.world_model.services_state.services)
+        services_enabled = OPENCLAW_ENABLED and bool(self.world_model.digital.services_state.services)
         system_msg = build_system_message(
             self.character, openclaw_enabled=OPENCLAW_ENABLED,
             services_enabled=services_enabled,
@@ -652,7 +631,7 @@ class Brain:
             # Snapshot recent events that triggered this cycle
             trigger = [
                 {"zone": zid, "event": e.event_type, "severity": e.severity}
-                for zid, z in self.world_model.zones.items()
+                for zid, z in self.world_model.physical.zones.items()
                 for e in z.events
                 if cycle_start - e.timestamp < 60  # events in the last minute
             ][:20]
@@ -723,7 +702,7 @@ class Brain:
         llm_messages.append({"role": "user", "content": user_message})
 
         # Get chat tools (read-only subset)
-        services_enabled = bool(self.world_model.services_state.services)
+        services_enabled = bool(self.world_model.digital.services_state.services)
         tools = get_chat_tools(
             openclaw_enabled=OPENCLAW_ENABLED,
             services_enabled=services_enabled,
@@ -799,7 +778,7 @@ class Brain:
         await self.dashboard.push_zone_snapshot(self.world_model)
         if OPENCLAW_ENABLED:
             await self.dashboard.push_pc_snapshot(self.world_model)
-        if OPENCLAW_ENABLED and self.world_model.services_state.services:
+        if OPENCLAW_ENABLED and self.world_model.digital.services_state.services:
             await self.dashboard.push_services_snapshot(self.world_model)
         if OBSIDIAN_ENABLED:
             await self.dashboard.push_knowledge_snapshot(self.world_model)
@@ -839,7 +818,7 @@ class Brain:
         description = task_args.get("description", "")
         text = f"{title} {description}".lower()
 
-        target_zones = [zone] if zone else list(self.world_model.zones.keys())
+        target_zones = [zone] if zone else list(self.world_model.physical.zones.keys())
 
         suppressed: set[tuple] = set()
         for keyword, alert_types in self._TASK_ALERT_KEYWORDS.items():

@@ -12,7 +12,7 @@ class TestWorldModelBiometricRouting:
             "bpm": 72,
             "resting_bpm": 60,
         })
-        hr = world_model.biometric_state.heart_rate
+        hr = world_model.user.biometrics.heart_rate
         assert hr.bpm == 72
         assert hr.resting_bpm == 60
         assert hr.zone == "fat_burn"  # 60 <= 72 < 120
@@ -23,28 +23,28 @@ class TestWorldModelBiometricRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 55,
         })
-        assert world_model.biometric_state.heart_rate.zone == "rest"
+        assert world_model.user.biometrics.heart_rate.zone == "rest"
 
     def test_heart_rate_zone_cardio(self, world_model):
         """BPM 120-149 classifies as cardio zone."""
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 135,
         })
-        assert world_model.biometric_state.heart_rate.zone == "cardio"
+        assert world_model.user.biometrics.heart_rate.zone == "cardio"
 
     def test_heart_rate_zone_peak(self, world_model):
         """BPM >= 150 classifies as peak zone."""
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 165,
         })
-        assert world_model.biometric_state.heart_rate.zone == "peak"
+        assert world_model.user.biometrics.heart_rate.zone == "peak"
 
     def test_spo2_update(self, world_model):
         """SpO2 message updates percent value."""
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/spo2", {
             "percent": 98,
         })
-        spo2 = world_model.biometric_state.spo2
+        spo2 = world_model.user.biometrics.spo2
         assert spo2.percent == 98
         assert spo2.last_update > 0
 
@@ -60,7 +60,7 @@ class TestWorldModelBiometricRouting:
             "sleep_start_ts": 1708380000.0,
             "sleep_end_ts": 1708405200.0,
         })
-        sleep = world_model.biometric_state.sleep
+        sleep = world_model.user.biometrics.sleep
         assert sleep.stage == "deep"
         assert sleep.duration_minutes == 420
         assert sleep.deep_minutes == 90
@@ -80,7 +80,7 @@ class TestWorldModelBiometricRouting:
             "active_minutes": 30,
             "level": "moderate",
         })
-        act = world_model.biometric_state.activity
+        act = world_model.user.biometrics.activity
         assert act.steps == 5000
         assert act.steps_goal == 10000
         assert act.calories == 250
@@ -93,7 +93,7 @@ class TestWorldModelBiometricRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/stress", {
             "level": 45,
         })
-        stress = world_model.biometric_state.stress
+        stress = world_model.user.biometrics.stress
         assert stress.level == 45
         assert stress.category == "normal"  # 25 <= 45 < 50
         assert stress.last_update > 0
@@ -103,21 +103,21 @@ class TestWorldModelBiometricRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/stress", {
             "level": 10,
         })
-        assert world_model.biometric_state.stress.category == "relaxed"
+        assert world_model.user.biometrics.stress.category == "relaxed"
 
     def test_stress_category_moderate(self, world_model):
         """Stress level 50-74 classifies as moderate."""
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/stress", {
             "level": 60,
         })
-        assert world_model.biometric_state.stress.category == "moderate"
+        assert world_model.user.biometrics.stress.category == "moderate"
 
     def test_stress_category_high(self, world_model):
         """Stress level >= 75 classifies as high."""
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/stress", {
             "level": 85,
         })
-        assert world_model.biometric_state.stress.category == "high"
+        assert world_model.user.biometrics.stress.category == "high"
 
     def test_fatigue_data_update(self, world_model):
         """Fatigue message updates score and factors."""
@@ -125,7 +125,7 @@ class TestWorldModelBiometricRouting:
             "score": 35,
             "factors": ["high_hr"],
         })
-        fatigue = world_model.biometric_state.fatigue
+        fatigue = world_model.user.biometrics.fatigue
         assert fatigue.score == 35
         assert fatigue.factors == ["high_hr"]
         assert fatigue.last_update > 0
@@ -136,19 +136,19 @@ class TestWorldModelBiometricRouting:
             "count": 5000,
             "daily_goal": 10000,
         })
-        act = world_model.biometric_state.activity
+        act = world_model.user.biometrics.activity
         assert act.steps == 5000
         assert act.steps_goal == 10000
         assert act.last_update > 0
 
     def test_bridge_status_connected(self, world_model):
         """Bridge status message sets connected state and provider."""
-        assert world_model.biometric_state.bridge_connected is False
+        assert world_model.user.biometrics.bridge_connected is False
         world_model.update_from_mqtt("hems/personal/biometrics/bridge/status", {
             "connected": True,
             "provider": "garmin",
         })
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         assert bio.bridge_connected is True
         assert bio.provider == "garmin"
 
@@ -161,7 +161,7 @@ class TestWorldModelBiometricRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/bridge/status", {
             "connected": False,
         })
-        assert world_model.biometric_state.bridge_connected is False
+        assert world_model.user.biometrics.bridge_connected is False
 
 
 class TestWorldModelBiometricThresholds:
@@ -172,7 +172,7 @@ class TestWorldModelBiometricThresholds:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 130,
         })
-        events = world_model.biometric_state.events
+        events = world_model.user.biometrics.events
         assert len(events) == 1
         assert events[0].event_type == "hr_high"
         assert events[0].severity == 1
@@ -182,7 +182,7 @@ class TestWorldModelBiometricThresholds:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 40,
         })
-        events = world_model.biometric_state.events
+        events = world_model.user.biometrics.events
         assert len(events) == 1
         assert events[0].event_type == "hr_low"
         assert events[0].severity == 1
@@ -192,14 +192,14 @@ class TestWorldModelBiometricThresholds:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 72,
         })
-        assert len(world_model.biometric_state.events) == 0
+        assert len(world_model.user.biometrics.events) == 0
 
     def test_spo2_low_threshold_event(self, world_model):
         """SpO2 crossing < 92 generates spo2_low event with severity 2."""
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/spo2", {
             "percent": 88,
         })
-        events = world_model.biometric_state.events
+        events = world_model.user.biometrics.events
         assert len(events) == 1
         assert events[0].event_type == "spo2_low"
         assert events[0].severity == 2
@@ -209,7 +209,7 @@ class TestWorldModelBiometricThresholds:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/stress", {
             "level": 90,
         })
-        events = world_model.biometric_state.events
+        events = world_model.user.biometrics.events
         assert len(events) == 1
         assert events[0].event_type == "stress_high"
         assert events[0].severity == 1
@@ -220,13 +220,13 @@ class TestWorldModelBiometricThresholds:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 130,
         })
-        assert len(world_model.biometric_state.events) == 1
+        assert len(world_model.user.biometrics.events) == 1
 
         # Second update: 130 → 135 (already above threshold, no crossing)
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 135,
         })
-        assert len(world_model.biometric_state.events) == 1  # No new event
+        assert len(world_model.user.biometrics.events) == 1  # No new event
 
     def test_repeated_low_spo2_no_new_event(self, world_model):
         """Repeated SpO2 below threshold (no crossing) generates no new event."""
@@ -234,13 +234,13 @@ class TestWorldModelBiometricThresholds:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/spo2", {
             "percent": 88,
         })
-        assert len(world_model.biometric_state.events) == 1
+        assert len(world_model.user.biometrics.events) == 1
 
         # Second update: 88 → 85 (already below threshold, no crossing)
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/spo2", {
             "percent": 85,
         })
-        assert len(world_model.biometric_state.events) == 1
+        assert len(world_model.user.biometrics.events) == 1
 
     def test_repeated_high_stress_no_new_event(self, world_model):
         """Repeated stress above threshold (no crossing) generates no new event."""
@@ -248,13 +248,13 @@ class TestWorldModelBiometricThresholds:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/stress", {
             "level": 90,
         })
-        assert len(world_model.biometric_state.events) == 1
+        assert len(world_model.user.biometrics.events) == 1
 
         # Second update: 90 → 95 (already above threshold, no crossing)
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/stress", {
             "level": 95,
         })
-        assert len(world_model.biometric_state.events) == 1
+        assert len(world_model.user.biometrics.events) == 1
 
     def test_hr_recovery_then_spike_generates_new_event(self, world_model):
         """HR recovering to normal and spiking again generates a second event."""
@@ -262,19 +262,19 @@ class TestWorldModelBiometricThresholds:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 130,
         })
-        assert len(world_model.biometric_state.events) == 1
+        assert len(world_model.user.biometrics.events) == 1
 
         # Recovery
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 80,
         })
-        assert len(world_model.biometric_state.events) == 1  # No event on recovery
+        assert len(world_model.user.biometrics.events) == 1  # No event on recovery
 
         # Second spike (crosses threshold again)
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/heart_rate", {
             "bpm": 125,
         })
-        assert len(world_model.biometric_state.events) == 2
+        assert len(world_model.user.biometrics.events) == 2
 
 
 class TestWorldModelBiometricLLMContext:

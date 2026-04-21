@@ -104,7 +104,7 @@ class RuleEngine:
         actions = []
         now = time.time()
 
-        for zone_id, zone in world_model.zones.items():
+        for zone_id, zone in world_model.physical.zones.items():
             env = zone.environment
 
             # CO2 above threshold -> create ventilation task
@@ -225,7 +225,7 @@ class RuleEngine:
                 })
 
         # --- PC rules ---
-        pc = world_model.pc_state
+        pc = world_model.digital.pc_state
         if pc.gpu.temp_c > PC_GPU_TEMP_HIGH and self._check_cooldown("pc_gpu_hot", now):
             actions.append({
                 "tool": "speak",
@@ -252,12 +252,15 @@ class RuleEngine:
                     })
 
         # --- GAS rules ---
-        gas = world_model.gas_state
+        gas = world_model.digital.gas_state
         if gas.bridge_connected:
             actions.extend(self._evaluate_gas_rules(gas, now))
 
+        # --- News rules ---
+        actions.extend(self._evaluate_news_rules(world_model.digital.news_state, now))
+
         # --- Home Assistant rules ---
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         if hd.bridge_connected:
             if not world_model.is_guest_mode:
                 actions.extend(self._evaluate_home_rules(world_model, now))
@@ -284,7 +287,7 @@ class RuleEngine:
             })
 
         # --- Biometric rules (skip in guest mode for privacy) ---
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         if bio.bridge_connected and not world_model.is_guest_mode:
             actions.extend(self._evaluate_biometric_rules(world_model, now))
 
@@ -546,34 +549,35 @@ class RuleEngine:
                     },
                 })
 
-        # Urgent news notification
-        if hasattr(world_model, 'news_state'):
-            ns = world_model.news_state
-            for article in ns.urgent_articles:
-                url_key = article.get("url", "")[:50]
-                if url_key and self._check_cooldown(f"news_urgent_{url_key}", now):
-                    title = article.get("title", "")[:50]
-                    actions.append({
-                        "tool": "speak",
-                        "args": {
-                            "message": f"速報です。{title}",
-                            "zone": "home",
-                            "tone": "alert",
-                        },
-                    })
+        return actions
 
+    def _evaluate_news_rules(self, news, now: float) -> list[dict]:
+        """Urgent news notification rules."""
+        actions: list[dict] = []
+        for article in news.urgent_articles:
+            url_key = article.get("url", "")[:50]
+            if url_key and self._check_cooldown(f"news_urgent_{url_key}", now):
+                title = article.get("title", "")[:50]
+                actions.append({
+                    "tool": "speak",
+                    "args": {
+                        "message": f"速報です。{title}",
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                })
         return actions
 
     def _evaluate_home_rules(self, world_model, now: float) -> list[dict]:
         """Evaluate Home Assistant automation rules."""
         actions = []
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         hour = datetime.now().hour
 
         # --- 1. Sleep detection → lights off ---
         # Conditions: 23:00-5:00 AND idle AND static posture > 10 min AND lights on
         if (hour >= 23 or hour < 5):
-            for zone_id, zone in world_model.zones.items():
+            for zone_id, zone in world_model.physical.zones.items():
                 occ = zone.occupancy
                 if (occ.count > 0
                         and occ.activity_class == "idle"
@@ -600,13 +604,13 @@ class RuleEngine:
         # Conditions: nobody home AND predicted arrival in 30 min
         if self.schedule_learner:
             calendar_events = None
-            if world_model.gas_state.bridge_connected:
-                calendar_events = world_model.gas_state.calendar_events
+            if world_model.digital.gas_state.bridge_connected:
+                calendar_events = world_model.digital.gas_state.calendar_events
 
             predicted_arrival = self.schedule_learner.predict_next_arrival(calendar_events)
             if predicted_arrival:
                 minutes_until = (predicted_arrival - now) / 60
-                all_away = all(z.occupancy.count == 0 for z in world_model.zones.values())
+                all_away = all(z.occupancy.count == 0 for z in world_model.physical.zones.values())
 
                 if all_away and 0 < minutes_until <= 30:
                     if self._check_cooldown("ha_prearrival_hvac", now):
@@ -637,8 +641,8 @@ class RuleEngine:
         # Conditions: 60 min before predicted wake AND covers closed
         if self.schedule_learner:
             calendar_events = None
-            if world_model.gas_state.bridge_connected:
-                calendar_events = world_model.gas_state.calendar_events
+            if world_model.digital.gas_state.bridge_connected:
+                calendar_events = world_model.digital.gas_state.calendar_events
 
             wake_time = self.schedule_learner.get_wake_time(calendar_events)
             if wake_time:
@@ -655,7 +659,7 @@ class RuleEngine:
         # --- 4. Wake-up detection → lights on + morning greeting ---
         # Conditions: 5:00-10:00 AND activity transitions from idle to low/moderate
         if 5 <= hour < 10:
-            for zone_id, zone in world_model.zones.items():
+            for zone_id, zone in world_model.physical.zones.items():
                 occ = zone.occupancy
                 if (occ.count > 0
                         and occ.activity_class in ("low", "moderate", "high")
@@ -681,7 +685,7 @@ class RuleEngine:
     def _evaluate_biometric_rules(self, world_model, now: float) -> list[dict]:
         """Evaluate biometric health rules."""
         actions = []
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         hour = datetime.now().hour
 
         # 0. Stale biometric data alert
@@ -767,7 +771,7 @@ class RuleEngine:
 
         # 6. Enhanced sleep detection (biometric + HA)
         # If sleep stage detected and HA connected, turn off lights
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         if (hd.bridge_connected
                 and bio.sleep.stage in ("deep", "light", "rem")
                 and self._check_cooldown_daily("bio_sleep_lights", now)):
@@ -852,9 +856,9 @@ class RuleEngine:
         """Evaluate camera/perception-based rules."""
         actions = []
         hour = datetime.now().hour
-        ha_enabled = world_model.home_devices.bridge_connected
+        ha_enabled = world_model.physical.home_devices.bridge_connected
 
-        for zone_id, zone in world_model.zones.items():
+        for zone_id, zone in world_model.physical.zones.items():
             occ = zone.occupancy
 
             # 1. Sedentary sitting detection (camera posture)
@@ -876,7 +880,7 @@ class RuleEngine:
                     and occ.count == 0
                     and occ.last_update > 0
                     and now - occ.last_update < 300):
-                hd = world_model.home_devices
+                hd = world_model.physical.home_devices
                 lights_on = [eid for eid, lt in hd.lights.items()
                              if lt.on and zone_id in eid]
                 if lights_on and self._check_cooldown(f"percep_empty_lights_{zone_id}", now):
@@ -951,7 +955,7 @@ class RuleEngine:
     def _evaluate_zigbee_sensor_rules(self, world_model, now: float) -> list[dict]:
         """Evaluate Zigbee binary_sensor and sensor rules."""
         actions = []
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
 
         # --- Z1: Moisture emergency ---
         for eid, bs in hd.binary_sensors.items():
@@ -987,7 +991,7 @@ class RuleEngine:
                 if self._check_cooldown(f"zigbee_door_{eid}", now):
                     # Check occupancy to determine arrival vs departure
                     any_occupied = any(
-                        z.occupancy.count > 0 for z in world_model.zones.values()
+                        z.occupancy.count > 0 for z in world_model.physical.zones.values()
                     )
                     if any_occupied:
                         # Arrival: turn on lights
@@ -1145,7 +1149,7 @@ class RuleEngine:
     def _evaluate_zigbee_critical_only(self, world_model, now: float) -> list[dict]:
         """In guest mode, only evaluate critical safety rules (water leak, extreme conditions)."""
         actions = []
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         for eid, bs in hd.binary_sensors.items():
             if bs.device_class == "moisture" and bs.state:
                 if self._check_cooldown(f"zigbee_moisture_{eid}", now):
@@ -1168,7 +1172,7 @@ class RuleEngine:
         if not self._check_cooldown("circadian_update", now):
             return []
 
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         lights_on = [l for l in hd.lights.values() if l.on]
         if not lights_on:
             return []
@@ -1215,8 +1219,8 @@ class RuleEngine:
             return []
 
         # Only when in away mode (all zones empty)
-        all_empty = world_model.zones and all(
-            z.occupancy.count == 0 for z in world_model.zones.values()
+        all_empty = world_model.physical.zones and all(
+            z.occupancy.count == 0 for z in world_model.physical.zones.values()
         )
         if not all_empty:
             # Turn off any simulated lights when returning
@@ -1242,7 +1246,7 @@ class RuleEngine:
             ABSENCE_LIGHTING_INTERVAL // 2, ABSENCE_LIGHTING_INTERVAL
         )
 
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         all_lights = list(hd.lights.keys())
         if not all_lights:
             return []
@@ -1263,12 +1267,12 @@ class RuleEngine:
 
     def _evaluate_weather_rules(self, world_model, now: float) -> list[dict]:
         """Weather-based automation rules."""
-        w = world_model.weather
+        w = world_model.physical.weather
         if w.last_update == 0:
             return []
 
         actions = []
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
 
         # Rain forecast + windows open → alert
         rain_soon = any(
@@ -1331,7 +1335,7 @@ class RuleEngine:
         now = time.time()
 
         # --- Environmental: CO2 danger level ---
-        for zone_id, zone in world_model.zones.items():
+        for zone_id, zone in world_model.physical.zones.items():
             env = zone.environment
             if (env.co2 is not None and env.co2 > CO2_CRITICAL
                     and self._check_cooldown(f"critical_co2_{zone_id}", now)):
@@ -1390,7 +1394,7 @@ class RuleEngine:
                     })
 
         # --- Zigbee: Moisture emergency (water leak) ---
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         for eid, bs in hd.binary_sensors.items():
             if bs.device_class == "moisture" and bs.state:
                 if self._check_cooldown(f"critical_moisture_{eid}", now):
@@ -1416,7 +1420,7 @@ class RuleEngine:
                     })
 
         # --- Biometric: SpO2 critical drop (sleep apnea risk) ---
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         if (bio.spo2.percent is not None
                 and bio.spo2.percent < SPO2_CRITICAL_LOW
                 and bio.spo2.last_update > now - 300
@@ -1456,7 +1460,7 @@ class RuleEngine:
     def _evaluate_shopping_rules(self, wm, now: float) -> list[dict]:
         """Shopping list rules: recurring due reminders + departure notification."""
         actions = []
-        shopping = wm.shopping_state
+        shopping = wm.digital.shopping_state
 
         # Recurring items due for purchase (24h cooldown per item)
         for item in shopping.due_items:
@@ -1475,12 +1479,12 @@ class RuleEngine:
         if shopping.pending_count > 0:
             all_empty = all(
                 z.occupancy.count == 0
-                for z in wm.zones.values()
+                for z in wm.physical.zones.values()
                 if z.occupancy and z.occupancy.last_update > now - 300
             )
             has_recent_zones = any(
                 z.occupancy.last_update > now - 300
-                for z in wm.zones.values()
+                for z in wm.physical.zones.values()
                 if z.occupancy
             )
             if all_empty and has_recent_zones:

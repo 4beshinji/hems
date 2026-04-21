@@ -1,4 +1,4 @@
-"""News summarizer via Ollama — ported from voisona-yomiage."""
+"""News summarizer via OpenAI-compatible local LLM (llama.cpp by default)."""
 
 import re
 
@@ -86,11 +86,20 @@ def _split_long_chunk(text: str) -> list[str]:
     return chunks
 
 
-class OllamaClient:
-    """Simplified Ollama REST API client (generate + is_available)."""
+class LLMChatClient:
+    """OpenAI-compatible chat client used by news-bridge.
 
-    def __init__(self, url: str = "http://localhost:11434", model: str = "qwen3.5"):
-        self.url = url.rstrip("/")
+    Works with llama.cpp's `llama-server` (default), LocalAI, Ollama's `/v1`
+    endpoint, and any other OpenAI-compatible server. `url` is a base URL;
+    `/v1/...` is appended internally.
+    """
+
+    def __init__(self, url: str = "http://llm:8080", model: str = "qwen2.5-14b-instruct"):
+        base = url.rstrip("/")
+        # Accept both bare base URL and one that already ends with /v1.
+        if base.endswith("/v1"):
+            base = base[:-3]
+        self.url = base
         self.model = model
 
     async def generate(
@@ -100,56 +109,56 @@ class OllamaClient:
         temperature: float = 0.3,
         max_tokens: int = 2048,
     ) -> str:
-        messages = []
+        messages: list[dict] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        body: dict = {
+        body = {
             "model": self.model,
             "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
             "stream": False,
-            "think": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-            },
         }
 
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=120)
         ) as session:
-            async with session.post(f"{self.url}/api/chat", json=body) as resp:
+            async with session.post(f"{self.url}/v1/chat/completions", json=body) as resp:
                 if resp.status != 200:
                     detail = await resp.text()
-                    raise RuntimeError(f"Ollama chat failed: {resp.status} {detail}")
+                    raise RuntimeError(f"LLM chat failed: {resp.status} {detail[:200]}")
                 result = await resp.json()
-                return result.get("message", {}).get("content", "")
+                choices = result.get("choices") or []
+                if not choices:
+                    return ""
+                return choices[0].get("message", {}).get("content", "") or ""
 
     async def is_available(self) -> bool:
         try:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=5)
             ) as session:
-                async with session.get(f"{self.url}/api/tags") as resp:
+                async with session.get(f"{self.url}/v1/models") as resp:
                     return resp.status == 200
         except Exception:
             return False
 
 
 class NewsSummarizer:
-    """Ollamaによるニュースサマリ生成."""
+    """ローカル LLM によるニュースサマリ生成."""
 
-    def __init__(self, ollama: OllamaClient):
-        self.ollama = ollama
+    def __init__(self, llm: LLMChatClient):
+        self.llm = llm
 
     async def daily_summary(self, articles: list[Article]) -> str:
         """主要ニュースの日次サマリを生成."""
         if not articles:
             return "本日のニュースはありません。"
 
-        if not await self.ollama.is_available():
-            logger.warning("Ollama unavailable, using raw titles")
+        if not await self.llm.is_available():
+            logger.warning("LLM unavailable, using raw titles")
             return self._fallback_summary(articles)
 
         articles_text = "\n".join(
@@ -158,7 +167,7 @@ class NewsSummarizer:
         prompt = SUMMARY_PROMPT.format(articles=articles_text)
 
         try:
-            return await self.ollama.generate(prompt, system=SUMMARY_SYSTEM)
+            return await self.llm.generate(prompt, system=SUMMARY_SYSTEM)
         except Exception as e:
             logger.error(f"Summary generation failed: {e}")
             return self._fallback_summary(articles)
@@ -168,12 +177,12 @@ class NewsSummarizer:
         if article.language == target_lang:
             return f"{article.title}。{article.summary}"
 
-        if not await self.ollama.is_available():
+        if not await self.llm.is_available():
             return f"{article.title}. {article.summary}"
 
         text = f"{article.title}\n{article.summary}"
         try:
-            return await self.ollama.generate(text, system=TRANSLATE_SYSTEM)
+            return await self.llm.generate(text, system=TRANSLATE_SYSTEM)
         except Exception as e:
             logger.error(f"Translation failed: {e}")
             return text

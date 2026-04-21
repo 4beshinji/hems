@@ -303,66 +303,73 @@ def detect_gpu(force_vendor: Optional[str] = None,
     return GPUInfo(vendor="none")
 
 
+_NVIDIA_RESERVE = (
+    "    deploy:\n"
+    "      resources:\n"
+    "        reservations:\n"
+    "          devices:\n"
+    "            - driver: nvidia\n"
+    "              count: 1\n"
+    "              capabilities: [gpu]\n"
+)
+
+
+def _nvidia_service(name: str, image: str | None = None) -> str:
+    head = f"  {name}:\n"
+    if image:
+        head += f"    image: {image}\n"
+    return head + _NVIDIA_RESERVE
+
+
+def _amd_service(name: str, gpu: GPUInfo, image: str | None = None) -> str:
+    hsa_val = gpu.hsa_version or "12.0.1"
+    head = f"  {name}:\n"
+    if image:
+        head += f"    image: {image}\n"
+    return (
+        head
+        + "    devices:\n"
+        + "      - /dev/kfd:/dev/kfd\n"
+        + f"      - {gpu.card_device}:{gpu.card_device}\n"
+        + f"      - {gpu.render_device}:{gpu.render_device}\n"
+        + "    environment:\n"
+        + f"      - HSA_OVERRIDE_GFX_VERSION=${{HSA_OVERRIDE_GFX_VERSION:-{hsa_val}}}\n"
+    )
+
+
 def generate_compose_override(gpu: GPUInfo) -> str:
-    """Generate docker-compose.gpu.yml content as a YAML string."""
+    """Generate docker-compose.gpu.yml content as a YAML string.
+
+    Targets: llama.cpp server (llm/vlm-light/vlm-heavy), TEI (embed), perception,
+    and legacy ollama/ollama-pull. Services not started via their profile are
+    harmlessly ignored by docker compose.
+    """
     if gpu.vendor == "nvidia":
-        return textwrap.dedent("""\
-            services:
-              ollama:
-                image: ollama/ollama
-                deploy:
-                  resources:
-                    reservations:
-                      devices:
-                        - driver: nvidia
-                          count: 1
-                          capabilities: [gpu]
-              ollama-pull:
-                image: ollama/ollama
-                deploy:
-                  resources:
-                    reservations:
-                      devices:
-                        - driver: nvidia
-                          count: 1
-                          capabilities: [gpu]
-              perception:
-                deploy:
-                  resources:
-                    reservations:
-                      devices:
-                        - driver: nvidia
-                          count: 1
-                          capabilities: [gpu]
-        """)
+        llama_image = "ghcr.io/ggml-org/llama.cpp:server-cuda"
+        tei_image = "ghcr.io/huggingface/text-embeddings-inference:1.5"
+        return (
+            "services:\n"
+            + _nvidia_service("llm", llama_image)
+            + _nvidia_service("vlm-light", llama_image)
+            + _nvidia_service("vlm-heavy", llama_image)
+            + _nvidia_service("embed", tei_image)
+            + _nvidia_service("ollama", "ollama/ollama")
+            + _nvidia_service("ollama-pull", "ollama/ollama")
+            + _nvidia_service("perception")
+        )
     elif gpu.vendor == "amd":
-        hsa_val = gpu.hsa_version or "12.0.1"
-        return textwrap.dedent(f"""\
-            services:
-              ollama:
-                image: ollama/ollama:rocm
-                devices:
-                  - /dev/kfd:/dev/kfd
-                  - {gpu.card_device}:{gpu.card_device}
-                  - {gpu.render_device}:{gpu.render_device}
-                environment:
-                  - HSA_OVERRIDE_GFX_VERSION=${{HSA_OVERRIDE_GFX_VERSION:-{hsa_val}}}
-              ollama-pull:
-                image: ollama/ollama:rocm
-                devices:
-                  - /dev/kfd:/dev/kfd
-                  - {gpu.card_device}:{gpu.card_device}
-                  - {gpu.render_device}:{gpu.render_device}
-                environment:
-                  - HSA_OVERRIDE_GFX_VERSION=${{HSA_OVERRIDE_GFX_VERSION:-{hsa_val}}}
-              perception:
-                devices:
-                  - /dev/kfd:/dev/kfd
-                  - {gpu.card_device}:{gpu.card_device}
-                  - {gpu.render_device}:{gpu.render_device}
-                environment:
-                  - HSA_OVERRIDE_GFX_VERSION=${{HSA_OVERRIDE_GFX_VERSION:-{hsa_val}}}
-        """)
+        llama_image = "ghcr.io/ggml-org/llama.cpp:server-rocm"
+        tei_image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.5"
+        return (
+            "services:\n"
+            + _amd_service("llm", gpu, llama_image)
+            + _amd_service("vlm-light", gpu, llama_image)
+            + _amd_service("vlm-heavy", gpu, llama_image)
+            + _amd_service("embed", gpu, tei_image)
+            + _amd_service("ollama", gpu, "ollama/ollama:rocm")
+            + _amd_service("ollama-pull", gpu, "ollama/ollama:rocm")
+            + _amd_service("perception", gpu)
+        )
     else:
         return ""
 

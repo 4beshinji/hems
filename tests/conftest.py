@@ -1,11 +1,17 @@
 """
-Shared fixtures for HEMS OpenClaw integration tests.
+Shared fixtures for HEMS tests.
 """
+import os
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+# Route the backend SQLAlchemy engine to an in-memory SQLite DB at import time.
+# services/backend/database.py opens DATABASE_URL as a side-effect of import,
+# so this has to be set before the backend modules load.
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 # Add service source directories to path so tests can import them
 _root = Path(__file__).resolve().parent.parent

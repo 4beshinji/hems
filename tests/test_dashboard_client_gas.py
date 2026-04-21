@@ -19,7 +19,7 @@ class TestPushGASSnapshot:
     @pytest.mark.asyncio
     async def test_skips_when_not_connected(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        world_model.gas_state.bridge_connected = False
+        world_model.digital.gas_state.bridge_connected = False
         await client.push_gas_snapshot(world_model)
         for call in mock_session.post.call_args_list:
             assert "/gas/snapshot" not in str(call)
@@ -27,8 +27,8 @@ class TestPushGASSnapshot:
     @pytest.mark.asyncio
     async def test_pushes_when_connected(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        world_model.gas_state.bridge_connected = True
-        world_model.gas_state.calendar_events = [
+        world_model.digital.gas_state.bridge_connected = True
+        world_model.digital.gas_state.calendar_events = [
             CalendarEvent(id="e1", title="Meeting", start="2026-02-19T10:00:00Z",
                           end="2026-02-19T11:00:00Z"),
         ]
@@ -44,7 +44,7 @@ class TestPushGASSnapshot:
     @pytest.mark.asyncio
     async def test_payload_contains_all_sections(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         gs.bridge_connected = True
         gs.calendar_events = [
             CalendarEvent(id="e1", title="Standup", start="2026-02-19T10:00:00Z",
@@ -83,7 +83,7 @@ class TestPushGASSnapshot:
     @pytest.mark.asyncio
     async def test_completed_tasks_excluded(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         gs.bridge_connected = True
         gs.tasks = [
             GoogleTask(id="t1", title="Done", status="completed", list_name="Tasks"),

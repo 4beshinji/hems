@@ -88,7 +88,7 @@ class AmbientSpeaker:
             parts.append("時間帯: 深夜")
 
         # SwitchBot / HA sensor data
-        hd = self.world_model.home_devices
+        hd = self.world_model.physical.home_devices
         for entity_id, sensor in hd.sensors.items():
             if sensor.device_class == "temperature":
                 parts.append(f"室温: {sensor.value}°C")
@@ -103,14 +103,14 @@ class AmbientSpeaker:
                 parts.append(f"外気温: {w.temperature}°C")
 
         # Biometrics (if available)
-        bio = self.world_model.biometric_state
+        bio = self.world_model.user.biometrics
         if bio.heart_rate.bpm is not None and bio.heart_rate.bpm > 0:
             parts.append(f"心拍: {bio.heart_rate.bpm}bpm")
         if bio.fatigue.score > 0:
             parts.append(f"疲労度: {bio.fatigue.score}")
 
         # Occupancy
-        for zone_id, zone in self.world_model.zones.items():
+        for zone_id, zone in self.world_model.physical.zones.items():
             if zone.occupancy.count > 0:
                 parts.append(f"在室: {zone_id}")
 

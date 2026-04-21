@@ -15,7 +15,7 @@ class TestRuleEnginePCRules:
 
     def test_gpu_hot_generates_speak(self, world_model):
         engine = self._make_engine()
-        world_model.pc_state.gpu = GPUData(temp_c=90, last_update=1.0)
+        world_model.digital.pc_state.gpu = GPUData(temp_c=90, last_update=1.0)
 
         actions = engine.evaluate(world_model)
         speak_actions = [a for a in actions if a["tool"] == "speak" and "GPU" in a["args"]["message"]]
@@ -25,7 +25,7 @@ class TestRuleEnginePCRules:
 
     def test_gpu_normal_no_action(self, world_model):
         engine = self._make_engine()
-        world_model.pc_state.gpu = GPUData(temp_c=70, last_update=1.0)
+        world_model.digital.pc_state.gpu = GPUData(temp_c=70, last_update=1.0)
 
         actions = engine.evaluate(world_model)
         gpu_actions = [a for a in actions if "GPU" in a["args"].get("message", "")]
@@ -33,7 +33,7 @@ class TestRuleEnginePCRules:
 
     def test_disk_high_generates_task(self, world_model):
         engine = self._make_engine()
-        world_model.pc_state.disk = DiskData(
+        world_model.digital.pc_state.disk = DiskData(
             partitions=[DiskPartition(mount="/", used_gb=480, total_gb=500, percent=96)],
             last_update=1.0,
         )
@@ -45,7 +45,7 @@ class TestRuleEnginePCRules:
 
     def test_disk_normal_no_action(self, world_model):
         engine = self._make_engine()
-        world_model.pc_state.disk = DiskData(
+        world_model.digital.pc_state.disk = DiskData(
             partitions=[DiskPartition(mount="/", used_gb=200, total_gb=500, percent=40)],
             last_update=1.0,
         )
@@ -56,7 +56,7 @@ class TestRuleEnginePCRules:
 
     def test_gpu_hot_cooldown(self, world_model):
         engine = self._make_engine()
-        world_model.pc_state.gpu = GPUData(temp_c=90, last_update=1.0)
+        world_model.digital.pc_state.gpu = GPUData(temp_c=90, last_update=1.0)
 
         actions1 = engine.evaluate(world_model)
         actions2 = engine.evaluate(world_model)
@@ -68,7 +68,7 @@ class TestRuleEnginePCRules:
 
     def test_multiple_disk_partitions(self, world_model):
         engine = self._make_engine()
-        world_model.pc_state.disk = DiskData(
+        world_model.digital.pc_state.disk = DiskData(
             partitions=[
                 DiskPartition(mount="/", used_gb=480, total_gb=500, percent=96),
                 DiskPartition(mount="/home", used_gb=900, total_gb=1000, percent=90),  # exactly 90 — not over

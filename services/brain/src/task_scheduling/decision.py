@@ -12,7 +12,7 @@ def should_dispatch(task: dict, world_model) -> bool:
     # Check if someone is home (any zone has occupancy)
     someone_home = any(
         z.occupancy and z.occupancy.count > 0
-        for z in world_model.zones.values()
+        for z in world_model.physical.zones.values()
     )
 
     if not someone_home:

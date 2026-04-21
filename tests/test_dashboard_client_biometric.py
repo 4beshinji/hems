@@ -17,7 +17,7 @@ class TestPushBiometricSnapshot:
     async def test_skips_when_not_connected_and_no_data(self, world_model, mock_session):
         """Should skip when bridge_connected=False AND last_update==0."""
         client = self._make_client(mock_session)
-        world_model.biometric_state.bridge_connected = False
+        world_model.user.biometrics.bridge_connected = False
         # All sub-data last_update defaults to 0, so last_update property == 0
         await client.push_biometric_snapshot(world_model)
         for call in mock_session.post.call_args_list:
@@ -27,8 +27,8 @@ class TestPushBiometricSnapshot:
     async def test_pushes_when_bridge_connected(self, world_model, mock_session):
         """Should push when bridge is connected even with no sensor data."""
         client = self._make_client(mock_session)
-        world_model.biometric_state.bridge_connected = True
-        world_model.biometric_state.provider = "fitbit"
+        world_model.user.biometrics.bridge_connected = True
+        world_model.user.biometrics.provider = "fitbit"
 
         resp = mock_session._make_response(200, {"updated": True})
         mock_session.post = MagicMock(return_value=resp)
@@ -42,7 +42,7 @@ class TestPushBiometricSnapshot:
     async def test_pushes_when_not_connected_but_has_data(self, world_model, mock_session):
         """Should push when bridge disconnected but last_update > 0 (stale data)."""
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = False
         bio.heart_rate.bpm = 72
         bio.heart_rate.last_update = 1000.0  # makes last_update > 0
@@ -58,7 +58,7 @@ class TestPushBiometricSnapshot:
     @pytest.mark.asyncio
     async def test_payload_includes_heart_rate_when_bpm_set(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         bio.provider = "garmin"
         bio.heart_rate.bpm = 85
@@ -79,7 +79,7 @@ class TestPushBiometricSnapshot:
     @pytest.mark.asyncio
     async def test_payload_excludes_heart_rate_when_bpm_none(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         # heart_rate.bpm defaults to None
 
@@ -93,7 +93,7 @@ class TestPushBiometricSnapshot:
     @pytest.mark.asyncio
     async def test_payload_includes_spo2_when_set(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         bio.spo2.percent = 98
 
@@ -107,7 +107,7 @@ class TestPushBiometricSnapshot:
     @pytest.mark.asyncio
     async def test_payload_includes_sleep_data(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         bio.sleep.stage = "deep"
         bio.sleep.duration_minutes = 420
@@ -134,7 +134,7 @@ class TestPushBiometricSnapshot:
     @pytest.mark.asyncio
     async def test_payload_excludes_sleep_when_no_update(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         # sleep.last_update defaults to 0
 
@@ -148,7 +148,7 @@ class TestPushBiometricSnapshot:
     @pytest.mark.asyncio
     async def test_payload_includes_activity_data(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         bio.activity.steps = 7500
         bio.activity.steps_goal = 10000
@@ -173,7 +173,7 @@ class TestPushBiometricSnapshot:
     @pytest.mark.asyncio
     async def test_payload_includes_stress_when_updated(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         bio.stress.level = 65
         bio.stress.category = "moderate"
@@ -192,7 +192,7 @@ class TestPushBiometricSnapshot:
     @pytest.mark.asyncio
     async def test_payload_includes_fatigue_when_updated(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         bio.fatigue.score = 40
         bio.fatigue.factors = ["poor_sleep", "high_stress"]
@@ -213,7 +213,7 @@ class TestPushBiometricSnapshot:
         self, world_model, mock_session,
     ):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         # stress.last_update and fatigue.last_update default to 0
 
@@ -230,7 +230,7 @@ class TestPushBiometricSnapshot:
         self, world_model, mock_session,
     ):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
         bio.provider = "apple_health"
 
@@ -246,7 +246,7 @@ class TestPushBiometricSnapshot:
     @pytest.mark.asyncio
     async def test_posts_to_biometric_snapshot_url(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         bio.bridge_connected = True
 
         resp = mock_session._make_response(200, {"updated": True})

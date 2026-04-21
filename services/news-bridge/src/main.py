@@ -1,5 +1,5 @@
 """
-HEMS News Bridge — RSS news fetcher + Ollama summarizer + urgency detection.
+HEMS News Bridge — RSS news fetcher + local LLM summarizer + urgency detection.
 Publishes daily summaries and urgent news alerts to MQTT.
 """
 import asyncio
@@ -13,7 +13,7 @@ from loguru import logger
 import config
 from mqtt_publisher import MQTTPublisher
 from news_fetcher import NewsFetcher
-from news_summarizer import NewsSummarizer, OllamaClient, split_by_category
+from news_summarizer import LLMChatClient, NewsSummarizer, split_by_category
 from urgency import UrgencyDetector
 
 # Module-level state
@@ -126,7 +126,7 @@ async def _daily_summary_loop():
 
 async def _urgent_check_loop():
     """Periodic urgent news check."""
-    # Initial delay to let Ollama start
+    # Initial delay to let the LLM server warm up
     await asyncio.sleep(30)
     while True:
         try:
@@ -150,13 +150,13 @@ async def lifespan(app: FastAPI):
     )
     mqtt_pub.connect()
 
-    # Ollama client
-    ollama = OllamaClient(url=config.OLLAMA_URL, model=config.OLLAMA_SUMMARY_MODEL)
+    # LLM client (OpenAI-compatible, defaults to llama.cpp)
+    llm = LLMChatClient(url=config.LLM_API_URL, model=config.LLM_SUMMARY_MODEL)
 
     # Components
     fetcher = NewsFetcher(sources=config.NEWS_SOURCE_LIST)
-    summarizer = NewsSummarizer(ollama)
-    urgency_detector = UrgencyDetector(ollama, threshold=config.NEWS_URGENCY_THRESHOLD)
+    summarizer = NewsSummarizer(llm)
+    urgency_detector = UrgencyDetector(llm, threshold=config.NEWS_URGENCY_THRESHOLD)
 
     # Generate initial summary on startup
     _tasks.append(asyncio.create_task(_initial_summary()))
@@ -179,7 +179,7 @@ async def lifespan(app: FastAPI):
 
 async def _initial_summary():
     """Generate summary shortly after startup."""
-    await asyncio.sleep(10)  # Wait for Ollama
+    await asyncio.sleep(10)  # Wait for LLM server to be ready
     await _generate_daily_summary()
 
 

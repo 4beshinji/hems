@@ -1,13 +1,15 @@
 """
-VLM (Vision Language Model) Analyzer — Ollama vision API client with dual-model support.
+VLM (Vision Language Model) analyzer — OpenAI-compatible vision client.
 
-Encodes camera frames to base64 JPEG (RAM only), calls Ollama chat API with images.
-Supports light tier (moondream, coexists with brain LLM) and heavy tier
-(minicpm-v, evicts brain LLM from VRAM).
+Encodes camera frames to base64 JPEG in RAM, then calls `/v1/chat/completions`
+on a llama.cpp `--mmproj` server (default: `vlm-light` + `vlm-heavy`). Light and
+heavy tiers point at separate base URLs so both models can stay resident with no
+swap step. Ollama's OpenAI-compat endpoint works too when legacy fallback is
+configured.
 """
+import asyncio
 import base64
 import time
-from io import BytesIO
 from typing import Optional
 
 import aiohttp
@@ -36,27 +38,42 @@ _PROMPTS = {
 
 
 class VLMAnalyzer:
-    """Ollama vision API client with dual-model (light/heavy) support."""
+    """OpenAI-compatible vision client with light/heavy tier support."""
 
     def __init__(
         self,
-        ollama_url: str = "http://ollama:11434",
-        light_model: str = "moondream",
-        heavy_model: str = "minicpm-v",
+        light_url: str = "http://vlm-light:8080/v1",
+        heavy_url: str = "http://vlm-heavy:8080/v1",
+        light_model: str = "minicpm-v",
+        heavy_model: str = "qwen2-vl-7b",
         timeout: int = 30,
         max_tokens: int = 256,
         max_image_size: int = 512,
     ):
-        self.ollama_url = ollama_url.rstrip("/")
+        self.light_url = self._normalize_base(light_url)
+        self.heavy_url = self._normalize_base(heavy_url)
         self.light_model = light_model
         self.heavy_model = heavy_model
         self.timeout = timeout
         self.max_tokens = max_tokens
         self.max_image_size = max_image_size
 
-        # Model availability cache: {model_name: (available, checked_at)}
+        # Model availability cache: {tier: (available, checked_at)}
         self._model_cache: dict[str, tuple[bool, float]] = {}
         self._model_cache_ttl = 120  # 2 minutes
+
+    @staticmethod
+    def _normalize_base(url: str) -> str:
+        base = url.rstrip("/")
+        if not base.endswith("/v1"):
+            base += "/v1"
+        return base
+
+    def _tier_url(self, tier: str) -> str:
+        return self.heavy_url if tier == "heavy" else self.light_url
+
+    def _tier_model(self, tier: str) -> str:
+        return self.heavy_model if tier == "heavy" else self.light_model
 
     def _encode_frame(self, frame: np.ndarray) -> str:
         """Resize frame to max dimension and encode as base64 JPEG."""
@@ -70,51 +87,28 @@ class VLMAnalyzer:
         _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return base64.b64encode(buf.tobytes()).decode("ascii")
 
-    async def _check_model_available(
-        self, model: str, session: aiohttp.ClientSession
+    async def _check_tier_available(
+        self, tier: str, session: aiohttp.ClientSession
     ) -> bool:
-        """Check if a model is available in Ollama. Caches for 2 minutes."""
-        cached = self._model_cache.get(model)
+        """Check if the tier's server responds on `/v1/models`. Cached 2 min."""
+        cached = self._model_cache.get(tier)
         if cached and time.time() - cached[1] < self._model_cache_ttl:
             return cached[0]
 
+        url = self._tier_url(tier)
         try:
             async with session.get(
-                f"{self.ollama_url}/api/tags",
+                f"{url}/models",
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    models = [m.get("name", "") for m in data.get("models", [])]
-                    # Match both exact name and name:latest
-                    available = any(
-                        model == m or model == m.split(":")[0]
-                        for m in models
-                    )
-                    self._model_cache[model] = (available, time.time())
-                    return available
+                available = resp.status == 200
+                self._model_cache[tier] = (available, time.time())
+                return available
         except Exception as e:
-            logger.debug(f"VLM model check failed: {e}")
+            logger.debug(f"VLM tier {tier} availability check failed: {e}")
 
-        self._model_cache[model] = (False, time.time())
+        self._model_cache[tier] = (False, time.time())
         return False
-
-    async def _unload_model(
-        self, model: str, session: aiohttp.ClientSession
-    ) -> None:
-        """Unload model from VRAM via keep_alive=0."""
-        try:
-            async with session.post(
-                f"{self.ollama_url}/api/generate",
-                json={"model": model, "keep_alive": "0"},
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status == 200:
-                    logger.debug(f"VLM model unloaded: {model}")
-                else:
-                    logger.warning(f"VLM model unload failed: {model} HTTP {resp.status}")
-        except Exception as e:
-            logger.warning(f"VLM model unload error ({model}): {e}")
 
     async def analyze(
         self,
@@ -132,36 +126,37 @@ class VLMAnalyzer:
             session: aiohttp client session.
             prompt: Custom prompt (overrides mode template).
             mode: Prompt mode — "general", "safety", or "environment".
-            tier: "light" (moondream) or "heavy" (minicpm-v).
+            tier: "light" (small model) or "heavy" (larger model).
             zone: Zone identifier for result tagging.
 
         Returns:
             dict with description, objects, scene_type, anomalies, model, tier,
             elapsed_ms, timestamp, zone.
         """
-        model = self.heavy_model if tier == "heavy" else self.light_model
+        url = self._tier_url(tier)
+        model = self._tier_model(tier)
         text_prompt = prompt or _PROMPTS.get(mode, _PROMPTS["general"])
 
-        # Encode frame
         image_b64 = self._encode_frame(frame)
+        data_url = f"data:image/jpeg;base64,{image_b64}"
 
         start = time.time()
         try:
             async with session.post(
-                f"{self.ollama_url}/api/chat",
+                f"{url}/chat/completions",
                 json={
                     "model": model,
                     "messages": [
                         {
                             "role": "user",
-                            "content": text_prompt,
-                            "images": [image_b64],
+                            "content": [
+                                {"type": "text", "text": text_prompt},
+                                {"type": "image_url", "image_url": {"url": data_url}},
+                            ],
                         }
                     ],
                     "stream": False,
-                    "options": {
-                        "num_predict": self.max_tokens,
-                    },
+                    "max_tokens": self.max_tokens,
                 },
                 timeout=aiohttp.ClientTimeout(total=self.timeout),
             ) as resp:
@@ -179,9 +174,11 @@ class VLMAnalyzer:
                     }
 
                 data = await resp.json()
-                content = data.get("message", {}).get("content", "")
+                choices = data.get("choices") or []
+                content = ""
+                if choices:
+                    content = (choices[0].get("message") or {}).get("content", "") or ""
 
-                # Parse response into structured fields
                 result = self._parse_response(content, mode)
                 result.update({
                     "model": model,
@@ -222,7 +219,6 @@ class VLMAnalyzer:
 
         # Extract objects mentioned (simple keyword extraction)
         objects: list[str] = []
-        # Common room objects to look for
         _object_keywords = [
             "chair", "desk", "table", "sofa", "couch", "bed", "lamp", "monitor",
             "computer", "keyboard", "phone", "book", "cup", "bottle", "plant",
@@ -234,7 +230,6 @@ class VLMAnalyzer:
             if obj in lower:
                 objects.append(obj)
 
-        # Classify scene type
         scene_type = "unknown"
         if any(w in lower for w in ("bedroom", "bed", "sleeping", "pillow")):
             scene_type = "bedroom"
@@ -247,7 +242,6 @@ class VLMAnalyzer:
         elif any(w in lower for w in ("bathroom", "shower", "toilet")):
             scene_type = "bathroom"
 
-        # Detect anomalies (safety mode especially)
         anomalies: list[str] = []
         _anomaly_keywords = [
             "fire", "smoke", "water", "flood", "fallen", "hazard", "danger",
@@ -263,7 +257,3 @@ class VLMAnalyzer:
             "scene_type": scene_type,
             "anomalies": anomalies,
         }
-
-
-# Needed for TimeoutError in async context
-import asyncio  # noqa: E402

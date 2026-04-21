@@ -1,5 +1,10 @@
 """
 LLM Client for HEMS Brain — supports OpenAI-compatible, Ollama native, and Anthropic APIs.
+
+Default path is `LLM_PROVIDER=openai`, which talks to any OpenAI-compatible
+server (llama.cpp `llama-server`, LocalAI, mock-llm, OpenAI Cloud, or Ollama's
+`/v1` endpoint). The native Ollama `/api/chat` path is kept for compatibility
+but is not the default in this project anymore.
 """
 import os
 import json

@@ -33,7 +33,7 @@ MAX_SEARCH_RESULTS = int(os.getenv("KNOWLEDGE_MAX_SEARCH_RESULTS", "20"))
 WATCHER_DEBOUNCE = float(os.getenv("KNOWLEDGE_WATCHER_DEBOUNCE", "3.0"))
 
 # Embedding (vector search)
-EMBEDDING_URL = os.getenv("EMBEDDING_URL", "")  # e.g. http://ollama:11434
+EMBEDDING_URL = os.getenv("EMBEDDING_URL", "")  # e.g. http://embed:80 (TEI), http://ollama:11434 (legacy)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 EMBEDDING_CACHE_DIR = os.getenv("EMBEDDING_CACHE_DIR", "/app/data/embeddings")
 EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))

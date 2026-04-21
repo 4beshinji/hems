@@ -16,7 +16,7 @@ class TestWorldModelServiceRouting:
             "summary": "未読メール: 3通",
             "last_check": time.time(),
         })
-        ss = world_model.services_state
+        ss = world_model.digital.services_state
         assert "gmail" in ss.services
         assert ss.services["gmail"].unread_count == 3
         assert ss.services["gmail"].available is True
@@ -30,7 +30,7 @@ class TestWorldModelServiceRouting:
             "error": "API 401",
             "last_check": time.time(),
         })
-        svc = world_model.services_state.services["github"]
+        svc = world_model.digital.services_state.services["github"]
         assert svc.available is False
         assert svc.error == "API 401"
 
@@ -43,7 +43,7 @@ class TestWorldModelServiceRouting:
             "name": "github", "unread_count": 5, "summary": "通知: 5件",
             "last_check": time.time(),
         })
-        ss = world_model.services_state
+        ss = world_model.digital.services_state
         assert len(ss.services) == 2
         assert ss.services["gmail"].unread_count == 2
         assert ss.services["github"].unread_count == 5
@@ -57,7 +57,7 @@ class TestWorldModelServiceRouting:
             "name": "gmail", "unread_count": 1, "summary": "未読: 1通",
             "last_check": time.time(),
         })
-        assert world_model.services_state.services["gmail"].unread_count == 1
+        assert world_model.digital.services_state.services["gmail"].unread_count == 1
 
     def test_service_event_topic(self, world_model):
         world_model.update_from_mqtt("hems/services/gmail/event", {
@@ -67,7 +67,7 @@ class TestWorldModelServiceRouting:
             "new_count": 3,
             "summary": "未読メール: 3通",
         })
-        events = world_model.services_state.events
+        events = world_model.digital.services_state.events
         assert len(events) == 1
         assert events[0].event_type == "service_unread_increased"
 
@@ -81,14 +81,14 @@ class TestWorldModelServiceEvents:
             "name": "gmail", "unread_count": 0, "summary": "未読なし",
             "last_check": time.time(),
         })
-        assert len(world_model.services_state.events) == 0
+        assert len(world_model.digital.services_state.events) == 0
 
         # Second update: 3 unread (increase)
         world_model.update_from_mqtt("hems/services/gmail/status", {
             "name": "gmail", "unread_count": 3, "summary": "未読メール: 3通",
             "last_check": time.time(),
         })
-        events = world_model.services_state.events
+        events = world_model.digital.services_state.events
         assert len(events) == 1
         assert events[0].event_type == "service_unread_increase"
         assert "3通" in events[0].description
@@ -101,7 +101,7 @@ class TestWorldModelServiceEvents:
             "name": "gmail", "unread_count": 2, "last_check": time.time(),
         })
         # First creates an event (0→5), decrease should not
-        assert len(world_model.services_state.events) == 1
+        assert len(world_model.digital.services_state.events) == 1
 
     def test_same_unread_no_event(self, world_model):
         world_model.update_from_mqtt("hems/services/gmail/status", {
@@ -111,14 +111,14 @@ class TestWorldModelServiceEvents:
             "name": "gmail", "unread_count": 3, "last_check": time.time(),
         })
         # Only one event from 0→3
-        assert len(world_model.services_state.events) == 1
+        assert len(world_model.digital.services_state.events) == 1
 
     def test_events_ring_buffer(self, world_model):
         for i in range(25):
-            world_model.services_state.add_event(
+            world_model.digital.services_state.add_event(
                 Event(event_type="test", description=f"event_{i}")
             )
-        assert len(world_model.services_state.events) == 20  # max_events
+        assert len(world_model.digital.services_state.events) == 20  # max_events
 
 
 class TestWorldModelServiceLLMContext:
@@ -163,7 +163,7 @@ class TestWorldModelPCRouting:
             "freq_mhz": 3600.0,
             "temp_c": 65.0,
         })
-        pc = world_model.pc_state
+        pc = world_model.digital.pc_state
         assert pc.cpu.usage_percent == 45.0
         assert pc.cpu.core_count == 8
         assert pc.cpu.temp_c == 65.0
@@ -175,7 +175,7 @@ class TestWorldModelPCRouting:
             "total_gb": 32.0,
             "percent": 37.5,
         })
-        pc = world_model.pc_state
+        pc = world_model.digital.pc_state
         assert pc.memory.used_gb == 12.0
         assert pc.memory.total_gb == 32.0
         assert pc.memory.percent == 37.5
@@ -188,7 +188,7 @@ class TestWorldModelPCRouting:
             "vram_total_gb": 8.0,
             "temp_c": 72.0,
         })
-        pc = world_model.pc_state
+        pc = world_model.digital.pc_state
         assert pc.gpu.usage_percent == 80.0
         assert pc.gpu.vram_used_gb == 6.0
         assert pc.gpu.temp_c == 72.0
@@ -199,7 +199,7 @@ class TestWorldModelPCRouting:
                 {"mount": "/", "used_gb": 100.0, "total_gb": 500.0, "percent": 20.0},
             ]
         })
-        pc = world_model.pc_state
+        pc = world_model.digital.pc_state
         assert len(pc.disk.partitions) == 1
         assert pc.disk.partitions[0].mount == "/"
         assert pc.disk.partitions[0].percent == 20.0
@@ -211,27 +211,27 @@ class TestWorldModelPCRouting:
                 {"pid": 5678, "name": "chrome", "cpu_percent": 10.0, "mem_mb": 1024.0},
             ]
         })
-        pc = world_model.pc_state
+        pc = world_model.digital.pc_state
         assert len(pc.top_processes) == 2
         assert pc.top_processes[0].name == "python"
         assert pc.top_processes[1].name == "chrome"
 
     def test_pc_bridge_status_connected(self, world_model):
-        assert world_model.pc_state.bridge_connected is False
+        assert world_model.digital.pc_state.bridge_connected is False
         world_model.update_from_mqtt("hems/pc/bridge/status", {"connected": True})
-        assert world_model.pc_state.bridge_connected is True
+        assert world_model.digital.pc_state.bridge_connected is True
 
     def test_pc_bridge_status_disconnected(self, world_model):
         world_model.update_from_mqtt("hems/pc/bridge/status", {"connected": True})
         world_model.update_from_mqtt("hems/pc/bridge/status", {"connected": False})
-        assert world_model.pc_state.bridge_connected is False
+        assert world_model.digital.pc_state.bridge_connected is False
 
     def test_cpu_threshold_event(self, world_model):
         """CPU crossing 90% generates pc_cpu_high event."""
         world_model.update_from_mqtt("hems/pc/metrics/cpu", {
             "usage_percent": 95.0, "core_count": 8, "freq_mhz": 3600.0, "temp_c": 70.0,
         })
-        events = world_model.pc_state.events
+        events = world_model.digital.pc_state.events
         assert len(events) == 1
         assert events[0].event_type == "pc_cpu_high"
 
@@ -239,14 +239,14 @@ class TestWorldModelPCRouting:
         world_model.update_from_mqtt("hems/pc/metrics/cpu", {
             "usage_percent": 50.0, "core_count": 8, "freq_mhz": 3600.0, "temp_c": 55.0,
         })
-        assert len(world_model.pc_state.events) == 0
+        assert len(world_model.digital.pc_state.events) == 0
 
     def test_memory_threshold_event(self, world_model):
         """Memory crossing 90% generates pc_memory_high event."""
         world_model.update_from_mqtt("hems/pc/metrics/memory", {
             "used_gb": 30.0, "total_gb": 32.0, "percent": 94.0,
         })
-        events = world_model.pc_state.events
+        events = world_model.digital.pc_state.events
         assert len(events) == 1
         assert events[0].event_type == "pc_memory_high"
 
@@ -257,7 +257,7 @@ class TestWorldModelPCRouting:
                 {"mount": "/data", "used_gb": 950.0, "total_gb": 1000.0, "percent": 95.0},
             ]
         })
-        events = world_model.pc_state.events
+        events = world_model.digital.pc_state.events
         assert len(events) == 1
         assert events[0].event_type == "pc_disk_high"
         assert "/data" in events[0].description

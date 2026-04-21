@@ -55,10 +55,10 @@ class TestControlSwitch:
 class TestGetSensorData:
     @pytest.mark.asyncio
     async def test_get_all_sensors(self, tool_executor, world_model):
-        world_model.home_devices.sensors["sensor.power"] = HASensorState(
+        world_model.physical.home_devices.sensors["sensor.power"] = HASensorState(
             entity_id="sensor.power", value=120, unit="W", device_class="power",
         )
-        world_model.home_devices.sensors["sensor.co2"] = HASensorState(
+        world_model.physical.home_devices.sensors["sensor.co2"] = HASensorState(
             entity_id="sensor.co2", value=800, unit="ppm", device_class="carbon_dioxide",
         )
         result = await tool_executor.execute("get_sensor_data", {})
@@ -69,7 +69,7 @@ class TestGetSensorData:
 
     @pytest.mark.asyncio
     async def test_get_sensor_by_id(self, tool_executor, world_model):
-        world_model.home_devices.sensors["sensor.power"] = HASensorState(
+        world_model.physical.home_devices.sensors["sensor.power"] = HASensorState(
             entity_id="sensor.power", value=120, unit="W", device_class="power",
         )
         result = await tool_executor.execute(
@@ -90,13 +90,13 @@ class TestGetSensorData:
 
     @pytest.mark.asyncio
     async def test_get_sensors_by_device_class(self, tool_executor, world_model):
-        world_model.home_devices.sensors["sensor.power1"] = HASensorState(
+        world_model.physical.home_devices.sensors["sensor.power1"] = HASensorState(
             entity_id="sensor.power1", value=100, device_class="power",
         )
-        world_model.home_devices.sensors["sensor.power2"] = HASensorState(
+        world_model.physical.home_devices.sensors["sensor.power2"] = HASensorState(
             entity_id="sensor.power2", value=200, device_class="power",
         )
-        world_model.home_devices.sensors["sensor.co2"] = HASensorState(
+        world_model.physical.home_devices.sensors["sensor.co2"] = HASensorState(
             entity_id="sensor.co2", value=800, device_class="carbon_dioxide",
         )
         result = await tool_executor.execute(
@@ -144,7 +144,7 @@ class TestGetHomeDevicesExtended:
 
     @pytest.mark.asyncio
     async def test_includes_binary_sensors(self, tool_executor, world_model):
-        world_model.home_devices.binary_sensors["binary_sensor.door"] = BinarySensorState(
+        world_model.physical.home_devices.binary_sensors["binary_sensor.door"] = BinarySensorState(
             entity_id="binary_sensor.door", state=True, device_class="door",
         )
         result = await tool_executor.execute("get_home_devices", {})
@@ -156,7 +156,7 @@ class TestGetHomeDevicesExtended:
 
     @pytest.mark.asyncio
     async def test_includes_sensors(self, tool_executor, world_model):
-        world_model.home_devices.sensors["sensor.power"] = HASensorState(
+        world_model.physical.home_devices.sensors["sensor.power"] = HASensorState(
             entity_id="sensor.power", value=150, unit="W", device_class="power",
         )
         result = await tool_executor.execute("get_home_devices", {})
@@ -169,7 +169,7 @@ class TestGetHomeDevicesExtended:
     @pytest.mark.asyncio
     async def test_still_includes_lights_climates(self, tool_executor, world_model):
         """Existing fields (lights, climates, etc.) are still present."""
-        world_model.home_devices.lights["light.a"] = LightState(
+        world_model.physical.home_devices.lights["light.a"] = LightState(
             entity_id="light.a", on=True, brightness=200,
         )
         result = await tool_executor.execute("get_home_devices", {})

@@ -12,7 +12,7 @@ class TestBinarySensorMQTT:
             "hems/home/living_room/binary_sensor/binary_sensor.front_door/state",
             {"state": "open", "device_class": "door"},
         )
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         assert "binary_sensor.front_door" in hd.binary_sensors
         bs = hd.binary_sensors["binary_sensor.front_door"]
         assert bs.state is True
@@ -24,7 +24,7 @@ class TestBinarySensorMQTT:
             "hems/home/living_room/binary_sensor/binary_sensor.front_door/state",
             {"state": "off", "device_class": "door"},
         )
-        bs = world_model.home_devices.binary_sensors["binary_sensor.front_door"]
+        bs = world_model.physical.home_devices.binary_sensors["binary_sensor.front_door"]
         assert bs.state is False
 
     def test_moisture_detected(self, world_model):
@@ -33,7 +33,7 @@ class TestBinarySensorMQTT:
             "hems/home/kitchen/binary_sensor/binary_sensor.leak/state",
             {"state": "wet", "device_class": "moisture"},
         )
-        bs = world_model.home_devices.binary_sensors["binary_sensor.leak"]
+        bs = world_model.physical.home_devices.binary_sensors["binary_sensor.leak"]
         assert bs.state is True
         assert bs.device_class == "moisture"
 
@@ -41,11 +41,11 @@ class TestBinarySensorMQTT:
         """previous_state is set on state transition."""
         topic = "hems/home/living_room/binary_sensor/binary_sensor.door/state"
         world_model.update_from_mqtt(topic, {"state": "open", "device_class": "door"})
-        bs = world_model.home_devices.binary_sensors["binary_sensor.door"]
+        bs = world_model.physical.home_devices.binary_sensors["binary_sensor.door"]
         assert bs.state is True
 
         world_model.update_from_mqtt(topic, {"state": "off", "device_class": "door"})
-        bs = world_model.home_devices.binary_sensors["binary_sensor.door"]
+        bs = world_model.physical.home_devices.binary_sensors["binary_sensor.door"]
         assert bs.state is False
         assert bs.previous_state is True
 
@@ -53,11 +53,11 @@ class TestBinarySensorMQTT:
         """last_changed updates only on actual state change."""
         topic = "hems/home/living_room/binary_sensor/binary_sensor.door/state"
         world_model.update_from_mqtt(topic, {"state": "open", "device_class": "door"})
-        first_changed = world_model.home_devices.binary_sensors["binary_sensor.door"].last_changed
+        first_changed = world_model.physical.home_devices.binary_sensors["binary_sensor.door"].last_changed
 
         # Same state again - last_changed should NOT change
         world_model.update_from_mqtt(topic, {"state": "on", "device_class": "door"})
-        bs = world_model.home_devices.binary_sensors["binary_sensor.door"]
+        bs = world_model.physical.home_devices.binary_sensors["binary_sensor.door"]
         assert bs.last_changed == first_changed
 
     def test_device_class_preserved(self, world_model):
@@ -65,7 +65,7 @@ class TestBinarySensorMQTT:
         topic = "hems/home/living_room/binary_sensor/binary_sensor.motion/state"
         world_model.update_from_mqtt(topic, {"state": "on", "device_class": "motion"})
         world_model.update_from_mqtt(topic, {"state": "off"})
-        bs = world_model.home_devices.binary_sensors["binary_sensor.motion"]
+        bs = world_model.physical.home_devices.binary_sensors["binary_sensor.motion"]
         assert bs.device_class == "motion"
 
 
@@ -80,7 +80,7 @@ class TestBinarySensorEvents:
             "hems/home/living_room/binary_sensor/binary_sensor.door/state",
             {"state": "open", "device_class": "door"},
         )
-        events = [e for e in world_model.home_devices.events if e.event_type == "door_opened"]
+        events = [e for e in world_model.physical.home_devices.events if e.event_type == "door_opened"]
         assert len(events) == 1
 
     def test_door_closed_event(self, world_model):
@@ -93,7 +93,7 @@ class TestBinarySensorEvents:
             "hems/home/living_room/binary_sensor/binary_sensor.door/state",
             {"state": "off", "device_class": "door"},
         )
-        events = [e for e in world_model.home_devices.events if e.event_type == "door_closed"]
+        events = [e for e in world_model.physical.home_devices.events if e.event_type == "door_closed"]
         assert len(events) == 1
 
     def test_moisture_event(self, world_model):
@@ -106,7 +106,7 @@ class TestBinarySensorEvents:
             "hems/home/kitchen/binary_sensor/binary_sensor.leak/state",
             {"state": "wet", "device_class": "moisture"},
         )
-        events = [e for e in world_model.home_devices.events if e.event_type == "moisture_detected"]
+        events = [e for e in world_model.physical.home_devices.events if e.event_type == "moisture_detected"]
         assert len(events) == 1
         assert events[0].severity == 2
 
@@ -120,7 +120,7 @@ class TestBinarySensorEvents:
             "hems/home/laundry/binary_sensor/binary_sensor.washer_vib/state",
             {"state": "off", "device_class": "vibration"},
         )
-        events = [e for e in world_model.home_devices.events if e.event_type == "vibration_stopped"]
+        events = [e for e in world_model.physical.home_devices.events if e.event_type == "vibration_stopped"]
         assert len(events) == 1
 
 
@@ -131,7 +131,7 @@ class TestHASensorMQTT:
             "hems/home/kitchen/sensor/sensor.washer_power/state",
             {"state": "150.5", "device_class": "power", "unit_of_measurement": "W"},
         )
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         assert "sensor.washer_power" in hd.sensors
         s = hd.sensors["sensor.washer_power"]
         assert s.value == 150.5
@@ -144,7 +144,7 @@ class TestHASensorMQTT:
             "hems/home/kitchen/sensor/sensor.test/state",
             {"state": "unknown", "device_class": "power"},
         )
-        assert world_model.home_devices.sensors["sensor.test"].value == 0
+        assert world_model.physical.home_devices.sensors["sensor.test"].value == 0
 
     def test_unavailable_state_becomes_zero(self, world_model):
         """sensor with state=unavailable resolves to 0."""
@@ -152,14 +152,14 @@ class TestHASensorMQTT:
             "hems/home/kitchen/sensor/sensor.test/state",
             {"state": "unavailable", "device_class": "temperature"},
         )
-        assert world_model.home_devices.sensors["sensor.test"].value == 0
+        assert world_model.physical.home_devices.sensors["sensor.test"].value == 0
 
     def test_previous_value_tracking(self, world_model):
         """previous_value tracks the last known value."""
         topic = "hems/home/kitchen/sensor/sensor.washer_power/state"
         world_model.update_from_mqtt(topic, {"state": "200", "device_class": "power"})
         world_model.update_from_mqtt(topic, {"state": "3", "device_class": "power"})
-        s = world_model.home_devices.sensors["sensor.washer_power"]
+        s = world_model.physical.home_devices.sensors["sensor.washer_power"]
         assert s.value == 3
         assert s.previous_value == 200
 
@@ -168,7 +168,7 @@ class TestHASensorMQTT:
         topic = "hems/home/kitchen/sensor/sensor.washer_power/state"
         world_model.update_from_mqtt(topic, {"state": "200", "device_class": "power"})
         world_model.update_from_mqtt(topic, {"state": "2", "device_class": "power"})
-        events = [e for e in world_model.home_devices.events if e.event_type == "power_drop_idle"]
+        events = [e for e in world_model.physical.home_devices.events if e.event_type == "power_drop_idle"]
         assert len(events) == 1
 
     def test_no_event_when_already_idle(self, world_model):
@@ -176,7 +176,7 @@ class TestHASensorMQTT:
         topic = "hems/home/kitchen/sensor/sensor.test/state"
         world_model.update_from_mqtt(topic, {"state": "3", "device_class": "power"})
         world_model.update_from_mqtt(topic, {"state": "1", "device_class": "power"})
-        events = [e for e in world_model.home_devices.events if e.event_type == "power_drop_idle"]
+        events = [e for e in world_model.physical.home_devices.events if e.event_type == "power_drop_idle"]
         assert len(events) == 0
 
     def test_device_class_preserved(self, world_model):
@@ -184,7 +184,7 @@ class TestHASensorMQTT:
         topic = "hems/home/room/sensor/sensor.co2/state"
         world_model.update_from_mqtt(topic, {"state": "800", "device_class": "carbon_dioxide", "unit_of_measurement": "ppm"})
         world_model.update_from_mqtt(topic, {"state": "900"})
-        s = world_model.home_devices.sensors["sensor.co2"]
+        s = world_model.physical.home_devices.sensors["sensor.co2"]
         assert s.device_class == "carbon_dioxide"
         assert s.unit == "ppm"
 
@@ -192,7 +192,7 @@ class TestHASensorMQTT:
 class TestLLMContextZigbee:
     def test_moisture_sensor_always_shown(self, world_model):
         """Moisture binary_sensor always appears in context."""
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.binary_sensors["binary_sensor.leak"] = BinarySensorState(
             entity_id="binary_sensor.leak", state=False, device_class="moisture",
@@ -202,7 +202,7 @@ class TestLLMContextZigbee:
 
     def test_moisture_detected_has_warning(self, world_model):
         """Active moisture sensor shows warning marker."""
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.binary_sensors["binary_sensor.leak"] = BinarySensorState(
             entity_id="binary_sensor.leak", state=True, device_class="moisture",
@@ -213,7 +213,7 @@ class TestLLMContextZigbee:
 
     def test_active_door_shown(self, world_model):
         """Open door shown in context."""
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.binary_sensors["binary_sensor.door"] = BinarySensorState(
             entity_id="binary_sensor.door", state=True, device_class="door",
@@ -224,7 +224,7 @@ class TestLLMContextZigbee:
 
     def test_closed_door_not_shown(self, world_model):
         """Closed door (state=False, not moisture) not shown."""
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.binary_sensors["binary_sensor.door"] = BinarySensorState(
             entity_id="binary_sensor.door", state=False, device_class="door",
@@ -234,7 +234,7 @@ class TestLLMContextZigbee:
 
     def test_power_sensor_shown(self, world_model):
         """Power sensor with value > 0 shown."""
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.sensors["sensor.washer_power"] = HASensorState(
             entity_id="sensor.washer_power", value=120, unit="W", device_class="power",
@@ -245,7 +245,7 @@ class TestLLMContextZigbee:
 
     def test_zero_power_not_shown(self, world_model):
         """Power sensor with value=0 not shown."""
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.sensors["sensor.washer_power"] = HASensorState(
             entity_id="sensor.washer_power", value=0, unit="W", device_class="power",
@@ -255,7 +255,7 @@ class TestLLMContextZigbee:
 
     def test_co2_sensor_shown(self, world_model):
         """CO2 sensor always shown."""
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.sensors["sensor.co2"] = HASensorState(
             entity_id="sensor.co2", value=800, unit="ppm", device_class="carbon_dioxide",
@@ -266,7 +266,7 @@ class TestLLMContextZigbee:
 
     def test_pm25_sensor_shown(self, world_model):
         """PM2.5 sensor shown."""
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.sensors["sensor.pm25"] = HASensorState(
             entity_id="sensor.pm25", value=25, unit="µg/m³", device_class="pm25",

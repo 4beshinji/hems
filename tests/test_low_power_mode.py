@@ -45,8 +45,8 @@ class TestPowerModeManagerInit:
 class TestPowerModeSleepBiometric:
     def test_deep_sleep_enters_sleep_mode(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "deep"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
+        world_model.user.biometrics.sleep.last_update = time.time()
 
         changed = mgr.evaluate(world_model)
         assert changed
@@ -56,31 +56,31 @@ class TestPowerModeSleepBiometric:
 
     def test_light_sleep_enters_sleep_mode(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "light"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "light"
+        world_model.user.biometrics.sleep.last_update = time.time()
 
         assert mgr.evaluate(world_model)
         assert mgr.mode == "sleep"
 
     def test_rem_sleep_enters_sleep_mode(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "rem"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "rem"
+        world_model.user.biometrics.sleep.last_update = time.time()
 
         assert mgr.evaluate(world_model)
         assert mgr.mode == "sleep"
 
     def test_awake_stage_does_not_enter_sleep(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "awake"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "awake"
+        world_model.user.biometrics.sleep.last_update = time.time()
 
         assert not mgr.evaluate(world_model)
         assert mgr.mode == "normal"
 
     def test_unknown_stage_does_not_enter_sleep(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "unknown"
+        world_model.user.biometrics.sleep.stage = "unknown"
 
         assert not mgr.evaluate(world_model)
         assert mgr.mode == "normal"
@@ -99,7 +99,7 @@ class TestPowerModeSleepPosture:
         zone.occupancy.activity_class = "idle"
         zone.occupancy.posture_status = "static"
         zone.occupancy.posture_duration_sec = 700
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         with patch("low_power_mode.datetime") as mock_dt:
             mock_dt.now.return_value.hour = 23
@@ -116,7 +116,7 @@ class TestPowerModeSleepPosture:
         zone.occupancy.activity_class = "low"        # not idle
         zone.occupancy.posture_status = "static"
         zone.occupancy.posture_duration_sec = 700
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         with patch("low_power_mode.datetime") as mock_dt:
             mock_dt.now.return_value.hour = 23
@@ -133,7 +133,7 @@ class TestPowerModeSleepPosture:
         zone.occupancy.activity_class = "idle"
         zone.occupancy.posture_status = "static"
         zone.occupancy.posture_duration_sec = 300  # < 600
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         with patch("low_power_mode.datetime") as mock_dt:
             mock_dt.now.return_value.hour = 1
@@ -149,7 +149,7 @@ class TestPowerModeSleepPosture:
         zone.occupancy.activity_class = "idle"
         zone.occupancy.posture_status = "static"
         zone.occupancy.posture_duration_sec = 900
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         with patch("low_power_mode.datetime") as mock_dt:
             mock_dt.now.return_value.hour = 14  # daytime — not in 23-5 window
@@ -169,7 +169,7 @@ class TestPowerModeAway:
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 0
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         with patch("low_power_mode.datetime") as mock_dt:
             mock_dt.now.return_value.hour = 14
@@ -193,7 +193,7 @@ class TestPowerModeAway:
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 0
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         with patch("low_power_mode.datetime") as mock_dt:
             mock_dt.now.return_value.hour = 14
@@ -209,7 +209,7 @@ class TestPowerModeAway:
 
     def test_no_zones_no_away(self, world_model):
         mgr = _make_manager()
-        # world_model.zones is empty by default
+        # world_model.physical.zones is empty by default
         changed = mgr.evaluate(world_model)
         assert not changed
 
@@ -221,15 +221,15 @@ class TestPowerModeAway:
 class TestPowerModeExitSleep:
     def _put_in_sleep(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "deep"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
+        world_model.user.biometrics.sleep.last_update = time.time()
         mgr.evaluate(world_model)
         assert mgr.mode == "sleep"
         return mgr
 
     def test_awake_stage_exits_sleep(self, world_model):
         mgr = self._put_in_sleep(world_model)
-        world_model.biometric_state.sleep.stage = "awake"
+        world_model.user.biometrics.sleep.stage = "awake"
 
         changed = mgr.evaluate(world_model)
         assert changed
@@ -238,12 +238,12 @@ class TestPowerModeExitSleep:
     def test_morning_activity_exits_sleep(self, world_model):
         mgr = self._put_in_sleep(world_model)
         # Stage still shows sleep but activity detected in morning
-        world_model.biometric_state.sleep.stage = "light"
+        world_model.user.biometrics.sleep.stage = "light"
         zone = ZoneState(zone_id="bedroom")
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
         zone.occupancy.activity_class = "low"
-        world_model.zones["bedroom"] = zone
+        world_model.physical.zones["bedroom"] = zone
 
         with patch("low_power_mode.datetime") as mock_dt:
             mock_dt.now.return_value.hour = 7
@@ -254,12 +254,12 @@ class TestPowerModeExitSleep:
 
     def test_morning_idle_does_not_exit_sleep(self, world_model):
         mgr = self._put_in_sleep(world_model)
-        world_model.biometric_state.sleep.stage = "deep"
+        world_model.user.biometrics.sleep.stage = "deep"
         zone = ZoneState(zone_id="bedroom")
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
         zone.occupancy.activity_class = "idle"  # still idle
-        world_model.zones["bedroom"] = zone
+        world_model.physical.zones["bedroom"] = zone
 
         with patch("low_power_mode.datetime") as mock_dt:
             mock_dt.now.return_value.hour = 7
@@ -280,7 +280,7 @@ class TestPowerModeExitAway:
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 0
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         with patch("low_power_mode.datetime") as mock_dt:
             mock_dt.now.return_value.hour = 14
@@ -293,7 +293,7 @@ class TestPowerModeExitAway:
 
     def test_occupancy_returns_exits_away(self, world_model):
         mgr = self._put_in_away(world_model)
-        world_model.zones["living_room"].occupancy.count = 1
+        world_model.physical.zones["living_room"].occupancy.count = 1
 
         changed = mgr.evaluate(world_model)
         assert changed
@@ -301,8 +301,8 @@ class TestPowerModeExitAway:
 
     def test_fresh_biometrics_exits_away(self, world_model):
         mgr = self._put_in_away(world_model)
-        world_model.biometric_state.heart_rate.bpm = 70
-        world_model.biometric_state.heart_rate.last_update = time.time()
+        world_model.user.biometrics.heart_rate.bpm = 70
+        world_model.user.biometrics.heart_rate.last_update = time.time()
 
         changed = mgr.evaluate(world_model)
         assert changed
@@ -310,8 +310,8 @@ class TestPowerModeExitAway:
 
     def test_stale_biometrics_does_not_exit(self, world_model):
         mgr = self._put_in_away(world_model)
-        world_model.biometric_state.heart_rate.bpm = 70
-        world_model.biometric_state.heart_rate.last_update = time.time() - 200  # old
+        world_model.user.biometrics.heart_rate.bpm = 70
+        world_model.user.biometrics.heart_rate.last_update = time.time() - 200  # old
 
         changed = mgr.evaluate(world_model)
         assert not changed
@@ -327,22 +327,22 @@ class TestEvaluateCriticalCO2:
         engine = _make_engine()
         zone = ZoneState(zone_id="living_room")
         zone.environment.co2 = 1600  # above CO2_CRITICAL (1500)
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         actions = engine.evaluate_critical(world_model)
         task_actions = [a for a in actions if a["tool"] == "create_task"]
         speak_actions = [a for a in actions if a["tool"] == "speak"]
 
         assert len(task_actions) == 1
-        assert task_actions[0]["args"]["urgency"] == 5
+        assert task_actions[0]["args"]["urgency"] == 4
         assert len(speak_actions) == 1
-        assert speak_actions[0]["args"]["tone"] == "urgent"
+        assert speak_actions[0]["args"]["tone"] == "alert"
 
     def test_co2_below_critical_silent(self, world_model):
         engine = _make_engine()
         zone = ZoneState(zone_id="living_room")
         zone.environment.co2 = 1200  # high but below critical
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         actions = engine.evaluate_critical(world_model)
         assert len(actions) == 0
@@ -351,7 +351,7 @@ class TestEvaluateCriticalCO2:
         engine = _make_engine()
         zone = ZoneState(zone_id="living_room")
         zone.environment.co2 = 1600
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         engine.evaluate_critical(world_model)
         actions = engine.evaluate_critical(world_model)
@@ -368,30 +368,30 @@ class TestEvaluateCriticalTemperature:
         engine = _make_engine()
         zone = ZoneState(zone_id="living_room")
         zone.environment.temperature = 41.0  # above TEMP_CRITICAL_HIGH (40)
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         actions = engine.evaluate_critical(world_model)
         speaks = [a for a in actions if a["tool"] == "speak"]
         assert len(speaks) == 1
-        assert speaks[0]["args"]["tone"] == "urgent"
+        assert speaks[0]["args"]["tone"] == "alert"
         assert "熱中症" in speaks[0]["args"]["message"]
 
     def test_extreme_cold_fires(self, world_model):
         engine = _make_engine()
         zone = ZoneState(zone_id="living_room")
         zone.environment.temperature = 3.0  # below TEMP_CRITICAL_LOW (5)
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         actions = engine.evaluate_critical(world_model)
         speaks = [a for a in actions if a["tool"] == "speak"]
         assert len(speaks) == 1
-        assert speaks[0]["args"]["tone"] == "urgent"
+        assert speaks[0]["args"]["tone"] == "alert"
 
     def test_normal_temperature_silent(self, world_model):
         engine = _make_engine()
         zone = ZoneState(zone_id="living_room")
         zone.environment.temperature = 25.0
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         actions = engine.evaluate_critical(world_model)
         assert len(actions) == 0
@@ -404,27 +404,27 @@ class TestEvaluateCriticalTemperature:
 class TestEvaluateCriticalSpO2:
     def test_critical_spo2_fires(self, world_model):
         engine = _make_engine()
-        world_model.biometric_state.spo2.percent = 85  # below SPO2_CRITICAL_LOW (88)
-        world_model.biometric_state.spo2.last_update = time.time()
+        world_model.user.biometrics.spo2.percent = 85  # below SPO2_CRITICAL_LOW (88)
+        world_model.user.biometrics.spo2.last_update = time.time()
 
         actions = engine.evaluate_critical(world_model)
         speaks = [a for a in actions if a["tool"] == "speak"]
         assert len(speaks) == 1
-        assert speaks[0]["args"]["tone"] == "urgent"
+        assert speaks[0]["args"]["tone"] == "alert"
         assert "85" in speaks[0]["args"]["message"]
 
     def test_stale_spo2_silent(self, world_model):
         engine = _make_engine()
-        world_model.biometric_state.spo2.percent = 85
-        world_model.biometric_state.spo2.last_update = time.time() - 400  # older than 300s
+        world_model.user.biometrics.spo2.percent = 85
+        world_model.user.biometrics.spo2.last_update = time.time() - 400  # older than 300s
 
         actions = engine.evaluate_critical(world_model)
         assert len(actions) == 0
 
     def test_normal_spo2_silent(self, world_model):
         engine = _make_engine()
-        world_model.biometric_state.spo2.percent = 97
-        world_model.biometric_state.spo2.last_update = time.time()
+        world_model.user.biometrics.spo2.percent = 97
+        world_model.user.biometrics.spo2.last_update = time.time()
 
         actions = engine.evaluate_critical(world_model)
         assert len(actions) == 0
@@ -437,20 +437,20 @@ class TestEvaluateCriticalSpO2:
 class TestEvaluateCriticalHRSleep:
     def test_high_hr_during_sleep_fires(self, world_model):
         engine = _make_engine()
-        world_model.biometric_state.heart_rate.bpm = 160  # above HR_CRITICAL_SLEEP (150)
-        world_model.biometric_state.heart_rate.last_update = time.time()
-        world_model.biometric_state.sleep.stage = "deep"
+        world_model.user.biometrics.heart_rate.bpm = 160  # above HR_CRITICAL_SLEEP (150)
+        world_model.user.biometrics.heart_rate.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
 
         actions = engine.evaluate_critical(world_model)
         speaks = [a for a in actions if a["tool"] == "speak"]
         assert len(speaks) == 1
-        assert speaks[0]["args"]["tone"] == "urgent"
+        assert speaks[0]["args"]["tone"] == "alert"
 
     def test_high_hr_while_awake_silent(self, world_model):
         engine = _make_engine()
-        world_model.biometric_state.heart_rate.bpm = 160
-        world_model.biometric_state.heart_rate.last_update = time.time()
-        world_model.biometric_state.sleep.stage = "awake"
+        world_model.user.biometrics.heart_rate.bpm = 160
+        world_model.user.biometrics.heart_rate.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "awake"
 
         actions = engine.evaluate_critical(world_model)
         speaks = [a for a in actions if a["tool"] == "speak" and "心拍数" in a["args"].get("message", "")]
@@ -458,9 +458,9 @@ class TestEvaluateCriticalHRSleep:
 
     def test_normal_hr_during_sleep_silent(self, world_model):
         engine = _make_engine()
-        world_model.biometric_state.heart_rate.bpm = 60
-        world_model.biometric_state.heart_rate.last_update = time.time()
-        world_model.biometric_state.sleep.stage = "deep"
+        world_model.user.biometrics.heart_rate.bpm = 60
+        world_model.user.biometrics.heart_rate.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
 
         actions = engine.evaluate_critical(world_model)
         assert len(actions) == 0
@@ -478,8 +478,8 @@ class TestLLMCallThrottling:
 
     def test_allow_llm_first_call_in_low_power(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "deep"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
+        world_model.user.biometrics.sleep.last_update = time.time()
         mgr.evaluate(world_model)
         assert mgr.is_low_power
 
@@ -488,8 +488,8 @@ class TestLLMCallThrottling:
 
     def test_block_llm_after_record(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "deep"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
+        world_model.user.biometrics.sleep.last_update = time.time()
         mgr.evaluate(world_model)
 
         mgr.record_llm_call()
@@ -498,8 +498,8 @@ class TestLLMCallThrottling:
     def test_allow_llm_after_cooldown(self, world_model):
         from low_power_mode import LOW_POWER_LLM_COOLDOWN
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "deep"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
+        world_model.user.biometrics.sleep.last_update = time.time()
         mgr.evaluate(world_model)
 
         now = time.time()
@@ -514,8 +514,8 @@ class TestLLMCallThrottling:
 
     def test_seconds_until_llm_allowed_nonzero_after_call(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "deep"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
+        world_model.user.biometrics.sleep.last_update = time.time()
         mgr.evaluate(world_model)
 
         mgr.record_llm_call()
@@ -524,8 +524,8 @@ class TestLLMCallThrottling:
 
     def test_get_status_includes_llm_cooldown(self, world_model):
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "deep"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
+        world_model.user.biometrics.sleep.last_update = time.time()
         mgr.evaluate(world_model)
 
         mgr.record_llm_call()
@@ -536,15 +536,15 @@ class TestLLMCallThrottling:
     def test_no_throttle_in_normal_mode_after_low_power_exit(self, world_model):
         """LLM throttle should not affect normal mode even after low-power period."""
         mgr = _make_manager()
-        world_model.biometric_state.sleep.stage = "deep"
-        world_model.biometric_state.sleep.last_update = time.time()
+        world_model.user.biometrics.sleep.stage = "deep"
+        world_model.user.biometrics.sleep.last_update = time.time()
         mgr.evaluate(world_model)
 
         mgr.record_llm_call()
         assert not mgr.allow_llm_call()  # blocked in low-power
 
         # Return to normal
-        world_model.biometric_state.sleep.stage = "awake"
+        world_model.user.biometrics.sleep.stage = "awake"
         mgr.evaluate(world_model)
         assert mgr.mode == "normal"
         assert mgr.allow_llm_call()  # always allowed in normal mode

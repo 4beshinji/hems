@@ -154,7 +154,7 @@ class EventAutomation:
 
         # Fallback: use cached summary from world model
         if not chunks and hasattr(self.world_model, 'news_state'):
-            ns = self.world_model.news_state
+            ns = self.world_model.digital.news_state
             if ns.daily_chunks:
                 chunks = ns.daily_chunks
 
@@ -192,7 +192,7 @@ class EventAutomation:
                 context_parts.append(f"外気温: {w.temperature}°C")
 
         # Biometrics
-        bio = self.world_model.biometric_state
+        bio = self.world_model.user.biometrics
         if bio.sleep.last_update > 0:
             quality = bio.sleep.quality_score
             duration = bio.sleep.duration_minutes

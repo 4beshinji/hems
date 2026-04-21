@@ -21,7 +21,8 @@ from config import (
     MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS,
     CAMERAS, POSE_MODEL, CONFIDENCE_THRESHOLD,
     PROCESS_INTERVAL, LOG_LEVEL,
-    VLM_ENABLED, VLM_OLLAMA_URL, VLM_LIGHT_MODEL, VLM_HEAVY_MODEL,
+    VLM_ENABLED, VLM_LIGHT_API_URL, VLM_HEAVY_API_URL,
+    VLM_LIGHT_MODEL, VLM_HEAVY_MODEL,
     VLM_BASE_INTERVAL, VLM_MIN_INTERVAL, VLM_MAX_INTERVAL,
     VLM_BOOST_DURATION, VLM_TIMEOUT, VLM_MAX_TOKENS, VLM_IMAGE_MAX_SIZE,
     LLM_MODEL,
@@ -187,71 +188,49 @@ async def _run_vlm_cycle():
     target_zone = on_demand.zone if on_demand else ""
     custom_prompt = on_demand.prompt if on_demand else ""
 
-    # Heavy tier: signal brain to enter rule-only mode
-    is_heavy = tier == "heavy"
-    if is_heavy:
-        mqtt_pub.publish("hems/perception/vlm/model_swap", {
-            "status": "heavy_loading",
-            "model": vlm_analyzer.heavy_model,
-        })
-        logger.info(f"VLM heavy tier: model_swap signal sent (model={vlm_analyzer.heavy_model})")
+    # Capture frames from cameras
+    frames = await camera_mgr.capture_all()
+    if not frames:
+        vlm_scheduler.record_run(interesting=False)
+        return
 
-    try:
-        # Capture frames from cameras
-        frames = await camera_mgr.capture_all()
-        if not frames:
-            vlm_scheduler.record_run(interesting=False)
-            return
+    any_interesting = False
 
-        any_interesting = False
+    for cam_id, frame in frames.items():
+        cam = camera_mgr.cameras.get(cam_id)
+        if not cam:
+            continue
 
-        for cam_id, frame in frames.items():
-            cam = camera_mgr.cameras.get(cam_id)
-            if not cam:
-                continue
+        zone = cam.zone
 
-            zone = cam.zone
+        # Filter by target zone if on-demand specifies one
+        if target_zone and zone != target_zone:
+            continue
 
-            # Filter by target zone if on-demand specifies one
-            if target_zone and zone != target_zone:
-                continue
+        result = await vlm_analyzer.analyze(
+            frame=frame,
+            session=_vlm_session,
+            prompt=custom_prompt or None,
+            mode="general",
+            tier=tier,
+            zone=zone,
+        )
 
-            result = await vlm_analyzer.analyze(
-                frame=frame,
-                session=_vlm_session,
-                prompt=custom_prompt or None,
-                mode="general",
-                tier=tier,
-                zone=zone,
-            )
+        if result.get("error"):
+            logger.warning(f"VLM analysis error ({zone}): {result['error']}")
+            continue
 
-            if result.get("error"):
-                logger.warning(f"VLM analysis error ({zone}): {result['error']}")
-                continue
+        mqtt_pub.publish(f"hems/perception/vlm/{zone}", result)
 
-            # Publish result
-            mqtt_pub.publish(f"hems/perception/vlm/{zone}", result)
+        if result.get("anomalies") or result.get("objects"):
+            any_interesting = True
 
-            # Check if result was interesting (has anomalies or objects)
-            if result.get("anomalies") or result.get("objects"):
-                any_interesting = True
+        logger.info(
+            f"VLM [{tier}] {zone}: {result.get('description', '')[:80]}... "
+            f"({result.get('elapsed_ms', 0)}ms)"
+        )
 
-            logger.info(
-                f"VLM [{tier}] {zone}: {result.get('description', '')[:80]}... "
-                f"({result.get('elapsed_ms', 0)}ms)"
-            )
-
-        vlm_scheduler.record_run(interesting=any_interesting)
-
-    finally:
-        # Heavy tier: unload model and signal brain to resume
-        if is_heavy:
-            await vlm_analyzer._unload_model(vlm_analyzer.heavy_model, _vlm_session)
-            mqtt_pub.publish("hems/perception/vlm/model_swap", {
-                "status": "ready",
-                "model": vlm_analyzer.heavy_model,
-            })
-            logger.info("VLM heavy tier: model unloaded, model_swap ready signal sent")
+    vlm_scheduler.record_run(interesting=any_interesting)
 
     # Publish scheduler status (retained)
     _publish_vlm_status()
@@ -331,7 +310,8 @@ async def lifespan(app: FastAPI):
         from vlm_scheduler import VLMScheduler
 
         vlm_analyzer = VLMAnalyzer(
-            ollama_url=VLM_OLLAMA_URL,
+            light_url=VLM_LIGHT_API_URL,
+            heavy_url=VLM_HEAVY_API_URL,
             light_model=VLM_LIGHT_MODEL,
             heavy_model=VLM_HEAVY_MODEL,
             timeout=VLM_TIMEOUT,
@@ -346,8 +326,8 @@ async def lifespan(app: FastAPI):
         )
         _tasks.append(asyncio.create_task(_vlm_processing_loop()))
         logger.info(
-            f"VLM enabled (light={VLM_LIGHT_MODEL}, heavy={VLM_HEAVY_MODEL}, "
-            f"ollama={VLM_OLLAMA_URL})"
+            f"VLM enabled (light={VLM_LIGHT_MODEL}@{VLM_LIGHT_API_URL}, "
+            f"heavy={VLM_HEAVY_MODEL}@{VLM_HEAVY_API_URL})"
         )
     else:
         logger.info("VLM disabled (VLM_ENABLED=false)")
@@ -472,6 +452,7 @@ async def vlm_status():
         "enabled": True,
         "light_model": VLM_LIGHT_MODEL,
         "heavy_model": VLM_HEAVY_MODEL,
-        "ollama_url": VLM_OLLAMA_URL,
+        "light_api_url": VLM_LIGHT_API_URL,
+        "heavy_api_url": VLM_HEAVY_API_URL,
     })
     return status

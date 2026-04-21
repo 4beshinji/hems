@@ -300,7 +300,7 @@ class TestWorldModelVLM:
             "elapsed_ms": 2500,
         })
 
-        zone = wm.zones["living_room"]
+        zone = wm.physical.zones["living_room"]
         assert zone.occupancy.scene_description == "A person sitting at a desk with a monitor"
         assert "desk" in zone.occupancy.scene_objects
         assert zone.occupancy.scene_type == "office"
@@ -319,32 +319,12 @@ class TestWorldModelVLM:
             "tier": "heavy",
         })
 
-        zone = wm.zones["living_room"]
+        zone = wm.physical.zones["living_room"]
         assert zone.occupancy.scene_anomalies == ["smoke", "fire"]
         # Should generate vlm_anomaly event
         vlm_events = [e for e in zone.events if e.event_type == "vlm_anomaly"]
         assert len(vlm_events) == 1
         assert "smoke" in vlm_events[0].description
-
-    def test_vlm_model_swap_heavy_loading(self):
-        wm = self._get_world_model()
-        assert wm.vlm_model_swap_active is False
-
-        wm.update_from_mqtt("hems/perception/vlm/model_swap", {
-            "status": "heavy_loading",
-            "model": "minicpm-v",
-        })
-        assert wm.vlm_model_swap_active is True
-
-    def test_vlm_model_swap_ready(self):
-        wm = self._get_world_model()
-        wm.vlm_model_swap_active = True
-
-        wm.update_from_mqtt("hems/perception/vlm/model_swap", {
-            "status": "ready",
-            "model": "minicpm-v",
-        })
-        assert wm.vlm_model_swap_active is False
 
     def test_vlm_status_topic_ignored(self):
         """hems/perception/vlm/status should not create a zone."""
@@ -353,7 +333,7 @@ class TestWorldModelVLM:
             "enabled": True,
             "light_model": "moondream",
         })
-        assert "status" not in wm.zones
+        assert "status" not in wm.physical.zones
 
     def test_vlm_scene_sanitizes_text(self):
         """Prompt injection patterns should be filtered from VLM descriptions."""
@@ -367,7 +347,7 @@ class TestWorldModelVLM:
             "anomalies": [],
         })
 
-        zone = wm.zones["living_room"]
+        zone = wm.physical.zones["living_room"]
         assert "[SYSTEM]" not in zone.occupancy.scene_description
         assert "[FILTERED]" in zone.occupancy.scene_description
 
@@ -431,7 +411,7 @@ class TestRuleEngineVLM:
 
         # Set up zone with VLM anomaly
         wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
-        zone = wm.zones["living_room"]
+        zone = wm.physical.zones["living_room"]
         zone.occupancy.scene_anomalies = ["smoke"]
         zone.occupancy.vlm_last_update = time.time()
 
@@ -448,7 +428,7 @@ class TestRuleEngineVLM:
         re, wm = self._get_rule_engine_and_world_model()
 
         wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
-        zone = wm.zones["living_room"]
+        zone = wm.physical.zones["living_room"]
         zone.occupancy.scene_anomalies = ["smoke"]
         zone.occupancy.vlm_last_update = time.time() - 200  # stale
 
@@ -462,7 +442,7 @@ class TestRuleEngineVLM:
         re, wm = self._get_rule_engine_and_world_model()
 
         wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
-        zone = wm.zones["living_room"]
+        zone = wm.physical.zones["living_room"]
         zone.occupancy.scene_anomalies = ["smoke"]
         zone.occupancy.vlm_last_update = time.time()
 

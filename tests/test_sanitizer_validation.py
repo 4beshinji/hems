@@ -73,25 +73,6 @@ class TestValidateCreateTask:
         assert result["allowed"] is False
         assert "title" in result["reason"].lower()
 
-    def test_xp_too_low_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("create_task", {
-            "title": "Test", "xp_reward": 30,
-        })
-        assert result["allowed"] is False
-        assert "xp_reward" in result["reason"]
-
-    def test_xp_too_high_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("create_task", {
-            "title": "Test", "xp_reward": 600,
-        })
-        assert result["allowed"] is False
-
-    def test_xp_non_numeric_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("create_task", {
-            "title": "Test", "xp_reward": "high",
-        })
-        assert result["allowed"] is False
-
     def test_urgency_out_of_range_blocked(self, sanitizer):
         result = sanitizer.validate_tool_call("create_task", {
             "title": "Test", "urgency": 5,

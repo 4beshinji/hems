@@ -37,8 +37,8 @@ services:
       - MQTT_PASS=${MQTT_PASS_BRAIN:?MQTT_PASS_BRAIN is required}
       - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
+      - LLM_API_URL=${LLM_API_URL:-http://llm:8080/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen2.5-14b-instruct}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -156,8 +156,8 @@ services:
       - VOISONA_VOICE_NAME=${VOISONA_VOICE_NAME:-nurse-robot-type-t_ja_JP}
       - VOISONA_LANGUAGE=${VOISONA_LANGUAGE:-ja_JP}
       - STYLE_BERT_VITS2_URL=${STYLE_BERT_VITS2_URL:-}
-      - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
+      - LLM_API_URL=${LLM_API_URL:-http://llm:8080/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen2.5-14b-instruct}
       - CHARACTER=${CHARACTER:-}
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}
@@ -457,6 +457,117 @@ services:
     networks:
       - hems-net
 
+  # --- llama.cpp server (Local LLM, OpenAI-compatible) ---
+  # GPU-agnostic base. Run `python infra/scripts/gpu_setup.py` to generate
+  # docker-compose.gpu.yml with NVIDIA/AMD-specific settings.
+  # Models live under ./models/ — fetch via `bash infra/scripts/pull_models.sh`.
+  llm:
+    image: ${LLM_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
+    container_name: hems-llm
+    restart: unless-stopped
+    profiles: ["llm"]
+    ports:
+      - "${HEMS_PORT_LLM:-8081}:8080"
+    volumes:
+      - ../models:/models:ro
+    environment:
+      - LLAMA_ARG_MODEL=/models/${LLM_MODEL_FILE:-Qwen2.5-14B-Instruct-Q4_K_M.gguf}
+      - LLAMA_ARG_CTX_SIZE=${LLM_CTX_SIZE:-32768}
+      - LLAMA_ARG_N_PARALLEL=${LLM_PARALLEL:-2}
+      - LLAMA_ARG_N_GPU_LAYERS=${LLM_GPU_LAYERS:-99}
+      - LLAMA_ARG_FLASH_ATTN=on
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_PORT=8080
+      - LLAMA_ARG_ALIAS=${LLM_MODEL:-qwen2.5-14b-instruct}
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # --- Text Embeddings Inference (OpenAI-compatible /v1/embeddings) ---
+  # Loads the HF model on first boot; weights cached to ./models/embed.
+  embed:
+    image: ${EMBED_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.5}
+    container_name: hems-embed
+    restart: unless-stopped
+    profiles: ["llm"]
+    ports:
+      - "${HEMS_PORT_EMBED:-8090}:80"
+    volumes:
+      - ../models/embed:/data
+    command:
+      - "--model-id"
+      - "${EMBEDDING_HF_MODEL:-nomic-ai/nomic-embed-text-v1.5}"
+      - "--port"
+      - "80"
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:80/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # --- VLM light (always-on, routine scene analysis) ---
+  vlm-light:
+    image: ${LLM_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
+    container_name: hems-vlm-light
+    restart: unless-stopped
+    profiles: ["llm", "vlm"]
+    ports:
+      - "${HEMS_PORT_VLM_LIGHT:-8082}:8080"
+    volumes:
+      - ../models:/models:ro
+    environment:
+      - LLAMA_ARG_MODEL=/models/${VLM_LIGHT_MODEL_FILE:-MiniCPM-V-2_6-Q4_K_M.gguf}
+      - LLAMA_ARG_MMPROJ=/models/${VLM_LIGHT_MMPROJ_FILE:-mmproj-MiniCPM-V-2_6-f16.gguf}
+      - LLAMA_ARG_N_GPU_LAYERS=${VLM_LIGHT_GPU_LAYERS:-99}
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_PORT=8080
+      - LLAMA_ARG_ALIAS=${VLM_LIGHT_MODEL:-minicpm-v}
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # --- VLM heavy (opt-in, event-driven deep analysis) ---
+  # Separate profile so VRAM-constrained deployments can skip it:
+  #   --profile llm vlm             → light only
+  #   --profile llm vlm vlm-heavy   → light + heavy
+  vlm-heavy:
+    image: ${LLM_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
+    container_name: hems-vlm-heavy
+    restart: unless-stopped
+    profiles: ["vlm-heavy"]
+    ports:
+      - "${HEMS_PORT_VLM_HEAVY:-8083}:8080"
+    volumes:
+      - ../models:/models:ro
+    environment:
+      - LLAMA_ARG_MODEL=/models/${VLM_HEAVY_MODEL_FILE:-Qwen2-VL-7B-Instruct-Q4_K_M.gguf}
+      - LLAMA_ARG_MMPROJ=/models/${VLM_HEAVY_MMPROJ_FILE:-mmproj-Qwen2-VL-7B-f16.gguf}
+      - LLAMA_ARG_N_GPU_LAYERS=${VLM_HEAVY_GPU_LAYERS:-99}
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_PORT=8080
+      - LLAMA_ARG_ALIAS=${VLM_HEAVY_MODEL:-qwen2-vl-7b}
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
   # --- PostgreSQL (optional, replaces SQLite) ---
   postgres:
     image: postgres:16-alpine
@@ -501,9 +612,11 @@ services:
       - HEMS_PERCEPTION_CONFIDENCE=${HEMS_PERCEPTION_CONFIDENCE:-0.5}
       - HEMS_PERCEPTION_INTERVAL=${HEMS_PERCEPTION_INTERVAL:-5}
       - VLM_ENABLED=${VLM_ENABLED:-false}
-      - VLM_OLLAMA_URL=${VLM_OLLAMA_URL:-http://ollama:11434}
-      - VLM_LIGHT_MODEL=${VLM_LIGHT_MODEL:-moondream}
-      - VLM_HEAVY_MODEL=${VLM_HEAVY_MODEL:-minicpm-v}
+      - VLM_LIGHT_API_URL=${VLM_LIGHT_API_URL:-http://vlm-light:8080/v1}
+      - VLM_HEAVY_API_URL=${VLM_HEAVY_API_URL:-http://vlm-heavy:8080/v1}
+      - VLM_OLLAMA_URL=${VLM_OLLAMA_URL:-}
+      - VLM_LIGHT_MODEL=${VLM_LIGHT_MODEL:-minicpm-v}
+      - VLM_HEAVY_MODEL=${VLM_HEAVY_MODEL:-qwen2-vl-7b}
       - VLM_BASE_INTERVAL=${VLM_BASE_INTERVAL:-1800}
       - VLM_MIN_INTERVAL=${VLM_MIN_INTERVAL:-60}
       - VLM_MAX_INTERVAL=${VLM_MAX_INTERVAL:-7200}
@@ -573,8 +686,13 @@ services:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=${MQTT_USER_NEWS:-hems-news}
       - MQTT_PASS=${MQTT_PASS_NEWS:-}
-      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5}
+      - NEWS_LLM_API_URL=${NEWS_LLM_API_URL:-http://llm:8080}
+      - NEWS_LLM_MODEL=${NEWS_LLM_MODEL:-}
+      - NEWS_LLM_SUMMARY_MODEL=${NEWS_LLM_SUMMARY_MODEL:-}
+      - LLM_API_URL=${LLM_API_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - OLLAMA_URL=${OLLAMA_URL:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
       - OLLAMA_SUMMARY_MODEL=${OLLAMA_SUMMARY_MODEL:-}
       - NEWS_SOURCES=${NEWS_SOURCES:-nhk_main,nhk_international,bbc_world,guardian_world}
       - NEWS_DAILY_HOUR=${NEWS_DAILY_HOUR:-7}
@@ -609,8 +727,8 @@ services:
       - KNOWLEDGE_SOURCES=${KNOWLEDGE_SOURCES:-[]}
       - KNOWLEDGE_WATCHER_DEBOUNCE=${KNOWLEDGE_WATCHER_DEBOUNCE:-3.0}
       - KNOWLEDGE_MAX_SEARCH_RESULTS=${KNOWLEDGE_MAX_SEARCH_RESULTS:-20}
-      - EMBEDDING_URL=${EMBEDDING_URL:-}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - EMBEDDING_URL=${EMBEDDING_URL:-http://embed:80}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text-v1.5}
       - EMBEDDING_CACHE_DIR=/app/data/embeddings
       - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-32}
       - RRF_K=${RRF_K:-60}

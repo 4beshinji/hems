@@ -137,7 +137,7 @@ class PowerModeManager:
         Returns True if the mode changed this call.
         """
         now = time.time()
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         hour = datetime.now().hour
 
         # --- Exit conditions (checked before entry to allow fast recovery) ---
@@ -147,7 +147,7 @@ class PowerModeManager:
                 return self._transition(PowerMode.NORMAL, "睡眠終了（生体センサー）", now)
             # Activity: morning activity detected (5-10h)
             if 5 <= hour < 10:
-                for zone in world_model.zones.values():
+                for zone in world_model.physical.zones.values():
                     occ = zone.occupancy
                     if (occ.count > 0
                             and occ.activity_class not in ("idle", "unknown")
@@ -157,7 +157,7 @@ class PowerModeManager:
 
         if self._mode == PowerMode.AWAY:
             # Camera/perception: someone appeared in any zone
-            for zone in world_model.zones.values():
+            for zone in world_model.physical.zones.values():
                 if zone.occupancy.count > 0:
                     return self._transition(PowerMode.NORMAL, "帰宅検出（在宅確認）", now)
             # Fresh biometric reading means the wearable device is back home
@@ -178,7 +178,7 @@ class PowerModeManager:
 
         # Priority 2: Posture-based sleep (23:00-5:00, idle + static posture > 10min)
         if hour >= 23 or hour < 5:
-            for zone in world_model.zones.values():
+            for zone in world_model.physical.zones.values():
                 occ = zone.occupancy
                 if (occ.count > 0
                         and occ.activity_class == "idle"
@@ -190,13 +190,13 @@ class PowerModeManager:
                     )
 
         # Priority 3: Away detection — all known zones empty for confirmation period
-        if world_model.zones:
+        if world_model.physical.zones:
             all_empty = all(
-                z.occupancy.count == 0 for z in world_model.zones.values()
+                z.occupancy.count == 0 for z in world_model.physical.zones.values()
             )
             # Only act when we have fresh occupancy data (sensors are actually reporting)
             any_fresh = any(
-                z.occupancy.last_update > 0 for z in world_model.zones.values()
+                z.occupancy.last_update > 0 for z in world_model.physical.zones.values()
             )
             if all_empty and any_fresh:
                 if self._away_candidate_since is None:

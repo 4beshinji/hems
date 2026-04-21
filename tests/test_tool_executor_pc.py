@@ -9,11 +9,11 @@ from world_model.data_classes import CPUData, MemoryData, DiskData, DiskPartitio
 
 
 class TestGetPCStatus:
-    """Test _handle_get_pc_status — reads from world_model.pc_state."""
+    """Test _handle_get_pc_status — reads from world_model.digital.pc_state."""
 
     @pytest.mark.asyncio
     async def test_returns_cpu_metrics(self, tool_executor, world_model):
-        world_model.pc_state.cpu = CPUData(
+        world_model.digital.pc_state.cpu = CPUData(
             usage_percent=42, core_count=8, temp_c=55, last_update=1.0,
         )
         result = await tool_executor.execute("get_pc_status", {})
@@ -24,7 +24,7 @@ class TestGetPCStatus:
 
     @pytest.mark.asyncio
     async def test_returns_memory_metrics(self, tool_executor, world_model):
-        world_model.pc_state.memory = MemoryData(
+        world_model.digital.pc_state.memory = MemoryData(
             used_gb=12.5, total_gb=32.0, percent=39.1, last_update=1.0,
         )
         result = await tool_executor.execute("get_pc_status", {})
@@ -34,7 +34,7 @@ class TestGetPCStatus:
 
     @pytest.mark.asyncio
     async def test_includes_processes_when_requested(self, tool_executor, world_model):
-        world_model.pc_state.top_processes = [
+        world_model.digital.pc_state.top_processes = [
             ProcessInfo(pid=100, name="python", cpu_percent=10.0, mem_mb=256),
         ]
         result = await tool_executor.execute("get_pc_status", {"include_processes": True})
@@ -44,7 +44,7 @@ class TestGetPCStatus:
 
     @pytest.mark.asyncio
     async def test_no_processes_by_default(self, tool_executor, world_model):
-        world_model.pc_state.top_processes = [
+        world_model.digital.pc_state.top_processes = [
             ProcessInfo(pid=100, name="python", cpu_percent=10.0, mem_mb=256),
         ]
         result = await tool_executor.execute("get_pc_status", {})
@@ -53,7 +53,7 @@ class TestGetPCStatus:
 
     @pytest.mark.asyncio
     async def test_includes_disk_partitions(self, tool_executor, world_model):
-        world_model.pc_state.disk = DiskData(
+        world_model.digital.pc_state.disk = DiskData(
             partitions=[DiskPartition(mount="/", used_gb=100, total_gb=500, percent=20)],
             last_update=1.0,
         )

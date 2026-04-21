@@ -35,8 +35,8 @@ class TestSleepDetection:
             posture_status="static", posture_duration_sec=700,
         )
         # Set up lights
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights["light.bedroom"] = LightState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.lights["light.bedroom"] = LightState(
             entity_id="light.bedroom", on=True, brightness=200,
         )
 
@@ -58,8 +58,8 @@ class TestSleepDetection:
             count=1, activity_class="idle",
             posture_status="static", posture_duration_sec=700,
         )
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights["light.bedroom"] = LightState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.lights["light.bedroom"] = LightState(
             entity_id="light.bedroom", on=True,
         )
 
@@ -67,8 +67,12 @@ class TestSleepDetection:
             mock_dt.now.return_value = datetime(2026, 2, 20, 14, 0)
             actions = engine.evaluate(world_model)
 
-        light_actions = [a for a in actions if a["tool"] == "control_light"]
-        assert len(light_actions) == 0
+        # Sleep detection must not fire during the day — but circadian lighting
+        # may still schedule brightness/color_temp updates. Filter to off-actions.
+        light_offs = [a for a in actions
+                      if a["tool"] == "control_light"
+                      and a["args"].get("on") is False]
+        assert len(light_offs) == 0
 
     def test_no_sleep_when_lights_already_off(self, engine, world_model):
         """No action when lights are already off."""
@@ -78,8 +82,8 @@ class TestSleepDetection:
             count=1, activity_class="idle",
             posture_status="static", posture_duration_sec=700,
         )
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights["light.bedroom"] = LightState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.lights["light.bedroom"] = LightState(
             entity_id="light.bedroom", on=False,
         )
 
@@ -101,8 +105,8 @@ class TestPreArrivalHVAC:
         zone.occupancy = OccupancyData(count=0)
 
         # Climate device exists
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.climates["climate.living_room"] = ClimateState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.climates["climate.living_room"] = ClimateState(
             entity_id="climate.living_room", mode="off",
         )
 
@@ -124,8 +128,8 @@ class TestPreArrivalHVAC:
         now = time.time()
         zone = world_model._get_zone("living_room")
         zone.occupancy = OccupancyData(count=0)
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.climates["climate.living_room"] = ClimateState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.climates["climate.living_room"] = ClimateState(
             entity_id="climate.living_room", mode="off",
         )
         schedule_learner.predict_next_arrival = MagicMock(return_value=now + 20 * 60)
@@ -143,8 +147,8 @@ class TestPreArrivalHVAC:
         engine._cooldowns = {}
         zone = world_model._get_zone("living_room")
         zone.occupancy = OccupancyData(count=1)
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.climates["climate.living_room"] = ClimateState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.climates["climate.living_room"] = ClimateState(
             entity_id="climate.living_room", mode="off",
         )
         schedule_learner.predict_next_arrival = MagicMock(return_value=time.time() + 20 * 60)
@@ -162,8 +166,8 @@ class TestWakeUpCurtain:
         """60 min before predicted wake → open curtains."""
         engine._cooldowns = {}
         now = time.time()
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.covers["cover.bedroom"] = CoverState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.covers["cover.bedroom"] = CoverState(
             entity_id="cover.bedroom", position=0, is_open=False,
         )
         schedule_learner.get_wake_time = MagicMock(return_value=now + 45 * 60)
@@ -180,8 +184,8 @@ class TestWakeUpCurtain:
         """No action when covers are already open."""
         engine._cooldowns = {}
         now = time.time()
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.covers["cover.bedroom"] = CoverState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.covers["cover.bedroom"] = CoverState(
             entity_id="cover.bedroom", position=100, is_open=True,
         )
         schedule_learner.get_wake_time = MagicMock(return_value=now + 45 * 60)
@@ -202,8 +206,8 @@ class TestWakeDetection:
         zone.occupancy = OccupancyData(
             count=1, activity_class="moderate",
         )
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights["light.bedroom"] = LightState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.lights["light.bedroom"] = LightState(
             entity_id="light.bedroom", on=False,
         )
 
@@ -222,8 +226,8 @@ class TestWakeDetection:
         engine._cooldowns = {}
         zone = world_model._get_zone("bedroom")
         zone.occupancy = OccupancyData(count=1, activity_class="moderate")
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights["light.bedroom"] = LightState(
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.lights["light.bedroom"] = LightState(
             entity_id="light.bedroom", on=False,
         )
 
@@ -239,13 +243,13 @@ class TestCooldownAndBridgeDisconnected:
     def test_no_rules_when_bridge_disconnected(self, engine, world_model):
         """No HA rules when bridge is not connected."""
         engine._cooldowns = {}
-        world_model.home_devices.bridge_connected = False
+        world_model.physical.home_devices.bridge_connected = False
         zone = world_model._get_zone("bedroom")
         zone.occupancy = OccupancyData(
             count=1, activity_class="idle",
             posture_status="static", posture_duration_sec=700,
         )
-        world_model.home_devices.lights["light.bedroom"] = LightState(
+        world_model.physical.home_devices.lights["light.bedroom"] = LightState(
             entity_id="light.bedroom", on=True,
         )
 

@@ -18,18 +18,21 @@ cd infra && docker compose up -d --build
 # With VOICEVOX TTS
 docker compose --profile voicevox up -d --build
 
-# With local LLM (GPU auto-detect → generates docker-compose.gpu.yml)
+# With local LLM stack (llama.cpp server + TEI embeddings + optional VLM)
+# 1) Fetch GGUF + mmproj + embedding model into ./models/
+bash infra/scripts/pull_models.sh
+# 2) GPU auto-detect → generates docker-compose.gpu.yml
 python infra/scripts/gpu_setup.py
+# 3) Start the stack (use --profile vlm to add vlm-light, vlm-heavy as --profile vlm-heavy)
 cd infra && docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
-  --profile ollama up -d --build
-# Pull default model (first time only)
-docker exec hems-ollama ollama pull qwen3.5
+  --profile llm up -d --build
 
 # With local LLM (CPU-only, no GPU override needed)
+docker compose --profile llm up -d --build
+
+# Legacy: Ollama backend (kept for users with existing `ollama_models` volumes)
 docker compose --profile ollama up -d --build
-# Pull default model (first time only)
-docker exec hems-ollama ollama pull qwen3.5
-# Lighter alternatives: qwen2.5:7b, llama3.2:3b
+docker exec hems-ollama ollama pull qwen2.5:14b
 
 # With PostgreSQL (instead of SQLite)
 docker compose --profile postgres up -d --build
@@ -55,8 +58,8 @@ docker compose --profile perception up -d --build
 # With SwitchBot (direct SwitchBot API, no HA required)
 docker compose --profile switchbot up -d --build
 
-# With news briefing (RSS + Ollama summarizer, requires --profile ollama)
-docker compose --profile news --profile ollama up -d --build
+# With news briefing (RSS + local LLM summarizer, requires --profile llm or --profile ollama)
+docker compose --profile news --profile llm up -d --build
 
 # With knowledge ingestion (multi-format document loader)
 docker compose --profile knowledge up -d --build
@@ -64,7 +67,7 @@ docker compose --profile knowledge up -d --build
 # With STT (Speech-to-Text, push-to-talk + VAD auto mode)
 docker compose --profile stt up -d --build
 
-# With mock LLM (development, no Ollama needed)
+# With mock LLM (development, no local LLM runtime needed)
 LLM_API_URL=http://mock-llm:8000/v1 LLM_MODEL=mock \
   docker compose --profile mock up -d --build
 
@@ -77,7 +80,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `news`, `knowledge`, `stt`
+Optional profiles: `mock`, `voicevox`, `llm` (llama.cpp + TEI embeddings), `vlm`, `vlm-heavy`, `ollama` (legacy), `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `news`, `knowledge`, `stt`
 
 ### Frontend Development
 
@@ -111,7 +114,11 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Knowledge Bridge | 8022 | `HEMS_PORT_KNOWLEDGE_BRIDGE` | hems-knowledge-bridge |
 | STT Service | 8023 | `HEMS_PORT_STT` | hems-stt |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
-| Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
+| llama.cpp LLM | 8081 | `HEMS_PORT_LLM` | hems-llm |
+| Embed (TEI) | 8090 | `HEMS_PORT_EMBED` | hems-embed |
+| VLM light | 8082 | `HEMS_PORT_VLM_LIGHT` | hems-vlm-light |
+| VLM heavy | 8083 | `HEMS_PORT_VLM_HEAVY` | hems-vlm-heavy |
+| Ollama (legacy) | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
 | MQTT | 1893 | `HEMS_PORT_MQTT` | hems-mqtt |
 
@@ -373,7 +380,8 @@ BIOMETRIC_PROVIDER=gadgetbridge
 ### Perception (Camera Detection + Activity Tracking + VLM Scene Analysis)
 
 Camera-based person detection and posture/activity tracking using YOLOv11s-pose,
-with optional VLM (Vision Language Model) integration via Ollama for scene understanding.
+with optional VLM (Vision Language Model) integration via llama.cpp
+(`--mmproj` vision servers) for scene understanding.
 
 - **perception**: Docker service with YOLOv11s-pose inference pipeline
   - Captures frames from MCP (ESP32 MQTT) or stream (RTSP/HTTP) cameras
@@ -381,13 +389,13 @@ with optional VLM (Vision Language Model) integration via Ollama for scene under
   - Posture classification (standing/sitting/lying/walking) from COCO 17 keypoints
   - Activity level (0.0-1.0) with EMA smoothing + tiered pose buffer
   - Publishes to `office/{zone}/camera/{cam_id}/status` and `office/{zone}/activity/{cam_id}`
-- **VLM integration** (optional, requires `--profile ollama` + `VLM_ENABLED=true`):
-  - Dual-model strategy: light (moondream ~1.8B) for routine scans, heavy (minicpm-v ~3B) for events
-  - Adaptive frequency: 30min routine → event-boosted (1-5min) → quiet decay (up to 2hr)
+- **VLM integration** (optional, requires `--profile llm vlm` + `VLM_ENABLED=true`):
+  - Two always-on tiers in separate containers: light (`vlm-light`, ~1.8–3B) for routine scans, heavy (`vlm-heavy`, ~7B, add `--profile vlm-heavy`) for events
+  - Both models are resident: no VRAM swap, no brain-LLM eviction
+  - Adaptive frequency: 30min routine → event-boosted (1–5min) → quiet decay (up to 2hr)
   - Event-triggered boost: YOLO detects person enter/leave → heavy VLM for detailed analysis
-  - Model swap coordination: heavy VLM evicts brain LLM; brain falls back to rule-based mode during swap (~10-30s)
   - On-demand analysis via brain `describe_scene` tool
-  - Publishes to `hems/perception/vlm/{zone}`, `hems/perception/vlm/status`, `hems/perception/vlm/model_swap`
+  - Publishes to `hems/perception/vlm/{zone}`, `hems/perception/vlm/status`
 - **Deploy**: Configure cameras in `HEMS_PERCEPTION_CAMERAS` env var (JSON array)
 - **Profile**: `docker compose --profile perception up -d --build`
 - **Brain integration**: WorldModel receives occupancy + activity + VLM scene data via MQTT, Rule Engine triggers sedentary alerts, sleep detection, and VLM anomaly alerts
@@ -399,10 +407,17 @@ Configure in `.env`:
 ```bash
 PERCEPTION_BRIDGE_URL=http://perception:8000
 HEMS_PERCEPTION_CAMERAS=[{"device_id":"cam01","zone":"living_room","type":"mcp"}]
-# VLM (requires --profile ollama)
+# VLM (requires --profile llm --profile vlm; add --profile vlm-heavy for heavy tier)
 VLM_ENABLED=true
-VLM_LIGHT_MODEL=moondream
-VLM_HEAVY_MODEL=minicpm-v
+VLM_LIGHT_API_URL=http://vlm-light:8080/v1
+VLM_HEAVY_API_URL=http://vlm-heavy:8080/v1
+VLM_LIGHT_MODEL=minicpm-v
+VLM_HEAVY_MODEL=qwen2-vl-7b
+# GGUF + mmproj files (relative to ./models/)
+# VLM_LIGHT_MODEL_FILE=MiniCPM-V-2_6-Q4_K_M.gguf
+# VLM_LIGHT_MMPROJ_FILE=mmproj-MiniCPM-V-2_6-f16.gguf
+# VLM_HEAVY_MODEL_FILE=Qwen2-VL-7B-Instruct-Q4_K_M.gguf
+# VLM_HEAVY_MMPROJ_FILE=mmproj-Qwen2-VL-7B-f16.gguf
 ```
 
 ### SwitchBot Integration (Direct API)
@@ -449,16 +464,16 @@ Weather data from JMA (気象庁) or OpenWeatherMap.
 
 ### News Integration (news-bridge)
 
-RSS news fetcher + Ollama summarizer + urgency detection with event-driven voice briefings.
+RSS news fetcher + local LLM summarizer (OpenAI-compatible) + urgency detection with event-driven voice briefings.
 
-- **news-bridge**: Docker service (Python/FastAPI) polling RSS feeds and generating Ollama-powered summaries
+- **news-bridge**: Docker service (Python/FastAPI) polling RSS feeds and generating local-LLM-powered summaries
   - Sources: NHK (国内+国際) + BBC World + Guardian World (configurable)
   - Daily summary: generated at configurable time (default 07:30) + on startup
   - Urgent news: 5-minute polling, urgency score 0.8+ triggers MQTT alert
-  - Overseas articles translated to Japanese via Ollama
+  - Overseas articles translated to Japanese via the local LLM
   - Publishes to `hems/news/{daily,urgent}` MQTT topics
-- **Deploy**: Requires `--profile ollama` for summarization
-- **Profile**: `docker compose --profile news --profile ollama up -d --build`
+- **Deploy**: Requires `--profile llm` (llama.cpp) for summarization — `--profile ollama` also works as a legacy backend
+- **Profile**: `docker compose --profile news --profile llm up -d --build`
 - **Brain tools**: `get_news_summary`
 - **Brain rules**: urgent news speak notification
 - **World model**: `NewsState` in Digital Space
@@ -471,9 +486,9 @@ Read-only multi-format document ingestion from external directories with hybrid 
   - Plugin-based loaders: Markdown (.md), Python (.py), JSON (.json), Text (.txt/.yaml/.toml/.rst), PDF (.pdf), DOCX (.docx), CSV (.csv), HTML (.html)
   - **Hybrid search**: 3-way Reciprocal Rank Fusion (RRF)
     - BM25 (keyword): body text scoring via rank_bm25
-    - Vector (semantic): Ollama embedding cosine similarity (optional, requires `--profile ollama`)
+    - Vector (semantic): OpenAI-compatible embeddings cosine similarity (TEI `embed` service under `--profile llm`, or any `/v1/embeddings`-compatible server)
     - Title boost: separate BM25 on titles for precise name matching
-  - Graceful degradation: BM25 + Title when Ollama unavailable
+  - Graceful degradation: BM25 + Title when the embedding server is unavailable
   - Embedding cache: disk-persisted, only re-embeds changed documents
   - Watches for file changes, publishes to `hems/personal/knowledge/*` MQTT topics
   - REST API for search, read, list sources, reindex
@@ -488,9 +503,12 @@ Configure in `.env`:
 KNOWLEDGE_BRIDGE_URL=http://knowledge-bridge:8000
 KNOWLEDGE_SOURCE_PWS=/path/to/pws
 KNOWLEDGE_SOURCES=[{"name":"pws","path":"/sources/pws","extensions":[".md",".py",".json",".pdf"]}]
-# Vector search (optional, requires --profile ollama)
-EMBEDDING_URL=http://ollama:11434
-EMBEDDING_MODEL=nomic-embed-text
+# Vector search (optional, requires --profile llm for the `embed` service)
+EMBEDDING_URL=http://embed:80
+EMBEDDING_MODEL=nomic-embed-text-v1.5
+# Or legacy Ollama backend:
+# EMBEDDING_URL=http://ollama:11434
+# EMBEDDING_MODEL=nomic-embed-text
 ```
 
 ### STT Service (Plugin-based Speech-to-Text)
@@ -500,7 +518,7 @@ Self-hosted speech recognition with query cleaning. Replaces browser Web Speech 
 - **stt-service**: Docker service (Python/FastAPI) with plugin-based STT providers
   - Plugin system mirrors voice-service TTS architecture (STTProvider ABC)
   - Providers: `whisper` (faster-whisper, default), `sherpa-onnx` (Parakeet 0.6B JP), `qwen3-asr` (Qwen3-ASR 1.7B)
-  - Query cleaner: regex-based filler removal + optional LLM rewrite via Ollama
+  - Query cleaner: regex-based filler removal + optional LLM rewrite via the local `llm` service
   - Audio format conversion: WebM/Opus/MP3/WAV → 16kHz mono WAV (ffmpeg)
   - REST API: `POST /api/stt/transcribe` (multipart), `GET /api/stt/providers`
 - **Frontend**: Push-to-talk + VAD auto mode (Silero VAD ONNX via `@ricky0123/vad-web`)
@@ -525,7 +543,7 @@ STT_MODEL=large-v3-turbo
 STT_LANGUAGE=ja
 STT_DEVICE=auto           # auto, cpu, cuda, rocm
 STT_COMPUTE_TYPE=auto     # auto, float16, int8
-STT_LLM_REWRITE=false     # enable LLM query cleaning (requires Ollama)
+STT_LLM_REWRITE=false     # enable LLM query cleaning (reuses LLM_API_URL)
 HEMS_PORT_STT=8023
 ```
 
@@ -576,7 +594,7 @@ EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_brief
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion
 - **3D Avatar**: Three.js, React Three Fiber, @pixiv/three-vrm
-- **LLM**: OpenAI / Anthropic / Ollama (multi-provider)
+- **LLM**: OpenAI-compatible path (default: llama.cpp `llama-server` + TEI embeddings + llama.cpp `--mmproj` VLMs). OpenAI Cloud, Anthropic, and Ollama also supported.
 - **TTS**: Plugin-based (espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk)
 - **Infra**: Docker Compose, Mosquitto MQTT, SQLite / PostgreSQL
 
@@ -595,7 +613,7 @@ EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_brief
 | Wallet (double-entry ledger) | No points system |
 | VOICEVOX only | Plugin TTS (4 backends) |
 | Hardcoded personality | YAML character system |
-| Ollama only | OpenAI / Anthropic / Ollama |
+| Ollama only | llama.cpp (default) / OpenAI / Anthropic / Ollama |
 | 11 services | 7 core + optional profiles |
 | Office/multi-user | Home/single occupant |
 | No alert suppression | Alert suppression (30min/10min) |

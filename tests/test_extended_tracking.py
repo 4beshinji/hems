@@ -158,16 +158,16 @@ class TestWorldModelHRVRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/hrv", {
             "rmssd_ms": 42,
         })
-        hrv = world_model.biometric_state.hrv
+        hrv = world_model.user.biometrics.hrv
         assert hrv.rmssd_ms == 42
         assert hrv.last_update > 0
-        assert world_model.biometric_state.bridge_connected is True
+        assert world_model.user.biometrics.bridge_connected is True
 
     def test_hrv_low_threshold_event(self, world_model):
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/hrv", {
             "rmssd_ms": 15,
         })
-        events = world_model.biometric_state.events
+        events = world_model.user.biometrics.events
         assert len(events) == 1
         assert events[0].event_type == "hrv_low"
         assert events[0].severity == 1
@@ -176,18 +176,18 @@ class TestWorldModelHRVRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/hrv", {
             "rmssd_ms": 50,
         })
-        assert len(world_model.biometric_state.events) == 0
+        assert len(world_model.user.biometrics.events) == 0
 
     def test_hrv_repeated_low_no_new_event(self, world_model):
         """Repeated low HRV without crossing generates no new event."""
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/hrv", {
             "rmssd_ms": 15,
         })
-        assert len(world_model.biometric_state.events) == 1
+        assert len(world_model.user.biometrics.events) == 1
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/hrv", {
             "rmssd_ms": 12,
         })
-        assert len(world_model.biometric_state.events) == 1
+        assert len(world_model.user.biometrics.events) == 1
 
 
 class TestWorldModelBodyTempRouting:
@@ -195,7 +195,7 @@ class TestWorldModelBodyTempRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/body_temperature", {
             "celsius": 36.5,
         })
-        bt = world_model.biometric_state.body_temperature
+        bt = world_model.user.biometrics.body_temperature
         assert bt.celsius == 36.5
         assert bt.last_update > 0
 
@@ -203,7 +203,7 @@ class TestWorldModelBodyTempRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/body_temperature", {
             "celsius": 38.0,
         })
-        events = world_model.biometric_state.events
+        events = world_model.user.biometrics.events
         assert len(events) == 1
         assert events[0].event_type == "body_temp_high"
 
@@ -211,7 +211,7 @@ class TestWorldModelBodyTempRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/body_temperature", {
             "celsius": 36.5,
         })
-        assert len(world_model.biometric_state.events) == 0
+        assert len(world_model.user.biometrics.events) == 0
 
 
 class TestWorldModelRespiratoryRateRouting:
@@ -219,7 +219,7 @@ class TestWorldModelRespiratoryRateRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/respiratory_rate", {
             "breaths_per_minute": 16,
         })
-        rr = world_model.biometric_state.respiratory_rate
+        rr = world_model.user.biometrics.respiratory_rate
         assert rr.breaths_per_minute == 16
         assert rr.last_update > 0
 
@@ -227,7 +227,7 @@ class TestWorldModelRespiratoryRateRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/respiratory_rate", {
             "breaths_per_minute": 30,
         })
-        events = world_model.biometric_state.events
+        events = world_model.user.biometrics.events
         assert len(events) == 1
         assert events[0].event_type == "respiratory_rate_high"
 
@@ -235,7 +235,7 @@ class TestWorldModelRespiratoryRateRouting:
         world_model.update_from_mqtt("hems/personal/biometrics/garmin/respiratory_rate", {
             "breaths_per_minute": 18,
         })
-        assert len(world_model.biometric_state.events) == 0
+        assert len(world_model.user.biometrics.events) == 0
 
 
 class TestWorldModelBiometricLLMContextNewFields:
@@ -386,9 +386,9 @@ class TestRuleEngineHRVRule:
 
     def test_low_hrv_triggers_speak(self, world_model):
         engine = self._make_engine()
-        world_model.biometric_state.bridge_connected = True
-        world_model.biometric_state.hrv.rmssd_ms = 15
-        world_model.biometric_state.hrv.last_update = time.time()
+        world_model.user.biometrics.bridge_connected = True
+        world_model.user.biometrics.hrv.rmssd_ms = 15
+        world_model.user.biometrics.hrv.last_update = time.time()
 
         actions = engine.evaluate(world_model)
         speaks = [a for a in actions if a["tool"] == "speak" and "HRV" in a["args"]["message"]]
@@ -398,9 +398,9 @@ class TestRuleEngineHRVRule:
 
     def test_normal_hrv_no_action(self, world_model):
         engine = self._make_engine()
-        world_model.biometric_state.bridge_connected = True
-        world_model.biometric_state.hrv.rmssd_ms = 50
-        world_model.biometric_state.hrv.last_update = time.time()
+        world_model.user.biometrics.bridge_connected = True
+        world_model.user.biometrics.hrv.rmssd_ms = 50
+        world_model.user.biometrics.hrv.last_update = time.time()
 
         actions = engine.evaluate(world_model)
         speaks = [a for a in actions if a["tool"] == "speak" and "HRV" in a["args"]["message"]]
@@ -408,8 +408,8 @@ class TestRuleEngineHRVRule:
 
     def test_hrv_none_no_action(self, world_model):
         engine = self._make_engine()
-        world_model.biometric_state.bridge_connected = True
-        world_model.biometric_state.hrv.rmssd_ms = None
+        world_model.user.biometrics.bridge_connected = True
+        world_model.user.biometrics.hrv.rmssd_ms = None
 
         actions = engine.evaluate(world_model)
         speaks = [a for a in actions if a["tool"] == "speak" and "HRV" in a["args"]["message"]]
@@ -425,9 +425,9 @@ class TestRuleEngineBodyTempRule:
 
     def test_high_body_temp_triggers_speak(self, world_model):
         engine = self._make_engine()
-        world_model.biometric_state.bridge_connected = True
-        world_model.biometric_state.body_temperature.celsius = 38.2
-        world_model.biometric_state.body_temperature.last_update = time.time()
+        world_model.user.biometrics.bridge_connected = True
+        world_model.user.biometrics.body_temperature.celsius = 38.2
+        world_model.user.biometrics.body_temperature.last_update = time.time()
 
         actions = engine.evaluate(world_model)
         speaks = [a for a in actions if a["tool"] == "speak" and "体温" in a["args"]["message"]]
@@ -436,9 +436,9 @@ class TestRuleEngineBodyTempRule:
 
     def test_normal_body_temp_no_action(self, world_model):
         engine = self._make_engine()
-        world_model.biometric_state.bridge_connected = True
-        world_model.biometric_state.body_temperature.celsius = 36.5
-        world_model.biometric_state.body_temperature.last_update = time.time()
+        world_model.user.biometrics.bridge_connected = True
+        world_model.user.biometrics.body_temperature.celsius = 36.5
+        world_model.user.biometrics.body_temperature.last_update = time.time()
 
         actions = engine.evaluate(world_model)
         speaks = [a for a in actions if a["tool"] == "speak" and "体温" in a["args"]["message"]]
@@ -454,9 +454,9 @@ class TestRuleEngineRespiratoryRateRule:
 
     def test_high_resp_rate_triggers_speak(self, world_model):
         engine = self._make_engine()
-        world_model.biometric_state.bridge_connected = True
-        world_model.biometric_state.respiratory_rate.breaths_per_minute = 30
-        world_model.biometric_state.respiratory_rate.last_update = time.time()
+        world_model.user.biometrics.bridge_connected = True
+        world_model.user.biometrics.respiratory_rate.breaths_per_minute = 30
+        world_model.user.biometrics.respiratory_rate.last_update = time.time()
 
         actions = engine.evaluate(world_model)
         speaks = [a for a in actions if a["tool"] == "speak" and "呼吸" in a["args"]["message"]]
@@ -465,9 +465,9 @@ class TestRuleEngineRespiratoryRateRule:
 
     def test_normal_resp_rate_no_action(self, world_model):
         engine = self._make_engine()
-        world_model.biometric_state.bridge_connected = True
-        world_model.biometric_state.respiratory_rate.breaths_per_minute = 16
-        world_model.biometric_state.respiratory_rate.last_update = time.time()
+        world_model.user.biometrics.bridge_connected = True
+        world_model.user.biometrics.respiratory_rate.breaths_per_minute = 16
+        world_model.user.biometrics.respiratory_rate.last_update = time.time()
 
         actions = engine.evaluate(world_model)
         speaks = [a for a in actions if a["tool"] == "speak" and "呼吸" in a["args"]["message"]]

@@ -34,7 +34,7 @@ class TestSittingDetection:
         zone.occupancy.posture_duration_sec = 3601  # just over 60 min threshold
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         actions = engine.evaluate(world_model)
         sitting_actions = [a for a in actions if "座りっぱなし" in a.get("args", {}).get("message", "")]
@@ -48,7 +48,7 @@ class TestSittingDetection:
         zone.occupancy.posture_duration_sec = 60  # 1 min
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         actions = engine.evaluate(world_model)
         sitting_actions = [a for a in actions if "座りっぱなし" in a.get("args", {}).get("message", "")]
@@ -60,10 +60,10 @@ class TestEmptyRoomDetection:
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 0
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights["light.living_room"] = LightState(on=True, brightness=200)
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.lights["light.living_room"] = LightState(on=True, brightness=200)
 
         actions = engine.evaluate(world_model)
         light_off = [a for a in actions if a.get("tool") == "control_light"
@@ -74,10 +74,10 @@ class TestEmptyRoomDetection:
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
-        world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights["light.living_room"] = LightState(on=True, brightness=200)
+        world_model.physical.home_devices.bridge_connected = True
+        world_model.physical.home_devices.lights["light.living_room"] = LightState(on=True, brightness=200)
 
         actions = engine.evaluate(world_model)
         # Perception empty-room rule should not fire when room is occupied
@@ -93,7 +93,7 @@ class TestLyingDetection:
         zone.occupancy.posture_duration_sec = 900  # 15 min
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         with patch("rule_engine.datetime", _FakeDatetime):
             actions = engine.evaluate(world_model)
@@ -110,7 +110,7 @@ class TestActivityDrop:
         zone.occupancy.count = 1
         zone.occupancy.posture_duration_sec = 1200  # 20 min
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         actions = engine.evaluate(world_model)
         drop_actions = [a for a in actions if "動きがない" in a.get("args", {}).get("message", "")]
@@ -123,7 +123,7 @@ class TestActivityDrop:
         zone.occupancy.count = 0
         zone.occupancy.posture_duration_sec = 1200
         zone.occupancy.last_update = time.time()
-        world_model.zones["living_room"] = zone
+        world_model.physical.zones["living_room"] = zone
 
         actions = engine.evaluate(world_model)
         drop_actions = [a for a in actions if "動きがない" in a.get("args", {}).get("message", "")]

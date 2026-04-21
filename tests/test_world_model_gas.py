@@ -26,7 +26,7 @@ class TestWorldModelGASRouting:
             ],
             "hours": 24,
         })
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         assert len(gs.calendar_events) == 2
         assert gs.calendar_events[0].title == "Team Standup"
         assert gs.calendar_events[1].location == "Cafeteria"
@@ -43,7 +43,7 @@ class TestWorldModelGASRouting:
                 },
             ],
         })
-        ev = world_model.gas_state.calendar_events[0]
+        ev = world_model.digital.gas_state.calendar_events[0]
         assert ev.is_all_day is True
         # start_ts may parse depending on Python version; just verify no crash
 
@@ -54,7 +54,7 @@ class TestWorldModelGASRouting:
                 {"start": "2026-02-19T17:00:00+09:00", "end": "2026-02-19T18:00:00+09:00", "duration_minutes": 60},
             ],
         })
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         assert len(gs.free_slots) == 2
         assert gs.free_slots[0].duration_minutes == 120
 
@@ -70,7 +70,7 @@ class TestWorldModelGASRouting:
                 },
             ],
         })
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         assert len(gs.tasks) == 2
         assert gs.tasks[0].title == "Buy milk"
         assert gs.tasks[0].list_name == "My Tasks"
@@ -89,7 +89,7 @@ class TestWorldModelGASRouting:
                 },
             ],
         })
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         assert len(gs.tasks) == 1
         assert gs.tasks[0].is_overdue is True
 
@@ -100,7 +100,7 @@ class TestWorldModelGASRouting:
                 "Updates": {"unread": 5, "total": None},
             },
         })
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         assert "INBOX" in gs.gmail_labels
         assert gs.gmail_labels["INBOX"].unread == 12
         assert gs.gmail_labels["Updates"].unread == 5
@@ -112,7 +112,7 @@ class TestWorldModelGASRouting:
                 {"id": "th1", "subject": "Hello", "from": "a@b.com", "date": "2026-02-19T08:00:00Z"},
             ],
         })
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         assert len(gs.gmail_recent) == 1
         assert gs.gmail_recent[0]["subject"] == "Hello"
 
@@ -121,7 +121,7 @@ class TestWorldModelGASRouting:
             "headers": ["metric", "value", "threshold"],
             "values": [["food", 15000, 20000]],
         })
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         assert "budget" in gs.sheets
         assert gs.sheets["budget"].headers == ["metric", "value", "threshold"]
         assert gs.sheets["budget"].name == "budget"
@@ -134,7 +134,7 @@ class TestWorldModelGASRouting:
                  "modifiedTime": "2026-02-19T10:00:00Z", "url": "https://docs.google.com/d/xxx"},
             ],
         })
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         assert len(gs.drive_recent) == 1
         assert gs.drive_recent[0].name == "Notes.docx"
 
@@ -142,12 +142,12 @@ class TestWorldModelGASRouting:
         world_model.update_from_mqtt("hems/gas/bridge/status", {
             "connected": True, "last_updates": {}, "timestamp": 1.0,
         })
-        assert world_model.gas_state.bridge_connected is True
+        assert world_model.digital.gas_state.bridge_connected is True
 
     def test_bridge_disconnect(self, world_model):
         world_model.update_from_mqtt("hems/gas/bridge/status", {"connected": True})
         world_model.update_from_mqtt("hems/gas/bridge/status", {"connected": False})
-        assert world_model.gas_state.bridge_connected is False
+        assert world_model.digital.gas_state.bridge_connected is False
 
     def test_unknown_gas_topic_ignored(self, world_model):
         world_model.update_from_mqtt("hems/gas/unknown/foo", {"bar": 1})
@@ -168,7 +168,7 @@ class TestWorldModelGASRouting:
                 },
             ],
         })
-        ev = world_model.gas_state.calendar_events[0]
+        ev = world_model.digital.gas_state.calendar_events[0]
         assert ev.start_ts > 0
         assert ev.end_ts > ev.start_ts
 
@@ -178,7 +178,7 @@ class TestWorldModelGASContext:
 
     def test_no_gas_in_context_when_no_data(self, world_model):
         # GAS section should not appear when bridge is not connected
-        world_model.gas_state.bridge_connected = False
+        world_model.digital.gas_state.bridge_connected = False
         ctx = world_model.get_llm_context()
         assert "Google" not in ctx
 
@@ -187,8 +187,8 @@ class TestWorldModelGASContext:
         import time
         future_start = time.time() + 3600
         future_end = future_start + 1800
-        world_model.gas_state.bridge_connected = True
-        world_model.gas_state.calendar_events = [
+        world_model.digital.gas_state.bridge_connected = True
+        world_model.digital.gas_state.calendar_events = [
             __import__("world_model.data_classes", fromlist=["CalendarEvent"]).CalendarEvent(
                 id="e1", title="Standup", start="2099-02-19T10:00:00+09:00",
                 end="2099-02-19T10:30:00+09:00", start_ts=future_start, end_ts=future_end,

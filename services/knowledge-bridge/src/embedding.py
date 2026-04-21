@@ -1,6 +1,8 @@
 """
-Embedding client — generates document embeddings via Ollama API.
-Gracefully degrades when Ollama is unavailable.
+Embedding client — generates document embeddings via an OpenAI-compatible
+`/v1/embeddings` endpoint. Defaults to text-embeddings-inference (TEI) but
+works with any OpenAI-compatible server (llama.cpp embeddings mode, LocalAI,
+Ollama's `/v1` shim, etc.). Gracefully degrades when the server is unreachable.
 """
 import asyncio
 import hashlib
@@ -17,11 +19,14 @@ from config import EMBEDDING_URL, EMBEDDING_MODEL, EMBEDDING_CACHE_DIR
 
 
 class EmbeddingClient:
-    """Async embedding client using Ollama /api/embed endpoint."""
+    """Async embedding client using OpenAI-compatible `/v1/embeddings`."""
 
-    def __init__(self, url: str = "", model: str = "nomic-embed-text",
+    def __init__(self, url: str = "", model: str = "nomic-embed-text-v1.5",
                  cache_dir: str = ""):
-        self.url = url.rstrip("/") if url else ""
+        base = url.rstrip("/") if url else ""
+        if base.endswith("/v1"):
+            base = base[:-3]
+        self.url = base
         self.model = model
         self._cache_dir = Path(cache_dir) if cache_dir else None
         self._session: Optional[aiohttp.ClientSession] = None
@@ -38,7 +43,7 @@ class EmbeddingClient:
         return self._dim
 
     async def initialize(self):
-        """Check Ollama connectivity and detect embedding dimension."""
+        """Probe the embedding server and detect embedding dimension."""
         if not self.url:
             logger.info("Embedding disabled (EMBEDDING_URL not set)")
             return
@@ -125,43 +130,56 @@ class EmbeddingClient:
         logger.info(f"Embedding complete: {cached_count}/{len(texts)} vectors")
         return results
 
+    def _parse_vectors(self, data: dict, expected: int) -> list[Optional[np.ndarray]]:
+        """Pull vectors out of an OpenAI or Ollama embedding response.
+
+        OpenAI shape:  {"data": [{"embedding": [...], "index": 0}, ...]}
+        Ollama shape:  {"embeddings": [[...], [...]]}  (fallback for legacy)
+        """
+        results: list[Optional[np.ndarray]] = [None] * expected
+        items = data.get("data")
+        if isinstance(items, list) and items:
+            for item in items:
+                idx = item.get("index", 0)
+                vec = item.get("embedding")
+                if vec is None or idx >= expected:
+                    continue
+                results[idx] = np.array(vec, dtype=np.float32)
+            return results
+        legacy = data.get("embeddings")
+        if isinstance(legacy, list):
+            for i, vec in enumerate(legacy[:expected]):
+                results[i] = np.array(vec, dtype=np.float32)
+        return results
+
     async def _embed_single(self, text: str) -> Optional[np.ndarray]:
-        """Single text embedding via Ollama API."""
+        """Single text embedding via OpenAI-compatible `/v1/embeddings`."""
         try:
             async with self._session.post(
-                f"{self.url}/api/embed",
+                f"{self.url}/v1/embeddings",
                 json={"model": self.model, "input": text},
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status != 200:
                     return None
                 data = await resp.json()
-                embeddings = data.get("embeddings", [])
-                if embeddings:
-                    return np.array(embeddings[0], dtype=np.float32)
-                return None
+                vectors = self._parse_vectors(data, 1)
+                return vectors[0]
         except Exception:
             return None
 
     async def _embed_batch_request(self, texts: list[str]) -> list[Optional[np.ndarray]]:
-        """Batch embedding via Ollama API (single request, multiple inputs)."""
+        """Batch embedding via OpenAI-compatible `/v1/embeddings`."""
         try:
             async with self._session.post(
-                f"{self.url}/api/embed",
+                f"{self.url}/v1/embeddings",
                 json={"model": self.model, "input": texts},
                 timeout=aiohttp.ClientTimeout(total=120),
             ) as resp:
                 if resp.status != 200:
                     return [None] * len(texts)
                 data = await resp.json()
-                embeddings = data.get("embeddings", [])
-                results = []
-                for i in range(len(texts)):
-                    if i < len(embeddings):
-                        results.append(np.array(embeddings[i], dtype=np.float32))
-                    else:
-                        results.append(None)
-                return results
+                return self._parse_vectors(data, len(texts))
         except Exception as e:
             logger.debug(f"Batch embed request failed: {e}")
             return [None] * len(texts)

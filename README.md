@@ -42,13 +42,13 @@ docker compose up -d --build
 - **スマートホーム** (HA): 照明/空調/カバー/スイッチ/センサー/シーン + スケジュール学習
 - **SwitchBot** (直接API): HA不要のデバイス制御 + IR リモート (Hub経由)
 - **天気** (weather-bridge): JMA (気象庁) / OpenWeatherMap — 降雨・猛暑アラート
-- **ニュース** (news-bridge): RSS + Ollama 要約 — 日次ブリーフィング + 緊急ニュース検知 + イベント駆動音声通知
+- **ニュース** (news-bridge): RSS + ローカル LLM (llama.cpp) 要約 — 日次ブリーフィング + 緊急ニュース検知 + イベント駆動音声通知
 
 ### バイオメトリクス・パーセプション
 
 - **バイオメトリクス**: Gadgetbridge webhook — 心拍/SpO2/睡眠/ストレス/疲労スコア/HRV/体温/呼吸数
 - **カメラ知覚**: YOLOv11s-pose — 在室検知・姿勢分類 (立位/座位/臥位/歩行)・活動追跡
-- **VLM シーン理解**: moondream / minicpm-v — 適応的頻度制御 + イベント駆動ブースト + オンデマンド分析
+- **VLM シーン理解**: llama.cpp `--mmproj` で MiniCPM-V / Qwen2-VL などを常駐 — 適応的頻度制御 + イベント駆動ブースト + オンデマンド分析
 
 ### エッジデバイス
 
@@ -71,9 +71,10 @@ docker compose up -d --build
 │  (TTS×4)     │                     │      (dev)          │
 └──────────────┴─────────────────────┴─────────────────────┘
 
-Profiles:  voicevox | ollama | postgres | localcraw | obsidian
+Profiles:  voicevox | llm (llama.cpp+TEI) | vlm | vlm-heavy
+           ollama (legacy) | postgres | localcraw | obsidian
            gas | ha | biometric | perception | switchbot | news
-           knowledge
+           knowledge | stt
 ```
 
 ### Brain ツール一覧 (35+)
@@ -113,7 +114,11 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 | News Bridge | 8021 | hems-news-bridge |
 | Knowledge Bridge | 8022 | hems-knowledge-bridge |
 | VOICEVOX | 50031 | hems-voicevox |
-| Ollama | 11444 | hems-ollama |
+| llama.cpp LLM | 8081 | hems-llm |
+| Embed (TEI) | 8090 | hems-embed |
+| VLM light | 8082 | hems-vlm-light |
+| VLM heavy | 8083 | hems-vlm-heavy |
+| Ollama (legacy) | 11444 | hems-ollama |
 | PostgreSQL | 5442 | hems-postgres |
 | MQTT | 1893 | hems-mqtt |
 
@@ -143,16 +148,16 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 KNOWLEDGE_SOURCE_PWS=/path/to/pws
 KNOWLEDGE_SOURCES=[{"name":"pws","path":"/sources/pws","extensions":[".md",".py",".json",".pdf"]}]
 
-# ベクトル検索を有効にする場合 (requires --profile ollama)
-EMBEDDING_URL=http://ollama:11434
-EMBEDDING_MODEL=nomic-embed-text
+# ベクトル検索を有効にする場合 (requires --profile llm で TEI 起動)
+EMBEDDING_URL=http://embed:80
+EMBEDDING_MODEL=nomic-embed-text-v1.5
 
-docker compose --profile knowledge up -d --build
+docker compose --profile llm --profile knowledge up -d --build
 ```
 
 - **8種ローダー**: Markdown, Python (.py AST), JSON, Text, PDF (pdfplumber), DOCX, CSV, HTML
-- **ハイブリッド検索**: BM25 (キーワード) + Vector (Ollama embedding) + Title boost → 3-way RRF
-- **Ollama 不在時**: BM25 + Title の2-way に自動降格
+- **ハイブリッド検索**: BM25 (キーワード) + Vector (OpenAI互換 embedding, 既定は TEI) + Title boost → 3-way RRF
+- **埋め込みサーバ不在時**: BM25 + Title の2-way に自動降格
 - **埋め込みキャッシュ**: ディスク永続化、変更ドキュメントのみ再埋め込み
 
 ## AI Character System
@@ -213,14 +218,19 @@ YAML に追加するだけで MotionRetriever が自動的に選択候補に組�
 docker compose --profile voicevox up -d
 # → .env: TTS_PROVIDER=voicevox
 
-# Ollama (ローカル LLM — GPU自動検出)
-python infra/scripts/gpu_setup.py   # docker-compose.gpu.yml 生成
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d
-docker exec hems-ollama ollama pull qwen3.5   # 初回のみ
+# ローカル LLM (llama.cpp + TEI embeddings — GPU自動検出)
+bash infra/scripts/pull_models.sh    # GGUF / mmproj / embed モデル取得
+python infra/scripts/gpu_setup.py    # docker-compose.gpu.yml 生成
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile llm up -d
+# VLM を使う場合: --profile vlm (light 常駐), --profile vlm-heavy も足すと heavy 併載
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile llm --profile vlm up -d
 
-# Ollama (CPU のみ)
+# ローカル LLM (CPU のみ)
+docker compose --profile llm up -d
+
+# Legacy: Ollama (既存の ollama_models ボリュームを使いたい場合)
 docker compose --profile ollama up -d
-docker exec hems-ollama ollama pull qwen3.5
+docker exec hems-ollama ollama pull qwen2.5:14b
 
 # PostgreSQL (SQLite の代替)
 docker compose --profile postgres up -d
@@ -246,11 +256,11 @@ docker compose --profile perception up -d
 # SwitchBot (直接API制御 — HA不要)
 docker compose --profile switchbot up -d
 
-# News (RSS + Ollama ニュース要約 — ollama 必須)
-docker compose --profile news --profile ollama up -d
+# News (RSS + ローカル LLM ニュース要約 — llm もしくは legacy ollama 必須)
+docker compose --profile news --profile llm up -d
 
-# Knowledge (外部ドキュメント取込 — ベクトル検索は ollama 推奨)
-docker compose --profile knowledge up -d
+# Knowledge (外部ドキュメント取込 — ベクトル検索は llm プロファイル推奨)
+docker compose --profile knowledge --profile llm up -d
 
 
 # 複数プロファイル組み合わせ
@@ -282,9 +292,9 @@ pnpm build    # tsc -b && vite build
 | Backend | Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion |
 | 3D Avatar | Three.js, React Three Fiber, @pixiv/three-vrm |
-| LLM | OpenAI / Anthropic / Ollama (マルチプロバイダー) |
+| LLM | OpenAI互換 (既定: llama.cpp `llama-server`) / OpenAI / Anthropic / Ollama |
 | TTS | espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk |
-| Search | BM25 (rank_bm25) + Vector (Ollama embedding + numpy) + RRF |
+| Search | BM25 (rank_bm25) + Vector (OpenAI互換 embedding, 既定は TEI + numpy) + RRF |
 | DB | SQLite (default) / PostgreSQL 16 |
 | Infra | Docker Compose, Mosquitto MQTT |
 | Edge | MicroPython (ESP32), SensorSwarm バイナリプロトコル |
@@ -309,7 +319,7 @@ pnpm build    # tsc -b && vite build
 - **Phase 2** (完了): 外部連携 — localcraw, Obsidian, GAS, Home Assistant, Biometric
 - **Phase 3** (完了): Perception — カメラ検知・姿勢分類・活動追跡 (YOLOv11s-pose)
 - **Phase 4** (完了): IoT拡張 — SwitchBot直接統合, Weather Bridge, 買い物リスト, Edge Swarm
-- **Phase 5** (完了): 知覚・情報統合 — VLM シーン理解, ニュースブリーフィング, イベント自動化, Ollama ネイティブ API
+- **Phase 5** (完了): 知覚・情報統合 — VLM シーン理解, ニュースブリーフィング, イベント自動化, OpenAI互換ローカル LLM スタック (llama.cpp + TEI)
 - **Phase 6** (完了): Advanced TTS — VoiSona Talk
 - **Phase 7** (完了): ナレッジ・対話 — knowledge-bridge (ハイブリッド検索), パーソナライズドチャット, STT
 - **Phase 8** (計画中): SSEストリーミング応答, コマンドモード (チャットからデバイス操作), 会話サマリ圧縮, ユーザープロファイル学習

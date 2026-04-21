@@ -27,8 +27,8 @@ class TestPushPCSnapshot:
     @pytest.mark.asyncio
     async def test_pushes_when_data_exists(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        world_model.pc_state.cpu = CPUData(usage_percent=50, core_count=8, temp_c=55, last_update=1.0)
-        world_model.pc_state.memory = MemoryData(used_gb=12, total_gb=32, percent=37.5, last_update=1.0)
+        world_model.digital.pc_state.cpu = CPUData(usage_percent=50, core_count=8, temp_c=55, last_update=1.0)
+        world_model.digital.pc_state.memory = MemoryData(used_gb=12, total_gb=32, percent=37.5, last_update=1.0)
 
         resp = mock_session._make_response(200, {"updated": True})
         mock_session.post = MagicMock(return_value=resp)
@@ -41,13 +41,13 @@ class TestPushPCSnapshot:
     @pytest.mark.asyncio
     async def test_payload_contains_all_sections(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        world_model.pc_state.cpu = CPUData(usage_percent=50, core_count=8, last_update=1.0)
-        world_model.pc_state.memory = MemoryData(used_gb=12, total_gb=32, percent=37.5, last_update=1.0)
-        world_model.pc_state.gpu = GPUData(usage_percent=80, temp_c=70, last_update=1.0)
-        world_model.pc_state.disk = DiskData(
+        world_model.digital.pc_state.cpu = CPUData(usage_percent=50, core_count=8, last_update=1.0)
+        world_model.digital.pc_state.memory = MemoryData(used_gb=12, total_gb=32, percent=37.5, last_update=1.0)
+        world_model.digital.pc_state.gpu = GPUData(usage_percent=80, temp_c=70, last_update=1.0)
+        world_model.digital.pc_state.disk = DiskData(
             partitions=[DiskPartition(mount="/", used_gb=100, total_gb=500, percent=20)],
         )
-        world_model.pc_state.top_processes = [
+        world_model.digital.pc_state.top_processes = [
             ProcessInfo(pid=1, name="test", cpu_percent=5, mem_mb=100),
         ]
 

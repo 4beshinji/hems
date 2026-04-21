@@ -10,15 +10,15 @@ from world_model.data_classes import ServiceStatusData, ProcessInfo
 
 
 class TestGetServiceStatus:
-    """Test _handle_get_service_status — reads from world_model.services_state."""
+    """Test _handle_get_service_status — reads from world_model.digital.services_state."""
 
     @pytest.mark.asyncio
     async def test_get_all_services(self, tool_executor, world_model):
-        world_model.services_state.services["gmail"] = ServiceStatusData(
+        world_model.digital.services_state.services["gmail"] = ServiceStatusData(
             name="gmail", available=True, unread_count=3,
             summary="未読メール: 3通", last_check=time.time(),
         )
-        world_model.services_state.services["github"] = ServiceStatusData(
+        world_model.digital.services_state.services["github"] = ServiceStatusData(
             name="github", available=True, unread_count=5,
             summary="GitHub通知: 5件", last_check=time.time(),
         )
@@ -33,7 +33,7 @@ class TestGetServiceStatus:
 
     @pytest.mark.asyncio
     async def test_get_specific_service(self, tool_executor, world_model):
-        world_model.services_state.services["gmail"] = ServiceStatusData(
+        world_model.digital.services_state.services["gmail"] = ServiceStatusData(
             name="gmail", available=True, unread_count=2,
             summary="未読メール: 2通", last_check=time.time(),
         )
@@ -59,7 +59,7 @@ class TestGetServiceStatus:
 
     @pytest.mark.asyncio
     async def test_service_with_error(self, tool_executor, world_model):
-        world_model.services_state.services["gmail"] = ServiceStatusData(
+        world_model.digital.services_state.services["gmail"] = ServiceStatusData(
             name="gmail", available=False, unread_count=0,
             summary="Gmail接続エラー", error="IMAP timeout",
             last_check=time.time(),
@@ -79,16 +79,16 @@ class TestGetServiceStatus:
 
 
 class TestGetPCStatus:
-    """Test _handle_get_pc_status — reads from world_model.pc_state."""
+    """Test _handle_get_pc_status — reads from world_model.digital.pc_state."""
 
     @pytest.mark.asyncio
     async def test_get_pc_status_default(self, tool_executor, world_model):
-        world_model.pc_state.cpu.usage_percent = 55.0
-        world_model.pc_state.cpu.core_count = 8
-        world_model.pc_state.memory.percent = 40.0
-        world_model.pc_state.memory.used_gb = 12.0
-        world_model.pc_state.memory.total_gb = 32.0
-        world_model.pc_state.bridge_connected = True
+        world_model.digital.pc_state.cpu.usage_percent = 55.0
+        world_model.digital.pc_state.cpu.core_count = 8
+        world_model.digital.pc_state.memory.percent = 40.0
+        world_model.digital.pc_state.memory.used_gb = 12.0
+        world_model.digital.pc_state.memory.total_gb = 32.0
+        world_model.digital.pc_state.bridge_connected = True
 
         result = await tool_executor.execute("get_pc_status", {})
         assert result["success"] is True
@@ -100,7 +100,7 @@ class TestGetPCStatus:
 
     @pytest.mark.asyncio
     async def test_get_pc_status_with_processes(self, tool_executor, world_model):
-        world_model.pc_state.top_processes = [
+        world_model.digital.pc_state.top_processes = [
             ProcessInfo(pid=1234, name="python", cpu_percent=20.0, mem_mb=256.0),
             ProcessInfo(pid=5678, name="chrome", cpu_percent=5.0, mem_mb=512.0),
         ]
@@ -114,7 +114,7 @@ class TestGetPCStatus:
 
     @pytest.mark.asyncio
     async def test_get_pc_status_without_processes_flag(self, tool_executor, world_model):
-        world_model.pc_state.top_processes = [
+        world_model.digital.pc_state.top_processes = [
             ProcessInfo(pid=1, name="python", cpu_percent=10.0, mem_mb=100.0),
         ]
 
@@ -126,7 +126,7 @@ class TestGetPCStatus:
     @pytest.mark.asyncio
     async def test_get_pc_status_with_disk(self, tool_executor, world_model):
         from world_model.data_classes import DiskData, DiskPartition
-        world_model.pc_state.disk = DiskData(
+        world_model.digital.pc_state.disk = DiskData(
             partitions=[DiskPartition(mount="/", used_gb=100.0, total_gb=500.0, percent=20.0)],
             last_update=time.time(),
         )

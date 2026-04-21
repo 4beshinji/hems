@@ -211,7 +211,7 @@ class ToolExecutor:
     async def _handle_get_zone_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get detailed zone status from WorldModel."""
         zone_id = args.get("zone_id", "")
-        zone = self.world_model.zones.get(zone_id)
+        zone = self.world_model.physical.zones.get(zone_id)
         if not zone:
             return {"success": False, "error": f"Zone '{zone_id}' not found"}
 
@@ -325,7 +325,7 @@ class ToolExecutor:
     # --- PC tools (OpenClaw) ---
 
     async def _handle_get_pc_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        pc = self.world_model.pc_state
+        pc = self.world_model.digital.pc_state
         status = {
             "cpu_percent": pc.cpu.usage_percent,
             "cpu_cores": pc.cpu.core_count,
@@ -420,7 +420,7 @@ class ToolExecutor:
     # --- Service tools ---
 
     async def _handle_get_service_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        ss = self.world_model.services_state
+        ss = self.world_model.digital.services_state
         service_name = args.get("service_name")
         if service_name:
             svc = ss.services.get(service_name)
@@ -569,7 +569,7 @@ class ToolExecutor:
         return await self._ha_service_call(entity_id, service)
 
     async def _handle_get_sensor_data(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        hd = self.world_model.home_devices
+        hd = self.world_model.physical.home_devices
         entity_id = args.get("entity_id")
         device_class = args.get("device_class")
 
@@ -597,7 +597,7 @@ class ToolExecutor:
         return await self._ha_service_call(entity_id, "scene/turn_on")
 
     async def _handle_get_home_devices(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        hd = self.world_model.home_devices
+        hd = self.world_model.physical.home_devices
         status = {
             "bridge_connected": hd.bridge_connected,
             "lights": {
@@ -633,7 +633,7 @@ class ToolExecutor:
         return {"success": True, "result": f"ゲストモード{'ON' if enabled else 'OFF'} ({duration}時間)"}
 
     def _handle_get_weather(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        w = self.world_model.weather
+        w = self.world_model.physical.weather
         if w.last_update == 0:
             return {"success": True, "result": "天気データなし"}
         forecast = [
@@ -652,7 +652,7 @@ class ToolExecutor:
 
     async def _handle_get_biometrics(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get current biometric readings from world model."""
-        bio = self.world_model.biometric_state
+        bio = self.world_model.user.biometrics
         status = {"bridge_connected": bio.bridge_connected, "provider": bio.provider}
         if bio.heart_rate.bpm is not None:
             status["heart_rate"] = {
@@ -677,7 +677,7 @@ class ToolExecutor:
 
     async def _handle_get_sleep_summary(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get sleep data from world model or bridge API."""
-        bio = self.world_model.biometric_state
+        bio = self.world_model.user.biometrics
         if bio.sleep.last_update > 0:
             status = {
                 "duration_minutes": bio.sleep.duration_minutes,
@@ -709,7 +709,7 @@ class ToolExecutor:
     async def _handle_get_perception_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get camera-based occupancy and activity data from world model."""
         zones_data = {}
-        for zone_id, zone in self.world_model.zones.items():
+        for zone_id, zone in self.world_model.physical.zones.items():
             occ = zone.occupancy
             if occ.last_update > 0:
                 zones_data[zone_id] = {
@@ -732,7 +732,7 @@ class ToolExecutor:
 
         # Check cached VLM data in world_model (if <60s old and no custom prompt)
         if not custom_prompt:
-            for zid, zone in self.world_model.zones.items():
+            for zid, zone in self.world_model.physical.zones.items():
                 if zone_id and zid != zone_id:
                     continue
                 occ = zone.occupancy
@@ -848,7 +848,7 @@ class ToolExecutor:
 
     async def _handle_get_news_summary(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get latest news summary from world model cache or news-bridge API."""
-        ns = self.world_model.news_state
+        ns = self.world_model.digital.news_state
 
         # Try cached data first
         if ns.daily_timestamp > 0:

@@ -165,7 +165,7 @@ class DashboardClient:
 
     async def push_pc_snapshot(self, world_model) -> None:
         """Push current PC metrics to backend for frontend consumption."""
-        pc = world_model.pc_state
+        pc = world_model.digital.pc_state
         if pc.cpu.last_update == 0 and pc.memory.last_update == 0:
             return  # No PC data yet
 
@@ -208,7 +208,7 @@ class DashboardClient:
 
     async def push_services_snapshot(self, world_model) -> None:
         """Push current service statuses to backend for frontend consumption."""
-        ss = world_model.services_state
+        ss = world_model.digital.services_state
         if not ss.services:
             return
 
@@ -234,7 +234,7 @@ class DashboardClient:
 
     async def push_knowledge_snapshot(self, world_model) -> None:
         """Push current knowledge base status to backend for frontend consumption."""
-        ks = world_model.knowledge_state
+        ks = world_model.digital.knowledge_state
         if not ks.bridge_connected:
             return
 
@@ -256,7 +256,7 @@ class DashboardClient:
 
     async def push_gas_snapshot(self, world_model) -> None:
         """Push current GAS state to backend for frontend consumption."""
-        gs = world_model.gas_state
+        gs = world_model.digital.gas_state
         if not gs.bridge_connected:
             return
 
@@ -315,7 +315,7 @@ class DashboardClient:
 
     async def push_biometric_snapshot(self, world_model) -> None:
         """Push current biometric state to backend for frontend consumption."""
-        bio = world_model.biometric_state
+        bio = world_model.user.biometrics
         if not bio.bridge_connected and bio.last_update == 0:
             return
 
@@ -371,7 +371,7 @@ class DashboardClient:
     async def push_perception_snapshot(self, world_model) -> None:
         """Push current perception (camera) state to backend for frontend consumption."""
         zones_data = {}
-        for zone_id, zone in world_model.zones.items():
+        for zone_id, zone in world_model.physical.zones.items():
             occ = zone.occupancy
             if occ.last_update > 0:
                 zones_data[zone_id] = {
@@ -397,7 +397,7 @@ class DashboardClient:
 
     async def push_home_snapshot(self, world_model) -> None:
         """Push current home device state to backend for frontend consumption."""
-        hd = world_model.home_devices
+        hd = world_model.physical.home_devices
         if not hd.bridge_connected:
             return
         # Collect power/energy sensors for dashboard
@@ -456,7 +456,7 @@ class DashboardClient:
     async def push_zone_snapshot(self, world_model) -> None:
         """Push current zone sensor data to backend for frontend consumption."""
         zones = []
-        for zone_id, zone in world_model.zones.items():
+        for zone_id, zone in world_model.physical.zones.items():
             env = zone.environment
             zones.append({
                 "zone_id": zone_id,

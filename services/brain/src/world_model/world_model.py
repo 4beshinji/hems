@@ -9,13 +9,11 @@ import logging
 from typing import Optional
 from .data_classes import (
     ZoneState, OccupancyData, Event,
-    PCState, CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
-    ServicesState, ServiceStatusData,
-    KnowledgeState,
-    GASState, CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
-    HomeDevicesState, LightState, ClimateState, CoverState, BinarySensorState, HASensorState,
-    BiometricState, HeartRateData, StressData, PhysicalSpace, DigitalSpace, UserState,
-    NewsState,
+    CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
+    ServiceStatusData,
+    CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
+    LightState, ClimateState, CoverState, BinarySensorState, HASensorState,
+    HeartRateData, StressData, PhysicalSpace, DigitalSpace, UserState,
 )
 from .sensor_fusion import SensorFusion
 
@@ -99,79 +97,40 @@ class WorldModel:
         self._sensor_fusions: dict[str, SensorFusion] = {}
         self.event_writer = None  # Set by Brain if event_store is available
 
-        # VLM model swap coordination flag — brain skips LLM calls when True
-        self.vlm_model_swap_active: bool = False
+        # Guest mode: unix timestamp when mode auto-expires (0.0 = off).
+        # When active, rule_engine skips private HA automation and biometric
+        # alerts; only critical safety rules from zigbee sensors still fire.
+        self._guest_mode_expiry: float = 0.0
 
         # Alert suppression: {(zone_id, alert_type): expiry_timestamp}
         # Prevents repeated task creation for slow-changing conditions.
         self._suppressed_alerts: dict[tuple, float] = {}
 
-    # --- Backward-compatible property accessors ---
-    # These delegate to domain objects so existing code works unchanged.
+    # --- Guest mode ---
 
     @property
-    def zones(self) -> dict[str, ZoneState]:
-        return self.physical.zones
-
-    @zones.setter
-    def zones(self, value: dict[str, ZoneState]):
-        self.physical.zones = value
+    def is_guest_mode(self) -> bool:
+        """True while a guest-mode window is active (auto-expires)."""
+        return time.time() < self._guest_mode_expiry
 
     @property
-    def pc_state(self) -> PCState:
-        return self.digital.pc_state
+    def guest_mode_expiry(self) -> float:
+        """Unix timestamp when guest mode turns off (0.0 if not active)."""
+        return self._guest_mode_expiry
 
-    @pc_state.setter
-    def pc_state(self, value: PCState):
-        self.digital.pc_state = value
+    def set_guest_mode(self, enabled: bool, duration_hours: float = 4.0) -> None:
+        """Enable or disable guest mode.
 
-    @property
-    def services_state(self) -> ServicesState:
-        return self.digital.services_state
-
-    @services_state.setter
-    def services_state(self, value: ServicesState):
-        self.digital.services_state = value
-
-    @property
-    def knowledge_state(self) -> KnowledgeState:
-        return self.digital.knowledge_state
-
-    @knowledge_state.setter
-    def knowledge_state(self, value: KnowledgeState):
-        self.digital.knowledge_state = value
-
-    @property
-    def gas_state(self) -> GASState:
-        return self.digital.gas_state
-
-    @gas_state.setter
-    def gas_state(self, value: GASState):
-        self.digital.gas_state = value
-
-    @property
-    def home_devices(self) -> HomeDevicesState:
-        return self.physical.home_devices
-
-    @home_devices.setter
-    def home_devices(self, value: HomeDevicesState):
-        self.physical.home_devices = value
-
-    @property
-    def biometric_state(self) -> BiometricState:
-        return self.user.biometrics
-
-    @biometric_state.setter
-    def biometric_state(self, value: BiometricState):
-        self.user.biometrics = value
-
-    @property
-    def news_state(self) -> NewsState:
-        return self.digital.news_state
-
-    @news_state.setter
-    def news_state(self, value: NewsState):
-        self.digital.news_state = value
+        `enabled=True` starts (or extends) a window of `duration_hours`.
+        `enabled=False` clears it immediately.
+        """
+        if enabled:
+            hours = max(0.0, float(duration_hours))
+            self._guest_mode_expiry = time.time() + hours * 3600.0
+            logger.info("Guest mode enabled for %.1fh", hours)
+        else:
+            self._guest_mode_expiry = 0.0
+            logger.info("Guest mode disabled")
 
     def suppress_alert(self, zone_id: str, alert_type: str, duration: float = None):
         """Suppress an alert for a zone after a task has been created for it.
@@ -202,17 +161,17 @@ class WorldModel:
 
     def get_zone(self, zone_id: str) -> Optional[ZoneState]:
         """Get state of a specific zone (returns None if zone not yet seen)."""
-        return self.zones.get(zone_id)
+        return self.physical.zones.get(zone_id)
 
     def get_all_zones(self) -> dict[str, ZoneState]:
         """Get all zones."""
-        return self.zones
+        return self.physical.zones
 
     def _get_zone(self, zone_id: str) -> ZoneState:
         """Get or create a zone by ID (internal use)."""
-        if zone_id not in self.zones:
-            self.zones[zone_id] = ZoneState(zone_id=zone_id)
-        return self.zones[zone_id]
+        if zone_id not in self.physical.zones:
+            self.physical.zones[zone_id] = ZoneState(zone_id=zone_id)
+        return self.physical.zones[zone_id]
 
     def _get_fusion(self, key: str) -> SensorFusion:
         if key not in self._sensor_fusions:
@@ -397,7 +356,7 @@ class WorldModel:
             return
 
         category = path_parts[0]
-        pc = self.pc_state
+        pc = self.digital.pc_state
 
         if category == "metrics" and len(path_parts) >= 2:
             metric = path_parts[1]
@@ -506,7 +465,7 @@ class WorldModel:
 
     def _check_pc_thresholds(self, metric: str, value: float, prev: float):
         """Generate events from PC metric threshold crossings."""
-        pc = self.pc_state
+        pc = self.digital.pc_state
         if metric == "cpu" and value > PC_CPU_HIGH and prev <= PC_CPU_HIGH:
             pc.add_event(Event(
                 event_type="pc_cpu_high",
@@ -531,7 +490,7 @@ class WorldModel:
 
     def _update_service_state(self, service_name: str, msg_type: str, payload: dict):
         """Handle hems/services/{name}/status and hems/services/{name}/event topics."""
-        ss = self.services_state
+        ss = self.digital.services_state
 
         if msg_type == "status":
             prev = ss.services.get(service_name)
@@ -570,7 +529,7 @@ class WorldModel:
         if not path_parts:
             return
 
-        gs = self.gas_state
+        gs = self.digital.gas_state
         category = path_parts[0]
 
         if category == "calendar" and len(path_parts) >= 2:
@@ -688,61 +647,50 @@ class WorldModel:
             return 0
 
     def _update_vlm(self, path_parts: list[str], payload: dict):
-        """Handle hems/perception/* topics (VLM scene analysis + model swap)."""
-        if not path_parts:
+        """Handle hems/perception/vlm/{zone} topics (VLM scene analysis)."""
+        if len(path_parts) < 2 or path_parts[0] != "vlm":
+            return
+        # Skip non-zone subtopic (status is a retained bridge health message).
+        if path_parts[1] == "status":
             return
 
-        # hems/perception/vlm/{zone} — scene analysis result
-        if len(path_parts) >= 2 and path_parts[0] == "vlm" and path_parts[1] != "model_swap" and path_parts[1] != "status":
-            zone_id = path_parts[1]
-            zone = self._get_zone(zone_id)
-            now = time.time()
+        zone_id = path_parts[1]
+        zone = self._get_zone(zone_id)
+        now = time.time()
 
-            description = _sanitize_text(payload.get("description", ""), 500)
-            objects = payload.get("objects", [])
-            scene_type = payload.get("scene_type", "unknown")
-            anomalies = payload.get("anomalies", [])
+        description = _sanitize_text(payload.get("description", ""), 500)
+        objects = payload.get("objects", [])
+        scene_type = payload.get("scene_type", "unknown")
+        anomalies = payload.get("anomalies", [])
 
-            # Sanitize list items
-            if isinstance(objects, list):
-                objects = [_sanitize_text(str(o), 50) for o in objects[:20]]
-            else:
-                objects = []
-            if isinstance(anomalies, list):
-                anomalies = [_sanitize_text(str(a), 50) for a in anomalies[:10]]
-            else:
-                anomalies = []
+        if isinstance(objects, list):
+            objects = [_sanitize_text(str(o), 50) for o in objects[:20]]
+        else:
+            objects = []
+        if isinstance(anomalies, list):
+            anomalies = [_sanitize_text(str(a), 50) for a in anomalies[:10]]
+        else:
+            anomalies = []
 
-            zone.occupancy.scene_description = description
-            zone.occupancy.scene_objects = objects
-            zone.occupancy.scene_type = _sanitize_text(str(scene_type), 30)
-            zone.occupancy.scene_anomalies = anomalies
-            zone.occupancy.vlm_last_update = now
+        zone.occupancy.scene_description = description
+        zone.occupancy.scene_objects = objects
+        zone.occupancy.scene_type = _sanitize_text(str(scene_type), 30)
+        zone.occupancy.scene_anomalies = anomalies
+        zone.occupancy.vlm_last_update = now
 
-            # Generate events for anomalies
-            if anomalies:
-                zone.add_event(Event(
-                    event_type="vlm_anomaly",
-                    description=f"VLM検知: {', '.join(anomalies[:3])}",
-                    severity=1,
-                    zone=zone_id,
-                    data={
-                        "anomalies": anomalies,
-                        "description": description[:200],
-                        "model": payload.get("model", ""),
-                        "tier": payload.get("tier", ""),
-                    },
-                ))
-
-        # hems/perception/vlm/model_swap — VRAM coordination
-        elif len(path_parts) >= 2 and path_parts[0] == "vlm" and path_parts[1] == "model_swap":
-            status = payload.get("status", "")
-            if status == "heavy_loading":
-                self.vlm_model_swap_active = True
-                logger.info("VLM model swap: heavy model loading — brain entering rule-only mode")
-            elif status == "ready":
-                self.vlm_model_swap_active = False
-                logger.info("VLM model swap: ready — brain resuming LLM mode")
+        if anomalies:
+            zone.add_event(Event(
+                event_type="vlm_anomaly",
+                description=f"VLM検知: {', '.join(anomalies[:3])}",
+                severity=1,
+                zone=zone_id,
+                data={
+                    "anomalies": anomalies,
+                    "description": description[:200],
+                    "model": payload.get("model", ""),
+                    "tier": payload.get("tier", ""),
+                },
+            ))
 
     def _update_personal(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/* topics."""
@@ -764,7 +712,7 @@ class WorldModel:
 
     def _update_news_state(self, sub_topic: str, payload: dict):
         """Handle hems/news/* topics from news-bridge."""
-        ns = self.news_state
+        ns = self.digital.news_state
 
         if sub_topic == "daily":
             ns.daily_summary = payload.get("summary", "")
@@ -805,7 +753,7 @@ class WorldModel:
         if not path_parts:
             return
 
-        bio = self.biometric_state
+        bio = self.user.biometrics
         now = time.time()
 
         # hems/personal/biometrics/bridge/status
@@ -948,7 +896,7 @@ class WorldModel:
 
     def _check_biometric_thresholds(self, metric: str, value: float, prev: float | None):
         """Generate events from biometric threshold crossings."""
-        bio = self.biometric_state
+        bio = self.user.biometrics
 
         if metric == "heart_rate":
             if value > HR_HIGH and (prev is None or prev <= HR_HIGH):
@@ -988,7 +936,7 @@ class WorldModel:
         """Handle hems/home/{zone}/{domain}/{entity_id}/state topics from HA bridge."""
         # hems/home/bridge/status
         if len(path_parts) >= 2 and path_parts[0] == "bridge" and path_parts[1] == "status":
-            self.home_devices.bridge_connected = payload.get("connected", False)
+            self.physical.home_devices.bridge_connected = payload.get("connected", False)
             return
 
         # hems/home/{zone}/{domain}/{entity_id}/state
@@ -998,7 +946,7 @@ class WorldModel:
         domain = path_parts[1] if len(path_parts) >= 2 else ""
         entity_id = path_parts[2] if len(path_parts) >= 3 else ""
         now = time.time()
-        hd = self.home_devices
+        hd = self.physical.home_devices
         hd.bridge_connected = True
 
         if domain == "light":
@@ -1103,7 +1051,7 @@ class WorldModel:
 
     def _update_knowledge_state(self, msg_type: str, payload: dict):
         """Handle hems/personal/notes/stats and hems/personal/notes/changed."""
-        ks = self.knowledge_state
+        ks = self.digital.knowledge_state
 
         if msg_type == "stats":
             ks.total_notes = payload.get("total_notes", 0)
@@ -1128,7 +1076,7 @@ class WorldModel:
     def _update_external_knowledge_state(self, msg_type: str, payload: dict):
         """Handle hems/personal/knowledge/stats and hems/personal/knowledge/changed."""
         from world_model.data_classes import KnowledgeSourceInfo
-        ks = self.knowledge_state
+        ks = self.digital.knowledge_state
 
         if msg_type == "stats":
             ks.external_bridge_connected = True
@@ -1178,7 +1126,7 @@ class WorldModel:
         lines = []
 
         # Zone data
-        for zone_id, zone in self.zones.items():
+        for zone_id, zone in self.physical.zones.items():
             env = zone.environment
             parts = [f"### {zone_id}"]
 
@@ -1218,7 +1166,7 @@ class WorldModel:
             lines.append("\n".join(parts))
 
         # Home devices (HA integration)
-        hd = self.home_devices
+        hd = self.physical.home_devices
         if hd.bridge_connected:
             home_parts = ["### スマートホーム"]
             lights_on = [lt for lt in hd.lights.values() if lt.on]
@@ -1297,7 +1245,7 @@ class WorldModel:
         lines = []
 
         # PC state
-        pc = self.pc_state
+        pc = self.digital.pc_state
         if pc.cpu.last_update > 0 or pc.memory.last_update > 0:
             pc_parts = ["### PC"]
             if pc.cpu.last_update > 0:
@@ -1318,9 +1266,9 @@ class WorldModel:
             lines.append("\n".join(pc_parts))
 
         # Services state
-        if self.services_state.services:
+        if self.digital.services_state.services:
             svc_parts = ["### サービス"]
-            for name, svc in self.services_state.services.items():
+            for name, svc in self.digital.services_state.services.items():
                 if svc.error:
                     svc_parts.append(f"  {name}: ⚠ {svc.summary}")
                 else:
@@ -1328,7 +1276,7 @@ class WorldModel:
             lines.append("\n".join(svc_parts))
 
         # GAS state
-        gs = self.gas_state
+        gs = self.digital.gas_state
         if gs.bridge_connected:
             gas_parts = ["### Google連携"]
             now_ts = time.time()
@@ -1359,7 +1307,7 @@ class WorldModel:
             lines.append("\n".join(gas_parts))
 
         # Knowledge base
-        ks = self.knowledge_state
+        ks = self.digital.knowledge_state
         if ks.bridge_connected:
             kb_parts = ["### ナレッジベース"]
             kb_parts.append(f"  ノート数: {ks.total_notes}")
@@ -1377,7 +1325,7 @@ class WorldModel:
             lines.append("\n".join(ek_parts))
 
         # News state
-        ns = self.news_state
+        ns = self.digital.news_state
         if ns.bridge_connected or ns.daily_timestamp > 0:
             news_parts = ["### ニュース"]
             if ns.daily_timestamp > 0:
@@ -1399,7 +1347,7 @@ class WorldModel:
         lines = []
 
         # Occupancy summary (aggregated from zones)
-        occupied_zones = {zid: z for zid, z in self.zones.items()
+        occupied_zones = {zid: z for zid, z in self.physical.zones.items()
                          if z.occupancy and z.occupancy.count > 0}
         if occupied_zones:
             occ_parts = ["### 在室状態"]
@@ -1415,7 +1363,7 @@ class WorldModel:
             lines.append("\n".join(occ_parts))
 
         # Biometrics
-        bio = self.biometric_state
+        bio = self.user.biometrics
         if bio.last_update > 0:
             bio_parts = ["### バイオメトリクス"]
             if bio.heart_rate.bpm is not None:
