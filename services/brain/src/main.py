@@ -451,6 +451,34 @@ class Brain:
         # Update power mode based on current world state
         self.power_mode_manager.evaluate(self.world_model)
 
+        # Sunrise alarm: start brightness ramp if within wake window (2h)
+        if (
+            self.sunrise_alarm
+            and not self.sunrise_alarm.is_active
+            and self.sunrise_alarm.should_start(self.schedule_learner)
+        ):
+            wake_ts = self.schedule_learner.get_wake_time()
+            if wake_ts:
+                logger.info("[SunriseAlarm] 起床前ウィンドウ検出 → ランプ開始")
+                self.sunrise_alarm.start(self.client, wake_ts)
+
+        # Boot load: start pre-wake heavy processing if within wake window (45min)
+        if (
+            self.boot_load_manager
+            and not self.boot_load_manager.is_running
+            and self._session
+            and self.boot_load_manager.should_start(self.schedule_learner)
+        ):
+            logger.info("[BootLoad] 起床前ウィンドウ検出 → boot load開始")
+            self.boot_load_manager.start(
+                world_model=self.world_model,
+                llm_router=self.llm_router,
+                voice_url=VOICE_SERVICE_URL,
+                news_url=NEWS_BRIDGE_URL,
+                backend_url=BACKEND_URL,
+                session=self._session,
+            )
+
         # Low-power mode: rule-triggered LLM escalation
         # ---------------------------------------------------------------
         # Cost model:
@@ -501,34 +529,6 @@ class Brain:
             else:
                 # Nothing detected — skip LLM entirely
                 logger.debug("[低消費電力] %sモード: ルール未発火 — LLMスキップ", pm["mode"])
-
-                # Sunrise alarm: start brightness ramp if within wake window (2h)
-                if (
-                    self.sunrise_alarm
-                    and not self.sunrise_alarm.is_active
-                    and self.sunrise_alarm.should_start(self.schedule_learner)
-                ):
-                    wake_ts = self.schedule_learner.get_wake_time()
-                    if wake_ts:
-                        logger.info("[SunriseAlarm] 起床前ウィンドウ検出 → ランプ開始")
-                        self.sunrise_alarm.start(self.client, wake_ts)
-
-                # Boot load: start pre-wake heavy processing if within wake window (45min)
-                if (
-                    self.boot_load_manager
-                    and not self.boot_load_manager.is_running
-                    and self._session
-                    and self.boot_load_manager.should_start(self.schedule_learner)
-                ):
-                    logger.info("[BootLoad] 起床前ウィンドウ検出 → boot load開始")
-                    self.boot_load_manager.start(
-                        world_model=self.world_model,
-                        llm_router=self.llm_router,
-                        voice_url=VOICE_SERVICE_URL,
-                        news_url=NEWS_BRIDGE_URL,
-                        backend_url=BACKEND_URL,
-                        session=self._session,
-                    )
 
                 await self._push_all_snapshots()
                 return
