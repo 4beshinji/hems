@@ -287,6 +287,117 @@ class WorldModel:
             self._sensor_fusions[key] = SensorFusion()
         return self._sensor_fusions[key]
 
+    # --- Presence / occupancy reconciliation ─────────────────────────
+    # Camera person_count is the strongest signal, but often unavailable
+    # (no camera in zone, offline, VLM disabled). Fall back through:
+    # presence_state (HA/SwitchBot/Zigbee binary), recent motion events,
+    # PC activity, and biometric heart rate. Recorded sources let the
+    # LLM tell why the system thinks someone is home.
+
+    PRESENCE_MOTION_RECENT_SEC = 180  # motion event count as "recent" for 3 min
+    PRESENCE_BIOMETRIC_FRESH_SEC = 300  # HR freshness window (5 min)
+    PRESENCE_PC_FRESH_SEC = 180  # PC metric freshness (3 min)
+    PRESENCE_PC_CPU_ACTIVE = 10.0  # CPU% above which the PC counts as "active"
+
+    def reconcile_presence(self) -> dict[str, dict]:
+        """Run multi-source presence inference across all zones.
+
+        Populates OccupancyData.inferred_occupied / inference_source /
+        inference_sources for every known zone. Also returns a summary
+        dict keyed by zone for callers that want it.
+        """
+        now = time.time()
+        global_signals = self._global_presence_signals(now)
+        summary: dict[str, dict] = {}
+
+        # Any zone ever seen counts. If no zones have been created yet
+        # (e.g. cold start with only biometric/PC data), treat "home"
+        # as the default zone so inference still runs.
+        zone_ids = list(self.zones.keys())
+        if not zone_ids and (global_signals["pc_active"] or global_signals["biometric_fresh"]):
+            zone_ids = ["home"]
+
+        for zone_id in zone_ids:
+            zone = self._get_zone(zone_id)
+            sources: list[str] = []
+
+            # 1. Camera — strongest
+            if zone.occupancy.count > 0:
+                sources.append("camera")
+
+            # 2. HA/Zigbee/SwitchBot binary presence sensor
+            if zone.occupancy.presence_state is True:
+                sources.append("presence_sensor")
+
+            # 3. Recent motion events (counter window)
+            if (
+                zone.occupancy.last_motion_ts > 0
+                and now - zone.occupancy.last_motion_ts < self.PRESENCE_MOTION_RECENT_SEC
+            ):
+                sources.append("motion")
+            elif zone.occupancy.motion_event_count_5min > 0:
+                sources.append("motion")
+
+            # 4. Global signals (PC, biometrics) — attach only to the PC/biometric zone.
+            # We don't have a reliable way to locate the user, so attribute to
+            # the first zone seen (typically the primary living/work zone) or
+            # to any zone if only one exists.
+            is_primary = zone_id == zone_ids[0]
+            if is_primary:
+                if global_signals["pc_active"]:
+                    sources.append("pc_activity")
+                if global_signals["biometric_fresh"]:
+                    sources.append("biometric")
+
+            occupied = bool(sources)
+            zone.occupancy.inferred_occupied = occupied
+            zone.occupancy.inference_sources = sources
+            zone.occupancy.inference_source = sources[0] if sources else "none"
+            summary[zone_id] = {
+                "occupied": occupied,
+                "sources": list(sources),
+                "camera_count": zone.occupancy.count,
+                "presence_state": zone.occupancy.presence_state,
+            }
+
+        return summary
+
+    def _global_presence_signals(self, now: float) -> dict[str, bool]:
+        """Compute PC + biometric signals that don't belong to a specific zone."""
+        pc = self.digital.pc_state
+        pc_active = bool(
+            pc.cpu.last_update > 0
+            and (now - pc.cpu.last_update) < self.PRESENCE_PC_FRESH_SEC
+            and pc.cpu.usage_percent >= self.PRESENCE_PC_CPU_ACTIVE
+        )
+
+        bio = self.user.biometrics
+        hr_fresh = bool(
+            bio.heart_rate.bpm
+            and bio.heart_rate.last_update > 0
+            and (now - bio.heart_rate.last_update) < self.PRESENCE_BIOMETRIC_FRESH_SEC
+        )
+        return {"pc_active": pc_active, "biometric_fresh": hr_fresh}
+
+    def is_anyone_home(self) -> bool:
+        """Return True if any presence source indicates occupancy in any zone.
+
+        Use this instead of `all(z.occupancy.count == 0 ...)` to avoid
+        false absences when the camera is offline but PIR/motion/PC/HR
+        signals are active.
+        """
+        self.reconcile_presence()
+        return any(z.occupancy.inferred_occupied for z in self.zones.values())
+
+    def presence_sources(self) -> list[str]:
+        """Return the union of inference sources across all zones."""
+        seen: list[str] = []
+        for z in self.zones.values():
+            for s in z.occupancy.inference_sources:
+                if s not in seen:
+                    seen.append(s)
+        return seen
+
     def update_from_mqtt(self, topic: str, payload: dict):
         """Parse MQTT topic and update world state."""
         parts = topic.split("/")
@@ -439,8 +550,11 @@ class WorldModel:
 
         if channel == "motion_count":
             self._event_counter.record_count(reading_key, int(value), now)
+            if int(value) > 0:
+                zone.occupancy.last_motion_ts = now
         elif value:
             self._event_counter.record_event(reading_key, now)
+            zone.occupancy.last_motion_ts = now
 
         # Aggregate all motion-type events for this zone
         total = sum(
@@ -449,6 +563,7 @@ class WorldModel:
         )
         zone.occupancy.motion_event_count_5min = total
         zone.occupancy.motion_frequency_per_min = total / 5.0
+        zone.occupancy.last_update = now
 
     def _update_state_channel(self, zone_id: str, channel: str, value, device_id: str):
         """Process binary state sensor data (door, presence, contact, occupancy)."""
@@ -504,6 +619,8 @@ class WorldModel:
                 )
                 zone.occupancy.motion_event_count_5min = total
                 zone.occupancy.motion_frequency_per_min = total / 5.0
+                zone.occupancy.last_motion_ts = now
+            zone.occupancy.last_update = now
 
     def _check_thresholds(self, zone: ZoneState, channel: str, value: float, prev: float | None):
         zid = zone.zone_id
@@ -1268,6 +1385,7 @@ class WorldModel:
         if len(path_parts) < 3:
             return
 
+        zone_id = path_parts[0]
         domain = path_parts[1] if len(path_parts) >= 2 else ""
         entity_id = path_parts[2] if len(path_parts) >= 3 else ""
         now = time.time()
@@ -1306,18 +1424,29 @@ class WorldModel:
             existing = hd.binary_sensors.get(entity_id)
             prev_state = existing.state if existing else False
             changed = existing is None or prev_state != new_state
+            device_class = payload.get("device_class", existing.device_class if existing else "")
             hd.binary_sensors[entity_id] = BinarySensorState(
                 entity_id=entity_id,
                 state=new_state,
-                device_class=payload.get("device_class", existing.device_class if existing else ""),
+                device_class=device_class,
                 last_update=now,
                 last_changed=now if changed else (existing.last_changed if existing else now),
                 previous_state=prev_state,
             )
             if changed and existing is not None:
                 self._handle_binary_sensor_event(
-                    hd, entity_id, new_state, prev_state, hd.binary_sensors[entity_id].device_class
+                    hd, entity_id, new_state, prev_state, device_class
                 )
+            # Aggregate motion/occupancy/presence sensors into zone occupancy so
+            # PIR-style devices (HA, SwitchBot, Zigbee via HA) contribute to
+            # presence inference, not just the camera.
+            if device_class in ("motion", "occupancy", "presence"):
+                channel = "motion" if device_class == "motion" else "presence"
+                if channel == "motion" and new_state:
+                    self._update_event_channel(zone_id, "motion", True, entity_id)
+                elif channel == "presence":
+                    # Use state channel semantics for occupancy/presence class
+                    self._update_state_channel(zone_id, "presence", new_state, entity_id)
         elif domain == "sensor":
             try:
                 raw_val = payload.get("state", payload.get("value", 0))
@@ -1719,16 +1848,25 @@ class WorldModel:
         return "\n\n".join(lines)
 
     def _get_user_context(self) -> str:
-        """Build user state context (occupancy summary + biometrics)."""
+        """Build user state context (occupancy summary + biometrics + schedule)."""
         lines = []
 
-        # Occupancy summary (aggregated from zones)
-        occupied_zones = {zid: z for zid, z in self.zones.items() if z.occupancy and z.occupancy.count > 0}
+        # Occupancy summary — include both camera-confirmed and inferred occupancy
+        # so the LLM sees why the system thinks someone is (or isn't) home.
+        occupied_zones = {
+            zid: z
+            for zid, z in self.zones.items()
+            if z.occupancy and (z.occupancy.count > 0 or z.occupancy.inferred_occupied)
+        }
         if occupied_zones:
             occ_parts = ["### 在室状態"]
             for zid, z in occupied_zones.items():
                 occ = z.occupancy
-                status = f"  {zid}: {occ.count}人"
+                if occ.count > 0:
+                    status = f"  {zid}: {occ.count}人 (カメラ確認)"
+                else:
+                    srcs = ", ".join(occ.inference_sources) if occ.inference_sources else "?"
+                    status = f"  {zid}: 在室推定 (根拠: {srcs})"
                 if occ.activity_class != "unknown":
                     status += f", 活動={occ.activity_class}"
                 if occ.posture != "unknown":
@@ -1736,6 +1874,34 @@ class WorldModel:
                     status += f", 姿勢={occ.posture}({dur}分)"
                 occ_parts.append(status)
             lines.append("\n".join(occ_parts))
+        elif self.zones:
+            # All zones empty — make "unoccupied" explicit and list the sources
+            # the system checked, so the LLM doesn't silently assume the user
+            # is home on stale data.
+            lines.append("### 在室状態\n  全ゾーン不在 (カメラ/PIR/PC/生体いずれも反応なし)")
+
+        # Schedule predictions (arrival/wake)
+        sched = self.user.schedule
+        if sched.last_update > 0 and (sched.next_arrival_ts or sched.next_wake_ts or sched.weekday_arrival_str):
+            from datetime import datetime as _dt
+
+            sc_parts = ["### 生活パターン"]
+            now_ts = time.time()
+            if sched.next_arrival_ts > now_ts:
+                mins = int((sched.next_arrival_ts - now_ts) / 60)
+                ts_str = _dt.fromtimestamp(sched.next_arrival_ts).strftime("%H:%M")
+                sc_parts.append(f"  帰宅予測: {ts_str} (あと{mins}分)")
+            if sched.next_wake_ts > now_ts:
+                mins = int((sched.next_wake_ts - now_ts) / 60)
+                ts_str = _dt.fromtimestamp(sched.next_wake_ts).strftime("%m/%d %H:%M")
+                sc_parts.append(f"  次回起床予測: {ts_str} (あと{mins}分)")
+            if sched.weekday_arrival_str:
+                stdev_str = f" (±{sched.arrival_stdev_min}分)" if sched.arrival_stdev_min else ""
+                sc_parts.append(f"  今日の曜日の帰宅傾向: {sched.weekday_arrival_str}{stdev_str}")
+            if sched.weekday_wake_str:
+                sc_parts.append(f"  今日の曜日の起床傾向: {sched.weekday_wake_str}")
+            if len(sc_parts) > 1:
+                lines.append("\n".join(sc_parts))
 
         # Biometrics
         bio = self.biometric_state

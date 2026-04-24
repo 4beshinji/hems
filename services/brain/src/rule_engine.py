@@ -719,7 +719,10 @@ class RuleEngine:
             predicted_arrival = self.schedule_learner.predict_next_arrival(calendar_events)
             if predicted_arrival:
                 minutes_until = (predicted_arrival - now) / 60
-                all_away = all(z.occupancy.count == 0 for z in world_model.zones.values())
+                # Multi-source "away" check (camera + PIR + motion + PC + HR)
+                # so we don't pre-heat the house when the user is already home
+                # but simply out of camera view.
+                all_away = not world_model.is_anyone_home()
 
                 if all_away and 0 < minutes_until <= 30:
                     if self._check_cooldown("ha_prearrival_hvac", now):
@@ -1128,7 +1131,7 @@ class RuleEngine:
                 if now - bs.last_changed > 60:
                     continue  # too old
                 if self._check_cooldown(f"zigbee_door_{eid}", now):
-                    any_occupied = any(z.occupancy.count > 0 for z in world_model.zones.values())
+                    any_occupied = world_model.is_anyone_home()
                     if any_occupied:
                         # Arrival: turn on lights
                         actions.append(
@@ -1352,7 +1355,9 @@ class RuleEngine:
         if not ABSENCE_LIGHTING_ENABLED:
             return []
 
-        all_empty = world_model.zones and all(z.occupancy.count == 0 for z in world_model.zones.values())
+        # Check every presence signal, not just the camera — otherwise the
+        # absence-lighting prank can fire while the occupant is quietly at the PC.
+        all_empty = bool(world_model.zones) and not world_model.is_anyone_home()
         if not all_empty:
             actions = []
             for did in list(self._absence_light_state.keys()):
@@ -1609,12 +1614,12 @@ class RuleEngine:
                     }
                 )
 
-        # Departure notification: occupancy drops to 0 with pending items
+        # Departure notification: occupancy drops to 0 with pending items.
+        # Reconciled presence (camera + PIR + motion + PC + HR) prevents a
+        # momentary camera dropout from nagging the user about shopping.
         if shopping.pending_count > 0:
-            all_empty = all(
-                z.occupancy.count == 0 for z in wm.zones.values() if z.occupancy and z.occupancy.last_update > now - 300
-            )
             has_recent_zones = any(z.occupancy.last_update > now - 300 for z in wm.zones.values() if z.occupancy)
+            all_empty = has_recent_zones and not wm.is_anyone_home()
             if all_empty and has_recent_zones:
                 if self._check_cooldown("shopping_departure", now):
                     actions.append(

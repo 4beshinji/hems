@@ -37,7 +37,7 @@ class EnvironmentData:
 
 @dataclass
 class OccupancyData:
-    count: int = 0
+    count: int = 0  # Camera (YOLO) person count — authoritative visual signal
     last_update: float = 0
     # Perception ActivityMonitor data
     activity_level: float = 0.0  # 0.0-1.0 (short-term motion)
@@ -48,10 +48,15 @@ class OccupancyData:
     # Sensor pooling: motion event tracking
     motion_event_count_5min: int = 0
     motion_frequency_per_min: float = 0.0
+    last_motion_ts: float = 0  # UNIX timestamp of most recent motion/presence trigger
     # Sensor pooling: binary state tracking
     door_states: dict[str, dict] = field(default_factory=dict)
     presence_state: bool | None = None
     presence_duration_sec: float = 0.0
+    # Reconciled multi-source presence (populated by WorldModel.reconcile_presence)
+    inferred_occupied: bool = False
+    inference_source: str = "none"  # "camera"|"presence_sensor"|"motion"|"pc_activity"|"biometric"|"none"
+    inference_sources: list[str] = field(default_factory=list)  # all contributing sources
     # VLM scene analysis data
     scene_description: str = ""
     scene_objects: list[str] = field(default_factory=list)
@@ -525,6 +530,19 @@ class ScreenTimeData:
 
 
 @dataclass
+class SchedulePredictions:
+    """Learned predictions from ScheduleLearner — surfaced to world model for LLM reasoning."""
+
+    next_arrival_ts: float = 0  # predicted arrival (home) UNIX ts
+    next_departure_ts: float = 0  # predicted departure UNIX ts
+    next_wake_ts: float = 0  # predicted tomorrow wake UNIX ts
+    weekday_arrival_str: str = ""  # e.g. "~18:30"
+    arrival_stdev_min: int = 0
+    weekday_wake_str: str = ""
+    last_update: float = 0
+
+
+@dataclass
 class BiometricState:
     heart_rate: HeartRateData = field(default_factory=HeartRateData)
     hrv: HRVData = field(default_factory=HRVData)
@@ -670,3 +688,4 @@ class UserState:
 
     biometrics: BiometricState = field(default_factory=BiometricState)
     screen_time: ScreenTimeData = field(default_factory=ScreenTimeData)
+    schedule: SchedulePredictions = field(default_factory=SchedulePredictions)

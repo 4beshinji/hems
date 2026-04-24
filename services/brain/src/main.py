@@ -310,12 +310,48 @@ class Brain:
                 if len(parts) >= 3 and parts[2] in ("created", "dismissed", "completed", "locked"):
                     self._loop.call_soon_threadsafe(self._trigger_timeline_regen, f"task_{parts[2]}")
 
-        # Feed occupancy changes to schedule learner
+        # Feed occupancy changes to schedule learner.
+        # We unify transitions across camera, PIR/presence binary sensors, and
+        # biometric HR so the learner gets arrivals/departures even when the
+        # camera is offline or the zone has no camera at all.
         if self.schedule_learner:
             parts = topic.split("/")
+            inferred = 0
+
+            # Camera person count (office/{zone}/camera/{cam}/status)
             if len(parts) >= 5 and parts[0] == "office" and parts[2] == "camera":
-                count = payload.get("person_count", payload.get("count", 0))
-                self.schedule_learner.update_occupancy(int(count))
+                inferred = int(payload.get("person_count", payload.get("count", 0)))
+
+            # HA/SwitchBot/Zigbee-via-HA binary_sensor presence/occupancy/motion
+            elif (
+                len(parts) >= 6
+                and parts[0] == "hems"
+                and parts[1] == "home"
+                and parts[3] == "binary_sensor"
+            ):
+                dc = payload.get("device_class", "")
+                if dc in ("motion", "occupancy", "presence"):
+                    raw = payload.get("state", "off")
+                    inferred = 1 if raw in ("on", "detected", "open") else 0
+
+            # Biometric HR arrival: a fresh HR reading implies the user is home.
+            # Only a 0→1 flip is meaningful; the learner debounces on its side.
+            elif (
+                len(parts) >= 4
+                and parts[0] == "hems"
+                and parts[1] == "personal"
+                and parts[2] == "biometrics"
+                and topic.endswith("/heart_rate")
+                and payload.get("bpm")
+            ):
+                inferred = 1
+
+            if inferred is not None:
+                # Use reconciled presence as the authoritative signal so individual
+                # sensor flaps don't generate spurious arrivals/departures.
+                self.world_model.reconcile_presence()
+                aggregated = 1 if self.world_model.is_anyone_home() else 0
+                self.schedule_learner.update_occupancy(aggregated)
 
         # Feed biometric sleep data to schedule learner
         if self.schedule_learner and "biometrics" in topic and "/sleep" in topic:
@@ -441,6 +477,34 @@ class Brain:
             )
         return count
 
+    def _refresh_presence_and_schedule(self):
+        """Run multi-source presence reconciliation and surface schedule predictions.
+
+        Keeps world_model.user.schedule + occupancy.inferred_* in sync so rules
+        and the LLM both see the same derived signals every cycle.
+        """
+        self.world_model.reconcile_presence()
+        if not self.schedule_learner:
+            return
+        calendar_events = None
+        gs = self.world_model.gas_state
+        if gs.bridge_connected and gs.calendar_events:
+            calendar_events = gs.calendar_events
+        sched = self.world_model.user.schedule
+        try:
+            sched.next_arrival_ts = self.schedule_learner.predict_next_arrival(calendar_events) or 0
+        except Exception:
+            sched.next_arrival_ts = 0
+        try:
+            sched.next_wake_ts = self.schedule_learner.get_wake_time(calendar_events) or 0
+        except Exception:
+            sched.next_wake_ts = 0
+        stats = self.schedule_learner.get_arrival_stats() or {}
+        sched.weekday_arrival_str = stats.get("weekday_arrival", "")
+        sched.arrival_stdev_min = int(stats.get("arrival_stdev_min", 0))
+        sched.weekday_wake_str = stats.get("weekday_wake", "")
+        sched.last_update = time.time()
+
     async def cognitive_cycle(self):
         cycle_start = time.time()
         total_tool_calls = 0
@@ -450,6 +514,10 @@ class Brain:
 
         # Update power mode based on current world state
         self.power_mode_manager.evaluate(self.world_model)
+
+        # Reconcile multi-source presence + refresh schedule predictions once
+        # per cycle, so rules and LLM context use the same derived values.
+        self._refresh_presence_and_schedule()
 
         # Sunrise alarm: start brightness ramp if within wake window (2h)
         if (
