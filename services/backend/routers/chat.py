@@ -195,7 +195,7 @@ async def archive_conversation(conversation_id: int, db: AsyncSession = Depends(
 async def _call_brain(history: list[dict], user_message: str) -> dict:
     """Proxy chat request to Brain HTTP server."""
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
             resp = await client.post(
                 f"{BRAIN_CHAT_URL}/chat",
                 json={"messages": history, "user_message": user_message},
