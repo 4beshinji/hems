@@ -182,6 +182,22 @@ const SCENARIOS: Scenario[] = [
   },
 ]
 
+// ── アバターモーション（VRMA）テストシナリオ ────────────────────────────────
+// 全 16 モーション、ボタン押下で 1 回再生する。
+
+const MOTION_IDS = [
+  'greeting_wave', 'celebrate', 'point_alert', 'stretch_suggest', 'show_full',
+  'spin', 'model_pose', 'thinking_pose', 'wave_goodbye', 'surprise_react',
+  'nod_agree', 'bow_polite', 'shrug_confused', 'look_around', 'relax', 'sleepy',
+] as const
+
+const MOTION_SCENARIOS: Scenario[] = MOTION_IDS.map((id) => ({
+  label: id,
+  emoji: '🎭',
+  color: '#10b981',
+  action: () => audioAnalyser.setTestMotion(id),
+}))
+
 // ── コンポーネント ───────────────────────────────────────────────────────────
 
 export function PsdTestPanel() {
@@ -213,6 +229,28 @@ export function PsdTestPanel() {
         PSD Avatar Test — DEV only
       </div>
       {SCENARIOS.map(s => (
+        <button
+          key={s.label}
+          onClick={() => s.action(qc, nextId)}
+          title={s.label}
+          style={{
+            background:   s.color + '22',
+            border:       `1px solid ${s.color}66`,
+            borderRadius: 4,
+            color:        '#eee',
+            cursor:       'pointer',
+            fontSize:     11,
+            padding:      '3px 7px',
+            whiteSpace:   'nowrap',
+          }}
+        >
+          {s.emoji} {s.label}
+        </button>
+      ))}
+      <div style={{ width: '100%', color: '#888', fontSize: 10, marginTop: 6, marginBottom: 2 }}>
+        Avatar motions (VRMA)
+      </div>
+      {MOTION_SCENARIOS.map(s => (
         <button
           key={s.label}
           onClick={() => s.action(qc, nextId)}

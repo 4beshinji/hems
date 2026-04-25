@@ -53,8 +53,8 @@ export default function VrmModel({ modelPath, onLoadError, walkPhase, facing }: 
   }, [error, onLoadError])
 
   const { isPlayingMotion } = useMotionPlayer(vrm)
-  const { isWalking } = useWalkAnimation(vrm, walkPhase, facing)
   const { isPlayingIdleMotion } = useIdleMotionPlayer(vrm, walkPhase)
+  const { isWalking } = useWalkAnimation(vrm, walkPhase, facing, isPlayingMotion || isPlayingIdleMotion)
   useLipSync(vrm)
   useIdleAnimations(vrm, isPlayingMotion || isWalking || isPlayingIdleMotion)
   useExpressionMapping(vrm)

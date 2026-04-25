@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { VRM } from '@pixiv/three-vrm'
@@ -12,7 +12,7 @@ export function useMotionPlayer(vrm: VRM | null) {
   const mixerRef = useRef<THREE.AnimationMixer | null>(null)
   const currentActionRef = useRef<THREE.AnimationAction | null>(null)
   const loaderRef = useRef<GLTFLoader | null>(null)
-  const isPlayingRef = useRef(false)
+  const [isPlayingMotion, setIsPlayingMotion] = useState(false)
   const lastMotionIdRef = useRef<string | null>(null)
   const cacheRef = useRef(new Map<string, THREE.AnimationClip>())
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -59,14 +59,14 @@ export function useMotionPlayer(vrm: VRM | null) {
       }
 
       currentActionRef.current = action
-      isPlayingRef.current = true
+      setIsPlayingMotion(true)
 
       // After duration, fade out
       clearTimeout(timeoutRef.current)
       timeoutRef.current = setTimeout(() => {
         if (currentActionRef.current === action) {
           action.fadeOut(0.4)
-          isPlayingRef.current = false
+          setIsPlayingMotion(false)
           currentActionRef.current = null
           lastMotionIdRef.current = null
         }
@@ -110,5 +110,5 @@ export function useMotionPlayer(vrm: VRM | null) {
     }
   }, [])
 
-  return { isPlayingMotion: isPlayingRef.current }
+  return { isPlayingMotion }
 }

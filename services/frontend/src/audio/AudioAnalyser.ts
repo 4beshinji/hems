@@ -77,6 +77,19 @@ class AudioAnalyser {
     }
   }
 
+  /** 開発用: モーションIDを直接セットしてアバターに再生させる */
+  setTestMotion(motionId: string | null) {
+    // useMotionPlayer は前回値と異なる場合のみ再生するため、一度 null を経由
+    this._currentMotionId = null
+    this.emit()
+    if (motionId) {
+      setTimeout(() => {
+        this._currentMotionId = motionId
+        this.emit()
+      }, 30)
+    }
+  }
+
   private emit() { for (const l of this.listeners) l() }
 }
 

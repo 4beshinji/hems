@@ -31,6 +31,7 @@ export function useWalkAnimation(
   vrm: VRM | null,
   walkPhase?: WalkPhase,
   facing?: 1 | -1,
+  faceCameraOverride?: boolean,
 ) {
   const currentFacingAngle = useRef(Math.PI)
   const walkWeight = useRef(0)
@@ -121,7 +122,12 @@ export function useWalkAnimation(
     if (!vrm?.humanoid) return
 
     // --- Facing direction (always active) ---
-    if (facing != null) {
+    // ポーズ再生中はカメラ正面 (Math.PI) に向き直す
+    if (faceCameraOverride) {
+      const targetAngle = Math.PI
+      currentFacingAngle.current += (targetAngle - currentFacingAngle.current) * Math.min(1, FACING_LERP_SPEED * delta)
+      vrm.scene.rotation.y = currentFacingAngle.current
+    } else if (facing != null) {
       const targetAngle = facing === -1 ? Math.PI * 0.65 : Math.PI * 1.35
       currentFacingAngle.current += (targetAngle - currentFacingAngle.current) * Math.min(1, FACING_LERP_SPEED * delta)
       vrm.scene.rotation.y = currentFacingAngle.current

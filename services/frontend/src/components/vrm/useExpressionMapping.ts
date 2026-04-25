@@ -8,11 +8,12 @@ interface ExpressionTarget {
   weight: number
 }
 
+// VRM 0.x emotion presets only: happy/angry/sad/relaxed (no `surprised`).
 const TONE_MAP: Record<string, ExpressionTarget> = {
-  neutral:  { name: 'relaxed',   weight: 0.0 },
-  caring:   { name: 'happy',     weight: 0.4 },
-  humorous: { name: 'happy',     weight: 0.7 },
-  alert:    { name: 'surprised', weight: 0.5 },
+  neutral:  { name: 'relaxed', weight: 0.0 },
+  caring:   { name: 'happy',   weight: 0.4 },
+  humorous: { name: 'happy',   weight: 0.7 },
+  alert:    { name: 'angry',   weight: 0.4 },
 }
 
 const ONSET_SPEED = 0.08  // ~300ms to reach target
