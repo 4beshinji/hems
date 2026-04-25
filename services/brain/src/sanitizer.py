@@ -125,6 +125,7 @@ class Sanitizer:
             "get_zone_status",
             "get_active_tasks",
             "get_device_status",
+            "get_sensor_history",
             "get_pc_status",
             "send_pc_notification",
             "get_service_status",

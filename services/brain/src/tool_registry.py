@@ -133,6 +133,41 @@ def get_tools(
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_sensor_history",
+                "description": (
+                    "指定ゾーン・チャンネルのセンサー値履歴を返す (read-only)。"
+                    "「さっきまでVOCが高かったか」等、最近の推移を確認するのに使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone": {"type": "string", "description": "ゾーンID"},
+                        "channel": {
+                            "type": "string",
+                            "description": "temperature/humidity/co2/pressure/voc/pm25/light/soil_moisture 等",
+                        },
+                        "hours": {
+                            "type": "integer",
+                            "description": "さかのぼる時間（1〜168）",
+                            "minimum": 1,
+                            "maximum": 168,
+                            "default": 6,
+                        },
+                        "max_points": {
+                            "type": "integer",
+                            "description": "返す最大サンプル数",
+                            "minimum": 1,
+                            "maximum": 500,
+                            "default": 200,
+                        },
+                    },
+                    "required": ["zone", "channel"],
+                },
+            },
+        },
     ]
 
     if openclaw_enabled:
@@ -195,6 +230,7 @@ def get_chat_tools(
         "get_zone_status",
         "get_active_tasks",
         "get_device_status",
+        "get_sensor_history",
         "get_pc_status",
         "get_service_status",
         "search_notes",
@@ -205,6 +241,8 @@ def get_chat_tools(
         "get_biometrics",
         "get_sleep_summary",
         "get_perception_status",
+        "list_scene_objects",
+        "get_scene_timeline",
         "get_shopping_list",
         "get_switchbot_devices",
         "get_news_summary",
@@ -637,6 +675,39 @@ def _get_perception_tools() -> list:
                             "description": "カスタム質問（省略時: 一般的なシーン説明）",
                         },
                     },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_scene_objects",
+                "description": "過去のVLM観測履歴から指定ゾーンで確認された物体のユニークリストを取得する。短時間で複数回VLMを呼ばずに、過去N分間で何が見えていたかを確認したい場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone_id": {"type": "string", "description": "ゾーンID"},
+                        "since_minutes": {
+                            "type": "integer",
+                            "description": "何分前までの履歴を見るか (デフォルト60, 最大60)",
+                            "default": 60,
+                        },
+                    },
+                    "required": ["zone_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_scene_timeline",
+                "description": "指定ゾーンのVLMシーン履歴を時系列で取得する。最新10件まで。シーンの変化を把握したい場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone_id": {"type": "string", "description": "ゾーンID"},
+                    },
+                    "required": ["zone_id"],
                 },
             },
         },

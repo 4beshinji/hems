@@ -15,8 +15,12 @@ class EnvironmentData:
     pressure: float | None = None
     light: float | None = None
     voc: float | None = None
+    pm25: float | None = None
+    soil_moisture: float | None = None
     last_update: float = 0
     trends: dict[str, str] = field(default_factory=dict)  # channel → rising/falling/stable
+    # Per-channel last-seen timestamps (unix). None → never observed.
+    channel_last_seen: dict[str, float] = field(default_factory=dict)
 
     @property
     def is_stuffy(self) -> bool:
@@ -33,6 +37,19 @@ class EnvironmentData:
         elif self.temperature > 26:
             return "hot"
         return "comfortable"
+
+
+@dataclass
+class SceneSnapshot:
+    """Single VLM scene observation for history buffer."""
+
+    timestamp: float = 0
+    description: str = ""
+    objects: list[str] = field(default_factory=list)
+    scene_type: str = "unknown"
+    anomalies: list[str] = field(default_factory=list)
+    tier: str = ""  # "light" | "heavy"
+    model: str = ""
 
 
 @dataclass
@@ -63,6 +80,12 @@ class OccupancyData:
     scene_type: str = "unknown"
     scene_anomalies: list[str] = field(default_factory=list)
     vlm_last_update: float = 0
+    # Rolling history of VLM observations (latest at end, max 10, ~1h window)
+    vlm_history: list[SceneSnapshot] = field(default_factory=list)
+    # Anomaly tracking for re-evaluation rule
+    anomaly_first_seen: float = 0  # first time current anomaly set was observed
+    anomaly_escalated: bool = False  # 5min escalation already fired
+    anomaly_rescan_requested: float = 0  # last vlm_request publish for this zone
 
 
 @dataclass
@@ -591,13 +614,25 @@ class WeatherForecast:
 
 
 @dataclass
+class WeatherAlert:
+    title: str = ""
+    severity: str = "unknown"  # minor, moderate, severe, extreme, unknown
+    description: str = ""
+    area: str = ""
+    issued_at: str = ""
+    expires_at: str = ""
+
+
+@dataclass
 class WeatherState:
     condition: str = "unknown"  # sunny, cloudy, rainy, snowy, etc.
     temperature: float = 0
     humidity: float = 0
     wind_speed: float = 0
     forecast: list[WeatherForecast] = field(default_factory=list)
+    alerts: list[WeatherAlert] = field(default_factory=list)
     last_update: float = 0
+    last_alerts_update: float = 0
 
 
 # --- Shopping List State ---

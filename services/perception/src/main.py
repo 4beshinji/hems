@@ -340,7 +340,20 @@ async def lifespan(app: FastAPI):
     # Camera manager
     camera_mgr = CameraManager(mqtt_pub)
     if mqtt_pub:
-        mqtt_pub.set_message_callback(camera_mgr.handle_mqtt_message)
+        def _dispatch_mqtt(topic: str, payload: dict):
+            # Brain → perception VLM rescan request (anomaly re-evaluation rule)
+            if topic == "hems/perception/vlm/request":
+                if vlm_scheduler is not None:
+                    zone = str(payload.get("zone", "") or payload.get("zone_id", ""))[:50]
+                    prompt = str(payload.get("prompt", ""))[:200]
+                    vlm_scheduler.request_on_demand(zone=zone, prompt=prompt)
+                    logger.info(f"VLM rescan requested via MQTT: zone={zone}")
+                return
+            # Default: MCP camera frame responses
+            camera_mgr.handle_mqtt_message(topic, payload)
+
+        mqtt_pub.set_message_callback(_dispatch_mqtt)
+        mqtt_pub.subscribe("hems/perception/vlm/request")
 
     for cam_cfg in CAMERAS:
         camera_mgr.add_camera(cam_cfg)

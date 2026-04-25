@@ -12,6 +12,7 @@ BASE_TOOL_NAMES = {
     "speak",
     "get_active_tasks",
     "get_device_status",
+    "get_sensor_history",
     "control_actuator",
     "list_devices",
     "describe_device",
@@ -55,11 +56,11 @@ class TestToolRegistryOpenClawEnabled:
 
     def test_total_tool_count(self):
         tools = get_tools(openclaw_enabled=True)
-        assert len(tools) == 16
+        assert len(tools) == 17
 
     def test_base_tool_count(self):
         tools = get_tools(openclaw_enabled=False)
-        assert len(tools) == 12
+        assert len(tools) == 13
 
 
 class TestToolRegistrySchemaValidity:

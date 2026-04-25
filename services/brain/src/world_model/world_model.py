@@ -494,6 +494,10 @@ class WorldModel:
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "news":
             self._update_news_state(parts[2], payload)
 
+        # hems/weather/* topics (weather-bridge)
+        elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "weather":
+            self._update_weather_state(parts[2], payload)
+
         # hems/personal/* topics (Phase 2 — data-bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "personal":
             self._update_personal(parts[2:], payload)
@@ -531,6 +535,10 @@ class WorldModel:
             env.light = round(fused, 1)
         elif channel == "voc":
             env.voc = round(fused, 1)
+        elif channel == "pm25":
+            env.pm25 = round(fused, 1)
+        elif channel == "soil_moisture":
+            env.soil_moisture = round(fused, 1)
 
         # Trend detection
         now = time.time()
@@ -538,6 +546,7 @@ class WorldModel:
         env.trends[channel] = self._trend_detector.get_trend(fusion_key, fused, channel)
 
         env.last_update = now
+        env.channel_last_seen[channel] = now
 
         # Generate events from threshold crossings
         self._check_thresholds(zone, channel, fused, prev)
@@ -1029,11 +1038,43 @@ class WorldModel:
             else:
                 anomalies = []
 
+            scene_type_clean = _sanitize_text(str(scene_type), 30)
+            prev_anomalies = zone.occupancy.scene_anomalies
             zone.occupancy.scene_description = description
             zone.occupancy.scene_objects = objects
-            zone.occupancy.scene_type = _sanitize_text(str(scene_type), 30)
+            zone.occupancy.scene_type = scene_type_clean
             zone.occupancy.scene_anomalies = anomalies
             zone.occupancy.vlm_last_update = now
+
+            # Append to rolling history (maxlen 10, drop entries older than 1h)
+            from .data_classes import SceneSnapshot
+
+            snapshot = SceneSnapshot(
+                timestamp=now,
+                description=description,
+                objects=list(objects),
+                scene_type=scene_type_clean,
+                anomalies=list(anomalies),
+                tier=_sanitize_text(str(payload.get("tier", "")), 10),
+                model=_sanitize_text(str(payload.get("model", "")), 40),
+            )
+            hist = zone.occupancy.vlm_history
+            hist.append(snapshot)
+            cutoff = now - 3600
+            zone.occupancy.vlm_history = [s for s in hist if s.timestamp >= cutoff][-10:]
+
+            # Anomaly tracking state for re-evaluation rule
+            if anomalies:
+                if not prev_anomalies or set(anomalies) != set(prev_anomalies):
+                    # New or changed anomaly set → reset tracker
+                    zone.occupancy.anomaly_first_seen = now
+                    zone.occupancy.anomaly_escalated = False
+                    zone.occupancy.anomaly_rescan_requested = 0
+            else:
+                # Anomaly cleared
+                zone.occupancy.anomaly_first_seen = 0
+                zone.occupancy.anomaly_escalated = False
+                zone.occupancy.anomaly_rescan_requested = 0
 
             # Generate events for anomalies
             if anomalies:
@@ -1175,6 +1216,62 @@ class WorldModel:
         elif sub_topic == "bridge":
             # hems/news/bridge/status
             ns.bridge_connected = payload.get("connected", False)
+
+    def _update_weather_state(self, sub_topic: str, payload: dict):
+        """Handle hems/weather/* topics from weather-bridge."""
+        from .data_classes import WeatherAlert, WeatherForecast
+
+        w = self.weather
+        now = time.time()
+
+        if sub_topic == "current":
+            w.condition = payload.get("condition", payload.get("weather_main", w.condition))
+            w.temperature = float(payload.get("temperature", payload.get("temp", w.temperature)))
+            w.humidity = float(payload.get("humidity", w.humidity))
+            w.wind_speed = float(payload.get("wind_speed", w.wind_speed))
+            w.last_update = now
+
+        elif sub_topic == "forecast":
+            entries = payload.get("entries", []) if isinstance(payload, dict) else []
+            forecast: list[WeatherForecast] = []
+            for f in entries:
+                if not isinstance(f, dict):
+                    continue
+                forecast.append(
+                    WeatherForecast(
+                        datetime=str(f.get("datetime", "")),
+                        condition=str(f.get("condition", f.get("weather_main", ""))),
+                        temperature=float(f.get("temperature", f.get("temp", 0)) or 0),
+                        precipitation_probability=int(f.get("precipitation_probability", 0) or 0),
+                        wind_speed=float(f.get("wind_speed", 0) or 0),
+                    )
+                )
+            w.forecast = forecast
+            w.last_update = now
+
+        elif sub_topic == "alerts":
+            raw_alerts = payload.get("alerts", []) if isinstance(payload, dict) else []
+            alerts: list[WeatherAlert] = []
+            for a in raw_alerts:
+                if not isinstance(a, dict):
+                    continue
+                alerts.append(
+                    WeatherAlert(
+                        title=_sanitize_text(a.get("title", a.get("event", "")), 120),
+                        severity=str(a.get("severity", "unknown")).lower(),
+                        description=_sanitize_text(a.get("description", a.get("headline", "")), 300),
+                        area=_sanitize_text(a.get("area", ""), 80),
+                        issued_at=str(a.get("issued_at", a.get("start", ""))),
+                        expires_at=str(a.get("expires_at", a.get("end", ""))),
+                    )
+                )
+            w.alerts = alerts
+            w.last_alerts_update = now
+
+        elif sub_topic == "bridge":
+            # hems/weather/bridge/status → keep last update for freshness tracking
+            if payload.get("connected") is not None:
+                w.last_update = w.last_update or now
 
     def _update_biometric_state(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/biometrics/* topics from biometric bridge."""
@@ -1592,6 +1689,10 @@ class WorldModel:
         """Build physical space context (zones + smart home)."""
         lines = []
 
+        # VLM model swap banner — brain is in rule-based fallback during heavy load
+        if getattr(self, "vlm_model_swap_active", False):
+            lines.append("### ⚠ VLMモデル切替中\n  重量モデルがVRAM占有中 — brainはrule-basedモード")
+
         # Trend arrows for analog channels
         _TREND = {"rising": "↑", "falling": "↓", "stable": ""}
 
@@ -1602,6 +1703,30 @@ class WorldModel:
 
             def _t(ch: str) -> str:
                 return _TREND.get(env.trends.get(ch, "stable"), "")
+
+            # Fused sensor summary — one line per zone, priority order
+            # (temp, hum, pressure, voc, pm25, light, soil). Skips None channels,
+            # truncates to 140 chars.
+            summary_bits: list[str] = []
+            if env.temperature is not None:
+                summary_bits.append(f"temp {env.temperature:.1f}C")
+            if env.humidity is not None:
+                summary_bits.append(f"hum {env.humidity:.0f}%")
+            if env.pressure is not None:
+                summary_bits.append(f"pressure {env.pressure:.0f}hPa")
+            if env.voc is not None:
+                summary_bits.append(f"voc {env.voc:.0f}")
+            if env.pm25 is not None:
+                summary_bits.append(f"pm25 {env.pm25:.0f}")
+            if env.light is not None:
+                summary_bits.append(f"light {env.light:.0f}lx")
+            if env.soil_moisture is not None:
+                summary_bits.append(f"soil {env.soil_moisture:.0f}%")
+            if summary_bits:
+                summary_line = f"  sensors: {', '.join(summary_bits)}"
+                if len(summary_line) > 140:
+                    summary_line = summary_line[:139] + "…"
+                parts.append(summary_line)
 
             if env.temperature is not None:
                 temp_str = f"  温度: {env.temperature}度 ({env.thermal_comfort}){_t('temperature')}"
@@ -1649,12 +1774,42 @@ class WorldModel:
                 if zone.occupancy.posture != "unknown":
                     duration_min = int(zone.occupancy.posture_duration_sec / 60)
                     parts.append(f"  姿勢: {zone.occupancy.posture} ({duration_min}分)")
-                # VLM scene data (if recent, <5min)
-                if zone.occupancy.vlm_last_update > 0 and time.time() - zone.occupancy.vlm_last_update < 300:
+
+            # VLM scene data — 3-stage freshness gate (independent of live occupancy)
+            #   fresh (<300s)   → full description + objects + anomalies
+            #   aged  (<1800s)  → prefix with "約N分前の観測" so LLM knows staleness
+            #   stale (≥1800s)  → only keep minimal summary, and only if zone is occupied
+            if zone.occupancy.vlm_last_update > 0:
+                age_sec = time.time() - zone.occupancy.vlm_last_update
+                age_min = int(age_sec / 60)
+                occ_now = zone.occupancy.count > 0 or zone.occupancy.inferred_occupied
+
+                if age_sec < 300:
                     if zone.occupancy.scene_description:
                         parts.append(f"  シーン: {zone.occupancy.scene_description[:100]}")
+                    if zone.occupancy.scene_objects:
+                        objs = zone.occupancy.scene_objects[:6]
+                        parts.append(f"  物体: [{', '.join(objs)}]")
                     if zone.occupancy.scene_anomalies:
                         parts.append(f"  異常検知: {', '.join(zone.occupancy.scene_anomalies[:3])}")
+                elif age_sec < 1800:
+                    if zone.occupancy.scene_description:
+                        parts.append(f"  シーン (約{age_min}分前の観測): {zone.occupancy.scene_description[:100]}")
+                    if zone.occupancy.scene_objects:
+                        objs = zone.occupancy.scene_objects[:6]
+                        parts.append(f"  物体 (約{age_min}分前): [{', '.join(objs)}]")
+                    if zone.occupancy.scene_anomalies:
+                        parts.append(
+                            f"  異常検知 (約{age_min}分前): {', '.join(zone.occupancy.scene_anomalies[:3])}"
+                        )
+                elif occ_now:
+                    # Stale but zone still occupied — keep a terse summary only
+                    obj_hint = (
+                        f" 物体=[{', '.join(zone.occupancy.scene_objects[:4])}]"
+                        if zone.occupancy.scene_objects
+                        else ""
+                    )
+                    parts.append(f"  VLM最終観測: {age_min}分前{obj_hint}")
 
             lines.append("\n".join(parts))
 
@@ -1737,6 +1892,34 @@ class WorldModel:
             if not hd.bridge_connected:
                 home_parts.append("  ⚠ HAブリッジ: 切断中")
             lines.append("\n".join(home_parts))
+
+        # Weather (weather-bridge)
+        w = self.weather
+        if w.last_update > 0 or w.alerts:
+            weather_parts = ["### 天気"]
+            if w.last_update > 0:
+                weather_parts.append(
+                    f"  現在: {w.condition} {w.temperature:.0f}°C 湿度{w.humidity:.0f}% 風速{w.wind_speed:.1f}m/s"
+                )
+            if w.alerts:
+                _SEV_JA = {
+                    "extreme": "最大",
+                    "severe": "重大",
+                    "moderate": "中程度",
+                    "minor": "軽微",
+                    "unknown": "",
+                }
+                for a in w.alerts[:5]:
+                    sev = _SEV_JA.get(a.severity, a.severity)
+                    prefix = "⚠ " if a.severity in ("extreme", "severe") else ""
+                    title = a.title or "天気警報"
+                    label = f"{prefix}警報[{sev}]" if sev else f"{prefix}警報"
+                    suffix = f" ({a.area})" if a.area else ""
+                    line = f"  {label}: {title}{suffix}"
+                    if len(line) > 140:
+                        line = line[:139] + "…"
+                    weather_parts.append(line)
+            lines.append("\n".join(weather_parts))
 
         return "\n\n".join(lines)
 
@@ -1868,10 +2051,15 @@ class WorldModel:
                     srcs = ", ".join(occ.inference_sources) if occ.inference_sources else "?"
                     status = f"  {zid}: 在室推定 (根拠: {srcs})"
                 if occ.activity_class != "unknown":
-                    status += f", 活動={occ.activity_class}"
+                    status += f", 活動={occ.activity_class} ({occ.activity_level:.2f})"
                 if occ.posture != "unknown":
                     dur = int(occ.posture_duration_sec / 60)
-                    status += f", 姿勢={occ.posture}({dur}分)"
+                    # Highlight sustained seated/lying posture as a streak to make
+                    # sedentary judgement explicit material for the LLM
+                    if occ.posture in ("sitting", "lying") and dur >= 30:
+                        status += f", 姿勢={occ.posture} ({dur}分streak)"
+                    else:
+                        status += f", 姿勢={occ.posture}({dur}分)"
                 occ_parts.append(status)
             lines.append("\n".join(occ_parts))
         elif self.zones:

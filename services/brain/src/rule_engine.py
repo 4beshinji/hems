@@ -43,6 +43,21 @@ BIOMETRIC_STALE_MINUTES = int(os.getenv("HEMS_BIOMETRIC_STALE_MINUTES", "30"))
 GPU_TYPE = os.getenv("GPU_TYPE", "none")  # amd | nvidia | none
 GPU_HIGH_LOAD_THRESHOLD = int(os.getenv("GPU_HIGH_LOAD_THRESHOLD", "80"))
 
+# Sensor utilization thresholds (wiring-gap-04)
+SOIL_MOISTURE_LOW = float(os.getenv("HEMS_THRESHOLD_SOIL_LOW", "25"))
+AUTO_WATER_ENABLED = os.getenv("HEMS_ENABLE_AUTO_WATER", "false").lower() == "true"
+AUTO_WATER_DURATION_S = min(int(os.getenv("HEMS_AUTO_WATER_DURATION_S", "45")), 45)
+VOC_HIGH_THRESHOLD = float(os.getenv("HEMS_THRESHOLD_VOC_HIGH", "500"))
+VOC_SUSTAIN_SECONDS = int(os.getenv("HEMS_VOC_SUSTAIN_SECONDS", "120"))
+VOC_COOLDOWN_SECONDS = int(os.getenv("HEMS_VOC_COOLDOWN_SECONDS", "1800"))
+PM25_NATIVE_HIGH = float(os.getenv("HEMS_THRESHOLD_PM25_NATIVE", "35"))
+LOW_PRESSURE_THRESHOLD = float(os.getenv("HEMS_THRESHOLD_PRESSURE_LOW", "1000"))
+LOW_PRESSURE_SUSTAIN_S = int(os.getenv("HEMS_PRESSURE_LOW_SUSTAIN_S", str(3 * 3600)))
+ILLUMINANCE_LOW_LX = float(os.getenv("HEMS_THRESHOLD_LIGHT_LOW", "20"))
+ILLUMINANCE_LOW_SUSTAIN_S = int(os.getenv("HEMS_LIGHT_LOW_SUSTAIN_S", "600"))
+ILLUMINANCE_HIGH_LX = float(os.getenv("HEMS_THRESHOLD_LIGHT_HIGH", "50000"))
+ILLUMINANCE_HIGH_SUSTAIN_S = int(os.getenv("HEMS_LIGHT_HIGH_SUSTAIN_S", "600"))
+
 # Absence lighting config
 ABSENCE_LIGHTING_ENABLED = os.getenv("HEMS_ABSENCE_LIGHTING_ENABLED", "true").lower() == "true"
 ABSENCE_LIGHTING_INTERVAL = int(os.getenv("HEMS_ABSENCE_LIGHTING_INTERVAL", "1800"))
@@ -100,15 +115,21 @@ class RuleEngine:
 
     COOLDOWN_SECONDS = 300  # 5 minutes
 
-    def __init__(self, schedule_learner: ScheduleLearner | None = None):
+    def __init__(self, schedule_learner: ScheduleLearner | None = None, mqtt_publisher=None):
         self.schedule_learner = schedule_learner
         self.device_dispatcher = None
+        self.mqtt_publisher = mqtt_publisher  # Callable[[str, dict], None] — fire-and-forget publish
         self._cooldowns: dict[str, float] = {}
         self._pressure_history: dict[str, float] = {}  # zone_id → last known pressure
         self._absence_light_state: dict[str, bool] = {}  # device_id → simulated on
         self._device_cache: list[dict] = []
         self._device_cache_ts: float = 0
         self._DEVICE_CACHE_TTL = 60
+        # Sustained-condition trackers: zone_id → first observation timestamp
+        self._voc_high_since: dict[str, float] = {}
+        self._low_pressure_since: dict[str, float] = {}
+        self._low_light_since: dict[str, float] = {}
+        self._high_light_since: dict[str, float] = {}
 
     async def refresh_devices(self):
         if self.device_dispatcher is None:
@@ -283,6 +304,208 @@ class RuleEngine:
                                 },
                             }
                         )
+
+                # Sustained low pressure → weather headache warning (≤1 per day)
+                if env.pressure < LOW_PRESSURE_THRESHOLD:
+                    start = self._low_pressure_since.get(zone_id)
+                    if start is None:
+                        self._low_pressure_since[zone_id] = now
+                    elif now - start >= LOW_PRESSURE_SUSTAIN_S and self._check_cooldown_daily(
+                        f"pressure_low_sustained_{zone_id}", now
+                    ):
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": f"気圧が{env.pressure:.0f}hPaで長時間低めです。気象病や頭痛に注意してください。",
+                                    "zone": zone_id,
+                                    "tone": "caring",
+                                },
+                            }
+                        )
+                else:
+                    self._low_pressure_since.pop(zone_id, None)
+
+            # Soil moisture watering (watering-gap-04 P1.4)
+            if env.soil_moisture is not None and env.soil_moisture < SOIL_MOISTURE_LOW:
+                if self._check_cooldown_custom(
+                    f"soil_low_{zone_id}", now, 6 * 3600
+                ):
+                    pump = next(
+                        (
+                            d
+                            for d in self._device_cache
+                            if "pulse" in (d.get("capabilities") or [])
+                            and any(
+                                w in ((d.get("purpose") or "") + (d.get("device_id") or "")).lower()
+                                for w in ("pump", "ポンプ", "water", "水や", "給水")
+                            )
+                            and (not d.get("zone") or d["zone"] == zone_id)
+                        ),
+                        None,
+                    )
+                    msg = (
+                        f"植物の土壌水分が{env.soil_moisture:.0f}%です。水やりをしてください。"
+                    )
+                    if AUTO_WATER_ENABLED and pump is not None:
+                        actions.append(
+                            self._make_action(
+                                pump["device_id"],
+                                "pulse",
+                                {"duration_s": AUTO_WATER_DURATION_S},
+                            )
+                        )
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": f"土壌水分が{env.soil_moisture:.0f}%だったので、自動で給水しました。",
+                                    "zone": zone_id,
+                                    "tone": "caring",
+                                },
+                            }
+                        )
+                    else:
+                        actions.append(
+                            {
+                                "tool": "create_task",
+                                "args": {
+                                    "title": "植物に水やり",
+                                    "description": msg,
+                                    "urgency": 2,
+                                    "zone": zone_id,
+                                    "task_type": ["gardening"],
+                                },
+                            }
+                        )
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": msg,
+                                    "zone": zone_id,
+                                    "tone": "caring",
+                                },
+                            }
+                        )
+
+            # VOC sustained high (wiring-gap-04 P1.5)
+            if env.voc is not None:
+                if env.voc > VOC_HIGH_THRESHOLD:
+                    start = self._voc_high_since.get(zone_id)
+                    if start is None:
+                        self._voc_high_since[zone_id] = now
+                    elif now - start >= VOC_SUSTAIN_SECONDS and self._check_cooldown_custom(
+                        f"voc_high_{zone_id}", now, VOC_COOLDOWN_SECONDS
+                    ):
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": f"VOCが{env.voc:.0f}と高めです。換気をおすすめします。",
+                                    "zone": zone_id,
+                                    "tone": "caring",
+                                },
+                            }
+                        )
+                        # Engage a ventilation scene if one exists
+                        vent = next(
+                            (
+                                d
+                                for d in self._device_cache
+                                if any(
+                                    w in (d.get("device_id") or "").lower()
+                                    or w in (d.get("purpose") or "").lower()
+                                    for w in ("vent", "換気", "fan", "ventilation")
+                                )
+                                and d.get("device_class") in ("switch", "fan")
+                            ),
+                            None,
+                        )
+                        if vent is not None:
+                            actions.append(self._make_action(vent["device_id"], "on"))
+                else:
+                    self._voc_high_since.pop(zone_id, None)
+
+            # Native PM2.5 high (wiring-gap-04 P1.6)
+            # Dedup key is shared with zigbee HA-binary PM2.5 rule so both paths
+            # can't fire the same message twice.
+            if env.pm25 is not None and env.pm25 > PM25_NATIVE_HIGH:
+                if self._check_cooldown(f"zigbee_pm25_{zone_id}", now):
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"PM2.5が{env.pm25:.0f}μg/m³です。空気清浄機をつけます。",
+                                "zone": zone_id,
+                                "tone": "caring",
+                            },
+                        }
+                    )
+                    for d in self._get_devices(device_class="switch"):
+                        did = (d.get("device_id") or "").lower()
+                        purpose = (d.get("purpose") or "").lower()
+                        if any(w in did or w in purpose for w in ("purifier", "清浄", "air")):
+                            actions.append(self._make_action(d["device_id"], "on"))
+
+            # Illuminance anomalies (wiring-gap-04 P1.8)
+            if env.light is not None:
+                hour = datetime.now().hour
+                is_night = hour >= 22 or hour < 5
+                # Sustained darkness outside sleeping hours → sensor / power fault suspicion
+                if not is_night and env.light < ILLUMINANCE_LOW_LX:
+                    start = self._low_light_since.get(zone_id)
+                    if start is None:
+                        self._low_light_since[zone_id] = now
+                    elif now - start >= ILLUMINANCE_LOW_SUSTAIN_S and self._check_cooldown_daily(
+                        f"light_low_sustained_{zone_id}", now
+                    ):
+                        actions.append(
+                            {
+                                "tool": "create_task",
+                                "args": {
+                                    "title": f"{zone_id}の照度センサー確認",
+                                    "description": (
+                                        f"日中に照度が{env.light:.0f}lxと低い状態が続いています。"
+                                        "センサー故障または停電の可能性を確認してください。"
+                                    ),
+                                    "urgency": 2,
+                                    "zone": zone_id,
+                                    "task_type": ["maintenance"],
+                                },
+                            }
+                        )
+                else:
+                    self._low_light_since.pop(zone_id, None)
+
+                # Sustained daylight glare → suggest / request curtain close
+                if env.light > ILLUMINANCE_HIGH_LX:
+                    start = self._high_light_since.get(zone_id)
+                    if start is None:
+                        self._high_light_since[zone_id] = now
+                    elif now - start >= ILLUMINANCE_HIGH_SUSTAIN_S and self._check_cooldown_custom(
+                        f"light_high_sustained_{zone_id}", now, 3600
+                    ):
+                        covers = self._get_devices(device_class="cover", zone=zone_id)
+                        if covers:
+                            for c in covers:
+                                actions.append(
+                                    self._make_action(
+                                        c["device_id"], "set_position", {"position": 0}
+                                    )
+                                )
+                            actions.append(
+                                {
+                                    "tool": "speak",
+                                    "args": {
+                                        "message": "日差しが強いのでカーテンを閉めます。",
+                                        "zone": zone_id,
+                                        "tone": "neutral",
+                                    },
+                                }
+                            )
+                else:
+                    self._high_light_since.pop(zone_id, None)
 
             # Late night low activity — suggest sleep
             hour = datetime.now().hour
@@ -993,9 +1216,14 @@ class RuleEngine:
             occ = zone.occupancy
 
             # 1. Sedentary sitting detection (camera posture)
+            # Require all three: sitting posture, ≥90min streak, activity<0.1.
+            # The activity gate cuts false positives when the YOLO posture
+            # classifier locks onto "sitting" but the user is actually moving
+            # (reaching, typing, fidgeting).
             if (
                 occ.posture == "sitting"
-                and occ.posture_duration_sec > SEDENTARY_MINUTES * 60
+                and occ.posture_duration_sec >= 90 * 60
+                and occ.activity_level < 0.1
                 and self._check_cooldown(f"percep_sitting_{zone_id}", now)
             ):
                 duration_min = int(occ.posture_duration_sec / 60)
@@ -1070,24 +1298,65 @@ class RuleEngine:
                     }
                 )
 
-            # 5. VLM anomaly detected (recent, <120s)
-            if (
-                occ.scene_anomalies
-                and occ.vlm_last_update > 0
-                and now - occ.vlm_last_update < 120
-                and self._check_cooldown(f"percep_vlm_anomaly_{zone_id}", now)
-            ):
+            # 5. VLM anomaly detected — 3-stage escalation:
+            #    (a) Initial alert when anomaly first observed (cooldown gated)
+            #    (b) 5min persistence: escalate (speak + task)
+            #    (c) 30min persistence: request VLM rescan (heavy) via MQTT (30min cooldown)
+            if occ.scene_anomalies and occ.vlm_last_update > 0 and now - occ.vlm_last_update < 120:
                 anomaly_text = "、".join(occ.scene_anomalies[:3])
-                actions.append(
-                    {
-                        "tool": "speak",
-                        "args": {
-                            "message": f"カメラで異常を検知しました: {anomaly_text}。確認をお願いします。",
-                            "zone": zone_id,
-                            "tone": "alert",
-                        },
-                    }
-                )
+                first_seen = occ.anomaly_first_seen or occ.vlm_last_update
+                persist_sec = now - first_seen
+
+                # (a) Initial alert
+                if self._check_cooldown(f"percep_vlm_anomaly_{zone_id}", now):
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"カメラで異常を検知しました: {anomaly_text}。確認をお願いします。",
+                                "zone": zone_id,
+                                "tone": "alert",
+                            },
+                        }
+                    )
+
+                # (b) 5min escalation — speak + task if anomaly still present
+                if persist_sec >= 300 and not occ.anomaly_escalated:
+                    occ.anomaly_escalated = True
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"先ほどの異常({anomaly_text})が5分経過しても続いています。確認してください。",
+                                "zone": zone_id,
+                                "tone": "alert",
+                            },
+                        }
+                    )
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"VLM異常持続: {zone_id}",
+                                "description": f"{zone_id}で検知された異常 ({anomaly_text}) が5分以上継続しています。現地確認をお願いします。",
+                                "urgency": 3,
+                                "zone": zone_id,
+                                "task_type": ["vlm_anomaly"],
+                            },
+                        }
+                    )
+
+                # (c) 30min persistence → re-request VLM heavy scan (30min cooldown)
+                rescan_cooldown_ok = (now - occ.anomaly_rescan_requested) >= 1800
+                if persist_sec >= 1800 and rescan_cooldown_ok and self.mqtt_publisher is not None:
+                    try:
+                        self.mqtt_publisher(
+                            "hems/perception/vlm/request",
+                            {"zone": zone_id, "reason": "anomaly_persisted_30min"},
+                        )
+                        occ.anomaly_rescan_requested = now
+                    except Exception:
+                        pass
 
         return actions
 
@@ -1450,6 +1719,14 @@ class RuleEngine:
         """Check and set daily cooldown (24h). Returns True if action is allowed."""
         last = self._cooldowns.get(key, 0)
         if now - last < 86400:  # 24 hours
+            return False
+        self._cooldowns[key] = now
+        return True
+
+    def _check_cooldown_custom(self, key: str, now: float, duration_s: int) -> bool:
+        """Check and set cooldown with an explicit duration. Returns True if allowed."""
+        last = self._cooldowns.get(key, 0)
+        if now - last < duration_s:
             return False
         self._cooldowns[key] = now
         return True

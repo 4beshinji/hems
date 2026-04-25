@@ -161,7 +161,10 @@ class Brain:
         self.event_writer: EventWriter | None = None
         self.character = load_character()
         self.schedule_learner = ScheduleLearner() if (HA_ENABLED or BIOMETRIC_ENABLED or SWITCHBOT_ENABLED) else None
-        self.rule_engine = RuleEngine(schedule_learner=self.schedule_learner)
+        self.rule_engine = RuleEngine(
+            schedule_learner=self.schedule_learner,
+            mqtt_publisher=self._publish_mqtt,
+        )
         self.power_mode_manager = PowerModeManager()
 
         self.llm = None
@@ -406,6 +409,53 @@ class Brain:
                         topic=topic,
                     )
 
+            # Out-of-zone world events: shopping / gas / weather alerts / urgent news.
+            # record_world_event dedupes on payload digest (5min), so retained
+            # MQTT messages and repeat polls do not bloat the store.
+            if len(parts) >= 3 and parts[0] == "hems":
+                domain = parts[1]
+                if domain == "shopping" and len(parts) >= 3 and parts[2] in (
+                    "added",
+                    "updated",
+                    "purchased",
+                ):
+                    subject = None
+                    if isinstance(payload, dict):
+                        subject = payload.get("name") or payload.get("item") or payload.get("id")
+                    self.event_writer.record_world_event(
+                        source_type=f"shopping_{parts[2]}",
+                        topic=topic,
+                        payload=payload,
+                        subject_ref=str(subject) if subject is not None else None,
+                    )
+                elif domain == "gas" and len(parts) >= 3 and parts[2] != "bridge":
+                    subject = parts[2] if len(parts) >= 3 else None
+                    if len(parts) >= 4:
+                        subject = f"{parts[2]}/{parts[3]}"
+                    self.event_writer.record_world_event(
+                        source_type="gas",
+                        topic=topic,
+                        payload=payload,
+                        subject_ref=subject,
+                    )
+                elif domain == "weather" and len(parts) >= 3 and parts[2] == "alerts":
+                    self.event_writer.record_world_event(
+                        source_type="weather_alert",
+                        topic=topic,
+                        payload=payload,
+                        subject_ref=None,
+                    )
+                elif domain == "news" and len(parts) >= 3 and parts[2] == "urgent":
+                    subject = None
+                    if isinstance(payload, dict):
+                        subject = payload.get("title") or payload.get("url")
+                    self.event_writer.record_world_event(
+                        source_type="news_urgent",
+                        topic=topic,
+                        payload=payload,
+                        subject_ref=str(subject)[:200] if subject else None,
+                    )
+
         if "/heartbeat" in topic:
             parts = topic.split("/")
             if len(parts) >= 4:
@@ -453,6 +503,17 @@ class Brain:
         for obs in observations:
             asyncio.run_coroutine_threadsafe(self.dashboard.push_device_heartbeat(obs), self._loop)
         logger.info(f"Z2M bridge/devices: annotated {len(observations)} devices")
+
+    def _publish_mqtt(self, topic: str, payload: dict) -> None:
+        """Fire-and-forget MQTT publish. Used by RuleEngine for side-channel requests
+        like hems/perception/vlm/request where a rule needs to nudge another service
+        without tying up the tool pipeline."""
+        try:
+            import json as _json
+
+            self.client.publish(topic, _json.dumps(payload, ensure_ascii=False))
+        except Exception as e:
+            logger.warning(f"MQTT publish failed ({topic}): {e}")
 
     async def _run_rule_actions(self, actions: list, *, rewrite: bool = True) -> int:
         """Execute rule actions with optional persona rewriting. Returns action count."""

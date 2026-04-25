@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS aggregation_state (
 );
 
 INSERT OR IGNORE INTO aggregation_state (id) VALUES (1);
+
+CREATE TABLE IF NOT EXISTS world_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    source_type TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    subject_ref TEXT,
+    data TEXT DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_world_events_ts ON world_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_world_events_source ON world_events(source_type, timestamp);
+CREATE INDEX IF NOT EXISTS idx_world_events_digest ON world_events(payload_digest, timestamp);
 """
 
 DDL_POSTGRES = """
@@ -107,6 +121,20 @@ CREATE TABLE IF NOT EXISTS events.aggregation_state (
 );
 
 INSERT INTO events.aggregation_state (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS events.world_events (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    source_type TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    subject_ref TEXT,
+    data JSONB NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_world_events_ts ON events.world_events USING BRIN(timestamp);
+CREATE INDEX IF NOT EXISTS idx_world_events_source ON events.world_events(source_type, timestamp);
+CREATE INDEX IF NOT EXISTS idx_world_events_digest ON events.world_events(payload_digest, timestamp);
 """
 
 

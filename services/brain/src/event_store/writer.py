@@ -9,8 +9,10 @@ guards buffer access to prevent races during flush.
 """
 
 import asyncio
+import hashlib
 import json
 import os
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,10 +26,16 @@ IS_POSTGRES = "postgresql" in os.getenv("DATABASE_URL", "")
 class EventWriter:
     FLUSH_INTERVAL = 5  # seconds
 
+    # 5-minute dedupe window for world events (shopping/gas/weather/news)
+    WORLD_EVENT_DEDUPE_SECONDS = 300
+
     def __init__(self, engine: AsyncEngine):
         self._engine = engine
         self._events: list[dict] = []
         self._decisions: list[dict] = []
+        self._world_events: list[dict] = []
+        # payload_digest → last accepted timestamp (unix); for 5min dedupe
+        self._world_dedup: dict[str, float] = {}
         self._lock = asyncio.Lock()
         self._running = False
 
@@ -75,21 +83,50 @@ class EventWriter:
 
     def record_world_event(
         self,
-        zone: str,
-        event_type: str,
-        severity: str,
-        data: dict,
-    ):
-        """Buffer a WorldModel event (person_entered, co2_threshold, etc.)."""
-        self._events.append(
+        source_type: str,
+        topic: str,
+        payload: Any,
+        subject_ref: str | None = None,
+    ) -> bool:
+        """Buffer a world event (shopping/gas/weather_alert/news_urgent/...).
+
+        Deduplicates on payload_digest with a 5-minute cooldown so retained
+        MQTT messages and repeat polls do not bloat the store.
+
+        Returns True if the event was accepted (and buffered), False if
+        suppressed by the dedupe window.
+        """
+        try:
+            payload_json = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            payload_json = json.dumps({"repr": str(payload)[:500]}, ensure_ascii=False)
+
+        digest = hashlib.sha1(
+            f"{source_type}|{topic}|{subject_ref or ''}|{payload_json}".encode("utf-8", errors="replace")
+        ).hexdigest()[:20]
+
+        now = time.time()
+        last = self._world_dedup.get(digest, 0.0)
+        if now - last < self.WORLD_EVENT_DEDUPE_SECONDS:
+            return False
+
+        self._world_dedup[digest] = now
+        # Opportunistic cleanup: prune old dedup entries when map grows
+        if len(self._world_dedup) > 512:
+            cutoff = now - self.WORLD_EVENT_DEDUPE_SECONDS
+            self._world_dedup = {k: v for k, v in self._world_dedup.items() if v >= cutoff}
+
+        self._world_events.append(
             {
                 "timestamp": datetime.now(UTC).isoformat(),
-                "zone": zone,
-                "event_type": f"world_model_{event_type}",
-                "source_device": None,
-                "data": json.dumps({"severity": severity, **data}),
+                "source_type": source_type,
+                "topic": topic,
+                "payload_digest": digest,
+                "subject_ref": subject_ref,
+                "data": payload_json,
             }
         )
+        return True
 
     def record_decision(
         self,
@@ -139,10 +176,12 @@ class EventWriter:
         async with self._lock:
             events = self._events[:]
             decisions = self._decisions[:]
+            world_events = self._world_events[:]
             self._events.clear()
             self._decisions.clear()
+            self._world_events.clear()
 
-        if not events and not decisions:
+        if not events and not decisions and not world_events:
             return
 
         tp = "events." if IS_POSTGRES else ""
@@ -206,9 +245,37 @@ class EventWriter:
                             )
                     logger.debug("Flushed {} LLM decisions", len(decisions))
 
+                if world_events:
+                    if IS_POSTGRES:
+                        await conn.execute(
+                            text(f"""
+                                INSERT INTO {tp}world_events
+                                    (timestamp, source_type, topic, payload_digest,
+                                     subject_ref, data)
+                                VALUES
+                                    (:timestamp, :source_type, :topic, :payload_digest,
+                                     :subject_ref, CAST(:data AS jsonb))
+                            """),
+                            world_events,
+                        )
+                    else:
+                        for w in world_events:
+                            await conn.execute(
+                                text(f"""
+                                    INSERT INTO {tp}world_events
+                                        (timestamp, source_type, topic, payload_digest,
+                                         subject_ref, data)
+                                    VALUES (:timestamp, :source_type, :topic,
+                                            :payload_digest, :subject_ref, :data)
+                                """),
+                                w,
+                            )
+                    logger.debug("Flushed {} world events", len(world_events))
+
         except Exception as e:
             logger.error("Event flush failed: {}", e)
             # Re-queue on failure so data is not lost
             async with self._lock:
                 self._events = events + self._events
                 self._decisions = decisions + self._decisions
+                self._world_events = world_events + self._world_events

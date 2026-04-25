@@ -33,7 +33,8 @@ class TestSittingDetection:
     def test_sitting_over_threshold_triggers_speak(self, world_model, engine):
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.posture = "sitting"
-        zone.occupancy.posture_duration_sec = 3601  # just over 60 min threshold
+        zone.occupancy.posture_duration_sec = 90 * 60 + 1  # just over 90 min threshold
+        zone.occupancy.activity_level = 0.05  # below 0.1 gate
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
         world_model.zones["living_room"] = zone
@@ -48,6 +49,21 @@ class TestSittingDetection:
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.posture = "sitting"
         zone.occupancy.posture_duration_sec = 60  # 1 min
+        zone.occupancy.activity_level = 0.05
+        zone.occupancy.count = 1
+        zone.occupancy.last_update = time.time()
+        world_model.zones["living_room"] = zone
+
+        actions = engine.evaluate(world_model)
+        sitting_actions = [a for a in actions if "座りっぱなし" in a.get("args", {}).get("message", "")]
+        assert len(sitting_actions) == 0
+
+    def test_sitting_with_high_activity_no_action(self, world_model, engine):
+        """Activity gate should suppress false positives even past 90min."""
+        zone = ZoneState(zone_id="living_room")
+        zone.occupancy.posture = "sitting"
+        zone.occupancy.posture_duration_sec = 90 * 60 + 1
+        zone.occupancy.activity_level = 0.3  # above 0.1 gate → user is actually moving
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
         world_model.zones["living_room"] = zone

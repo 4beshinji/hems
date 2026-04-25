@@ -97,6 +97,8 @@ class ToolExecutor:
                 return await self._handle_get_active_tasks()
             elif tool_name == "get_device_status":
                 return await self._handle_get_device_status(arguments)
+            elif tool_name == "get_sensor_history":
+                return await self._handle_get_sensor_history(arguments)
             elif tool_name == "get_pc_status":
                 return await self._handle_get_pc_status(arguments)
             elif tool_name == "run_pc_command":
@@ -139,6 +141,10 @@ class ToolExecutor:
                 return await self._handle_get_perception_status(arguments)
             elif tool_name == "describe_scene":
                 return await self._handle_describe_scene(arguments)
+            elif tool_name == "list_scene_objects":
+                return await self._handle_list_scene_objects(arguments)
+            elif tool_name == "get_scene_timeline":
+                return await self._handle_get_scene_timeline(arguments)
             elif tool_name == "add_shopping_item":
                 return await self._handle_add_shopping_item(arguments)
             elif tool_name == "get_shopping_list":
@@ -259,6 +265,94 @@ class ToolExecutor:
             ],
         }
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
+
+    async def _handle_get_sensor_history(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return a recent sensor history window from the event store (raw_events)."""
+        from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import text as _sql
+
+        from event_store.database import get_engine
+
+        zone = str(args.get("zone", "")).strip()
+        channel = str(args.get("channel", "")).strip()
+        hours = int(args.get("hours", 6) or 6)
+        max_points = int(args.get("max_points", 200) or 200)
+        hours = max(1, min(hours, 168))
+        max_points = max(1, min(max_points, 500))
+
+        if not zone or not channel:
+            return {"success": False, "error": "zone and channel are required"}
+
+        engine = get_engine()
+        if engine is None:
+            return {
+                "success": True,
+                "result": json.dumps(
+                    {"zone": zone, "channel": channel, "points": [], "note": "event store disabled"},
+                    ensure_ascii=False,
+                ),
+            }
+
+        is_postgres = "postgresql" in os.getenv("DATABASE_URL", "")
+        schema = "events." if is_postgres else ""
+        since = datetime.now(UTC) - timedelta(hours=hours)
+
+        try:
+            async with engine.begin() as conn:
+                rows = (
+                    await conn.execute(
+                        _sql(
+                            f"""
+                            SELECT timestamp, data FROM {schema}raw_events
+                            WHERE zone = :zone
+                              AND event_type = 'sensor_reading'
+                              AND timestamp >= :since
+                            ORDER BY timestamp DESC
+                            LIMIT :lim
+                            """
+                        ),
+                        {"zone": zone, "since": since, "lim": max_points * 4},
+                    )
+                ).fetchall()
+        except Exception as e:
+            logger.warning(f"get_sensor_history query failed: {e}")
+            return {"success": False, "error": f"query failed: {e}"}
+
+        points: list[dict] = []
+        for ts, raw in rows:
+            try:
+                data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+            except Exception:
+                continue
+            if data.get("channel") != channel:
+                continue
+            ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+            points.append({"t": ts_str, "v": data.get("value")})
+            if len(points) >= max_points:
+                break
+
+        points.reverse()  # chronological order
+
+        values = [p["v"] for p in points if isinstance(p["v"], (int, float))]
+        summary = None
+        if values:
+            summary = {
+                "count": len(values),
+                "min": min(values),
+                "max": max(values),
+                "avg": sum(values) / len(values),
+                "last": values[-1],
+            }
+
+        result = {
+            "zone": zone,
+            "channel": channel,
+            "hours": hours,
+            "points": points,
+            "summary": summary,
+        }
+        return {"success": True, "result": json.dumps(result, ensure_ascii=False)}
 
     async def _handle_speak(self, args: dict[str, Any]) -> dict[str, Any]:
         """Synthesize speech and record as ephemeral voice event.
@@ -820,6 +914,72 @@ class ToolExecutor:
             return {"success": False, "error": "VLM分析がタイムアウトしました"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    async def _handle_list_scene_objects(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return unique objects seen in the zone's VLM history within the time window."""
+        import time as _time
+
+        zone_id = args.get("zone_id", "")
+        if not zone_id:
+            return {"success": False, "error": "zone_id required"}
+        since_minutes = int(args.get("since_minutes", 60) or 60)
+        since_minutes = max(1, min(since_minutes, 60))
+        cutoff = _time.time() - since_minutes * 60
+
+        zone = self.world_model.zones.get(zone_id)
+        if not zone:
+            return {"success": True, "result": json.dumps({"zone": zone_id, "objects": []}, ensure_ascii=False)}
+
+        seen: dict[str, dict[str, Any]] = {}
+        for snap in zone.occupancy.vlm_history:
+            if snap.timestamp < cutoff:
+                continue
+            for obj in snap.objects:
+                entry = seen.setdefault(obj, {"count": 0, "last_seen": 0})
+                entry["count"] += 1
+                entry["last_seen"] = max(entry["last_seen"], snap.timestamp)
+        objects = sorted(
+            (
+                {"name": name, "count": info["count"], "last_seen_ago_sec": int(_time.time() - info["last_seen"])}
+                for name, info in seen.items()
+            ),
+            key=lambda x: (-x["count"], x["last_seen_ago_sec"]),
+        )
+        return {
+            "success": True,
+            "result": json.dumps(
+                {"zone": zone_id, "since_minutes": since_minutes, "objects": objects[:30]},
+                ensure_ascii=False,
+            ),
+        }
+
+    async def _handle_get_scene_timeline(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return the VLM scene history (latest 10) as a time-ordered list."""
+        import time as _time
+
+        zone_id = args.get("zone_id", "")
+        if not zone_id:
+            return {"success": False, "error": "zone_id required"}
+        zone = self.world_model.zones.get(zone_id)
+        if not zone or not zone.occupancy.vlm_history:
+            return {"success": True, "result": json.dumps({"zone": zone_id, "timeline": []}, ensure_ascii=False)}
+
+        now = _time.time()
+        timeline = [
+            {
+                "age_sec": int(now - s.timestamp),
+                "description": s.description[:200],
+                "scene_type": s.scene_type,
+                "objects": s.objects[:8],
+                "anomalies": s.anomalies[:3],
+                "tier": s.tier,
+            }
+            for s in zone.occupancy.vlm_history
+        ]
+        return {
+            "success": True,
+            "result": json.dumps({"zone": zone_id, "timeline": timeline}, ensure_ascii=False),
+        }
 
     # --- Shopping tools ---
 
