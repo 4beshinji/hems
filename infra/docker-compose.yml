@@ -1,3 +1,5 @@
+name: hems
+
 services:
   # --- Central Bus ---
   mosquitto:
