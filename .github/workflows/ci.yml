@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  PYTHONPATH: services/brain/src:services/backend:services/openclaw-bridge/src
+  PYTHONPATH: services/brain/src:services/backend
 
 jobs:
   # ── Python linting ─���───────────────────────────────────────────────
@@ -38,12 +38,10 @@ jobs:
             requirements-dev.txt
             services/brain/requirements.txt
             services/backend/requirements.txt
-            services/openclaw-bridge/requirements.txt
       - name: Install dependencies
         run: |
           pip install -r services/brain/requirements.txt
           pip install -r services/backend/requirements.txt
-          pip install -r services/openclaw-bridge/requirements.txt
           pip install -r requirements-dev.txt
       - name: Run tests with coverage
         run: >
@@ -82,37 +80,52 @@ jobs:
       - name: Type check and build
         run: pnpm build
 
-  # ── Docker build validation ────────���───────────────────────────────
+  # ── Docker build validation ────────────────────────────────────────
   docker-build:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         service:
-          - { context: "services/brain",            name: "brain" }
-          - { context: "services/backend",          name: "backend" }
-          - { context: "services/frontend",         name: "frontend" }
-          - { context: "services/voice",            name: "voice" }
-          - { context: "services/openclaw-bridge",  name: "openclaw-bridge" }
-          - { context: "services/gas-bridge",       name: "gas-bridge" }
-          - { context: "services/ha-bridge",        name: "ha-bridge" }
-          - { context: "services/biometric-bridge", name: "biometric-bridge" }
-          - { context: "services/obsidian-bridge",  name: "obsidian-bridge" }
-          - { context: "services/news-bridge",      name: "news-bridge" }
-          - { context: "services/weather-bridge",   name: "weather-bridge" }
-          - { context: "services/switchbot-bridge",  name: "switchbot-bridge" }
-          - { context: "services/tapo-bridge",      name: "tapo-bridge" }
-          - { context: "services/knowledge-bridge", name: "knowledge-bridge" }
+          - { context: "services/brain",            name: "brain",            needs_base: true }
+          - { context: "services/backend",          name: "backend",          needs_base: true }
+          - { context: "services/frontend",         name: "frontend",         needs_base: false }
+          - { context: "services/voice",            name: "voice",            needs_base: true }
+          - { context: "services/gas-bridge",       name: "gas-bridge",       needs_base: true }
+          - { context: "services/ha-bridge",        name: "ha-bridge",        needs_base: true }
+          - { context: "services/biometric-bridge", name: "biometric-bridge", needs_base: true }
+          - { context: "services/obsidian-bridge",  name: "obsidian-bridge",  needs_base: true }
+          - { context: "services/news-bridge",      name: "news-bridge",      needs_base: true }
+          - { context: "services/weather-bridge",   name: "weather-bridge",   needs_base: true }
+          - { context: "services/switchbot-bridge",  name: "switchbot-bridge", needs_base: true }
+          - { context: "services/tapo-bridge",      name: "tapo-bridge",      needs_base: true }
+          - { context: "services/knowledge-bridge", name: "knowledge-bridge", needs_base: true }
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+
+      # Python services FROM hems-base:py3.11 — build it locally first so the
+      # subsequent service build can resolve the FROM. Cached via gha across runs.
+      - name: Build hems-base
+        if: matrix.service.needs_base
+        uses: docker/build-push-action@v6
+        with:
+          context: infra/base
+          tags: hems-base:py3.11
+          push: false
+          load: true
+          cache-from: type=gha,scope=hems-base
+          cache-to: type=gha,mode=max,scope=hems-base
+
       - name: Build ${{ matrix.service.name }}
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.service.context }}
           push: false
           load: false
-          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-from: |
+            type=gha,scope=${{ matrix.service.name }}
+            type=gha,scope=hems-base
           cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
 
   # ── Security scanning ──────────────────────────────────────────────
@@ -129,8 +142,6 @@ jobs:
         run: pip-audit -r services/brain/requirements.txt
       - name: Audit backend dependencies
         run: pip-audit -r services/backend/requirements.txt
-      - name: Audit openclaw-bridge dependencies
-        run: pip-audit -r services/openclaw-bridge/requirements.txt
       - name: Install hadolint
         run: |
           curl -sL https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64 \

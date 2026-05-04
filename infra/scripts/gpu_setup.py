@@ -327,6 +327,22 @@ def generate_compose_override(gpu: GPUInfo) -> str:
                           count: 1
                           capabilities: [gpu]
               perception:
+                build:
+                  context: ../services/perception
+                  args:
+                    GPU_TYPE: cuda
+                deploy:
+                  resources:
+                    reservations:
+                      devices:
+                        - driver: nvidia
+                          count: 1
+                          capabilities: [gpu]
+              stt-service:
+                build:
+                  context: ../services/stt
+                  args:
+                    GPU_TYPE: cuda
                 deploy:
                   resources:
                     reservations:
@@ -356,6 +372,21 @@ def generate_compose_override(gpu: GPUInfo) -> str:
                 environment:
                   - HSA_OVERRIDE_GFX_VERSION=${{HSA_OVERRIDE_GFX_VERSION:-{hsa_val}}}
               perception:
+                build:
+                  context: ../services/perception
+                  args:
+                    GPU_TYPE: rocm
+                devices:
+                  - /dev/kfd:/dev/kfd
+                  - {gpu.card_device}:{gpu.card_device}
+                  - {gpu.render_device}:{gpu.render_device}
+                environment:
+                  - HSA_OVERRIDE_GFX_VERSION=${{HSA_OVERRIDE_GFX_VERSION:-{hsa_val}}}
+              stt-service:
+                build:
+                  context: ../services/stt
+                  args:
+                    GPU_TYPE: rocm
                 devices:
                   - /dev/kfd:/dev/kfd
                   - {gpu.card_device}:{gpu.card_device}

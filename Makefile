@@ -36,23 +36,41 @@ build-frontend: ## Build frontend (pnpm)
 
 # -- Docker -------------------------------------------------------------------
 
-CORE_SERVICES := brain backend frontend voice openclaw-bridge \
-	gas-bridge ha-bridge biometric-bridge obsidian-bridge \
-	news-bridge weather-bridge switchbot-bridge tapo-bridge
+# BuildKit is required for the Dockerfiles' cache mounts and `# syntax=` directives.
+export DOCKER_BUILDKIT := 1
 
-docker-build: ## Build all core Docker images (no push)
-	@for svc in $(CORE_SERVICES); do \
-		echo "\n\033[36m=== Building $$svc ===\033[0m"; \
+# Python services FROM hems-base:py3.11. Frontend is the only non-Python build.
+PYTHON_SERVICES := brain backend voice \
+	gas-bridge ha-bridge biometric-bridge obsidian-bridge knowledge-bridge \
+	news-bridge weather-bridge switchbot-bridge tapo-bridge
+HEAVY_SERVICES := perception stt
+NON_PYTHON_SERVICES := frontend
+
+docker-base: ## Build hems-base:py3.11 (shared Python runtime)
+	@printf "\n\033[36m=== Building hems-base:py3.11 ===\033[0m\n"
+	docker build -t hems-base:py3.11 infra/base
+
+docker-build: docker-base ## Build all core Docker images (no push)
+	@for svc in $(PYTHON_SERVICES) $(NON_PYTHON_SERVICES); do \
+		printf "\n\033[36m=== Building %s ===\033[0m\n" "$$svc"; \
 		docker build -t hems-$$svc:dev services/$$svc || exit 1; \
 	done
+
+docker-build-heavy: docker-base ## Build perception + stt (slow, GPU-aware via GPU_TYPE env)
+	@for svc in $(HEAVY_SERVICES); do \
+		printf "\n\033[36m=== Building %s (GPU_TYPE=$${GPU_TYPE:-none}) ===\033[0m\n" "$$svc"; \
+		docker build --build-arg GPU_TYPE=$${GPU_TYPE:-none} \
+			-t hems-$$svc:dev services/$$svc || exit 1; \
+	done
+
+docker-build-all: docker-build docker-build-heavy ## Build all images (base + core + heavy)
 
 # -- Security -----------------------------------------------------------------
 
 security: ## Run pip-audit + hadolint
 	pip-audit -r services/brain/requirements.txt
 	pip-audit -r services/backend/requirements.txt
-	pip-audit -r services/openclaw-bridge/requirements.txt
-	@echo "\n\033[36m=== Hadolint ===\033[0m"
+	@printf "\n\033[36m=== Hadolint ===\033[0m\n"
 	@find services -name "Dockerfile" -type f -exec sh -c 'echo "--- {}"; hadolint "{}" || true' \;
 
 # -- Aggregate ----------------------------------------------------------------
