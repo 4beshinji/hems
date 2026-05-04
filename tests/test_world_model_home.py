@@ -22,8 +22,7 @@ class TestWorldModelHomeDevices:
         """hems/home/{zone}/climate/{entity_id}/state updates climate state."""
         world_model.update_from_mqtt(
             "hems/home/living_room/climate/climate.living_room/state",
-            {"state": "cool", "hvac_mode": "cool", "temperature": 26,
-             "current_temperature": 28.5, "fan_mode": "auto"},
+            {"state": "cool", "hvac_mode": "cool", "temperature": 26, "current_temperature": 28.5, "fan_mode": "auto"},
         )
         hd = world_model.physical.home_devices
         assert "climate.living_room" in hd.climates
@@ -106,16 +105,23 @@ class TestWorldModelHomeLLMContext:
         """Smart home section appears when bridge is connected with devices."""
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
-        from world_model.data_classes import LightState, ClimateState, CoverState
+        from world_model.data_classes import ClimateState, CoverState, LightState
+
         hd.lights["light.living_room"] = LightState(
-            entity_id="light.living_room", on=True, brightness=200,
+            entity_id="light.living_room",
+            on=True,
+            brightness=200,
         )
         hd.climates["climate.living_room"] = ClimateState(
-            entity_id="climate.living_room", mode="cool",
-            target_temp=26, current_temp=28.5,
+            entity_id="climate.living_room",
+            mode="cool",
+            target_temp=26,
+            current_temp=28.5,
         )
         hd.covers["cover.bedroom"] = CoverState(
-            entity_id="cover.bedroom", position=100, is_open=True,
+            entity_id="cover.bedroom",
+            position=100,
+            is_open=True,
         )
 
         context = world_model.get_llm_context()
@@ -129,8 +135,11 @@ class TestWorldModelHomeLLMContext:
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
         from world_model.data_classes import LightState
+
         hd.lights["light.test"] = LightState(
-            entity_id="light.test", on=True, brightness=128,
+            entity_id="light.test",
+            on=True,
+            brightness=128,
         )
         context = world_model.get_llm_context()
         # 128/255 * 100 ≈ 50%

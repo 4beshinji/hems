@@ -5,14 +5,15 @@ Supports Xiaomi Smart Band 8/9/10 and Amazfit devices via Mi Fitness app data.
 Auth: run `pip install huami-token && huami-token --method xiaomi` to obtain
 HUAMI_AUTH_TOKEN and HUAMI_USER_ID, then set them in .env.
 """
+
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiohttp
+from data_processor import BiometricReading
 from loguru import logger
 
-from data_processor import BiometricReading
 from providers.base import BiometricProvider
 
 
@@ -103,10 +104,7 @@ class HuamiProvider(BiometricProvider):
 
         async with self._session.get(url, params=params, headers=headers) as resp:
             if resp.status == 401:
-                logger.error(
-                    "Huami API auth failed (401). Token may have expired. "
-                    "Re-run: huami-token --method xiaomi"
-                )
+                logger.error("Huami API auth failed (401). Token may have expired. Re-run: huami-token --method xiaomi")
                 return None
             if resp.status != 200:
                 logger.error(f"Huami API HTTP {resp.status}: {await resp.text()}")
@@ -201,9 +199,11 @@ class HuamiProvider(BiometricProvider):
             if rms:
                 reading.sleep_rem_minutes = int(rms)
 
-            total = (reading.sleep_light_minutes or 0) + \
-                    (reading.sleep_deep_minutes or 0) + \
-                    (reading.sleep_rem_minutes or 0)
+            total = (
+                (reading.sleep_light_minutes or 0)
+                + (reading.sleep_deep_minutes or 0)
+                + (reading.sleep_rem_minutes or 0)
+            )
             if total > 0:
                 reading.sleep_duration_minutes = total
 
@@ -227,9 +227,7 @@ class HuamiProvider(BiometricProvider):
 
         # Compute resting HR (minimum of last readings, excluding 0)
         valid_hrs = [
-            int(r.get("hr") or r.get("rate", 0))
-            for r in rate_list
-            if int(r.get("hr") or r.get("rate", 0)) > 30
+            int(r.get("hr") or r.get("rate", 0)) for r in rate_list if int(r.get("hr") or r.get("rate", 0)) > 30
         ]
         if valid_hrs:
             reading.resting_heart_rate = min(valid_hrs)
@@ -274,7 +272,7 @@ class HuamiProvider(BiometricProvider):
         if isinstance(ts, str):
             try:
                 dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-                return dt.replace(tzinfo=timezone.utc).timestamp()
+                return dt.replace(tzinfo=UTC).timestamp()
             except ValueError:
                 pass
             try:

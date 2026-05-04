@@ -1,9 +1,9 @@
 """Unit tests for free-window computation."""
+
 from datetime import datetime, timedelta
 
-from timeline.free_window import compute_free_windows, bucket_of, split_window
-from timeline.models import TimelineSlot, FreeWindow
-
+from timeline.free_window import bucket_of, compute_free_windows, split_window
+from timeline.models import FreeWindow, TimelineSlot
 
 _BASE = datetime(2026, 4, 12, 0, 0)
 

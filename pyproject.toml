@@ -1,0 +1,105 @@
+[project]
+name = "hems"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["services/brain/src", "services/backend", "services/openclaw-bridge/src"]
+exclude = [
+    "services/frontend",
+    "services/mobile-android",
+    "infra",
+    "edge",
+    "apps",
+    ".venv",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "E711",   # comparison to None — intentional in SQLAlchemy ORM filters
+    "E712",   # comparison to True/False — intentional in SQLAlchemy filters
+    "E741",   # ambiguous variable name
+    "B007",   # unused loop variable
+    "B008",   # function call in default arg — FastAPI Depends() pattern
+    "B027",   # empty method in abstract class without abstract decorator
+    "B904",   # raise without from in except
+    "B905",   # zip() without strict=
+    "SIM102", # collapsible if — readability preference
+    "SIM103", # return condition directly
+    "SIM105", # use contextlib.suppress
+    "SIM108", # ternary instead of if/else
+    "SIM117", # combine nested with statements
+    "SIM201", # negation of comparison
+    "UP007",  # X | Y union syntax — keep Optional[] for clarity
+    "RUF001", # ambiguous unicode — Japanese fullwidth chars are intentional
+    "RUF002", # ambiguous unicode in docstring
+    "RUF003", # ambiguous unicode in comment
+    "RUF006", # dangling asyncio tasks — fire-and-forget is intentional
+    "RUF012", # mutable class variables
+    "RUF013", # implicit Optional
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E402", "F811"]
+"services/*/src/**/*.py" = ["E402"]
+"services/backend/**/*.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "world_model",
+    "tool_executor",
+    "tool_registry",
+    "rule_engine",
+    "sanitizer",
+    "dashboard_client",
+    "character_loader",
+    "schedule_learner",
+    "event_store",
+    "config",
+    "main",
+    "database",
+    "models",
+    "schemas",
+    "routers",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "services/brain/tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: requires running services",
+    "e2e: end-to-end tests requiring full stack",
+    "benchmark: performance benchmarks",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:pydantic.*",
+    "ignore::DeprecationWarning:sqlalchemy.*",
+]
+
+[tool.coverage.run]
+source = [
+    "services/brain/src",
+    "services/backend",
+    "services/openclaw-bridge/src",
+]
+omit = ["*/main.py", "*/__pycache__/*", "*/data/*"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+    "pass",
+    "\\.\\.\\.$$",
+]

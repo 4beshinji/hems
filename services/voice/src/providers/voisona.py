@@ -7,13 +7,14 @@ Uses audio_device destination: audio plays directly through VM speakers
 
 API base: http://{host}:{port}/api/talk/v1
 """
+
 import asyncio
 import os
 import time
 
 import aiohttp
 from loguru import logger
-from tts_provider import TTSProvider, AudioResult
+from tts_provider import AudioResult, TTSProvider
 
 VOISONA_URL = os.getenv("VOISONA_URL", "http://192.168.1.173:32766")
 VOISONA_USERNAME = os.getenv("VOISONA_USERNAME", "")
@@ -47,8 +48,12 @@ class VoisonaProvider(TTSProvider):
         self._synthesizing = False
         # Base acoustic parameters (character default)
         self._base_params: dict = {
-            "speed": 1.0, "pitch": 0, "volume": 0,
-            "intonation": 1.0, "huskiness": 0, "alp": 0,
+            "speed": 1.0,
+            "pitch": 0,
+            "volume": 0,
+            "intonation": 1.0,
+            "huskiness": 0,
+            "alp": 0,
         }
         # Per-tone overrides (from character YAML)
         self._tone_overrides: dict[str, dict] = {}
@@ -112,9 +117,7 @@ class VoisonaProvider(TTSProvider):
         defaults = {"speed": 1.0, "pitch": 0, "volume": 0, "intonation": 1.0, "huskiness": 0, "alp": 0}
         return {k: v for k, v in params.items() if k == "style_weights" or v != defaults.get(k)}
 
-    async def synthesize(
-        self, text: str, voice: str = "neutral", speed: float = 1.0
-    ) -> AudioResult:
+    async def synthesize(self, text: str, voice: str = "neutral", speed: float = 1.0) -> AudioResult:
         global_params = self._build_params(voice, speed)
 
         body: dict = {
@@ -136,8 +139,7 @@ class VoisonaProvider(TTSProvider):
         finally:
             self._synthesizing = False
 
-    async def _do_synthesize(self, body: dict, wall_start: float,
-                              timeout: aiohttp.ClientTimeout) -> AudioResult:
+    async def _do_synthesize(self, body: dict, wall_start: float, timeout: aiohttp.ClientTimeout) -> AudioResult:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # POST synthesis request
             async with session.post(
@@ -147,9 +149,7 @@ class VoisonaProvider(TTSProvider):
             ) as resp:
                 if resp.status != 201:
                     detail = await resp.text()
-                    raise Exception(
-                        f"VoiSona speech-syntheses POST failed: {resp.status} {detail}"
-                    )
+                    raise Exception(f"VoiSona speech-syntheses POST failed: {resp.status} {detail}")
                 result = await resp.json()
 
             synth_uuid = result["uuid"]
@@ -171,22 +171,15 @@ class VoisonaProvider(TTSProvider):
                             wall_elapsed = time.monotonic() - wall_start
                             self._last_synth_duration = wall_elapsed
                             self._healthy = True
-                            logger.info(
-                                f"VoiSona synthesis complete: {duration:.2f}s "
-                                f"(wall {wall_elapsed:.1f}s)"
-                            )
+                            logger.info(f"VoiSona synthesis complete: {duration:.2f}s (wall {wall_elapsed:.1f}s)")
                             break
                         if state == "failed":
-                            raise Exception(
-                                f"VoiSona synthesis failed: {status}"
-                            )
+                            raise Exception(f"VoiSona synthesis failed: {status}")
                 await asyncio.sleep(POLL_INTERVAL)
                 elapsed += POLL_INTERVAL
             else:
                 self._healthy = False
-                raise Exception(
-                    f"VoiSona synthesis timed out after {POLL_TIMEOUT}s"
-                )
+                raise Exception(f"VoiSona synthesis timed out after {POLL_TIMEOUT}s")
 
         # audio_device mode: audio played directly through VM, no bytes to return
         return AudioResult(audio_data=b"", format="wav", duration=duration)
@@ -194,12 +187,14 @@ class VoisonaProvider(TTSProvider):
     async def is_available(self) -> bool:
         try:
             timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.get(
                     f"{self._api_url}/voices",
                     auth=self._auth(),
-                ) as resp:
-                    return resp.status == 200
+                ) as resp,
+            ):
+                return resp.status == 200
         except Exception:
             return False
 
@@ -212,14 +207,12 @@ class VoisonaProvider(TTSProvider):
 
         # Skip if a real synthesis is in progress (would queue behind it)
         if self._synthesizing:
-            return {"healthy": self._healthy, "wall_seconds": 0,
-                    "state": "skipped", "detail": "Synthesis in progress"}
+            return {"healthy": self._healthy, "wall_seconds": 0, "state": "skipped", "detail": "Synthesis in progress"}
 
         # 1. API reachable?
         if not await self.is_available():
             self._healthy = False
-            return {"healthy": False, "wall_seconds": 0, "state": "unreachable",
-                    "detail": "VoiSona API unreachable"}
+            return {"healthy": False, "wall_seconds": 0, "state": "unreachable", "detail": "VoiSona API unreachable"}
 
         # 2. Submit a short probe synthesis
         body = {
@@ -239,9 +232,12 @@ class VoisonaProvider(TTSProvider):
                 ) as resp:
                     if resp.status != 201:
                         self._healthy = False
-                        return {"healthy": False, "wall_seconds": 0,
-                                "state": "post_failed",
-                                "detail": f"POST status {resp.status}"}
+                        return {
+                            "healthy": False,
+                            "wall_seconds": 0,
+                            "state": "post_failed",
+                            "detail": f"POST status {resp.status}",
+                        }
                     result = await resp.json()
 
                 synth_uuid = result["uuid"]
@@ -257,23 +253,27 @@ class VoisonaProvider(TTSProvider):
                             if state == "succeeded":
                                 wall = time.monotonic() - wall_start
                                 self._healthy = True
-                                return {"healthy": True, "wall_seconds": round(wall, 2),
-                                        "state": "ok", "detail": ""}
+                                return {"healthy": True, "wall_seconds": round(wall, 2), "state": "ok", "detail": ""}
                             if state == "failed":
                                 self._healthy = False
-                                return {"healthy": False, "wall_seconds": 0,
-                                        "state": "synthesis_failed",
-                                        "detail": str(status)}
+                                return {
+                                    "healthy": False,
+                                    "wall_seconds": 0,
+                                    "state": "synthesis_failed",
+                                    "detail": str(status),
+                                }
                     await asyncio.sleep(0.5)
                     elapsed += 0.5
 
                 # Timed out — degraded
                 wall = time.monotonic() - wall_start
                 self._healthy = False
-                return {"healthy": False, "wall_seconds": round(wall, 2),
-                        "state": "slow",
-                        "detail": f"Probe took >{HEALTH_SLOW_THRESHOLD}s — VoiSona likely degraded"}
+                return {
+                    "healthy": False,
+                    "wall_seconds": round(wall, 2),
+                    "state": "slow",
+                    "detail": f"Probe took >{HEALTH_SLOW_THRESHOLD}s — VoiSona likely degraded",
+                }
         except Exception as e:
             self._healthy = False
-            return {"healthy": False, "wall_seconds": 0,
-                    "state": "error", "detail": str(e)}
+            return {"healthy": False, "wall_seconds": 0, "state": "error", "detail": str(e)}

@@ -1,5 +1,7 @@
 """MQTT publisher for News Bridge — publishes news data to hems/news/* topics."""
+
 import json
+
 import paho.mqtt.client as mqtt
 from loguru import logger
 

@@ -1,6 +1,7 @@
 """
 Tests for perception-related rules in RuleEngine.
 """
+
 import time
 from datetime import datetime as _real_dt
 from unittest.mock import patch
@@ -8,11 +9,12 @@ from unittest.mock import patch
 import pytest
 
 from rule_engine import RuleEngine
-from world_model.data_classes import ZoneState, LightState
+from world_model.data_classes import LightState, ZoneState
 
 
 class _FakeDatetime(_real_dt):
     """datetime subclass that freezes .now() to 14:00 (inside 6-21h daytime window)."""
+
     @classmethod
     def now(cls, tz=None):
         if tz:
@@ -31,10 +33,11 @@ class TestSittingDetection:
     def test_sitting_over_threshold_triggers_speak(self, world_model, engine):
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.posture = "sitting"
-        zone.occupancy.posture_duration_sec = 3601  # just over 60 min threshold
+        zone.occupancy.posture_duration_sec = 90 * 60 + 1  # just over 90 min threshold
+        zone.occupancy.activity_level = 0.05  # below 0.1 gate
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
-        world_model.physical.zones["living_room"] = zone
+        world_model.zones["living_room"] = zone
 
         actions = engine.evaluate(world_model)
         sitting_actions = [a for a in actions if "座りっぱなし" in a.get("args", {}).get("message", "")]
@@ -46,9 +49,24 @@ class TestSittingDetection:
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.posture = "sitting"
         zone.occupancy.posture_duration_sec = 60  # 1 min
+        zone.occupancy.activity_level = 0.05
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
-        world_model.physical.zones["living_room"] = zone
+        world_model.zones["living_room"] = zone
+
+        actions = engine.evaluate(world_model)
+        sitting_actions = [a for a in actions if "座りっぱなし" in a.get("args", {}).get("message", "")]
+        assert len(sitting_actions) == 0
+
+    def test_sitting_with_high_activity_no_action(self, world_model, engine):
+        """Activity gate should suppress false positives even past 90min."""
+        zone = ZoneState(zone_id="living_room")
+        zone.occupancy.posture = "sitting"
+        zone.occupancy.posture_duration_sec = 90 * 60 + 1
+        zone.occupancy.activity_level = 0.3  # above 0.1 gate → user is actually moving
+        zone.occupancy.count = 1
+        zone.occupancy.last_update = time.time()
+        world_model.zones["living_room"] = zone
 
         actions = engine.evaluate(world_model)
         sitting_actions = [a for a in actions if "座りっぱなし" in a.get("args", {}).get("message", "")]
@@ -60,24 +78,40 @@ class TestEmptyRoomDetection:
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 0
         zone.occupancy.last_update = time.time()
-        world_model.physical.zones["living_room"] = zone
+        world_model.zones["living_room"] = zone
 
-        world_model.physical.home_devices.bridge_connected = True
-        world_model.physical.home_devices.lights["light.living_room"] = LightState(on=True, brightness=200)
+        world_model.home_devices.bridge_connected = True
+        engine._device_cache = [{
+            "device_id": "light.living_room",
+            "device_class": "light",
+            "is_enabled": True,
+            "capabilities": ["brightness"],
+            "last_state": {"on": True, "brightness": 200},
+            "zone": "living_room",
+        }]
 
         actions = engine.evaluate(world_model)
-        light_off = [a for a in actions if a.get("tool") == "control_light"
-                     and a.get("args", {}).get("on") is False]
+        light_off = [
+            a for a in actions
+            if a.get("tool") == "control_actuator" and a.get("args", {}).get("action") == "off"
+        ]
         assert len(light_off) >= 1
 
     def test_occupied_room_no_light_off(self, world_model, engine):
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
-        world_model.physical.zones["living_room"] = zone
+        world_model.zones["living_room"] = zone
 
-        world_model.physical.home_devices.bridge_connected = True
-        world_model.physical.home_devices.lights["light.living_room"] = LightState(on=True, brightness=200)
+        world_model.home_devices.bridge_connected = True
+        engine._device_cache = [{
+            "device_id": "light.living_room",
+            "device_class": "light",
+            "is_enabled": True,
+            "capabilities": ["brightness"],
+            "last_state": {"on": True, "brightness": 200},
+            "zone": "living_room",
+        }]
 
         actions = engine.evaluate(world_model)
         # Perception empty-room rule should not fire when room is occupied
@@ -93,7 +127,7 @@ class TestLyingDetection:
         zone.occupancy.posture_duration_sec = 900  # 15 min
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
-        world_model.physical.zones["living_room"] = zone
+        world_model.zones["living_room"] = zone
 
         with patch("rule_engine.datetime", _FakeDatetime):
             actions = engine.evaluate(world_model)
@@ -110,7 +144,7 @@ class TestActivityDrop:
         zone.occupancy.count = 1
         zone.occupancy.posture_duration_sec = 1200  # 20 min
         zone.occupancy.last_update = time.time()
-        world_model.physical.zones["living_room"] = zone
+        world_model.zones["living_room"] = zone
 
         actions = engine.evaluate(world_model)
         drop_actions = [a for a in actions if "動きがない" in a.get("args", {}).get("message", "")]
@@ -123,7 +157,7 @@ class TestActivityDrop:
         zone.occupancy.count = 0
         zone.occupancy.posture_duration_sec = 1200
         zone.occupancy.last_update = time.time()
-        world_model.physical.zones["living_room"] = zone
+        world_model.zones["living_room"] = zone
 
         actions = engine.evaluate(world_model)
         drop_actions = [a for a in actions if "動きがない" in a.get("args", {}).get("message", "")]

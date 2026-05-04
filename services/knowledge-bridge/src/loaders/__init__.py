@@ -1,17 +1,18 @@
 """
 Loader registry — auto-detect document type by file extension.
 """
+
 from pathlib import Path
 
 from .base import BaseLoader, DocumentEntry
-from .markdown import MarkdownLoader
-from .python_loader import PythonLoader
-from .json_loader import JsonLoader
-from .text import TextLoader
-from .pdf import PdfLoader
-from .docx import DocxLoader
 from .csv_loader import CsvLoader
+from .docx import DocxLoader
 from .html_loader import HtmlLoader
+from .json_loader import JsonLoader
+from .markdown import MarkdownLoader
+from .pdf import PdfLoader
+from .python_loader import PythonLoader
+from .text import TextLoader
 
 _LOADERS: dict[str, BaseLoader] = {}
 _text_loader = TextLoader()
@@ -42,4 +43,4 @@ register_loader(DocxLoader())
 register_loader(CsvLoader())
 register_loader(HtmlLoader())
 
-__all__ = ["get_loader", "get_supported_extensions", "DocumentEntry", "BaseLoader"]
+__all__ = ["BaseLoader", "DocumentEntry", "get_loader", "get_supported_extensions"]

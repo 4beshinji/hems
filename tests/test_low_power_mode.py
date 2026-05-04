@@ -1,6 +1,7 @@
 """
 Tests for PowerModeManager and RuleEngine.evaluate_critical().
 """
+
 import time
 from unittest.mock import patch
 
@@ -8,18 +9,20 @@ from world_model.data_classes import (
     ZoneState,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_manager():
     from low_power_mode import PowerModeManager
+
     return PowerModeManager()
 
 
 def _make_engine():
     from rule_engine import RuleEngine
+
     engine = RuleEngine()
     engine._cooldowns = {}
     return engine
@@ -28,6 +31,7 @@ def _make_engine():
 # ---------------------------------------------------------------------------
 # PowerModeManager — initial state
 # ---------------------------------------------------------------------------
+
 
 class TestPowerModeManagerInit:
     def test_starts_in_normal_mode(self):
@@ -42,6 +46,7 @@ class TestPowerModeManagerInit:
 # PowerModeManager — entry: sleep via biometrics
 # ---------------------------------------------------------------------------
 
+
 class TestPowerModeSleepBiometric:
     def test_deep_sleep_enters_sleep_mode(self, world_model):
         mgr = _make_manager()
@@ -52,7 +57,7 @@ class TestPowerModeSleepBiometric:
         assert changed
         assert mgr.mode == "sleep"
         assert mgr.is_low_power
-        assert mgr.cycle_interval == 300   # 5 min default
+        assert mgr.cycle_interval == 300  # 5 min default
 
     def test_light_sleep_enters_sleep_mode(self, world_model):
         mgr = _make_manager()
@@ -90,6 +95,7 @@ class TestPowerModeSleepBiometric:
 # PowerModeManager — entry: sleep via posture (late night)
 # ---------------------------------------------------------------------------
 
+
 class TestPowerModeSleepPosture:
     def test_late_night_static_idle_enters_sleep(self, world_model):
         mgr = _make_manager()
@@ -113,7 +119,7 @@ class TestPowerModeSleepPosture:
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 1
         zone.occupancy.last_update = time.time()
-        zone.occupancy.activity_class = "low"        # not idle
+        zone.occupancy.activity_class = "low"  # not idle
         zone.occupancy.posture_status = "static"
         zone.occupancy.posture_duration_sec = 700
         world_model.physical.zones["living_room"] = zone
@@ -162,9 +168,11 @@ class TestPowerModeSleepPosture:
 # PowerModeManager — entry: away mode
 # ---------------------------------------------------------------------------
 
+
 class TestPowerModeAway:
     def test_all_empty_for_confirm_period_enters_away(self, world_model):
         from low_power_mode import AWAY_CONFIRM_SECONDS
+
         mgr = _make_manager()
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 0
@@ -217,6 +225,7 @@ class TestPowerModeAway:
 # ---------------------------------------------------------------------------
 # PowerModeManager — exit: sleep → normal
 # ---------------------------------------------------------------------------
+
 
 class TestPowerModeExitSleep:
     def _put_in_sleep(self, world_model):
@@ -273,9 +282,11 @@ class TestPowerModeExitSleep:
 # PowerModeManager — exit: away → normal
 # ---------------------------------------------------------------------------
 
+
 class TestPowerModeExitAway:
     def _put_in_away(self, world_model):
         from low_power_mode import AWAY_CONFIRM_SECONDS
+
         mgr = _make_manager()
         zone = ZoneState(zone_id="living_room")
         zone.occupancy.count = 0
@@ -322,6 +333,7 @@ class TestPowerModeExitAway:
 # RuleEngine.evaluate_critical — CO2 danger
 # ---------------------------------------------------------------------------
 
+
 class TestEvaluateCriticalCO2:
     def test_co2_above_critical_fires(self, world_model):
         engine = _make_engine()
@@ -363,6 +375,7 @@ class TestEvaluateCriticalCO2:
 # RuleEngine.evaluate_critical — extreme temperature
 # ---------------------------------------------------------------------------
 
+
 class TestEvaluateCriticalTemperature:
     def test_extreme_heat_fires(self, world_model):
         engine = _make_engine()
@@ -401,6 +414,7 @@ class TestEvaluateCriticalTemperature:
 # RuleEngine.evaluate_critical — SpO2 critical
 # ---------------------------------------------------------------------------
 
+
 class TestEvaluateCriticalSpO2:
     def test_critical_spo2_fires(self, world_model):
         engine = _make_engine()
@@ -433,6 +447,7 @@ class TestEvaluateCriticalSpO2:
 # ---------------------------------------------------------------------------
 # RuleEngine.evaluate_critical — high HR during sleep
 # ---------------------------------------------------------------------------
+
 
 class TestEvaluateCriticalHRSleep:
     def test_high_hr_during_sleep_fires(self, world_model):
@@ -470,6 +485,7 @@ class TestEvaluateCriticalHRSleep:
 # PowerModeManager — LLM call throttling
 # ---------------------------------------------------------------------------
 
+
 class TestLLMCallThrottling:
     def test_allow_llm_in_normal_mode(self):
         mgr = _make_manager()
@@ -497,6 +513,7 @@ class TestLLMCallThrottling:
 
     def test_allow_llm_after_cooldown(self, world_model):
         from low_power_mode import LOW_POWER_LLM_COOLDOWN
+
         mgr = _make_manager()
         world_model.user.biometrics.sleep.stage = "deep"
         world_model.user.biometrics.sleep.last_update = time.time()

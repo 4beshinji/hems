@@ -1,6 +1,7 @@
 """
 Camera source management — MCP (ESP32 MQTT) and Stream (RTSP/HTTP) cameras.
 """
+
 import asyncio
 import base64
 import uuid
@@ -35,8 +36,7 @@ class CameraSource(ABC):
 class MCPCamera(CameraSource):
     """ESP32 MCP/MQTT camera — request/response via MQTT topics."""
 
-    def __init__(self, camera_id: str, zone: str, mqtt_pub: MQTTPublisher,
-                 timeout: float = 10.0):
+    def __init__(self, camera_id: str, zone: str, mqtt_pub: MQTTPublisher, timeout: float = 10.0):
         super().__init__(camera_id, zone)
         self._mqtt = mqtt_pub
         self._timeout = timeout
@@ -78,7 +78,7 @@ class MCPCamera(CameraSource):
         try:
             response = await asyncio.wait_for(fut, timeout=self._timeout)
             return self._decode_image(response)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending.pop(req_id, None)
             logger.warning(f"MCP camera {self.camera_id} capture timeout")
             return None
@@ -126,9 +126,7 @@ class StreamCamera(CameraSource):
     async def start(self):
         loop = asyncio.get_event_loop()
         try:
-            self._cap = await loop.run_in_executor(
-                None, lambda: cv2.VideoCapture(self.url)
-            )
+            self._cap = await loop.run_in_executor(None, lambda: cv2.VideoCapture(self.url))
             self.connected = self._cap.isOpened()
             if self.connected:
                 logger.info(f"Stream camera {self.camera_id} connected (zone={self.zone})")

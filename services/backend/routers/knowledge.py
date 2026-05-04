@@ -1,6 +1,7 @@
 """
 Knowledge status — in-memory store updated by Brain snapshots (Obsidian bridge).
 """
+
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])

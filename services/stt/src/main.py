@@ -1,23 +1,25 @@
 """
 HEMS STT Service — Plugin-based Speech-to-Text with query cleaning.
 """
+
+import hmac
 import os
 import time
 from contextlib import asynccontextmanager
 
+from audio_utils import convert_to_wav, get_audio_duration
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from loguru import logger
-
-from audio_utils import convert_to_wav, get_audio_duration
-from models import HealthResponse, ProviderInfo, TranscribeResponse
 from provider_factory import create_provider, get_available_providers
 from query_cleaner import QueryCleaner
 from stt_provider import STTProvider
 
+from models import HealthResponse, ProviderInfo, TranscribeResponse
+
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
 MAX_AUDIO_SECONDS = int(os.getenv("STT_MAX_AUDIO_SECONDS", "60"))
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
+_INTERNAL_TOKEN = os.getenv("HEMS_INTERNAL_TOKEN", "")
 
 logger.remove()
 logger.add(
@@ -39,10 +41,7 @@ async def lifespan(app: FastAPI):
     cleaner = QueryCleaner()
 
     available = get_available_providers()
-    logger.info(
-        f"Provider: {provider.name} ({provider.model_name}), "
-        f"available: {available}"
-    )
+    logger.info(f"Provider: {provider.name} ({provider.model_name}), available: {available}")
 
     yield
 
@@ -55,13 +54,11 @@ app = FastAPI(title="HEMS STT Service", lifespan=lifespan)
 
 
 def _check_auth(authorization: str | None):
-    if not HEMS_API_KEY:
+    if not _INTERNAL_TOKEN:
         return
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing authorization")
-    token = authorization.removeprefix("Bearer ").strip()
-    if token != HEMS_API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not hmac.compare_digest(token, _INTERNAL_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @app.get("/health")
@@ -131,10 +128,7 @@ async def transcribe(
         raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
 
     elapsed = time.monotonic() - t0
-    logger.info(
-        f"Transcribed {duration:.1f}s audio in {elapsed:.2f}s "
-        f"({provider.name}): {result.text[:60]}"
-    )
+    logger.info(f"Transcribed {duration:.1f}s audio in {elapsed:.2f}s ({provider.name}): {result.text[:60]}")
 
     # Query cleaning
     cleaned_text = result.text

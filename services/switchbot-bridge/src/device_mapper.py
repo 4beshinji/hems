@@ -1,7 +1,9 @@
 """
 Maps SwitchBot device IDs to HEMS zone/domain structure.
 """
+
 import json
+
 from loguru import logger
 
 

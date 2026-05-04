@@ -1,31 +1,26 @@
 """
-Shared fixtures for HEMS tests.
+Shared fixtures for HEMS integration tests.
 """
-import os
+
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-# Route the backend SQLAlchemy engine to an in-memory SQLite DB at import time.
-# services/backend/database.py opens DATABASE_URL as a side-effect of import,
-# so this has to be set before the backend modules load.
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-
 # Add service source directories to path so tests can import them
 _root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_root / "services" / "brain" / "src"))
-sys.path.insert(0, str(_root / "services" / "openclaw-bridge" / "src"))
 sys.path.insert(0, str(_root / "services" / "backend"))
 # NOTE: gas-bridge/src is NOT added here because its config.py would shadow
-# openclaw-bridge/src/config.py.  gas-bridge tests manage their own path.
+# other services' config.py modules.  gas-bridge tests manage their own path.
 
 
 @pytest.fixture
 def world_model():
     """Fresh WorldModel instance."""
     from world_model import WorldModel
+
     return WorldModel()
 
 
@@ -33,6 +28,7 @@ def world_model():
 def pc_state():
     """Fresh PCState instance."""
     from world_model.data_classes import PCState
+
     return PCState()
 
 
@@ -40,6 +36,7 @@ def pc_state():
 def sanitizer():
     """Fresh Sanitizer instance."""
     from sanitizer import Sanitizer
+
     return Sanitizer()
 
 
@@ -67,15 +64,19 @@ def mock_session():
 def tool_executor(sanitizer, mock_session, world_model):
     """ToolExecutor with mocked dependencies."""
     from tool_executor import ToolExecutor
+
     mcp = AsyncMock()
     dashboard = AsyncMock()
     task_queue = AsyncMock()
     device_registry = MagicMock()
 
     executor = ToolExecutor(
-        sanitizer=sanitizer, mcp_bridge=mcp,
-        dashboard_client=dashboard, world_model=world_model,
-        task_queue=task_queue, session=mock_session,
+        sanitizer=sanitizer,
+        mcp_bridge=mcp,
+        dashboard_client=dashboard,
+        world_model=world_model,
+        task_queue=task_queue,
+        session=mock_session,
         device_registry=device_registry,
     )
     return executor

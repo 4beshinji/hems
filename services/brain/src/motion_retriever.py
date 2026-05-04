@@ -12,7 +12,6 @@ import random
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from loguru import logger
@@ -84,9 +83,9 @@ def _tokenize(text: str) -> set[str]:
 
 
 class MotionRetriever:
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         self.motions: list[MotionEntry] = []
-        self._usage: dict[str, dict] = {}  # {motion_id: {count, last_seq}}
+        self._usage: dict[str, dict] = {}  # {motion_id: {count, last_seq, rejections}}
         self._global_seq = 0
 
         path = config_path or _find_config_dir() / "motions.yaml"
@@ -95,7 +94,7 @@ class MotionRetriever:
             return
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
         except Exception as e:
             logger.error(f"Failed to load motions.yaml: {e}")
@@ -115,11 +114,11 @@ class MotionRetriever:
             text = f"{entry.description} {entry.name} {' '.join(entry.tags)}"
             entry.tokens = _tokenize(text)
             self.motions.append(entry)
-            self._usage[entry.id] = {"count": 0, "last_seq": 0}
+            self._usage[entry.id] = {"count": 0, "last_seq": 0, "rejections": 0}
 
         logger.info(f"Loaded {len(self.motions)} motions from {path}")
 
-    def select(self, text: str, tone: str = "neutral") -> Optional[str]:
+    def select(self, text: str, tone: str = "neutral") -> str | None:
         """Select a motion_id for the given speech text and tone.
 
         Uses serendipity-focused scoring:
@@ -143,8 +142,9 @@ class MotionRetriever:
             affinity = self._tone_affinity(tone, m.category)
             decay = self._usage_decay(m.id)
             novelty = self._novelty_bonus(m.id)
+            rejection_penalty = self._rejection_penalty(m.id)
 
-            final = 1.0 * bm25 + 0.8 * affinity + 0.5 * (1 - decay) + 0.3 * novelty
+            final = 1.0 * bm25 + 0.8 * affinity + 0.5 * (1 - decay) + 0.3 * novelty - rejection_penalty
             scores.append((m.id, final))
 
         temperature = TEMPERATURE.get(tone, 0.8)
@@ -181,9 +181,7 @@ class MotionRetriever:
             return math.log(2)  # max bonus for never-used
         return math.log(1 + 1 / usage["count"])
 
-    def _softmax_sample(
-        self, scores: list[tuple[str, float]], temperature: float
-    ) -> Optional[str]:
+    def _softmax_sample(self, scores: list[tuple[str, float]], temperature: float) -> str | None:
         """Temperature-scaled softmax sampling. Pure Python, no numpy."""
         if not scores:
             return None
@@ -209,3 +207,38 @@ class MotionRetriever:
         if motion_id in self._usage:
             self._usage[motion_id]["count"] += 1
             self._usage[motion_id]["last_seq"] = self._global_seq
+
+    def _rejection_penalty(self, motion_id: str) -> float:
+        """Wave 4.9: penalize motions the user has actively rejected.
+
+        Each rejection adds 0.4 score penalty (capped at 2.0). Decays slightly
+        with each subsequent successful use of the same motion (≥3 uses since
+        the last rejection halves the penalty).
+        """
+        usage = self._usage.get(motion_id)
+        if not usage:
+            return 0.0
+        rejections = usage.get("rejections", 0)
+        if rejections == 0:
+            return 0.0
+        uses_since_reject = max(0, usage["count"] - usage.get("count_at_last_reject", 0))
+        decay = 0.5 if uses_since_reject >= 3 else 1.0
+        return min(rejections * 0.4 * decay, 2.0)
+
+    def record_rejection(self, motion_id: str) -> None:
+        """Called by ack_learner when the user signals dissatisfaction with a motion.
+
+        Sources of rejection signal (any of):
+        - User explicit feedback ("don't do that motion again")
+        - Mobile companion: clip dismissed without engagement
+        - Voice capsule play log: trigger_drift very large + immediate dismissal
+        """
+        if motion_id not in self._usage:
+            return
+        self._usage[motion_id]["rejections"] = self._usage[motion_id].get("rejections", 0) + 1
+        self._usage[motion_id]["count_at_last_reject"] = self._usage[motion_id]["count"]
+        logger.info(
+            "MotionRetriever: recorded rejection for {} (total rejections={})",
+            motion_id,
+            self._usage[motion_id]["rejections"],
+        )

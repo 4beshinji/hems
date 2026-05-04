@@ -2,9 +2,12 @@
 Gadgetbridge webhook provider — receives POST data from Gadgetbridge app
 (via Tasker/Automate or direct HTTP export).
 """
+
 import time
-from loguru import logger
+
 from data_processor import BiometricReading
+from loguru import logger
+
 from providers.base import BiometricProvider
 
 
@@ -119,8 +122,12 @@ class GadgetbridgeProvider(BiometricProvider):
             reading.hrv_ms = int(hrv)
 
         # Body / skin temperature
-        body_temp = (data.get("body_temperature") or data.get("body_temp")
-                     or data.get("skin_temperature") or data.get("temperature"))
+        body_temp = (
+            data.get("body_temperature")
+            or data.get("body_temp")
+            or data.get("skin_temperature")
+            or data.get("temperature")
+        )
         if body_temp is not None:
             try:
                 val = float(body_temp)
@@ -130,8 +137,12 @@ class GadgetbridgeProvider(BiometricProvider):
                 pass
 
         # Respiratory rate
-        resp = (data.get("respiratory_rate") or data.get("respiration_rate")
-                or data.get("breathing_rate") or data.get("resp_rate"))
+        resp = (
+            data.get("respiratory_rate")
+            or data.get("respiration_rate")
+            or data.get("breathing_rate")
+            or data.get("resp_rate")
+        )
         if resp is not None:
             reading.respiratory_rate = int(resp)
 

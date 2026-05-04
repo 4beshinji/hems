@@ -2,16 +2,17 @@
 HEMS Weather Bridge — FastAPI service that polls weather APIs and publishes to MQTT.
 Supports JMA (気象庁, free) and OpenWeatherMap providers.
 """
+
 import asyncio
 from contextlib import asynccontextmanager
 
+from data_poller import DataPoller
 from fastapi import FastAPI, HTTPException
 from loguru import logger
+from weather_client import JMAClient, OWMClient
 
 import config
-from weather_client import JMAClient, OWMClient
 from mqtt_publisher import MQTTPublisher
-from data_poller import DataPoller
 
 # Module-level state
 weather_client: JMAClient | OWMClient | None = None
@@ -26,8 +27,10 @@ async def lifespan(app: FastAPI):
 
     # MQTT
     mqtt_pub = MQTTPublisher(
-        config.MQTT_BROKER, config.MQTT_PORT,
-        config.MQTT_USER, config.MQTT_PASS,
+        config.MQTT_BROKER,
+        config.MQTT_PORT,
+        config.MQTT_USER,
+        config.MQTT_PASS,
     )
     mqtt_pub.connect()
 
@@ -36,8 +39,11 @@ async def lifespan(app: FastAPI):
         if not config.OWM_API_KEY:
             logger.error("OWM_API_KEY not configured — bridge will not poll")
         weather_client = OWMClient(
-            config.OWM_API_KEY, config.OWM_LAT, config.OWM_LON,
-            config.OWM_UNITS, config.OWM_LANG,
+            config.OWM_API_KEY,
+            config.OWM_LAT,
+            config.OWM_LON,
+            config.OWM_UNITS,
+            config.OWM_LANG,
         )
     else:
         logger.info(f"Using JMA provider: area={config.JMA_AREA_CODE}, detail={config.JMA_DETAIL_CODE}")
@@ -56,10 +62,7 @@ async def lifespan(app: FastAPI):
     if can_poll:
         _tasks.append(asyncio.create_task(poller.poll_current()))
         _tasks.append(asyncio.create_task(poller.poll_forecast()))
-        logger.info(
-            f"Polling started: current={config.CURRENT_INTERVAL}s, "
-            f"forecast={config.FORECAST_INTERVAL}s"
-        )
+        logger.info(f"Polling started: current={config.CURRENT_INTERVAL}s, forecast={config.FORECAST_INTERVAL}s")
 
     logger.info("Weather Bridge started")
     yield

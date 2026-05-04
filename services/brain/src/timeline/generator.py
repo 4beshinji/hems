@@ -1,12 +1,14 @@
 """TimelineGenerator: orchestrates routine + calendar + travel + tasks → ScheduledBlock list."""
+
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
+
 from loguru import logger
 
-from .models import TimelineSlot, CandidateTask, FreeWindow
-from .free_window import compute_free_windows
 from .edf_scheduler import schedule_edf
+from .free_window import compute_free_windows
+from .models import CandidateTask, TimelineSlot
 from .travel_config import load_travel_matrix, lookup_travel_minutes
 
 TZ_NAME = os.getenv("TZ", "Asia/Tokyo")
@@ -28,7 +30,7 @@ ROUTINE_SLEEP_DURATION_HOURS = 7.0
 
 def _hour_float_to_dt(day: datetime, hour_float: float) -> datetime:
     h = int(hour_float)
-    m = int(round((hour_float - h) * 60))
+    m = round((hour_float - h) * 60)
     if h >= 24:
         day = day + timedelta(days=h // 24)
         h = h % 24
@@ -47,17 +49,16 @@ def _is_home_location(location: str | None) -> bool:
 class TimelineGenerator:
     """Build a day's timeline slots from routines + calendar + tasks. Stateless per-call."""
 
-    def __init__(self, world_model, schedule_learner, session, auth_headers: dict):
+    def __init__(self, world_model, schedule_learner, session, auth_headers: dict | None = None):
         self.world_model = world_model
         self.schedule_learner = schedule_learner
         self.session = session
-        self.auth_headers = auth_headers or {}
         self.travel_matrix = load_travel_matrix()
 
-    def _day_bounds(self) -> tuple[datetime, datetime, str]:
-        now = datetime.now(LOCAL_TZ)
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = day_start + timedelta(hours=30)  # extend to tomorrow 06:00
+    @staticmethod
+    def _day_bounds_for(target: datetime) -> tuple[datetime, datetime, str]:
+        day_start = target.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(hours=30)  # extend to next day 06:00
         date_str = day_start.strftime("%Y-%m-%d")
         return day_start, day_end, date_str
 
@@ -74,16 +75,13 @@ class TimelineGenerator:
             entries = hist_dict.get(weekday, [])
             if len(entries) >= 2:
                 import statistics as _st
+
                 return _st.median(entries)
             return default
 
         wake_hour = _median(getattr(sl, "_wake_history", {}) if sl else {}, DEFAULT_WAKE_HOUR)
-        dep_hour = _median(
-            getattr(sl, "_departure_history", {}) if sl else {}, DEFAULT_DEPARTURE_HOUR
-        )
-        arr_hour = _median(
-            getattr(sl, "_arrival_history", {}) if sl else {}, DEFAULT_ARRIVAL_HOUR
-        )
+        dep_hour = _median(getattr(sl, "_departure_history", {}) if sl else {}, DEFAULT_DEPARTURE_HOUR)
+        arr_hour = _median(getattr(sl, "_arrival_history", {}) if sl else {}, DEFAULT_ARRIVAL_HOUR)
 
         wake_dt = _hour_float_to_dt(day_start, wake_hour)
         slots.append(
@@ -96,7 +94,10 @@ class TimelineGenerator:
             )
         )
 
-        if dep_hour > wake_hour + 0.5 and dep_hour < arr_hour:
+        # Only generate commute blocks when schedule_learner has actual history
+        has_dep_data = sl and len(getattr(sl, "_departure_history", {}).get(weekday, [])) >= 2
+        has_arr_data = sl and len(getattr(sl, "_arrival_history", {}).get(weekday, [])) >= 2
+        if has_dep_data and has_arr_data and dep_hour > wake_hour + 0.5 and dep_hour < arr_hour:
             dep_dt = _hour_float_to_dt(day_start, dep_hour)
             travel_out = lookup_travel_minutes(self.travel_matrix, "home", "office")
             slots.append(
@@ -214,7 +215,6 @@ class TimelineGenerator:
             async with self.session.get(
                 f"{BACKEND_URL}/tasks/?include_proposed=false",
                 timeout=5,
-                headers=self.auth_headers,
             ) as resp:
                 if resp.status != 200:
                     logger.warning(f"fetch_active_tasks status={resp.status}")
@@ -235,15 +235,13 @@ class TimelineGenerator:
             except (ValueError, AttributeError):
                 deadline_dt = None
             try:
-                locked_dt = (
-                    datetime.fromisoformat(locked.replace("Z", "+00:00")) if locked else None
-                )
+                locked_dt = datetime.fromisoformat(locked.replace("Z", "+00:00")) if locked else None
             except (ValueError, AttributeError):
                 locked_dt = None
             if deadline_dt and deadline_dt.tzinfo is None:
-                deadline_dt = deadline_dt.replace(tzinfo=timezone.utc)
+                deadline_dt = deadline_dt.replace(tzinfo=UTC)
             if locked_dt and locked_dt.tzinfo is None:
-                locked_dt = locked_dt.replace(tzinfo=timezone.utc)
+                locked_dt = locked_dt.replace(tzinfo=UTC)
             out.append(
                 CandidateTask(
                     task_id=t["id"],
@@ -263,8 +261,8 @@ class TimelineGenerator:
 
     def _slot_to_api(self, slot: TimelineSlot) -> dict:
         return {
-            "start_ts": slot.start.astimezone(timezone.utc).isoformat(),
-            "end_ts": slot.end.astimezone(timezone.utc).isoformat(),
+            "start_ts": slot.start.astimezone(UTC).isoformat(),
+            "end_ts": slot.end.astimezone(UTC).isoformat(),
             "kind": slot.kind,
             "ref_task_id": slot.ref_task_id,
             "ref_calendar_event_id": slot.ref_calendar_event_id,
@@ -274,23 +272,24 @@ class TimelineGenerator:
             "travel_buffer_minutes": slot.travel_buffer_minutes,
         }
 
-    async def generate_for_today(self) -> list[TimelineSlot]:
-        """Full pipeline: build locked slots, compute free windows, EDF-schedule tasks, POST to backend."""
-        day_start, day_end, date_str = self._day_bounds()
+    async def generate_for_date(self, target: datetime) -> list[TimelineSlot]:
+        """Generate timeline for a specific date. For today, clips free windows to now."""
+        day_start, day_end, date_str = self._day_bounds_for(target)
         now = datetime.now(LOCAL_TZ)
 
         routine_slots = self._routine_slots(day_start)
         calendar_slots = self._calendar_slots(day_start, day_end)
         locked_slots = routine_slots + calendar_slots
 
-        free_windows = compute_free_windows(day_start, day_end, locked_slots, min_minutes=15)
+        # For today: start free windows from `now` so tasks are never placed in the past
+        # For future dates: start from day_start (all windows are schedulable)
+        window_start = max(now, day_start) if day_start.date() == now.date() else day_start
+        free_windows = compute_free_windows(window_start, day_end, locked_slots, min_minutes=15)
 
         tasks = await self._fetch_active_tasks()
         task_slots, overflow = schedule_edf(tasks, free_windows, now)
         if overflow:
-            logger.info(
-                f"Timeline overflow: {len(overflow)} task(s) could not fit today"
-            )
+            logger.info(f"Timeline overflow ({date_str}): {len(overflow)} task(s) could not fit")
 
         all_slots = sorted(routine_slots + calendar_slots + task_slots, key=lambda s: s.start)
 
@@ -303,7 +302,6 @@ class TimelineGenerator:
                 f"{BACKEND_URL}/timeline/regenerate",
                 json=payload,
                 timeout=10,
-                headers=self.auth_headers,
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()
@@ -312,3 +310,14 @@ class TimelineGenerator:
             logger.warning(f"timeline/regenerate error: {e}")
 
         return all_slots
+
+    async def generate_for_today(self) -> list[TimelineSlot]:
+        """Generate timeline for today + next 6 days (1 week)."""
+        now = datetime.now(LOCAL_TZ)
+        today_slots: list[TimelineSlot] = []
+        for offset in range(7):
+            target = now + timedelta(days=offset)
+            slots = await self.generate_for_date(target)
+            if offset == 0:
+                today_slots = slots
+        return today_slots

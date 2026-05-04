@@ -7,28 +7,40 @@ Path 2: Huami cloud API polling (Xiaomi Smart Band / Amazfit via Mi Fitness)
 Deduplication prevents duplicate MQTT publishes when both paths deliver
 the same data within the configured window.
 """
+
 import asyncio
 import hashlib
 import hmac
 import json as _json
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+
+from data_processor import BiometricReading, DataProcessor
+from fastapi import FastAPI, HTTPException, Request
 from loguru import logger
+from providers.gadgetbridge import GadgetbridgeProvider
+from providers.huami import HuamiProvider
+from providers.zepp import ZeppProvider
+from send_queue import SendQueue
 
 from config import (
-    MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS, MQTT_TOPIC_PREFIX,
     BIOMETRIC_PROVIDER,
-    ZEPP_ENABLED, ZEPP_EMAIL, ZEPP_PASSWORD, ZEPP_POLL_INTERVAL,
-    HUAMI_ENABLED, HUAMI_AUTH_TOKEN, HUAMI_USER_ID,
-    HUAMI_SERVER_REGION, HUAMI_POLL_INTERVAL,
+    HUAMI_AUTH_TOKEN,
+    HUAMI_ENABLED,
+    HUAMI_POLL_INTERVAL,
+    HUAMI_SERVER_REGION,
+    HUAMI_USER_ID,
+    MQTT_BROKER,
+    MQTT_PASS,
+    MQTT_PORT,
+    MQTT_TOPIC_PREFIX,
+    MQTT_USER,
+    ZEPP_EMAIL,
+    ZEPP_ENABLED,
+    ZEPP_PASSWORD,
+    ZEPP_POLL_INTERVAL,
 )
 from mqtt_publisher import MQTTPublisher
-from send_queue import SendQueue
-from data_processor import DataProcessor, BiometricReading
-from providers.gadgetbridge import GadgetbridgeProvider
-from providers.zepp import ZeppProvider
-from providers.huami import HuamiProvider
 
 # HMAC secret for webhook authentication.
 # Set BIOMETRIC_WEBHOOK_SECRET in environment (required).
@@ -60,8 +72,7 @@ async def _verify_webhook_signature(request: Request) -> bytes:
         logger.warning("Webhook rejected: missing X-HEMS-Signature header")
         raise HTTPException(
             status_code=401,
-            detail="Missing X-HEMS-Signature header. "
-                   "Include: X-HEMS-Signature: sha256=<hmac-sha256-hex>"
+            detail="Missing X-HEMS-Signature header. Include: X-HEMS-Signature: sha256=<hmac-sha256-hex>",
         )
 
     provided_sig = sig_header[7:]  # strip "sha256=" prefix
@@ -72,6 +83,7 @@ async def _verify_webhook_signature(request: Request) -> bytes:
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     return body
+
 
 # Module-level state
 mqtt_pub: MQTTPublisher | None = None
@@ -116,12 +128,22 @@ def _publish_reading(reading: BiometricReading):
         _mqtt_publish(f"{prefix}/steps", data)
 
     if reading.stress_level is not None:
-        category = "relaxed" if reading.stress_level < 25 else \
-                   "normal" if reading.stress_level < 50 else \
-                   "moderate" if reading.stress_level < 75 else "high"
-        _mqtt_publish(f"{prefix}/stress", {
-            "level": reading.stress_level, "category": category,
-        })
+        category = (
+            "relaxed"
+            if reading.stress_level < 25
+            else "normal"
+            if reading.stress_level < 50
+            else "moderate"
+            if reading.stress_level < 75
+            else "high"
+        )
+        _mqtt_publish(
+            f"{prefix}/stress",
+            {
+                "level": reading.stress_level,
+                "category": category,
+            },
+        )
 
     if reading.sleep_stage is not None or reading.sleep_duration_minutes is not None:
         sleep_data = {}
@@ -144,7 +166,7 @@ def _publish_reading(reading: BiometricReading):
         _mqtt_publish(f"{prefix}/sleep", sleep_data)
         processor.update_sleep_summary(reading)
 
-    if reading.activity_level is not None or reading.calories is not None:
+    if reading.activity_level is not None or reading.calories is not None or reading.active_minutes is not None:
         activity_data = {}
         if reading.activity_level is not None:
             activity_data["level"] = reading.activity_level
@@ -152,9 +174,10 @@ def _publish_reading(reading: BiometricReading):
             activity_data["calories"] = reading.calories
         if reading.active_minutes is not None:
             activity_data["active_minutes"] = reading.active_minutes
-        if reading.steps is not None:
-            activity_data["steps"] = reading.steps
-        _mqtt_publish(f"{prefix}/activity", activity_data)
+        # NOTE: steps is published only on /steps to avoid double publishing.
+        # world_model already merges /steps and /activity into the same ActivityData.
+        if activity_data:
+            _mqtt_publish(f"{prefix}/activity", activity_data)
 
     if reading.hrv_ms is not None:
         _mqtt_publish(f"{prefix}/hrv", {"rmssd_ms": reading.hrv_ms})
@@ -180,11 +203,14 @@ async def _bridge_status_loop():
         providers = [BIOMETRIC_PROVIDER]
         if huami and huami._running:
             providers.append("huami")
-        _mqtt_publish(f"{MQTT_TOPIC_PREFIX}/bridge/status", {
-            "connected": True,
-            "provider": BIOMETRIC_PROVIDER,
-            "active_providers": providers,
-        })
+        _mqtt_publish(
+            f"{MQTT_TOPIC_PREFIX}/bridge/status",
+            {
+                "connected": True,
+                "provider": BIOMETRIC_PROVIDER,
+                "active_providers": providers,
+            },
+        )
         await asyncio.sleep(60)
 
 
@@ -250,8 +276,10 @@ async def lifespan(app: FastAPI):
     # Huami cloud API (primary server-side path)
     if HUAMI_ENABLED:
         huami = HuamiProvider(
-            HUAMI_AUTH_TOKEN, HUAMI_USER_ID,
-            HUAMI_SERVER_REGION, HUAMI_POLL_INTERVAL,
+            HUAMI_AUTH_TOKEN,
+            HUAMI_USER_ID,
+            HUAMI_SERVER_REGION,
+            HUAMI_POLL_INTERVAL,
         )
         await huami.start()
         _tasks.append(asyncio.create_task(_huami_poll_loop()))

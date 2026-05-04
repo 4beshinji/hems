@@ -1,6 +1,7 @@
 """
 Tests for backend PC router — in-memory store.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -11,12 +12,14 @@ def client():
     # Need to import with correct path setup (done in conftest.py)
     import sys
     from pathlib import Path
+
     backend_path = Path(__file__).resolve().parent.parent / "services" / "backend"
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
 
     # We need to test just the PC router in isolation to avoid DB dependencies
     from fastapi import FastAPI
+
     from routers.pc import router
 
     app = FastAPI()

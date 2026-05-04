@@ -18,11 +18,17 @@ import {
   type PsdAvatarState,
   ALL_EXPRESSIONS,
   ALL_COSTUMES,
+  ALL_EYES,
+  ALL_ARMS_LEFT,
+  ALL_ARMS_RIGHT,
   ALL_MOUTHS,
   ALL_FX_KEYS,
   ALL_ACC_KEYS,
   ALL_SYMBOLS,
   exprUrl,
+  eyesUrl,
+  armLeftUrl,
+  armRightUrl,
   mouthUrl,
   fxUrl,
   accessoryUrl,
@@ -82,7 +88,38 @@ export const PsdAvatar = memo(function PsdAvatar({ state, className }: Props) {
         ))
       )}
 
-      {/* 2. 口オーバーレイ */}
+      {/* 2. 腕オーバーレイ（default含む全ポーズ、ベースは腕なし） */}
+      {ALL_ARMS_LEFT.map(arm => (
+        <img
+          key={`arm_l_${arm}`}
+          src={armLeftUrl(arm)}
+          alt=""
+          draggable={false}
+          style={layerStyle(state.armLeft === arm)}
+        />
+      ))}
+      {ALL_ARMS_RIGHT.map(arm => (
+        <img
+          key={`arm_r_${arm}`}
+          src={armRightUrl(arm)}
+          alt=""
+          draggable={false}
+          style={layerStyle(state.armRight === arm)}
+        />
+      ))}
+
+      {/* 3. 目オーバーレイ（瞬き・半目等） */}
+      {ALL_EYES.map(eyes => (
+        <img
+          key={`eyes_${eyes}`}
+          src={eyesUrl(eyes)}
+          alt=""
+          draggable={false}
+          style={layerStyle(state.eyes === eyes)}
+        />
+      ))}
+
+      {/* 4. 口オーバーレイ */}
       {ALL_MOUTHS.map(mouth => (
         <img
           key={`mouth_${mouth}`}
@@ -93,7 +130,7 @@ export const PsdAvatar = memo(function PsdAvatar({ state, className }: Props) {
         />
       ))}
 
-      {/* 3. FX オーバーレイ */}
+      {/* 5. FX オーバーレイ */}
       {ALL_FX_KEYS.map(key => (
         <img
           key={`fx_${key}`}
@@ -104,7 +141,7 @@ export const PsdAvatar = memo(function PsdAvatar({ state, className }: Props) {
         />
       ))}
 
-      {/* 4. アクセサリー */}
+      {/* 6. アクセサリー */}
       {ALL_ACC_KEYS.map(key => (
         <img
           key={`acc_${key}`}
@@ -115,7 +152,7 @@ export const PsdAvatar = memo(function PsdAvatar({ state, className }: Props) {
         />
       ))}
 
-      {/* 5. 記号 */}
+      {/* 7. 記号 */}
       {ALL_SYMBOLS.map(sym => (
         <img
           key={`sym_${sym}`}

@@ -2,8 +2,10 @@
 Note writer — writes decision logs and learning memos to vault.
 Creates HEMS/ directory structure in the vault.
 """
+
 from datetime import datetime
 from pathlib import Path
+
 from loguru import logger
 
 
@@ -106,9 +108,7 @@ date: {today}
 
         if not full_resolved.is_relative_to(vault_resolved):
             logger.warning(f"Path traversal attempt blocked: {rel_path!r} → {full_resolved}")
-            raise ValueError(
-                f"Path traversal detected: '{rel_path}' resolves outside vault"
-            )
+            raise ValueError(f"Path traversal detected: '{rel_path}' resolves outside vault")
 
         full_resolved.parent.mkdir(parents=True, exist_ok=True)
 

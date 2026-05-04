@@ -1,10 +1,11 @@
 """
 Tests for gas-bridge service (GAS client + data poller + REST API).
 """
+
 import importlib.util
 import sys
-from pathlib import Path
 from contextlib import asynccontextmanager
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,7 +29,7 @@ def _gas_import(name: str):
     finally:
         if added:
             sys.path.remove(_gas_src)
-        # Restore previous config module so openclaw-bridge tests aren't affected
+        # Restore previous config module so other services' tests aren't affected
         sys.modules.pop("config", None)
         if old_config is not None:
             sys.modules["config"] = old_config
@@ -52,7 +53,7 @@ class TestGASClient:
             mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
             mock_resp.__aexit__ = AsyncMock(return_value=False)
 
-            with patch.object(gas_client._session, 'get', return_value=mock_resp) as mock_get:
+            with patch.object(gas_client._session, "get", return_value=mock_resp) as mock_get:
                 result = await gas_client.fetch("calendar_today")
                 assert result == {"events": []}
                 call_kwargs = mock_get.call_args[1]
@@ -71,7 +72,7 @@ class TestGASClient:
             mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
             mock_resp.__aexit__ = AsyncMock(return_value=False)
 
-            with patch.object(gas_client._session, 'get', return_value=mock_resp):
+            with patch.object(gas_client._session, "get", return_value=mock_resp):
                 result = await gas_client.fetch("health")
                 assert result is None
         finally:
@@ -86,7 +87,7 @@ class TestGASClient:
             mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
             mock_resp.__aexit__ = AsyncMock(return_value=False)
 
-            with patch.object(gas_client._session, 'get', return_value=mock_resp):
+            with patch.object(gas_client._session, "get", return_value=mock_resp):
                 result = await gas_client.fetch("health")
                 assert result is None
         finally:
@@ -107,7 +108,7 @@ class TestGASClient:
             mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
             mock_resp.__aexit__ = AsyncMock(return_value=False)
 
-            with patch.object(gas_client._session, 'get', return_value=mock_resp) as mock_get:
+            with patch.object(gas_client._session, "get", return_value=mock_resp) as mock_get:
                 await gas_client.fetch("calendar_upcoming", hours="24")
                 params = mock_get.call_args[1]["params"]
                 assert params["hours"] == "24"
@@ -159,10 +160,7 @@ class TestGASBridgeAPI:
 
     @pytest.fixture
     def bridge_client(self):
-        bridge_main_path = (
-            Path(__file__).resolve().parent.parent
-            / "services" / "gas-bridge" / "src" / "main.py"
-        )
+        bridge_main_path = Path(__file__).resolve().parent.parent / "services" / "gas-bridge" / "src" / "main.py"
         # Temporarily add gas-bridge/src to sys.path so main.py can resolve its imports
         old_config = sys.modules.pop("config", None)
         sys.path.insert(0, _gas_src)

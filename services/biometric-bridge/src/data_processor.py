@@ -1,39 +1,40 @@
 """
 Data normalization and fatigue score calculation for biometric data.
 """
-from dataclasses import dataclass, field
-from typing import Optional
+
 import time
+from dataclasses import dataclass, field
 
 from loguru import logger
 
-from config import FATIGUE_HR_WEIGHT, FATIGUE_SLEEP_WEIGHT, FATIGUE_STRESS_WEIGHT, DEDUP_WINDOW
+from config import DEDUP_WINDOW, FATIGUE_HR_WEIGHT, FATIGUE_HRV_WEIGHT, FATIGUE_SLEEP_WEIGHT, FATIGUE_STRESS_WEIGHT
 
 
 @dataclass
 class BiometricReading:
     """Normalized biometric reading from any provider."""
+
     timestamp: float = field(default_factory=time.time)
-    heart_rate: Optional[int] = None
-    resting_heart_rate: Optional[int] = None
-    spo2: Optional[int] = None
-    steps: Optional[int] = None
-    steps_goal: Optional[int] = None
-    calories: Optional[int] = None
-    active_minutes: Optional[int] = None
-    activity_level: Optional[str] = None  # rest | light | moderate | vigorous
-    stress_level: Optional[int] = None  # 0-100
-    sleep_stage: Optional[str] = None  # awake | light | deep | rem
-    sleep_duration_minutes: Optional[int] = None
-    sleep_deep_minutes: Optional[int] = None
-    sleep_rem_minutes: Optional[int] = None
-    sleep_light_minutes: Optional[int] = None
-    sleep_quality_score: Optional[int] = None
-    sleep_start_ts: Optional[float] = None
-    sleep_end_ts: Optional[float] = None
-    hrv_ms: Optional[int] = None  # Heart Rate Variability (RMSSD) in ms
-    body_temperature: Optional[float] = None  # Body/skin temperature in °C
-    respiratory_rate: Optional[int] = None  # Breaths per minute
+    heart_rate: int | None = None
+    resting_heart_rate: int | None = None
+    spo2: int | None = None
+    steps: int | None = None
+    steps_goal: int | None = None
+    calories: int | None = None
+    active_minutes: int | None = None
+    activity_level: str | None = None  # rest | light | moderate | vigorous
+    stress_level: int | None = None  # 0-100
+    sleep_stage: str | None = None  # awake | light | deep | rem
+    sleep_duration_minutes: int | None = None
+    sleep_deep_minutes: int | None = None
+    sleep_rem_minutes: int | None = None
+    sleep_light_minutes: int | None = None
+    sleep_quality_score: int | None = None
+    sleep_start_ts: float | None = None
+    sleep_end_ts: float | None = None
+    hrv_ms: int | None = None  # Heart Rate Variability (RMSSD) in ms
+    body_temperature: float | None = None  # Body/skin temperature in °C
+    respiratory_rate: int | None = None  # Breaths per minute
     provider: str = ""
 
 
@@ -41,8 +42,8 @@ class DataProcessor:
     """Normalizes and computes derived biometric metrics."""
 
     def __init__(self):
-        self._latest: Optional[BiometricReading] = None
-        self._sleep_cache: Optional[dict] = None
+        self._latest: BiometricReading | None = None
+        self._sleep_cache: dict | None = None
         self._hr_history: list[int] = []  # last N heart rate readings
         self._max_hr_history = 60
         # Dedup: track recent metric values to suppress dual-path duplicates
@@ -63,10 +64,7 @@ class DataProcessor:
         if not keys:
             return False
 
-        all_dup = all(
-            k in self._recent and (now - self._recent[k]) < DEDUP_WINDOW
-            for k in keys
-        )
+        all_dup = all(k in self._recent and (now - self._recent[k]) < DEDUP_WINDOW for k in keys)
         if all_dup:
             logger.debug(f"Dedup: skipping duplicate from {reading.provider}")
         return all_dup
@@ -101,15 +99,15 @@ class DataProcessor:
         if reading.heart_rate is not None:
             self._hr_history.append(reading.heart_rate)
             if len(self._hr_history) > self._max_hr_history:
-                self._hr_history = self._hr_history[-self._max_hr_history:]
+                self._hr_history = self._hr_history[-self._max_hr_history :]
 
         self._latest = reading
         return reading
 
-    def get_latest(self) -> Optional[BiometricReading]:
+    def get_latest(self) -> BiometricReading | None:
         return self._latest
 
-    def get_sleep_summary(self) -> Optional[dict]:
+    def get_sleep_summary(self) -> dict | None:
         return self._sleep_cache
 
     def update_sleep_summary(self, reading: BiometricReading):
@@ -161,19 +159,30 @@ class DataProcessor:
             if self._latest.stress_level > 70:
                 factors.append("high_stress")
 
+        # HRV component: low RMSSD → autonomic nervous system fatigue
+        # Map HRV (ms) to fatigue score 0-100 inversely:
+        #   <20 ms  → 100 (very_low_hrv)
+        #   20-40   → linearly 100→50  (low_hrv)
+        #   40-80   → linearly 50→0
+        #   >=80    → 0
+        if self._latest and self._latest.hrv_ms is not None:
+            hrv = self._latest.hrv_ms
+            if hrv < 20:
+                hrv_fatigue = 100.0
+                factors.append("very_low_hrv")
+            elif hrv < 40:
+                hrv_fatigue = 100.0 - (hrv - 20) * 2.5  # 100 → 50
+                factors.append("low_hrv")
+            elif hrv < 80:
+                hrv_fatigue = 50.0 - (hrv - 40) * 1.25  # 50 → 0
+            else:
+                hrv_fatigue = 0.0
+            score += hrv_fatigue * FATIGUE_HRV_WEIGHT
+            weight_total += FATIGUE_HRV_WEIGHT
+
         if weight_total > 0:
             fatigue_score = int(score / weight_total)
         else:
             fatigue_score = 0
 
-        # HRV modifier: low HRV indicates autonomic nervous system fatigue
-        if self._latest and self._latest.hrv_ms is not None:
-            hrv = self._latest.hrv_ms
-            if hrv < 20:
-                fatigue_score += 15
-                factors.append("very_low_hrv")
-            elif hrv < 40:
-                fatigue_score += 8
-                factors.append("low_hrv")
-
-        return {"score": min(fatigue_score, 100), "factors": factors}
+        return {"score": min(max(fatigue_score, 0), 100), "factors": factors}

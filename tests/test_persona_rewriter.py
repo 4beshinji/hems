@@ -1,4 +1,5 @@
 """Tests for PersonaRewriter — persona-based speak message rewriting."""
+
 import os
 from unittest.mock import AsyncMock, patch
 
@@ -8,15 +9,16 @@ from character_loader import CharacterConfig, load_character
 from llm_client import LLMResponse
 from persona_rewriter import PersonaRewriter, _build_persona_prompt
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def ena_character():
     """Load the ena character template for testing."""
     from pathlib import Path
+
     config_dir = Path(__file__).resolve().parent.parent / "config"
     with patch.dict(os.environ, {"CHARACTER": "ena"}):
         return load_character(config_dir=config_dir)
@@ -44,6 +46,7 @@ def rewriter(ena_character, mock_llm):
 # ---------------------------------------------------------------------------
 # TestBuildPersonaPrompt
 # ---------------------------------------------------------------------------
+
 
 class TestBuildPersonaPrompt:
     def test_default_character_includes_name(self, default_character):
@@ -78,15 +81,12 @@ class TestBuildPersonaPrompt:
 # TestRewrite
 # ---------------------------------------------------------------------------
 
+
 class TestRewrite:
     @pytest.mark.asyncio
     async def test_successful_rewrite(self, rewriter, mock_llm):
-        mock_llm.chat.return_value = LLMResponse(
-            content="ちょっと！GPU90度ですよ！！"
-        )
-        result = await rewriter.rewrite(
-            "GPU温度が90度です。負荷を下げてください。", tone="alert"
-        )
+        mock_llm.chat.return_value = LLMResponse(content="ちょっと！GPU90度ですよ！！")
+        result = await rewriter.rewrite("GPU温度が90度です。負荷を下げてください。", tone="alert")
         assert result == "ちょっと！GPU90度ですよ！！"
         mock_llm.chat.assert_called_once()
         call_kwargs = mock_llm.chat.call_args
@@ -156,6 +156,7 @@ class TestRewrite:
 # TestUpdateCharacter
 # ---------------------------------------------------------------------------
 
+
 class TestUpdateCharacter:
     def test_update_rebuilds_prompt(self, rewriter, default_character, ena_character):
         old_prompt = rewriter._persona_prompt
@@ -170,6 +171,7 @@ class TestUpdateCharacter:
 # ---------------------------------------------------------------------------
 # TestRewriteCache
 # ---------------------------------------------------------------------------
+
 
 class TestRewriteCache:
     @pytest.mark.asyncio
@@ -198,9 +200,7 @@ class TestRewriteCache:
         assert mock_llm.chat.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_cache_cleared_on_update_character(
-        self, rewriter, default_character, mock_llm
-    ):
+    async def test_cache_cleared_on_update_character(self, rewriter, default_character, mock_llm):
         """After update_character(), cache is empty and LLM is called again."""
         mock_llm.chat.return_value = LLMResponse(content="エナ風")
         await rewriter.rewrite("テストメッセージ", tone="neutral")

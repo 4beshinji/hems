@@ -1,10 +1,12 @@
 """
 Input validation and safety limits for HEMS Brain.
 """
-import re
+
 import json
+import re
 import time
-from typing import Dict, Any
+from typing import Any
+
 from loguru import logger
 
 # Allowed commands for run_pc_command (whitelist approach).
@@ -89,7 +91,7 @@ class Sanitizer:
         # Speak cooldown per zone (recorded after successful speak)
         self._speak_cooldowns: dict[str, float] = {}
 
-    def validate_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Validate a tool call. Returns {"allowed": bool, "reason": str}."""
         logger.info(f"Sanitizing: {tool_name} with {arguments}")
 
@@ -115,20 +117,70 @@ class Sanitizer:
             return self._validate_execute_scene(arguments)
         elif tool_name == "control_browser":
             return self._validate_control_browser(arguments)
+        elif tool_name == "control_actuator":
+            return self._validate_control_actuator(arguments)
+        elif tool_name == "zigbee_permit_join":
+            return self._validate_zigbee_permit_join(arguments)
         elif tool_name in (
-            "get_zone_status", "get_active_tasks", "get_device_status",
-            "get_pc_status", "send_pc_notification",
-            "get_service_status", "search_notes", "get_recent_notes",
-            "get_home_devices", "get_biometrics", "get_sleep_summary",
-            "get_sensor_data", "get_perception_status",
-            "set_guest_mode", "get_weather",
+            # Core read-only
+            "get_zone_status",
+            "get_active_tasks",
+            "get_device_status",
+            "get_sensor_history",
+            # PC / services
+            "get_pc_status",
+            "send_pc_notification",
+            "get_service_status",
+            "list_processes",
+            # Notes / knowledge
+            "search_notes",
+            "get_recent_notes",
+            "list_note_tags",
+            "search_knowledge",
+            "get_knowledge_sources",
+            "read_knowledge_document",
+            "get_recent_knowledge_changes",
+            # Home / devices
+            "get_home_devices",
+            "get_sensor_data",
+            "get_entity_status",
+            "set_guest_mode",
+            "get_weather",
+            "list_devices",
+            "describe_device",
+            "execute_scene_by_name",
+            "list_scenes",
+            "get_power_consumption",
+            "get_switchbot_devices",
+            # Biometrics
+            "get_biometrics",
+            "get_sleep_summary",
+            "get_biometric_trend",
+            "get_sleep_history",
+            # Perception / VLM
+            "get_perception_status",
+            "describe_scene",
+            "list_scene_objects",
+            "get_scene_timeline",
+            "list_cameras",
+            "get_vlm_status",
+            "get_activity_history",
+            # Shopping (read-only — add_shopping_item is a write but light surface)
+            "get_shopping_list",
+            "add_shopping_item",
+            # GAS
+            "get_recent_emails",
+            "gas_query_free_slots",
+            "gas_query_sheet",
+            # News
+            "get_news_summary",
         ):
             return {"allowed": True, "reason": ""}
         else:
             logger.warning(f"REJECTED: Unknown tool {tool_name}")
             return {"allowed": False, "reason": f"Unknown tool: {tool_name}"}
 
-    def _validate_create_task(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_create_task(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate create_task parameters."""
         now = time.time()
         # Prune old timestamps (rate limiting uses pre-recorded timestamps)
@@ -153,7 +205,7 @@ class Sanitizer:
         """Record a successful task creation for rate limiting."""
         self._task_timestamps.append(time.time())
 
-    def _validate_speak(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_speak(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate speak parameters with zone-based cooldown."""
         message = args.get("message", "")
         if not message or not message.strip():
@@ -161,7 +213,7 @@ class Sanitizer:
 
         if len(message) > self.MAX_MESSAGE_LENGTH:
             logger.warning(f"Speak message too long ({len(message)} > {self.MAX_MESSAGE_LENGTH}), truncating")
-            args["message"] = message[:self.MAX_MESSAGE_LENGTH]
+            args["message"] = message[: self.MAX_MESSAGE_LENGTH]
 
         zone = args.get("zone", "unknown")
         now = time.time()
@@ -177,7 +229,7 @@ class Sanitizer:
         """Record a successful speak execution for cooldown tracking."""
         self._speak_cooldowns[zone] = time.time()
 
-    def _validate_device_command(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_device_command(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate send_device_command parameters."""
         agent_id = args.get("agent_id", "")
         tool_name = args.get("tool_name", "")
@@ -202,7 +254,10 @@ class Sanitizer:
                 limits = self.safety_limits["set_temperature"]
                 if not (limits["min"] <= temp <= limits["max"]):
                     logger.warning(f"REJECTED: Temperature {temp} out of bounds [{limits['min']}-{limits['max']}]")
-                    return {"allowed": False, "reason": f"Temperature {temp} out of safe range [{limits['min']}-{limits['max']}]"}
+                    return {
+                        "allowed": False,
+                        "reason": f"Temperature {temp} out of safe range [{limits['min']}-{limits['max']}]",
+                    }
 
         # Pump duration check
         if tool_name == "run_pump":
@@ -210,11 +265,14 @@ class Sanitizer:
             if duration is not None:
                 if duration > self.safety_limits["pump_duration"]["max"]:
                     logger.warning(f"REJECTED: Pump duration {duration} exceeds limit")
-                    return {"allowed": False, "reason": f"Pump duration {duration}s exceeds maximum {self.safety_limits['pump_duration']['max']}s"}
+                    return {
+                        "allowed": False,
+                        "reason": f"Pump duration {duration}s exceeds maximum {self.safety_limits['pump_duration']['max']}s",
+                    }
 
         return {"allowed": True, "reason": ""}
 
-    def _validate_write_note(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_write_note(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate write_note parameters (Obsidian integration)."""
         title = args.get("title", "")
         if not title:
@@ -234,7 +292,7 @@ class Sanitizer:
 
         return {"allowed": True, "reason": ""}
 
-    def _validate_pc_command(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_pc_command(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate run_pc_command against an explicit allowlist.
 
         Only commands that match a known-safe pattern are permitted.
@@ -259,7 +317,7 @@ class Sanitizer:
             ),
         }
 
-    def _validate_control_light(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_control_light(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate control_light parameters."""
         entity_id = args.get("entity_id", "")
         if not entity_id:
@@ -275,7 +333,7 @@ class Sanitizer:
 
         return {"allowed": True, "reason": ""}
 
-    def _validate_control_climate(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_control_climate(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate control_climate parameters."""
         entity_id = args.get("entity_id", "")
         if not entity_id:
@@ -292,7 +350,7 @@ class Sanitizer:
 
         return {"allowed": True, "reason": ""}
 
-    def _validate_control_cover(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_control_cover(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate control_cover parameters."""
         entity_id = args.get("entity_id", "")
         if not entity_id:
@@ -304,7 +362,7 @@ class Sanitizer:
 
         return {"allowed": True, "reason": ""}
 
-    def _validate_control_switch(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_control_switch(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate control_switch parameters."""
         entity_id = args.get("entity_id", "")
         if not entity_id:
@@ -313,7 +371,7 @@ class Sanitizer:
             return {"allowed": False, "reason": f"Invalid entity_id prefix: expected 'switch.' but got '{entity_id}'"}
         return {"allowed": True, "reason": ""}
 
-    def _validate_execute_scene(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_execute_scene(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate execute_scene parameters."""
         entity_id = args.get("entity_id", "")
         if not entity_id:
@@ -322,7 +380,98 @@ class Sanitizer:
             return {"allowed": False, "reason": f"Invalid entity_id prefix: expected 'scene.' but got '{entity_id}'"}
         return {"allowed": True, "reason": ""}
 
-    def _validate_control_browser(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_control_actuator(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Validate control_actuator — generic device control via Device Registry."""
+        _ALLOWED_ACTIONS = {
+            "on",
+            "off",
+            "toggle",
+            "set_brightness",
+            "set_color_temp",
+            "set_color_xy",
+            "set_color_hs",
+            "set_position",
+            "set_temperature",
+            "pulse",
+            "rainbow",
+            "ir_send",
+        }
+        device_id = args.get("device_id", "")
+        if not device_id or "." not in device_id:
+            return {"allowed": False, "reason": f"Invalid device_id '{device_id}' (expected 'vendor.name')"}
+
+        action = args.get("action", "")
+        if action not in _ALLOWED_ACTIONS:
+            return {"allowed": False, "reason": f"action '{action}' not in {sorted(_ALLOWED_ACTIONS)}"}
+
+        params = args.get("params") or {}
+        if action == "pulse":
+            duration = params.get("duration_s")
+            if duration is None:
+                return {"allowed": False, "reason": "pulse requires params.duration_s"}
+            try:
+                d = int(duration)
+            except (TypeError, ValueError):
+                return {"allowed": False, "reason": "pulse.duration_s must be integer"}
+            if not (1 <= d <= 600):
+                return {"allowed": False, "reason": f"pulse.duration_s {d} out of range (1-600)"}
+        elif action == "set_brightness":
+            v = params.get("value")
+            if v is None or not (0 <= int(v) <= 255):
+                return {"allowed": False, "reason": "set_brightness.value must be 0-255"}
+        elif action == "set_color_temp":
+            v = params.get("value")
+            if v is None or not (153 <= int(v) <= 500):
+                return {"allowed": False, "reason": "set_color_temp.value must be 153-500"}
+        elif action == "set_color_xy":
+            x = params.get("x")
+            y = params.get("y")
+            if x is None or y is None:
+                return {"allowed": False, "reason": "set_color_xy requires params.x and params.y"}
+            if not (0.0 <= float(x) <= 1.0 and 0.0 <= float(y) <= 1.0):
+                return {"allowed": False, "reason": "set_color_xy x/y must be 0.0-1.0"}
+        elif action == "set_color_hs":
+            hue = params.get("hue")
+            sat = params.get("saturation")
+            if hue is None or sat is None:
+                return {"allowed": False, "reason": "set_color_hs requires params.hue and params.saturation"}
+            if not (0 <= float(hue) <= 360 and 0 <= float(sat) <= 100):
+                return {"allowed": False, "reason": "set_color_hs hue must be 0-360, saturation 0-100"}
+        elif action == "set_position":
+            v = params.get("value")
+            if v is None or not (0 <= int(v) <= 100):
+                return {"allowed": False, "reason": "set_position.value must be 0-100"}
+        elif action == "set_temperature":
+            v = params.get("value")
+            if v is None or not (16 <= float(v) <= 30):
+                return {"allowed": False, "reason": "set_temperature.value must be 16-30"}
+        elif action == "rainbow":
+            duration = params.get("duration_s")
+            if duration is None:
+                return {"allowed": False, "reason": "rainbow requires params.duration_s"}
+            try:
+                d = int(duration)
+            except (TypeError, ValueError):
+                return {"allowed": False, "reason": "rainbow.duration_s must be integer"}
+            if not (1 <= d <= 60):
+                return {"allowed": False, "reason": f"rainbow.duration_s {d} out of range (1-60)"}
+
+        return {"allowed": True, "reason": ""}
+
+    def _validate_zigbee_permit_join(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Validate zigbee_permit_join — only flag + bounded duration."""
+        if "enable" not in args:
+            return {"allowed": False, "reason": "enable is required"}
+        duration = args.get("duration_s", 0)
+        try:
+            d = int(duration or 0)
+        except (TypeError, ValueError):
+            return {"allowed": False, "reason": "duration_s must be integer"}
+        if not (0 <= d <= 3600):
+            return {"allowed": False, "reason": f"duration_s {d} out of range (0-3600)"}
+        return {"allowed": True, "reason": ""}
+
+    def _validate_control_browser(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate control_browser parameters.
 
         The 'eval' action executes arbitrary JavaScript and is blocked

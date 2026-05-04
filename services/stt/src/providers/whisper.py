@@ -5,6 +5,7 @@ Auto-selects backend based on GPU:
   - AMD (ROCm): transformers + PyTorch ROCm — full GPU acceleration
   - CPU: faster-whisper int8 — still fast enough for real-time
 """
+
 import asyncio
 import io
 import os
@@ -13,7 +14,6 @@ from typing import Protocol
 import numpy as np
 import soundfile as sf
 from loguru import logger
-
 from stt_provider import STTProvider, TranscriptionResult
 
 _DEFAULT_MODEL = "large-v3-turbo"
@@ -29,9 +29,7 @@ _HF_MODEL_MAP = {
 
 
 class _Backend(Protocol):
-    def transcribe(
-        self, audio: np.ndarray, sr: int, language: str, beam_size: int
-    ) -> TranscriptionResult: ...
+    def transcribe(self, audio: np.ndarray, sr: int, language: str, beam_size: int) -> TranscriptionResult: ...
 
 
 def _detect_backend(device: str) -> str:
@@ -88,10 +86,7 @@ class _FasterWhisperBackend:
         if fw_device == "cpu" and compute_type == "auto":
             compute_type = "int8"
 
-        logger.info(
-            f"Loading faster-whisper: {model_id} "
-            f"(device={fw_device}, compute={compute_type})"
-        )
+        logger.info(f"Loading faster-whisper: {model_id} (device={fw_device}, compute={compute_type})")
         self._model = WhisperModel(
             model_id,
             device=fw_device,
@@ -100,9 +95,7 @@ class _FasterWhisperBackend:
         )
         logger.info("faster-whisper model loaded")
 
-    def transcribe(
-        self, audio: np.ndarray, sr: int, language: str, beam_size: int
-    ) -> TranscriptionResult:
+    def transcribe(self, audio: np.ndarray, sr: int, language: str, beam_size: int) -> TranscriptionResult:
         lang_arg = None if language == "auto" else language
         segments_gen, info = self._model.transcribe(
             audio,
@@ -153,14 +146,9 @@ class _TransformersBackend:
         else:
             self._dtype = torch.float32
 
-        logger.info(
-            f"Loading transformers Whisper: {hf_model} "
-            f"(device={self._device}, dtype={self._dtype})"
-        )
+        logger.info(f"Loading transformers Whisper: {hf_model} (device={self._device}, dtype={self._dtype})")
         cache_dir = os.getenv("STT_MODEL_DIR", "/app/models")
-        self._processor = AutoProcessor.from_pretrained(
-            hf_model, cache_dir=cache_dir
-        )
+        self._processor = AutoProcessor.from_pretrained(hf_model, cache_dir=cache_dir)
         self._model = AutoModelForSpeechSeq2Seq.from_pretrained(
             hf_model,
             torch_dtype=self._dtype,
@@ -169,17 +157,11 @@ class _TransformersBackend:
         self._model.eval()
         logger.info(f"transformers Whisper loaded on {self._device}")
 
-    def transcribe(
-        self, audio: np.ndarray, sr: int, language: str, beam_size: int
-    ) -> TranscriptionResult:
+    def transcribe(self, audio: np.ndarray, sr: int, language: str, beam_size: int) -> TranscriptionResult:
         import torch
 
-        inputs = self._processor(
-            audio, sampling_rate=sr, return_tensors="pt"
-        )
-        input_features = inputs.input_features.to(
-            device=self._device, dtype=self._dtype
-        )
+        inputs = self._processor(audio, sampling_rate=sr, return_tensors="pt")
+        input_features = inputs.input_features.to(device=self._device, dtype=self._dtype)
 
         gen_kwargs: dict = {"max_new_tokens": 448}
         if beam_size > 1:
@@ -189,13 +171,9 @@ class _TransformersBackend:
             gen_kwargs["task"] = "transcribe"
 
         with torch.no_grad():
-            predicted_ids = self._model.generate(
-                input_features, **gen_kwargs
-            )
+            predicted_ids = self._model.generate(input_features, **gen_kwargs)
 
-        text = self._processor.batch_decode(
-            predicted_ids, skip_special_tokens=True
-        )[0].strip()
+        text = self._processor.batch_decode(predicted_ids, skip_special_tokens=True)[0].strip()
 
         duration = len(audio) / sr if sr > 0 else 0.0
 
@@ -234,25 +212,15 @@ class WhisperProvider(STTProvider):
         logger.info(f"Whisper backend: {self._backend_name}")
 
         if self._backend_name == "faster-whisper":
-            self._backend = _FasterWhisperBackend(
-                self._model_id, self._device, self._compute_type
-            )
+            self._backend = _FasterWhisperBackend(self._model_id, self._device, self._compute_type)
         else:
-            self._backend = _TransformersBackend(
-                self._model_id, self._device, self._compute_type
-            )
+            self._backend = _TransformersBackend(self._model_id, self._device, self._compute_type)
 
-    async def transcribe(
-        self, audio_data: bytes, language: str = "ja"
-    ) -> TranscriptionResult:
+    async def transcribe(self, audio_data: bytes, language: str = "ja") -> TranscriptionResult:
         async with self._lock:
-            return await asyncio.get_event_loop().run_in_executor(
-                None, self._transcribe_sync, audio_data, language
-            )
+            return await asyncio.get_event_loop().run_in_executor(None, self._transcribe_sync, audio_data, language)
 
-    def _transcribe_sync(
-        self, audio_data: bytes, language: str
-    ) -> TranscriptionResult:
+    def _transcribe_sync(self, audio_data: bytes, language: str) -> TranscriptionResult:
         self._load_model()
         data, sr = sf.read(io.BytesIO(audio_data), dtype="float32")
         return self._backend.transcribe(data, sr, language, self._beam_size)

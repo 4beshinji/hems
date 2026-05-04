@@ -1,18 +1,17 @@
+import json
 import logging
 import os
-import json
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.sql import func
-from typing import List, Optional
 
-from database import get_db
 import models
 import schemas
+from database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -30,18 +29,21 @@ def _publish_shopping_event(event_type: str, data: dict):
     payload = json.dumps(data, ensure_ascii=False, default=str)
     try:
         import paho.mqtt.publish as mqtt_publish
+
         mqtt_publish.single(
-            topic, payload, hostname=MQTT_BROKER,
+            topic,
+            payload,
+            hostname=MQTT_BROKER,
             auth={"username": MQTT_USER, "password": MQTT_PASS},
         )
     except Exception as e:
         logger.warning("MQTT publish failed for shopping: %s", e)
 
 
-@router.get("/", response_model=List[schemas.ShoppingItem])
+@router.get("/", response_model=list[schemas.ShoppingItem])
 async def list_items(
-    category: Optional[str] = None,
-    store: Optional[str] = None,
+    category: str | None = None,
+    store: str | None = None,
     include_purchased: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
@@ -84,6 +86,7 @@ async def add_item(item: schemas.ShoppingItemCreate, db: AsyncSession = Depends(
         quantity=item.quantity,
         unit=item.unit,
         store=item.store,
+        store_category=item.store_category,
         price=item.price,
         is_recurring=item.is_recurring,
         recurrence_days=item.recurrence_days,
@@ -92,14 +95,19 @@ async def add_item(item: schemas.ShoppingItemCreate, db: AsyncSession = Depends(
         created_by=item.created_by,
     )
     if item.is_recurring and item.recurrence_days:
-        new_item.next_purchase_at = datetime.now(timezone.utc) + timedelta(days=item.recurrence_days)
+        new_item.next_purchase_at = datetime.now(UTC) + timedelta(days=item.recurrence_days)
 
     db.add(new_item)
     await db.commit()
     await db.refresh(new_item)
-    _publish_shopping_event("added", {
-        "id": new_item.id, "name": new_item.name, "category": new_item.category,
-    })
+    _publish_shopping_event(
+        "added",
+        {
+            "id": new_item.id,
+            "name": new_item.name,
+            "category": new_item.category,
+        },
+    )
     return new_item
 
 
@@ -109,9 +117,7 @@ async def update_item(
     body: schemas.ShoppingItemUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id)
-    )
+    result = await db.execute(select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id))
     item = result.scalars().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -121,19 +127,57 @@ async def update_item(
 
     await db.commit()
     await db.refresh(item)
+    _publish_shopping_event(
+        "updated",
+        {
+            "id": item.id,
+            "name": item.name,
+            "store_category": item.store_category,
+        },
+    )
+    return item
+
+
+@router.patch("/{item_id}", response_model=schemas.ShoppingItem)
+async def patch_item(
+    item_id: int,
+    body: schemas.ShoppingItemPatch,
+    db: AsyncSession = Depends(get_db),
+):
+    """Partial update — used by brain's shopping classifier to write back store_category."""
+    result = await db.execute(select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id))
+    item = result.scalars().first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    changes = body.model_dump(exclude_unset=True)
+    if not changes:
+        return item
+
+    for field_name, value in changes.items():
+        setattr(item, field_name, value)
+
+    await db.commit()
+    await db.refresh(item)
+    _publish_shopping_event(
+        "updated",
+        {
+            "id": item.id,
+            "name": item.name,
+            "fields": list(changes.keys()),
+        },
+    )
     return item
 
 
 @router.put("/{item_id}/purchase", response_model=schemas.ShoppingItem)
 async def purchase_item(item_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id)
-    )
+    result = await db.execute(select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id))
     item = result.scalars().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     item.is_purchased = True
     item.purchased_at = now
     item.last_purchased_at = now
@@ -168,17 +212,20 @@ async def purchase_item(item_id: int, db: AsyncSession = Depends(get_db)):
 
     await db.commit()
     await db.refresh(item)
-    _publish_shopping_event("purchased", {
-        "id": item.id, "name": item.name, "price": item.price,
-    })
+    _publish_shopping_event(
+        "purchased",
+        {
+            "id": item.id,
+            "name": item.name,
+            "price": item.price,
+        },
+    )
     return item
 
 
 @router.delete("/{item_id}")
 async def delete_item(item_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id)
-    )
+    result = await db.execute(select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id))
     item = result.scalars().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -189,24 +236,32 @@ async def delete_item(item_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.get("/stats", response_model=schemas.ShoppingStats)
 async def get_stats(db: AsyncSession = Depends(get_db)):
-    total = (await db.execute(
-        select(func.count()).select_from(models.ShoppingItem)
-    )).scalar() or 0
-    purchased = (await db.execute(
-        select(func.count()).select_from(models.ShoppingItem)
-        .filter(models.ShoppingItem.is_purchased == True)
-    )).scalar() or 0
+    total = (await db.execute(select(func.count()).select_from(models.ShoppingItem))).scalar() or 0
+    purchased = (
+        await db.execute(
+            select(func.count()).select_from(models.ShoppingItem).filter(models.ShoppingItem.is_purchased == True)
+        )
+    ).scalar() or 0
     pending = total - purchased
 
     # Monthly spend from purchase history
-    month_start = datetime.now(timezone.utc).replace(
-        day=1, hour=0, minute=0, second=0, microsecond=0,
+    month_start = datetime.now(UTC).replace(
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
     )
-    monthly_spent = (await db.execute(
-        select(func.coalesce(
-            func.sum(models.PurchaseHistory.price * models.PurchaseHistory.quantity), 0,
-        )).filter(models.PurchaseHistory.purchased_at >= month_start)
-    )).scalar() or 0
+    monthly_spent = (
+        await db.execute(
+            select(
+                func.coalesce(
+                    func.sum(models.PurchaseHistory.price * models.PurchaseHistory.quantity),
+                    0,
+                )
+            ).filter(models.PurchaseHistory.purchased_at >= month_start)
+        )
+    ).scalar() or 0
 
     # Category breakdown for pending items
     cat_result = await db.execute(
@@ -225,39 +280,49 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.get("/categories", response_model=List[str])
+@router.get("/categories", response_model=list[str])
 async def list_categories(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(models.ShoppingItem.category)
-        .filter(models.ShoppingItem.category != None)
-        .distinct()
+        select(models.ShoppingItem.category).filter(models.ShoppingItem.category != None).distinct()
     )
     return [row[0] for row in result.all() if row[0]]
 
 
-@router.get("/stores", response_model=List[str])
+@router.get("/stores", response_model=list[str])
 async def list_stores(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(models.ShoppingItem.store)
-        .filter(models.ShoppingItem.store != None)
-        .distinct()
-    )
+    result = await db.execute(select(models.ShoppingItem.store).filter(models.ShoppingItem.store != None).distinct())
     return [row[0] for row in result.all() if row[0]]
 
 
-@router.get("/history", response_model=List[schemas.PurchaseHistory])
+@router.get("/history", response_model=list[schemas.PurchaseHistory])
 async def get_history(
     days: int = Query(default=30, le=365),
-    category: Optional[str] = None,
+    category: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    since = datetime.now(timezone.utc) - timedelta(days=days)
-    query = select(models.PurchaseHistory).filter(
-        models.PurchaseHistory.purchased_at >= since
-    )
+    since = datetime.now(UTC) - timedelta(days=days)
+    query = select(models.PurchaseHistory).filter(models.PurchaseHistory.purchased_at >= since)
     if category:
         query = query.filter(models.PurchaseHistory.category == category)
     query = query.order_by(models.PurchaseHistory.purchased_at.desc()).limit(100)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.get("/purchase-history", response_model=list[schemas.PurchaseHistory])
+async def get_purchase_history_by_name(
+    name: str = Query(..., description="Item name to search history for"),
+    limit: int = Query(default=10, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return purchase history filtered by item name — used by ShoppingClassifier
+    cycle-learning logic to detect periodic purchases."""
+    query = (
+        select(models.PurchaseHistory)
+        .filter(models.PurchaseHistory.item_name == name)
+        .order_by(models.PurchaseHistory.purchased_at.desc())
+        .limit(limit)
+    )
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -269,9 +334,7 @@ async def create_share_link(item_id: int = 0, db: AsyncSession = Depends(get_db)
     token = secrets.token_urlsafe(16)
 
     if item_id > 0:
-        result = await db.execute(
-            select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id)
-        )
+        result = await db.execute(select(models.ShoppingItem).filter(models.ShoppingItem.id == item_id))
         item = result.scalars().first()
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -279,9 +342,7 @@ async def create_share_link(item_id: int = 0, db: AsyncSession = Depends(get_db)
         await db.commit()
         items = [item]
     else:
-        result = await db.execute(
-            select(models.ShoppingItem).filter(models.ShoppingItem.is_purchased == False)
-        )
+        result = await db.execute(select(models.ShoppingItem).filter(models.ShoppingItem.is_purchased == False))
         items = list(result.scalars().all())
         if not items:
             raise HTTPException(status_code=404, detail="No pending items")
@@ -296,47 +357,51 @@ async def create_share_link(item_id: int = 0, db: AsyncSession = Depends(get_db)
     )
 
 
-@router.get("/recurring", response_model=List[schemas.ShoppingItem])
+@router.get("/recurring", response_model=list[schemas.ShoppingItem])
 async def get_recurring_items(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(models.ShoppingItem).filter(
+        select(models.ShoppingItem)
+        .filter(
             models.ShoppingItem.is_recurring == True,
             models.ShoppingItem.is_purchased == False,
-        ).order_by(models.ShoppingItem.next_purchase_at)
+        )
+        .order_by(models.ShoppingItem.next_purchase_at)
     )
     return result.scalars().all()
 
 
-@router.get("/due", response_model=List[schemas.ShoppingItem])
+@router.get("/due", response_model=list[schemas.ShoppingItem])
 async def get_due_items(db: AsyncSession = Depends(get_db)):
     """Get recurring items that are due for purchase."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = await db.execute(
-        select(models.ShoppingItem).filter(
+        select(models.ShoppingItem)
+        .filter(
             models.ShoppingItem.is_recurring == True,
             models.ShoppingItem.is_purchased == False,
             models.ShoppingItem.next_purchase_at != None,
             models.ShoppingItem.next_purchase_at <= now,
-        ).order_by(models.ShoppingItem.next_purchase_at)
+        )
+        .order_by(models.ShoppingItem.next_purchase_at)
     )
     return result.scalars().all()
 
 
 # --- Public endpoint (no auth) ---
 
-@public_router.get("/shared/{token}", response_model=List[schemas.ShoppingItem])
+
+@public_router.get("/shared/{token}", response_model=list[schemas.ShoppingItem])
 async def get_shared_list(token: str, db: AsyncSession = Depends(get_db)):
     """Public endpoint to view a shared shopping list."""
-    result = await db.execute(
-        select(models.ShoppingItem).filter(models.ShoppingItem.share_token == token)
-    )
+    result = await db.execute(select(models.ShoppingItem).filter(models.ShoppingItem.share_token == token))
     item = result.scalars().first()
     if not item:
         raise HTTPException(status_code=404, detail="Share link not found or expired")
 
     # Return all pending items
     result = await db.execute(
-        select(models.ShoppingItem).filter(models.ShoppingItem.is_purchased == False)
+        select(models.ShoppingItem)
+        .filter(models.ShoppingItem.is_purchased == False)
         .order_by(models.ShoppingItem.priority.desc(), models.ShoppingItem.created_at)
     )
     return result.scalars().all()

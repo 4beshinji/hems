@@ -13,26 +13,25 @@ All services run via Docker Compose from the `infra/` directory.
 ```bash
 # Initial setup
 cp env.example .env
-cd infra && docker compose up -d --build
+cd infra
+docker compose --profile bootstrap build base   # build hems-base:py3.11 (one time, all Python services FROM it)
+docker compose up -d --build
 
 # With VOICEVOX TTS
 docker compose --profile voicevox up -d --build
 
-# With local LLM stack (llama.cpp server + TEI embeddings + optional VLM)
-# 1) Fetch GGUF + mmproj + embedding model into ./models/
-bash infra/scripts/pull_models.sh
-# 2) GPU auto-detect → generates docker-compose.gpu.yml
+# With local LLM (GPU auto-detect → generates docker-compose.gpu.yml)
 python infra/scripts/gpu_setup.py
-# 3) Start the stack (use --profile vlm to add vlm-light, vlm-heavy as --profile vlm-heavy)
 cd infra && docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
-  --profile llm up -d --build
+  --profile ollama up -d --build
+# Pull default model (first time only)
+docker exec hems-ollama ollama pull qwen3.5
 
 # With local LLM (CPU-only, no GPU override needed)
-docker compose --profile llm up -d --build
-
-# Legacy: Ollama backend (kept for users with existing `ollama_models` volumes)
 docker compose --profile ollama up -d --build
-docker exec hems-ollama ollama pull qwen2.5:14b
+# Pull default model (first time only)
+docker exec hems-ollama ollama pull qwen3.5
+# Lighter alternatives: qwen2.5:7b, llama3.2:3b
 
 # With PostgreSQL (instead of SQLite)
 docker compose --profile postgres up -d --build
@@ -58,8 +57,14 @@ docker compose --profile perception up -d --build
 # With SwitchBot (direct SwitchBot API, no HA required)
 docker compose --profile switchbot up -d --build
 
-# With news briefing (RSS + local LLM summarizer, requires --profile llm or --profile ollama)
-docker compose --profile news --profile llm up -d --build
+# With Tapo P110/P115 (direct LAN, python-kasa, no HA required)
+docker compose --profile tapo up -d --build
+
+# With Zigbee2MQTT (requires Zigbee USB coordinator stick)
+docker compose --profile zigbee up -d --build
+
+# With news briefing (RSS + Ollama summarizer, requires --profile ollama)
+docker compose --profile news --profile ollama up -d --build
 
 # With knowledge ingestion (multi-format document loader)
 docker compose --profile knowledge up -d --build
@@ -67,7 +72,7 @@ docker compose --profile knowledge up -d --build
 # With STT (Speech-to-Text, push-to-talk + VAD auto mode)
 docker compose --profile stt up -d --build
 
-# With mock LLM (development, no local LLM runtime needed)
+# With mock LLM (development, no Ollama needed)
 LLM_API_URL=http://mock-llm:8000/v1 LLM_MODEL=mock \
   docker compose --profile mock up -d --build
 
@@ -80,7 +85,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `mock`, `voicevox`, `llm` (llama.cpp + TEI embeddings), `vlm`, `vlm-heavy`, `ollama` (legacy), `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `news`, `knowledge`, `stt`
+Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `localcraw`, `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `tapo`, `zigbee`, `news`, `knowledge`, `stt`
 
 ### Frontend Development
 
@@ -110,15 +115,12 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Biometric Bridge | 8017 | `HEMS_PORT_BIOMETRIC_BRIDGE` | hems-biometric-bridge |
 | Perception | 8018 | `HEMS_PORT_PERCEPTION` | hems-perception |
 | SwitchBot Bridge | 8019 | `HEMS_PORT_SWITCHBOT_BRIDGE` | hems-switchbot-bridge |
+| Tapo Bridge | 8020 | `HEMS_PORT_TAPO_BRIDGE` | hems-tapo-bridge |
 | News Bridge | 8021 | `HEMS_PORT_NEWS_BRIDGE` | hems-news-bridge |
 | Knowledge Bridge | 8022 | `HEMS_PORT_KNOWLEDGE_BRIDGE` | hems-knowledge-bridge |
 | STT Service | 8023 | `HEMS_PORT_STT` | hems-stt |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
-| llama.cpp LLM | 8081 | `HEMS_PORT_LLM` | hems-llm |
-| Embed (TEI) | 8090 | `HEMS_PORT_EMBED` | hems-embed |
-| VLM light | 8082 | `HEMS_PORT_VLM_LIGHT` | hems-vlm-light |
-| VLM heavy | 8083 | `HEMS_PORT_VLM_HEAVY` | hems-vlm-heavy |
-| Ollama (legacy) | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
+| Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
 | MQTT | 1893 | `HEMS_PORT_MQTT` | hems-mqtt |
 
@@ -175,10 +177,17 @@ hems/perception/vlm/status
 hems/perception/vlm/model_swap
 hems/perception/vlm/request
 
-# Personal data (future: data-bridge)
+# Personal data (future: data-bridge — service is a stub, no compose entry yet)
 hems/personal/calendar/{id}/events
 hems/personal/training/fitness
 hems/system/gpu/utilization
+
+# Tapo (direct LAN bridge)
+hems/tapo/{vendor_ref}/state
+
+# Zigbee2MQTT (direct, retained)
+zigbee2mqtt/{device}              # device state
+zigbee2mqtt/bridge/devices        # device listing
 
 # Shopping list
 hems/shopping/{added,updated,purchased}
@@ -196,7 +205,7 @@ hems/news/bridge/status
 hems/personal/knowledge/changed
 hems/personal/knowledge/stats
 
-# Weather (weather-bridge)
+# Weather (weather-bridge, always-on)
 hems/weather/{current,forecast,alerts}
 hems/weather/bridge/status
 
@@ -208,28 +217,45 @@ hems/brain/guest-mode
 ### Brain Service
 
 - ReAct cognitive loop (30s cycle, max 5 iterations)
-- Dual mode: LLM + rule-based fallback (GPU load > threshold)
-- Character personality injection into system prompt
-- Event store data mart (SOMS-compatible schema)
+- Dual mode: LLM + rule-based fallback (GPU load > threshold, low-power mode, VLM heavy-model swap)
+- Character personality 2-stage separation: Stage 1 thinking on raw model, Stage 2 output via PersonaRewriter
+- Event store data mart (SOMS-compatible schema, 730d retention)
 - Alert suppression: prevents duplicate tasks while environment slowly responds
   (e.g., AC cooling after task created — 30min for temp, 10min for CO2)
 - Ambient Speaker: generates natural one-line speech every 5 minutes based on sensor data
-- Tri-domain world model: Physical Space (zones, smart home, weather), Digital Space (PC, services, GAS, knowledge, shopping), User State (biometrics, screen time)
-- MotionRetriever: selects avatar motion via BM25 + tone affinity + usage decay + novelty (serendipity scoring), loaded from `config/motions.yaml`
-- 6 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`, `get_active_tasks`, `get_device_status`
-- localcraw tools (profile `localcraw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
-- Service monitor tool (when data available): `get_service_status`
+- Tri-domain world model: Physical Space (zones, smart home, weather), Digital Space (PC, services, GAS, knowledge, shopping, news), User State (biometrics, screen time, schedule)
+- Subsystems wired in `main.py`:
+  - **PowerModeManager** (`low_power_mode.py`): normal/sleep/away mode + LLM rate limiting
+  - **LLMRouter** (`llm_router.py`): light/heavy model routing
+  - **BootLoadManager** (`boot_load_manager.py`, `BOOT_LOAD_ENABLED=true` default): pre-wake heavy model briefing pre-synth
+  - **SunriseAlarm** (`sunrise_alarm.py`, `SUNRISE_ALARM_DEVICE` set): Zigbee bedside light gradual ramp
+  - **ScheduleLearner** (HA / biometric / switchbot enabled): arrival/departure/wake pattern learning + biometric sleep
+  - **TimelineGenerator** (`timeline/`, GAS enabled): EDF + free-window daily timeline
+  - **EventAutomation** (`event_automation.py`, news/gas enabled): event→action wiring
+  - **AutomationEngine** (`automation_engine.py`): sensor_threshold / schedule / device_state / event rules
+  - **SceneExecutor** (`scene_executor.py`): named multi-device scenes
+  - **DeviceDispatcher** (`device_dispatcher.py`): vendor-agnostic dispatch (ha/switchbot/tapo/zigbee/mcp)
+  - **TaskQueueManager / TaskReminder** (`task_scheduling/`, `task_reminder.py`): batched task queue + due reminders
+  - **PersonaRewriter** (`persona_rewriter.py`, `PERSONA_REWRITE_ENABLED=true`): rule-engine speak → character voice
+  - **Annotators** (`annotator/`): EventClassifier / RulePromoter / ShoppingClassifier / ClassifierCache
+  - **AckLearner** (`voice_capsule/ack_learner.py`): mobile companion ack pattern learning
+  - **MotionRetriever** (`motion_retriever.py`): VRM motion via BM25 + tone affinity + usage decay + novelty, loaded from `config/motions.yaml`
+- Always-on tools: `create_task`, `speak`, `get_zone_status`, `get_active_tasks`, `get_device_status`, `send_device_command` (legacy MCP), `get_sensor_history`, `add_shopping_item`, `get_shopping_list`
+- Device Registry tools (default-on): `control_actuator`, `list_devices`, `describe_device`, `execute_scene_by_name`, `list_scenes`, `zigbee_permit_join`
+- localcraw tools (profile `localcraw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`, `get_service_status`, `list_processes`
 - Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
-- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`
-- System tools (with `ha`): `set_guest_mode`, `get_weather`
+- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`, `get_entity_status`, `set_guest_mode`, `get_weather`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
-- Perception tools (profile `perception`): `get_perception_status`, `describe_scene` (VLM on-demand scene analysis)
+- Perception tools (profile `perception`): `get_perception_status`, `describe_scene`, `list_scene_objects`, `get_scene_timeline`
 - News tools (profile `news`): `get_news_summary`
 - Knowledge tools (profile `knowledge`): `search_knowledge`, `get_knowledge_sources`, `read_knowledge_document`
-- Shopping tools (always enabled): `add_shopping_item`, `get_shopping_list`
 - SwitchBot tools (profile `switchbot`): `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir`
-- Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
-- Event automation (with `news` profile): event→action mapping (wake_up/arrival/departure/scheduled → news_briefing/morning_greeting/weather_report)
+- Tapo tools (profile `tapo`): `get_power_consumption`
+- GAS tools (profile `gas`): `get_recent_emails`
+- Chat-only allowlist: `get_chat_tools()` filters to read-only subset (no speak / write_note / control_*)
+- Tool count source-of-truth: `tool_registry.py` JSON Schemas vs `tool_executor.py` dispatch (cross-reference must match)
+- Schedule learner (with `ha` / `biometric` / `switchbot`): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
+- Event automation (with `news` or `gas`): event→action mapping (wake_up/arrival/departure/scheduled → morning_greeting/news_briefing/weather_report/task_planning/scene)
 
 ### localcraw Bridge (profile: `localcraw`)
 
@@ -252,10 +278,13 @@ HEMS_GITHUB_TOKEN=ghp_xxxx
 ### Voice Service (Plugin-based TTS)
 
 TTSProvider ABC with backends:
-- `espeak` — espeak-ng (default fallback, no GPU)
-- `voicevox` — VOICEVOX Docker (profile: voicevox)
+- `voisona` — VoiSona Talk (host app, default)
+- `voicevox` — VOICEVOX Docker (profile: voicevox, default fallback)
+- `espeak` — espeak-ng (no GPU)
 - `edge-tts` — Microsoft Edge TTS (cloud, free)
-- `voisona` — VoiSona Talk (host app)
+
+FallbackProvider: `TTS_FALLBACK` env var or character YAML `voice.fallback` で自動切替。
+Primary 失敗時に fallback へ委譲、復帰時に自動復帰。
 
 ### AI Character System
 
@@ -273,7 +302,7 @@ cp config/character.yaml.example config/character.yaml
 # Hot-reload: mosquitto_pub -t hems/brain/reload-character -m reload
 ```
 
-Templates: `ena` (default), `tsundere`, `gentle-senpai`, `butler`, `nurserobo-typet`, `default`
+Templates: `default` (default), `ena`, `tsundere`, `gentle-senpai`, `butler`, `nurserobo-typet`
 Validator: `python validate_character.py config/character.yaml`
          `python validate_character.py --all`   # validate all templates
          `python validate_character.py --list`  # list available templates
@@ -380,8 +409,7 @@ BIOMETRIC_PROVIDER=gadgetbridge
 ### Perception (Camera Detection + Activity Tracking + VLM Scene Analysis)
 
 Camera-based person detection and posture/activity tracking using YOLOv11s-pose,
-with optional VLM (Vision Language Model) integration via llama.cpp
-(`--mmproj` vision servers) for scene understanding.
+with optional VLM (Vision Language Model) integration via Ollama for scene understanding.
 
 - **perception**: Docker service with YOLOv11s-pose inference pipeline
   - Captures frames from MCP (ESP32 MQTT) or stream (RTSP/HTTP) cameras
@@ -389,13 +417,13 @@ with optional VLM (Vision Language Model) integration via llama.cpp
   - Posture classification (standing/sitting/lying/walking) from COCO 17 keypoints
   - Activity level (0.0-1.0) with EMA smoothing + tiered pose buffer
   - Publishes to `office/{zone}/camera/{cam_id}/status` and `office/{zone}/activity/{cam_id}`
-- **VLM integration** (optional, requires `--profile llm vlm` + `VLM_ENABLED=true`):
-  - Two always-on tiers in separate containers: light (`vlm-light`, ~1.8–3B) for routine scans, heavy (`vlm-heavy`, ~7B, add `--profile vlm-heavy`) for events
-  - Both models are resident: no VRAM swap, no brain-LLM eviction
-  - Adaptive frequency: 30min routine → event-boosted (1–5min) → quiet decay (up to 2hr)
+- **VLM integration** (optional, requires `--profile ollama` + `VLM_ENABLED=true`):
+  - Dual-model strategy: light (moondream ~1.8B) for routine scans, heavy (minicpm-v ~3B) for events
+  - Adaptive frequency: 30min routine → event-boosted (1-5min) → quiet decay (up to 2hr)
   - Event-triggered boost: YOLO detects person enter/leave → heavy VLM for detailed analysis
+  - Model swap coordination: heavy VLM evicts brain LLM; brain falls back to rule-based mode during swap (~10-30s)
   - On-demand analysis via brain `describe_scene` tool
-  - Publishes to `hems/perception/vlm/{zone}`, `hems/perception/vlm/status`
+  - Publishes to `hems/perception/vlm/{zone}`, `hems/perception/vlm/status`, `hems/perception/vlm/model_swap`
 - **Deploy**: Configure cameras in `HEMS_PERCEPTION_CAMERAS` env var (JSON array)
 - **Profile**: `docker compose --profile perception up -d --build`
 - **Brain integration**: WorldModel receives occupancy + activity + VLM scene data via MQTT, Rule Engine triggers sedentary alerts, sleep detection, and VLM anomaly alerts
@@ -407,17 +435,79 @@ Configure in `.env`:
 ```bash
 PERCEPTION_BRIDGE_URL=http://perception:8000
 HEMS_PERCEPTION_CAMERAS=[{"device_id":"cam01","zone":"living_room","type":"mcp"}]
-# VLM (requires --profile llm --profile vlm; add --profile vlm-heavy for heavy tier)
+# VLM (requires --profile ollama)
 VLM_ENABLED=true
-VLM_LIGHT_API_URL=http://vlm-light:8080/v1
-VLM_HEAVY_API_URL=http://vlm-heavy:8080/v1
-VLM_LIGHT_MODEL=minicpm-v
-VLM_HEAVY_MODEL=qwen2-vl-7b
-# GGUF + mmproj files (relative to ./models/)
-# VLM_LIGHT_MODEL_FILE=MiniCPM-V-2_6-Q4_K_M.gguf
-# VLM_LIGHT_MMPROJ_FILE=mmproj-MiniCPM-V-2_6-f16.gguf
-# VLM_HEAVY_MODEL_FILE=Qwen2-VL-7B-Instruct-Q4_K_M.gguf
-# VLM_HEAVY_MMPROJ_FILE=mmproj-Qwen2-VL-7B-f16.gguf
+VLM_LIGHT_MODEL=moondream
+VLM_HEAVY_MODEL=minicpm-v
+```
+
+### Device Registry (Unified sensor + actuator管理)
+
+すべてのセンサー/アクチュエータを `Device` テーブル1本で管理。ベンダー(zigbee/switchbot/tapo/ha/mcp)は属性。
+
+- **自動登録**: Brain が MQTT (office/sensor, hems/home, hems/switchbot, hems/tapo, zigbee2mqtt) を監視、
+  未知の device_id を検出したら backend `/devices/heartbeat` で自動作成。
+- **メタデータ編集**: `/devices` ページで `display_name / zone / location / purpose / description` を編集
+- **用途(purpose)**: LLM が用途理解でツール選択に使う重要フィールド (例: "水やりポンプ", "起床補助ライト")
+- **LLM ツール** (ベンダー非依存):
+  - `control_actuator(device_id, action, params)` — on/off/toggle/set_brightness/set_color_temp/set_position/set_temperature/pulse/ir_send
+  - `list_devices(kind, zone, vendor, capability, purpose_contains)` — 用途/機能で検索
+  - `describe_device(device_id)` — 現状確認
+- **Backend `/devices/`**: CRUD + heartbeat + `{id}/control` プロキシ
+- **Safety**: action allowlist (sanitizer), pulse duration_s ≤ 600s, brightness 0-255, color_temp 153-500
+- **dispatcher**: `brain/src/device_dispatcher.py` — `vendor` でハブ別ディスパッチ (ha-bridge / switchbot-bridge / tapo-bridge / zigbee2mqtt MQTT)
+
+### Tapo Integration (`--profile tapo`)
+
+Tapo P110/P115 (電力計測対応スマートプラグ) を LAN 経由で直接制御 (HA不要)。
+
+- **tapo-bridge**: Docker サービス (Python/FastAPI, python-kasa 使用)
+  - 30秒間隔で全 Tapo デバイスを polling → 電力・電圧・電流・総消費電力を MQTT publish
+  - REST API: `POST /api/devices/{ref}/command` (turnOn/turnOff/toggle)
+  - Publishes to `hems/tapo/{vendor_ref}/state`
+- **Profile**: `docker compose --profile tapo up -d --build`
+- **Brain tools**: `control_actuator` 経由 (vendor="tapo")
+- **pulse対応**: ブレイン側で on → sleep → off (水ポンプ等の短時間通電に活用)
+- **Device Registry**: `tapo.{vendor_ref}` として自動登録
+
+Configure in `.env`:
+```bash
+TAPO_USERNAME=<tapo-cloud-email>
+TAPO_PASSWORD=<tapo-cloud-password>
+TAPO_DEVICES={"plug_desklight":"192.168.1.42","plug_pump":"192.168.1.43"}
+TAPO_ZONES={"plug_desklight":"bedroom","plug_pump":"balcony"}
+TAPO_NAMES={"plug_desklight":"寝室デスクライト"}
+TAPO_BRIDGE_URL=http://tapo-bridge:8000
+HEMS_PORT_TAPO_BRIDGE=8020
+```
+
+### Zigbee2MQTT Integration (`--profile zigbee`)
+
+Zigbee デバイスを公式 Z2M daemon 経由で直接制御 (HA不要)。
+
+- **zigbee2mqtt**: 公式 Docker image (`koenkk/zigbee2mqtt`) — Zigbee USB coordinator stick 必須
+  - `zigbee2mqtt/{device}` にデバイス状態、`zigbee2mqtt/bridge/*` に管理情報を publish
+  - Brain が `zigbee2mqtt/{device}/set` に publish すれば制御可能
+- **Profile**: `docker compose --profile zigbee up -d --build`
+- **Brain tools**: `control_actuator` 経由 (vendor="zigbee") — 直接 MQTT publish、`zigbee_permit_join` でペアリング制御
+- **Device Registry**: `zigbee.{friendly_name}` として自動登録
+- **Admin UI**: `http://localhost:${HEMS_PORT_FRONTEND:-8080}/z2m/` (nginx proxy 経由) または `http://localhost:${HEMS_PORT_Z2M_UI:-8090}/` (直接)
+- **Remote permit_join**: `POST /devices/zigbee/permit_join` で Z2M に `zigbee2mqtt/bridge/request/permit_join` publish、`/devices` ページにボタンあり
+
+**Deploy 手順**:
+1. (推奨) USB stick を固定名化: `sudo cp infra/udev/99-zigbee.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger` → `.env` に `HEMS_Z2M_USB_DEVICE=/dev/zigbee-coordinator`
+2. `docker compose --profile zigbee up -d --build`
+
+**IKEA GRILLPLATS ペアリング** (secret Zigbeeモード):
+1. On/Offボタン長押し (10秒) → 工場リセット
+2. On/Offを**素早く8回**タップ → Zigbeeモード有効化 (Matter ではなく)
+3. `/devices` ページで「Zigbee ペアリング開始」ボタン押下 (または `zigbee_permit_join` LLM tool)
+4. ペアリング成功後は On/Off と Power-on behavior のみ (電力計測は非対応 → Matter モード必要)
+
+Configure in `.env`:
+```bash
+HEMS_Z2M_USB_DEVICE=/dev/ttyUSB0   # or /dev/zigbee-coordinator with udev rule
+# HEMS_PORT_Z2M_UI=8090
 ```
 
 ### SwitchBot Integration (Direct API)
@@ -454,26 +544,26 @@ Built-in shopping list with brain integration.
 
 ### Weather Integration (weather-bridge)
 
-Weather data from JMA (気象庁) or OpenWeatherMap.
+Weather data from JMA (気象庁, default, no API key) or OpenWeatherMap. Always-on (no profile).
 
 - **weather-bridge**: Service polling weather APIs → MQTT publish
   - Providers: JMA (free, default), OpenWeatherMap
   - Publishes to `hems/weather/{current,forecast,alerts}` MQTT topics
-- **Brain rules**: rain window detection, hot forecast notification
-- **World model**: `WeatherState` in Physical Space
+- **Brain consumer**: `_update_weather_state` in world_model + `get_weather` tool
+- **Configure**: `WEATHER_PROVIDER=jma`, `JMA_AREA_CODE=130000`, `JMA_DETAIL_CODE=130010` (defaults: 東京都/東京地方). For OpenWeatherMap set `WEATHER_PROVIDER=openweathermap` + `OWM_API_KEY` + `OWM_LAT`/`OWM_LON`.
 
 ### News Integration (news-bridge)
 
-RSS news fetcher + local LLM summarizer (OpenAI-compatible) + urgency detection with event-driven voice briefings.
+RSS news fetcher + Ollama summarizer + urgency detection with event-driven voice briefings.
 
-- **news-bridge**: Docker service (Python/FastAPI) polling RSS feeds and generating local-LLM-powered summaries
+- **news-bridge**: Docker service (Python/FastAPI) polling RSS feeds and generating Ollama-powered summaries
   - Sources: NHK (国内+国際) + BBC World + Guardian World (configurable)
   - Daily summary: generated at configurable time (default 07:30) + on startup
   - Urgent news: 5-minute polling, urgency score 0.8+ triggers MQTT alert
-  - Overseas articles translated to Japanese via the local LLM
+  - Overseas articles translated to Japanese via Ollama
   - Publishes to `hems/news/{daily,urgent}` MQTT topics
-- **Deploy**: Requires `--profile llm` (llama.cpp) for summarization — `--profile ollama` also works as a legacy backend
-- **Profile**: `docker compose --profile news --profile llm up -d --build`
+- **Deploy**: Requires `--profile ollama` for summarization
+- **Profile**: `docker compose --profile news --profile ollama up -d --build`
 - **Brain tools**: `get_news_summary`
 - **Brain rules**: urgent news speak notification
 - **World model**: `NewsState` in Digital Space
@@ -486,9 +576,9 @@ Read-only multi-format document ingestion from external directories with hybrid 
   - Plugin-based loaders: Markdown (.md), Python (.py), JSON (.json), Text (.txt/.yaml/.toml/.rst), PDF (.pdf), DOCX (.docx), CSV (.csv), HTML (.html)
   - **Hybrid search**: 3-way Reciprocal Rank Fusion (RRF)
     - BM25 (keyword): body text scoring via rank_bm25
-    - Vector (semantic): OpenAI-compatible embeddings cosine similarity (TEI `embed` service under `--profile llm`, or any `/v1/embeddings`-compatible server)
+    - Vector (semantic): Ollama embedding cosine similarity (optional, requires `--profile ollama`)
     - Title boost: separate BM25 on titles for precise name matching
-  - Graceful degradation: BM25 + Title when the embedding server is unavailable
+  - Graceful degradation: BM25 + Title when Ollama unavailable
   - Embedding cache: disk-persisted, only re-embeds changed documents
   - Watches for file changes, publishes to `hems/personal/knowledge/*` MQTT topics
   - REST API for search, read, list sources, reindex
@@ -503,12 +593,9 @@ Configure in `.env`:
 KNOWLEDGE_BRIDGE_URL=http://knowledge-bridge:8000
 KNOWLEDGE_SOURCE_PWS=/path/to/pws
 KNOWLEDGE_SOURCES=[{"name":"pws","path":"/sources/pws","extensions":[".md",".py",".json",".pdf"]}]
-# Vector search (optional, requires --profile llm for the `embed` service)
-EMBEDDING_URL=http://embed:80
-EMBEDDING_MODEL=nomic-embed-text-v1.5
-# Or legacy Ollama backend:
-# EMBEDDING_URL=http://ollama:11434
-# EMBEDDING_MODEL=nomic-embed-text
+# Vector search (optional, requires --profile ollama)
+EMBEDDING_URL=http://ollama:11434
+EMBEDDING_MODEL=nomic-embed-text
 ```
 
 ### STT Service (Plugin-based Speech-to-Text)
@@ -518,7 +605,7 @@ Self-hosted speech recognition with query cleaning. Replaces browser Web Speech 
 - **stt-service**: Docker service (Python/FastAPI) with plugin-based STT providers
   - Plugin system mirrors voice-service TTS architecture (STTProvider ABC)
   - Providers: `whisper` (faster-whisper, default), `sherpa-onnx` (Parakeet 0.6B JP), `qwen3-asr` (Qwen3-ASR 1.7B)
-  - Query cleaner: regex-based filler removal + optional LLM rewrite via the local `llm` service
+  - Query cleaner: regex-based filler removal + optional LLM rewrite via Ollama
   - Audio format conversion: WebM/Opus/MP3/WAV → 16kHz mono WAV (ffmpeg)
   - REST API: `POST /api/stt/transcribe` (multipart), `GET /api/stt/providers`
 - **Frontend**: Push-to-talk + VAD auto mode (Silero VAD ONNX via `@ricky0123/vad-web`)
@@ -543,7 +630,7 @@ STT_MODEL=large-v3-turbo
 STT_LANGUAGE=ja
 STT_DEVICE=auto           # auto, cpu, cuda, rocm
 STT_COMPUTE_TYPE=auto     # auto, float16, int8
-STT_LLM_REWRITE=false     # enable LLM query cleaning (reuses LLM_API_URL)
+STT_LLM_REWRITE=false     # enable LLM query cleaning (requires Ollama)
 HEMS_PORT_STT=8023
 ```
 
@@ -589,12 +676,26 @@ NEWS_BRIDGE_URL=http://news-bridge:8000
 EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_briefing","weather_report"]},{"event":"scheduled","time":"12:00","actions":["news_briefing"]}]'
 ```
 
+## Implementation Status & Source-of-Truth Map
+
+For exact mapping between code, docker-compose, MQTT topics, world model fields, brain tools, and env vars, see **[`docs/IMPLEMENTATION_MAP.md`](docs/IMPLEMENTATION_MAP.md)**. That doc is the authoritative cross-reference and includes verification commands. When adding a new service / tool / topic, update IMPLEMENTATION_MAP first, then CLAUDE.md / README.md / env.example.
+
+詳細な配線ギャップ分析と Wave 計画は [`docs/wiring-gap-05-orphan-cleanup-and-underused-data.md`](docs/wiring-gap-05-orphan-cleanup-and-underused-data.md) を参照。
+
+### Known orphans / wiring gaps (2026-04-30, partial)
+
+- ~~**`services/weather-bridge/`**~~ — wired up, always-on (no profile).
+- **`services/data-bridge/`** — Phase-2 scaffold (placeholder for future Strava/Fitbit/Garmin/Intervals.icu intake). `src/bridges/` empty, no compose entry. Topics under `hems/personal/calendar`, `hems/personal/training/fitness`, `hems/system/gpu/utilization` are documented but never published. Currently substituted by biometric-bridge + gas-bridge.
+- **`hems/services/{name}/event`** — edge events arrive but only the next 30s cycle picks them up; no immediate-trigger path.
+- **`hems/gas/sheets/{name}` / `hems/gas/drive/recent`** — flow into world_model but no rules / event-automation actions consume them yet.
+- **`*/bridge/status`** — only `bridge_connected` flag is updated; outage history is not retained.
+
 ## Tech Stack
 
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion
 - **3D Avatar**: Three.js, React Three Fiber, @pixiv/three-vrm
-- **LLM**: OpenAI-compatible path (default: llama.cpp `llama-server` + TEI embeddings + llama.cpp `--mmproj` VLMs). OpenAI Cloud, Anthropic, and Ollama also supported.
+- **LLM**: OpenAI / Anthropic / Ollama (multi-provider)
 - **TTS**: Plugin-based (espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk)
 - **Infra**: Docker Compose, Mosquitto MQTT, SQLite / PostgreSQL
 
@@ -611,10 +712,10 @@ EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_brief
 |------|------|
 | PostgreSQL required | SQLite default |
 | Wallet (double-entry ledger) | No points system |
-| VOICEVOX only | Plugin TTS (4 backends) |
-| Hardcoded personality | YAML character system |
-| Ollama only | llama.cpp (default) / OpenAI / Anthropic / Ollama |
-| 11 services | 7 core + optional profiles |
+| VOICEVOX only | Plugin TTS (5 backends: voisona / voicevox / espeak / edge-tts / style-bert-vits2) |
+| Hardcoded personality | YAML character system (2-stage thinking/output separation) |
+| Ollama only | OpenAI / Anthropic / Ollama (multi-provider via LLMRouter) |
+| 11 services | 5 core (mosquitto/brain/backend/frontend/voice-service) + 16 optional profiles |
 | Office/multi-user | Home/single occupant |
 | No alert suppression | Alert suppression (30min/10min) |
 | npm | pnpm |

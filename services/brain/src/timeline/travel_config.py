@@ -1,6 +1,8 @@
 """Static travel time configuration (Phase 1). Phase 3 adds histogram + Maps API."""
+
 import json
 import os
+
 from loguru import logger
 
 DEFAULT_TRAVEL_MIN = int(os.getenv("TRAVEL_DEFAULT_MIN", "20"))

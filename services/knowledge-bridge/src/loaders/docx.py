@@ -1,13 +1,16 @@
 """
 DOCX loader — .docx files via python-docx paragraph extraction.
 """
+
 from pathlib import Path
+
 from loguru import logger
 
 from .base import BaseLoader, DocumentEntry
 
 try:
     from docx import Document
+
     _HAS_DOCX = True
 except ImportError:
     _HAS_DOCX = False
@@ -52,8 +55,14 @@ class DocxLoader(BaseLoader):
             return None
 
         return DocumentEntry(
-            path=rel_path, source_name=source_name, title=title,
-            doc_type=self.doc_type, tags=tags, metadata=metadata,
-            word_count=len(body.split()), modified_at=stat.st_mtime,
-            content=body, body=body,
+            path=rel_path,
+            source_name=source_name,
+            title=title,
+            doc_type=self.doc_type,
+            tags=tags,
+            metadata=metadata,
+            word_count=len(body.split()),
+            modified_at=stat.st_mtime,
+            content=body,
+            body=body,
         )

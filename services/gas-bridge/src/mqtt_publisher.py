@@ -1,7 +1,9 @@
 """
 MQTT publisher for GAS Bridge — publishes Google data to hems/gas/* topics.
 """
+
 import json
+
 import paho.mqtt.client as mqtt
 from loguru import logger
 

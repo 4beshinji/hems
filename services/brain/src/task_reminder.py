@@ -1,8 +1,15 @@
 import asyncio
-import aiohttp
-from datetime import datetime, timedelta, timezone
-from loguru import logger
 import os
+from datetime import UTC, datetime, timedelta
+
+import aiohttp
+from loguru import logger
+
+
+def _internal_headers() -> dict:
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
 
 class TaskReminder:
     """
@@ -24,7 +31,9 @@ class TaskReminder:
         self.dashboard_api_url = dashboard_api_url or os.getenv("DASHBOARD_API_URL", "http://backend:8000")
         self.voice_service_url = voice_service_url or os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self._session = session
-        logger.info(f"TaskReminder initialized - interval: {self.REMINDER_INTERVAL}m, cooldown: {self.REMINDER_COOLDOWN}m")
+        logger.info(
+            f"TaskReminder initialized - interval: {self.REMINDER_INTERVAL}m, cooldown: {self.REMINDER_COOLDOWN}m"
+        )
 
     async def get_tasks_needing_reminder(self):
         """
@@ -43,7 +52,7 @@ class TaskReminder:
 
                 tasks = await resp.json()
 
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 reminder_threshold = now - timedelta(minutes=self.REMINDER_INTERVAL)
                 cooldown_threshold = now - timedelta(minutes=self.REMINDER_COOLDOWN)
 
@@ -51,18 +60,18 @@ class TaskReminder:
 
                 for task in tasks:
                     # Skip completed tasks
-                    if task.get('is_completed'):
+                    if task.get("is_completed"):
                         continue
 
                     # Check if task is old enough
-                    created_at = datetime.fromisoformat(task['created_at'].replace('Z', '+00:00'))
+                    created_at = datetime.fromisoformat(task["created_at"].replace("Z", "+00:00"))
                     if created_at > reminder_threshold:
                         continue
 
                     # Check if we've reminded too recently
-                    last_reminded = task.get('last_reminded_at')
+                    last_reminded = task.get("last_reminded_at")
                     if last_reminded:
-                        last_reminded_dt = datetime.fromisoformat(last_reminded.replace('Z', '+00:00'))
+                        last_reminded_dt = datetime.fromisoformat(last_reminded.replace("Z", "+00:00"))
                         if last_reminded_dt > cooldown_threshold:
                             continue
 
@@ -91,7 +100,7 @@ class TaskReminder:
                     "description": task.get("description"),
                     "location": task.get("location"),
                     "urgency": task.get("urgency", 2),
-                    "zone": task.get("zone")
+                    "zone": task.get("zone"),
                 }
             }
 
@@ -100,7 +109,8 @@ class TaskReminder:
             async with self._session.post(
                 f"{self.voice_service_url}/api/voice/announce",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=30)
+                headers=_internal_headers(),
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status == 200:
                     result = await resp.json()
@@ -117,9 +127,7 @@ class TaskReminder:
     async def update_reminder_timestamp(self, task_id):
         """Update the last_reminded_at timestamp for a task."""
         try:
-            async with self._session.put(
-                f"{self.dashboard_api_url}/tasks/{task_id}/reminded"
-            ) as resp:
+            async with self._session.put(f"{self.dashboard_api_url}/tasks/{task_id}/reminded") as resp:
                 if resp.status == 200:
                     logger.debug(f"Updated reminder timestamp for task {task_id}")
                     return True
@@ -140,8 +148,8 @@ class TaskReminder:
         2. Update last_reminded_at timestamp
         3. (Audio playback would be handled by frontend/notification system)
         """
-        task_id = task.get('id')
-        task_title = task.get('title')
+        task_id = task.get("id")
+        task_title = task.get("title")
 
         logger.info(f"Sending reminder for task #{task_id}: {task_title}")
 

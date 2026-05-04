@@ -1,6 +1,7 @@
 """
 Configuration for HEMS Biometric Bridge.
 """
+
 import os
 
 # MQTT
@@ -30,7 +31,9 @@ HUAMI_POLL_INTERVAL = int(os.getenv("HUAMI_POLL_INTERVAL", "900"))  # 15 min
 # Deduplication window (seconds) for dual-path data overlap
 DEDUP_WINDOW = int(os.getenv("BIOMETRIC_DEDUP_WINDOW", "300"))  # 5 min
 
-# Fatigue calculation defaults
-FATIGUE_HR_WEIGHT = float(os.getenv("FATIGUE_HR_WEIGHT", "0.3"))
-FATIGUE_SLEEP_WEIGHT = float(os.getenv("FATIGUE_SLEEP_WEIGHT", "0.4"))
-FATIGUE_STRESS_WEIGHT = float(os.getenv("FATIGUE_STRESS_WEIGHT", "0.3"))
+# Fatigue calculation defaults — Wave 4.8 added HRV as a first-class component
+# (was a post-hoc bonus). New weights: HR 20% + HRV 15% + sleep 35% + stress 30%.
+FATIGUE_HR_WEIGHT = float(os.getenv("FATIGUE_HR_WEIGHT", "0.20"))
+FATIGUE_HRV_WEIGHT = float(os.getenv("FATIGUE_HRV_WEIGHT", "0.15"))
+FATIGUE_SLEEP_WEIGHT = float(os.getenv("FATIGUE_SLEEP_WEIGHT", "0.35"))
+FATIGUE_STRESS_WEIGHT = float(os.getenv("FATIGUE_STRESS_WEIGHT", "0.30"))

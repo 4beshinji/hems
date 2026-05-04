@@ -1,7 +1,9 @@
 """
 Configuration for Obsidian Bridge — environment variables.
 """
+
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()

@@ -1,19 +1,20 @@
 """Timeline data classes — pure data shapes, no I/O."""
+
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 
 @dataclass
 class TimelineSlot:
     """A single rendered slot on the timeline."""
+
     start: datetime
     end: datetime
     kind: str  # calendar|task|routine_wake|commute_out|commute_in|focus_free|sleep|prep
     title: str
-    ref_task_id: Optional[int] = None
-    ref_calendar_event_id: Optional[str] = None
-    location: Optional[str] = None
+    ref_task_id: int | None = None
+    ref_calendar_event_id: str | None = None
+    location: str | None = None
     is_locked: bool = False
     travel_buffer_minutes: int = 0
 
@@ -25,22 +26,24 @@ class TimelineSlot:
 @dataclass
 class CandidateTask:
     """A task considered for timeline placement."""
+
     task_id: int
     title: str
     duration_min: int
-    deadline: Optional[datetime]
-    cognitive_load: Optional[int]
+    deadline: datetime | None
+    cognitive_load: int | None
     preferred_slot: str  # morning|afternoon|evening|deep_night|anytime
     urgency: int
-    locked_start: Optional[datetime] = None
-    source: Optional[str] = None
-    zone: Optional[str] = None
-    location: Optional[str] = None
+    locked_start: datetime | None = None
+    source: str | None = None
+    zone: str | None = None
+    location: str | None = None
 
 
 @dataclass
 class FreeWindow:
     """Gap in the locked timeline available for task insertion."""
+
     start: datetime
     end: datetime
 

@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Thermometer, Droplets, Wind, Users, Gauge, Sun, Cloudy } from 'lucide-react'
+import { Thermometer, Droplets, Wind, Users, Gauge, Sun, Cloudy, Sprout, AlertTriangle } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -120,6 +120,40 @@ const ZoneEnvironmentCard = memo(function ZoneEnvironmentCard({ zone }: Props) {
             </span>
             <span className="font-mono font-bold text-foreground">
               {env.voc.toFixed(0)}
+            </span>
+          </div>
+        )}
+
+        {env.pm25 != null && (
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <AlertTriangle className={`h-4 w-4 ${env.pm25 > 35 ? 'text-destructive' : env.pm25 > 15 ? 'text-warning' : 'text-muted-foreground'}`} />
+              PM2.5
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="font-mono font-bold text-foreground">
+                {env.pm25.toFixed(0)} μg/m³
+              </span>
+              {env.pm25 > 35 ? (
+                <Badge variant="destructive">高</Badge>
+              ) : env.pm25 > 15 ? (
+                <Badge variant="warning">中</Badge>
+              ) : null}
+            </span>
+          </div>
+        )}
+
+        {env.soil_moisture != null && (
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Sprout className={`h-4 w-4 ${env.soil_moisture < 30 ? 'text-warning' : 'text-success'}`} />
+              土壌水分
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="font-mono font-bold text-foreground">
+                {env.soil_moisture.toFixed(0)}%
+              </span>
+              {env.soil_moisture < 30 ? <Badge variant="warning">乾燥</Badge> : null}
             </span>
           </div>
         )}

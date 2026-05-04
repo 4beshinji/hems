@@ -3,7 +3,9 @@ SQLite-backed send queue for MQTT messages.
 
 Buffers messages when MQTT broker is unreachable, flushes on reconnect.
 """
+
 import json
+import os
 import time
 
 import aiosqlite
@@ -26,11 +28,12 @@ _MAX_AGE_SECONDS = 24 * 60 * 60  # 24h TTL
 class SendQueue:
     """Async SQLite queue for MQTT messages that failed to publish."""
 
-    def __init__(self, db_path: str = "/app/data/send_queue.db"):
-        self._db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self._db_path = db_path or os.getenv("BIOMETRIC_DB_PATH", "/data/send_queue.db")
         self._db: aiosqlite.Connection | None = None
 
     async def init(self):
+        os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
         self._db = await aiosqlite.connect(self._db_path)
         await self._db.execute(_SCHEMA)
         await self._db.commit()

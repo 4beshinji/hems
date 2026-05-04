@@ -27,23 +27,26 @@ Transitions:
   sleep  → normal: biometric stage = "awake", OR morning activity detected (5-10h)
   away   → normal: any zone occupancy count > 0, OR fresh biometric reading
 """
+
+import logging
 import os
 import time
-import logging
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 # Cycle intervals in seconds (configurable via env vars)
-LOW_POWER_SLEEP_INTERVAL = int(os.getenv("HEMS_LOW_POWER_SLEEP_INTERVAL", "300"))   # 5 min
-LOW_POWER_AWAY_INTERVAL = int(os.getenv("HEMS_LOW_POWER_AWAY_INTERVAL", "600"))     # 10 min
+LOW_POWER_SLEEP_INTERVAL = int(os.getenv("HEMS_LOW_POWER_SLEEP_INTERVAL", "300"))  # 5 min
+LOW_POWER_AWAY_INTERVAL = int(os.getenv("HEMS_LOW_POWER_AWAY_INTERVAL", "600"))  # 10 min
 # Minimum seconds between cognitive cycles in low-power mode
-LOW_POWER_SLEEP_MIN_INTERVAL = int(os.getenv("HEMS_LOW_POWER_SLEEP_MIN_INTERVAL", "60"))   # 1 min
-LOW_POWER_AWAY_MIN_INTERVAL = int(os.getenv("HEMS_LOW_POWER_AWAY_MIN_INTERVAL", "120"))    # 2 min
+LOW_POWER_SLEEP_MIN_INTERVAL = int(os.getenv("HEMS_LOW_POWER_SLEEP_MIN_INTERVAL", "60"))  # 1 min
+LOW_POWER_AWAY_MIN_INTERVAL = int(os.getenv("HEMS_LOW_POWER_AWAY_MIN_INTERVAL", "120"))  # 2 min
 # Minimum seconds between LLM calls in low-power mode (throttle to avoid frequent API calls)
-LOW_POWER_LLM_COOLDOWN = int(os.getenv("HEMS_LOW_POWER_LLM_COOLDOWN", "1800"))      # 30 min
+LOW_POWER_LLM_COOLDOWN = int(os.getenv("HEMS_LOW_POWER_LLM_COOLDOWN", "1800"))  # 30 min
 # How long all zones must be continuously empty before entering away mode
-AWAY_CONFIRM_SECONDS = int(os.getenv("HEMS_LOW_POWER_AWAY_CONFIRM", "300"))         # 5 min
+AWAY_CONFIRM_SECONDS = int(os.getenv("HEMS_LOW_POWER_AWAY_CONFIRM", "300"))  # 5 min
+# How long a manual override suppresses automatic mode transitions
+MANUAL_OVERRIDE_DURATION = int(os.getenv("HEMS_MANUAL_OVERRIDE_DURATION", "7200"))  # 2 h
 
 
 class PowerMode:
@@ -71,6 +74,8 @@ class PowerModeManager:
         self._away_candidate_since: float | None = None
         # LLM call throttling in low-power mode
         self._last_llm_call: float = 0.0
+        # Manual override: suppress automatic transitions until this timestamp
+        self._manual_override_until: float = 0.0
 
     # ------------------------------------------------------------------
     # Read-only properties
@@ -121,6 +126,26 @@ class PowerModeManager:
         """Record that an LLM call is being made now (call before dispatching)."""
         self._last_llm_call = now or time.time()
 
+    # ------------------------------------------------------------------
+    # Manual override
+    # ------------------------------------------------------------------
+
+    def force_mode(self, mode: str, reason: str = "手動設定"):
+        """Force a specific power mode from the dashboard.
+
+        Suppresses automatic transitions for MANUAL_OVERRIDE_DURATION seconds
+        so the user's choice is not immediately overridden by sensor data.
+        """
+        now = time.time()
+        self._manual_override_until = now + MANUAL_OVERRIDE_DURATION
+        self._away_candidate_since = None
+        self._transition(mode, reason, now)
+        logger.info(
+            "[低消費電力] 手動オーバーライド: mode=%s, 自動遷移停止 %ds",
+            mode,
+            MANUAL_OVERRIDE_DURATION,
+        )
+
     def seconds_until_llm_allowed(self, now: float | None = None) -> int:
         """Return seconds remaining until next LLM call is allowed (0 if now)."""
         remaining = LOW_POWER_LLM_COOLDOWN - ((now or time.time()) - self._last_llm_call)
@@ -137,7 +162,10 @@ class PowerModeManager:
         Returns True if the mode changed this call.
         """
         now = time.time()
-        bio = world_model.user.biometrics
+        # Manual override: skip automatic transitions while active
+        if now < self._manual_override_until:
+            return False
+        bio = world_model.biometric_state
         hour = datetime.now().hour
 
         # --- Exit conditions (checked before entry to allow fast recovery) ---
@@ -147,57 +175,47 @@ class PowerModeManager:
                 return self._transition(PowerMode.NORMAL, "睡眠終了（生体センサー）", now)
             # Activity: morning activity detected (5-10h)
             if 5 <= hour < 10:
-                for zone in world_model.physical.zones.values():
+                for zone in world_model.zones.values():
                     occ = zone.occupancy
-                    if (occ.count > 0
-                            and occ.activity_class not in ("idle", "unknown")
-                            and occ.last_update > 0):
+                    if occ.count > 0 and occ.activity_class not in ("idle", "unknown") and occ.last_update > 0:
                         return self._transition(PowerMode.NORMAL, "起床検出（活動開始）", now)
             return False
 
         if self._mode == PowerMode.AWAY:
             # Camera/perception: someone appeared in any zone
-            for zone in world_model.physical.zones.values():
+            for zone in world_model.zones.values():
                 if zone.occupancy.count > 0:
                     return self._transition(PowerMode.NORMAL, "帰宅検出（在宅確認）", now)
             # Fresh biometric reading means the wearable device is back home
-            if (bio.heart_rate.bpm is not None
-                    and bio.heart_rate.last_update > now - 120):
+            if bio.heart_rate.bpm is not None and bio.heart_rate.last_update > now - 120:
                 return self._transition(PowerMode.NORMAL, "帰宅検出（バイオメトリクス）", now)
             return False
 
         # --- Entry conditions (NORMAL mode only) ---
 
         # Priority 1: Biometric sleep stage (most reliable — from smartband)
-        if (bio.sleep.stage in ("deep", "light", "rem")
-                and bio.sleep.last_update > 0):
+        if bio.sleep.stage in ("deep", "light", "rem") and bio.sleep.last_update > 0:
             self._away_candidate_since = None
-            return self._transition(
-                PowerMode.SLEEP, f"睡眠検出（バイオメトリクス: {bio.sleep.stage}）", now
-            )
+            return self._transition(PowerMode.SLEEP, f"睡眠検出（バイオメトリクス: {bio.sleep.stage}）", now)
 
         # Priority 2: Posture-based sleep (23:00-5:00, idle + static posture > 10min)
         if hour >= 23 or hour < 5:
-            for zone in world_model.physical.zones.values():
+            for zone in world_model.zones.values():
                 occ = zone.occupancy
-                if (occ.count > 0
-                        and occ.activity_class == "idle"
-                        and occ.posture_status == "static"
-                        and occ.posture_duration_sec > 600):
+                if (
+                    occ.count > 0
+                    and occ.activity_class == "idle"
+                    and occ.posture_status == "static"
+                    and occ.posture_duration_sec > 600
+                ):
                     self._away_candidate_since = None
-                    return self._transition(
-                        PowerMode.SLEEP, "睡眠検出（姿勢・時間帯）", now
-                    )
+                    return self._transition(PowerMode.SLEEP, "睡眠検出（姿勢・時間帯）", now)
 
         # Priority 3: Away detection — all known zones empty for confirmation period
-        if world_model.physical.zones:
-            all_empty = all(
-                z.occupancy.count == 0 for z in world_model.physical.zones.values()
-            )
+        if world_model.zones:
+            all_empty = all(z.occupancy.count == 0 for z in world_model.zones.values())
             # Only act when we have fresh occupancy data (sensors are actually reporting)
-            any_fresh = any(
-                z.occupancy.last_update > 0 for z in world_model.physical.zones.values()
-            )
+            any_fresh = any(z.occupancy.last_update > 0 for z in world_model.zones.values())
             if all_empty and any_fresh:
                 if self._away_candidate_since is None:
                     self._away_candidate_since = now
@@ -223,7 +241,9 @@ class PowerModeManager:
             return False
         logger.info(
             "[低消費電力] モード変更: %s → %s (%s)",
-            self._mode, new_mode, reason,
+            self._mode,
+            new_mode,
+            reason,
         )
         self._mode = new_mode
         self._reason = reason
@@ -240,4 +260,5 @@ class PowerModeManager:
             "entered_at": self._entered_at,
             "cycle_interval_sec": self.cycle_interval,
             "llm_cooldown_remaining_sec": self.seconds_until_llm_allowed(),
+            "manual_override_remaining_sec": max(0, int(self._manual_override_until - time.time())),
         }

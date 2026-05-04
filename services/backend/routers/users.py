@@ -1,21 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.exc import IntegrityError
-from typing import List
 
-from database import get_db
 import models
 import schemas
+from database import get_db
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/", response_model=List[schemas.User])
+@router.get("/", response_model=list[schemas.User])
 async def read_users(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(models.User).where(models.User.is_active.is_(True)).offset(skip).limit(limit)
-    )
+    result = await db.execute(select(models.User).where(models.User.is_active.is_(True)).offset(skip).limit(limit))
     return result.scalars().all()
 
 

@@ -1,16 +1,17 @@
 """
 Tests for backend GAS router (in-memory store).
 """
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
 class TestGASRouter:
-
     @pytest.fixture
     def client(self):
-        from routers.gas import router, _gas_store
+        from routers.gas import _gas_store, router
+
         _gas_store.clear()
         app = FastAPI()
         app.include_router(router)

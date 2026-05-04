@@ -1,12 +1,14 @@
 """
 Data poller — fetches weather data on configured intervals and publishes to MQTT.
 """
+
 import asyncio
 import time
+
 from loguru import logger
 
-from mqtt_publisher import MQTTPublisher
 import config
+from mqtt_publisher import MQTTPublisher
 
 
 class DataPoller:
@@ -50,10 +52,13 @@ class DataPoller:
                 if forecast:
                     self.forecast_data = [f.to_dict() for f in forecast]
                     self._last_update["forecast"] = time.time()
-                    self.mqtt.publish("hems/weather/forecast", {
-                        "entries": self.forecast_data,
-                        "timestamp": time.time(),
-                    })
+                    self.mqtt.publish(
+                        "hems/weather/forecast",
+                        {
+                            "entries": self.forecast_data,
+                            "timestamp": time.time(),
+                        },
+                    )
                     logger.debug(f"Published forecast: {len(forecast)} entries")
 
                 # Alerts
@@ -61,10 +66,13 @@ class DataPoller:
                 self.alerts_data = [a.to_dict() for a in alerts]
                 self._last_update["alerts"] = time.time()
                 if alerts:
-                    self.mqtt.publish("hems/weather/alerts", {
-                        "alerts": self.alerts_data,
-                        "timestamp": time.time(),
-                    })
+                    self.mqtt.publish(
+                        "hems/weather/alerts",
+                        {
+                            "alerts": self.alerts_data,
+                            "timestamp": time.time(),
+                        },
+                    )
                     logger.info(f"Published {len(alerts)} weather alert(s)")
 
                 self._update_bridge_status()
@@ -76,12 +84,15 @@ class DataPoller:
     def _update_bridge_status(self):
         """Publish bridge connection status."""
         self._connected = True
-        self.mqtt.publish("hems/weather/bridge/status", {
-            "connected": True,
-            "provider": config.WEATHER_PROVIDER,
-            "last_updates": self._last_update,
-            "timestamp": time.time(),
-        })
+        self.mqtt.publish(
+            "hems/weather/bridge/status",
+            {
+                "connected": True,
+                "provider": config.WEATHER_PROVIDER,
+                "last_updates": self._last_update,
+                "timestamp": time.time(),
+            },
+        )
 
     def get_status(self) -> dict:
         """Get current status for REST API."""

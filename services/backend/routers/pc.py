@@ -1,6 +1,7 @@
 """
 PC metrics — in-memory store updated by Brain snapshots (OpenClaw integration).
 """
+
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/pc", tags=["pc"])

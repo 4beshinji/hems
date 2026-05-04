@@ -1,4 +1,5 @@
 """Tests for rule engine occupancy/activity rules."""
+
 from unittest.mock import patch
 
 from world_model.data_classes import OccupancyData
@@ -9,6 +10,7 @@ class TestRuleEngineOccupancyRules:
 
     def _make_engine(self):
         from rule_engine import RuleEngine
+
         engine = RuleEngine()
         engine._cooldowns = {}
         return engine
@@ -28,10 +30,7 @@ class TestRuleEngineOccupancyRules:
         )
 
         actions = engine.evaluate(world_model)
-        posture_speaks = [
-            a for a in actions
-            if a["tool"] == "speak" and "ストレッチ" in a["args"]["message"]
-        ]
+        posture_speaks = [a for a in actions if a["tool"] == "speak" and "ストレッチ" in a["args"]["message"]]
         assert len(posture_speaks) == 1
         assert posture_speaks[0]["args"]["tone"] == "caring"
 
@@ -48,10 +47,7 @@ class TestRuleEngineOccupancyRules:
         )
 
         actions = engine.evaluate(world_model)
-        posture_speaks = [
-            a for a in actions
-            if a["tool"] == "speak" and "ストレッチ" in a["args"]["message"]
-        ]
+        posture_speaks = [a for a in actions if a["tool"] == "speak" and "ストレッチ" in a["args"]["message"]]
         assert len(posture_speaks) == 0
 
     def test_non_static_posture_no_action(self, world_model):
@@ -67,10 +63,7 @@ class TestRuleEngineOccupancyRules:
         )
 
         actions = engine.evaluate(world_model)
-        posture_speaks = [
-            a for a in actions
-            if a["tool"] == "speak" and "ストレッチ" in a["args"]["message"]
-        ]
+        posture_speaks = [a for a in actions if a["tool"] == "speak" and "ストレッチ" in a["args"]["message"]]
         assert len(posture_speaks) == 0
 
     # --- Late night idle ---
@@ -86,8 +79,9 @@ class TestRuleEngineOccupancyRules:
         )
 
         # Mock datetime.now() to return 23:30
-        import rule_engine as re_module
         from datetime import datetime as real_datetime
+
+        import rule_engine as re_module
 
         class FakeDatetime(real_datetime):
             @classmethod
@@ -97,10 +91,7 @@ class TestRuleEngineOccupancyRules:
         with patch.object(re_module, "datetime", FakeDatetime):
             actions = engine.evaluate(world_model)
 
-        late_speaks = [
-            a for a in actions
-            if a["tool"] == "speak" and "休みましょう" in a["args"]["message"]
-        ]
+        late_speaks = [a for a in actions if a["tool"] == "speak" and "休みましょう" in a["args"]["message"]]
         assert len(late_speaks) == 1
         assert late_speaks[0]["args"]["tone"] == "caring"
 
@@ -114,8 +105,9 @@ class TestRuleEngineOccupancyRules:
             activity_level=0.05,
         )
 
-        import rule_engine as re_module
         from datetime import datetime as real_datetime
+
+        import rule_engine as re_module
 
         class FakeDatetime(real_datetime):
             @classmethod
@@ -125,10 +117,7 @@ class TestRuleEngineOccupancyRules:
         with patch.object(re_module, "datetime", FakeDatetime):
             actions = engine.evaluate(world_model)
 
-        late_speaks = [
-            a for a in actions
-            if a["tool"] == "speak" and "休みましょう" in a["args"]["message"]
-        ]
+        late_speaks = [a for a in actions if a["tool"] == "speak" and "休みましょう" in a["args"]["message"]]
         assert len(late_speaks) == 0
 
     def test_late_but_active_no_action(self, world_model):
@@ -141,8 +130,9 @@ class TestRuleEngineOccupancyRules:
             activity_level=0.6,
         )
 
-        import rule_engine as re_module
         from datetime import datetime as real_datetime
+
+        import rule_engine as re_module
 
         class FakeDatetime(real_datetime):
             @classmethod
@@ -152,8 +142,5 @@ class TestRuleEngineOccupancyRules:
         with patch.object(re_module, "datetime", FakeDatetime):
             actions = engine.evaluate(world_model)
 
-        late_speaks = [
-            a for a in actions
-            if a["tool"] == "speak" and "休みましょう" in a["args"]["message"]
-        ]
+        late_speaks = [a for a in actions if a["tool"] == "speak" and "休みましょう" in a["args"]["message"]]
         assert len(late_speaks) == 0

@@ -1,0 +1,31 @@
+# HEMS Zigbee USB coordinator stable device names.
+#
+# Install:
+#   sudo cp infra/udev/99-zigbee.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#   ls -la /dev/zigbee-coordinator          # should now exist
+#
+# Then set in .env:
+#   HEMS_Z2M_USB_DEVICE=/dev/zigbee-coordinator
+#
+# Identify your stick's VID:PID with `lsusb` if it's not covered below.
+# Each rule creates /dev/zigbee-coordinator as a symlink to the real /dev/ttyUSBN.
+
+# Sonoff ZBDongle-P (CC2652P, CP2102N serial) — most common
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{product}=="*ZBDongle*", SYMLINK+="zigbee-coordinator"
+
+# Sonoff ZBDongle-E (EFR32MG21, CH9102F serial)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d4", SYMLINK+="zigbee-coordinator"
+
+# ConBee II / RaspBee II (dresden elektronik)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1cf1", ATTRS{idProduct}=="0030", SYMLINK+="zigbee-coordinator"
+
+# Texas Instruments CC2531 (older zzh! / CC2531 USB)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0451", ATTRS{idProduct}=="16a8", SYMLINK+="zigbee-coordinator"
+
+# Silicon Labs EFR32 (Home Assistant SkyConnect / SMLIGHT SLZB-06)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="8a2a", SYMLINK+="zigbee-coordinator"
+
+# Fallback: any CP210x serial adapter — comment out if you have multiple CP210x devices
+# SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="zigbee-coordinator"

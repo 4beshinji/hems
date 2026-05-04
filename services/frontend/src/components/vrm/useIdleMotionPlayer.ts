@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { VRM } from '@pixiv/three-vrm'
@@ -33,6 +33,7 @@ export function useIdleMotionPlayer(
   const cacheRef = useRef(new Map<string, THREE.AnimationClip>())
   const nextIdleAt = useRef(performance.now() + randomInterval())
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const [isPlayingIdleMotion, setIsPlayingIdleMotion] = useState(false)
   const isPlayingRef = useRef(false)
 
   // Init mixer
@@ -60,6 +61,7 @@ export function useIdleMotionPlayer(
     const check = setInterval(() => {
       if (walkPhase === 'walking' || isPlayingRef.current) return
       if (performance.now() < nextIdleAt.current) return
+      // mark in both ref (for setInterval guard) and state (for downstream effects)
 
       const motionId = randomIdleMotion()
       const meta = getMotionMeta(motionId)
@@ -80,12 +82,14 @@ export function useIdleMotionPlayer(
 
         currentActionRef.current = action
         isPlayingRef.current = true
+        setIsPlayingIdleMotion(true)
 
         clearTimeout(timeoutRef.current)
         timeoutRef.current = setTimeout(() => {
           if (currentActionRef.current === action) {
             action.fadeOut(0.5)
             isPlayingRef.current = false
+            setIsPlayingIdleMotion(false)
             currentActionRef.current = null
           }
           nextIdleAt.current = performance.now() + randomInterval()
@@ -120,6 +124,7 @@ export function useIdleMotionPlayer(
     if (walkPhase === 'walking' && currentActionRef.current?.isRunning()) {
       currentActionRef.current.fadeOut(0.3)
       isPlayingRef.current = false
+      setIsPlayingIdleMotion(false)
       currentActionRef.current = null
       clearTimeout(timeoutRef.current)
     }
@@ -138,5 +143,5 @@ export function useIdleMotionPlayer(
     }
   }, [])
 
-  return { isPlayingIdleMotion: isPlayingRef.current }
+  return { isPlayingIdleMotion }
 }

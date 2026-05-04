@@ -3,6 +3,7 @@ Event Automation — event-driven action execution for HEMS Brain.
 Maps events (wake_up, arrival, departure, scheduled) to actions
 (news_briefing, morning_greeting, weather_report).
 """
+
 import json
 import os
 import time
@@ -11,28 +12,45 @@ from datetime import datetime
 import aiohttp
 from loguru import logger
 
+from brain_utils import SPEAK_CHUNK_LIMIT
+from brain_utils import split_for_speak as _split_for_speak
+
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
+BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
+# news cache age beyond which we'll trigger a fresh /api/news/refresh before
+# speaking the briefing. BootLoad's own pre-synth refresh keeps the cache
+# fresh on most days; this catches the BootLoad-not-fired case (no
+# schedule_learner data, fallback wake_up trigger, etc.).
+NEWS_REFRESH_STALE_HOURS = float(os.getenv("NEWS_REFRESH_STALE_HOURS", "2"))
 
 # Default automations when EVENT_AUTOMATIONS env is not set
 DEFAULT_AUTOMATIONS = [
-    {"event": "wake_up", "actions": ["morning_greeting", "news_briefing", "weather_report"]},
+    {
+        "event": "wake_up",
+        "actions": ["weather_alert_announce", "morning_greeting", "news_briefing", "weather_report"],
+    },
 ]
-
-# Max chars per speak call — brain speak tool limit is 70
-SPEAK_CHUNK_LIMIT = 70
 
 
 class EventAutomation:
     """イベント駆動の自動アクション実行."""
 
     EVENTS = {"wake_up", "arrival", "departure", "scheduled"}
-    ACTIONS = {"news_briefing", "morning_greeting", "weather_report", "speak_custom"}
+    ACTIONS = {
+        "news_briefing",
+        "morning_greeting",
+        "weather_report",
+        "weather_alert_announce",
+        "speak_custom",
+        "task_planning",
+    }
 
-    def __init__(self, tool_executor, world_model, llm_client=None, character=None):
+    def __init__(self, tool_executor, world_model, llm_client=None, character=None, boot_load_manager=None):
         self.tool_executor = tool_executor
         self.world_model = world_model
         self.llm = llm_client
         self.character = character
+        self.boot_load_manager = boot_load_manager
 
         # Parse automations from env or use defaults
         raw = os.getenv("EVENT_AUTOMATIONS", "")
@@ -85,13 +103,34 @@ class EventAutomation:
 
         logger.info(f"Event triggered: {event_type}")
 
+        # Boot Load cache: play pre-generated briefing instantly if ready.
+        # Voice actions (greeting/news/weather) are replaced by the cache,
+        # but device actions (scene:*) still run below.
+        boot_load_used = False
+        if event_type == "wake_up" and self.boot_load_manager and self.boot_load_manager.is_ready:
+            logger.info("[BootLoad] キャッシュ済みブリーフィングを再生")
+            try:
+                await self._execute_boot_load_briefing()
+                boot_load_used = True
+                self.boot_load_manager.reset()
+            except Exception as e:
+                logger.error(f"[BootLoad] キャッシュ再生失敗、通常パスにフォールバック: {e}")
+
+        # Voice-only actions that boot load already covers
+        _BOOT_LOAD_ACTIONS = {"morning_greeting", "news_briefing", "weather_report"}
+
         for automation in self.automations:
             if automation.get("event") != event_type:
                 continue
             actions = automation.get("actions", [])
-            for action_name in actions:
+            for action in actions:
+                action_name = action if isinstance(action, str) else action.get("name", "")
+                action_config = None if isinstance(action, str) else action
+                # Skip voice actions already played by boot load cache
+                if boot_load_used and action_name in _BOOT_LOAD_ACTIONS:
+                    continue
                 try:
-                    await self._execute_action(action_name)
+                    await self._execute_action(action_name, action_config)
                 except Exception as e:
                     logger.error(f"Action {action_name} failed: {e}")
 
@@ -113,30 +152,83 @@ class EventAutomation:
                     continue
                 self._scheduled_runs[target_time] = today
                 logger.info(f"Scheduled event fired: {target_time}")
-                for action_name in automation.get("actions", []):
+                for action in automation.get("actions", []):
+                    action_name = action if isinstance(action, str) else action.get("name", "")
+                    action_config = None if isinstance(action, str) else action
                     try:
-                        await self._execute_action(action_name)
+                        await self._execute_action(action_name, action_config)
                     except Exception as e:
                         logger.error(f"Scheduled action {action_name} failed: {e}")
 
-    async def _execute_action(self, action_name: str):
+    async def _execute_action(self, action_name: str, action_config: dict = None):
         """Execute a single action."""
+        # scene:{name} → route to Scene executor
+        if action_name.startswith("scene:"):
+            scene_name = action_name.split(":", 1)[1]
+            await self.tool_executor.execute(
+                "execute_scene_by_name",
+                {"name": scene_name},
+            )
+            return
+
         if action_name == "news_briefing":
             await self._action_news_briefing()
         elif action_name == "morning_greeting":
             await self._action_morning_greeting()
         elif action_name == "weather_report":
             await self._action_weather_report()
+        elif action_name == "weather_alert_announce":
+            await self._action_weather_alert_announce()
+        elif action_name == "task_planning":
+            await self._action_task_planning()
+        elif action_name == "speak_custom":
+            text = (action_config or {}).get("text", "")
+            if text:
+                await self.tool_executor.execute(
+                    "speak",
+                    {
+                        "message": text[:SPEAK_CHUNK_LIMIT],
+                        "zone": "home",
+                        "tone": (action_config or {}).get("tone", "neutral"),
+                    },
+                )
         else:
             logger.warning(f"Unknown action: {action_name}")
 
     async def _action_news_briefing(self):
-        """Fetch news summary from news-bridge and speak chunks."""
+        """Fetch news summary from news-bridge and speak chunks.
+
+        Triggers a fresh /api/news/refresh first if the cached daily summary
+        is older than NEWS_REFRESH_STALE_HOURS. BootLoad pre-synth normally
+        keeps it fresh; this branch covers wake_up paths where BootLoad
+        did not fire (no schedule_learner data, fallback trigger, restart).
+        """
         if not NEWS_BRIDGE_URL:
             logger.debug("NEWS_BRIDGE_URL not set, skipping news_briefing")
             return
 
-        # Try REST API first
+        # Check cache freshness; trigger refresh if stale (BootLoad-friendly
+        # because BootLoad already refreshed sets daily_timestamp recently,
+        # so this branch is skipped naturally).
+        if self._session and hasattr(self.world_model, "news_state"):
+            ns = self.world_model.news_state
+            age_hours = (time.time() - ns.daily_timestamp) / 3600 if ns.daily_timestamp else 9999
+            if age_hours > NEWS_REFRESH_STALE_HOURS:
+                logger.info(
+                    f"[news_briefing] cache stale ({age_hours:.1f}h > {NEWS_REFRESH_STALE_HOURS}h) "
+                    f"→ trigger refresh"
+                )
+                try:
+                    async with self._session.post(
+                        f"{NEWS_BRIDGE_URL}/api/news/refresh",
+                        timeout=aiohttp.ClientTimeout(total=90),
+                    ) as resp:
+                        if resp.status != 200:
+                            logger.warning(f"News refresh returned {resp.status}")
+                except Exception as e:
+                    logger.warning(f"News refresh failed: {e}")
+
+        # Try REST API for the latest summary
         chunks = []
         if self._session:
             try:
@@ -153,8 +245,8 @@ class EventAutomation:
                 logger.warning(f"News bridge request failed: {e}")
 
         # Fallback: use cached summary from world model
-        if not chunks and hasattr(self.world_model, 'news_state'):
-            ns = self.world_model.digital.news_state
+        if not chunks and hasattr(self.world_model, "news_state"):
+            ns = self.world_model.news_state
             if ns.daily_chunks:
                 chunks = ns.daily_chunks
 
@@ -163,21 +255,27 @@ class EventAutomation:
             return
 
         # Speak intro
-        await self.tool_executor.execute("speak", {
-            "message": "ニュースをお伝えします。",
-            "zone": "home",
-            "tone": "neutral",
-        })
+        await self.tool_executor.execute(
+            "speak",
+            {
+                "message": "ニュースをお伝えします。",
+                "zone": "home",
+                "tone": "neutral",
+            },
+        )
 
         # Speak each chunk, re-splitting if needed for 70-char limit
         for chunk in chunks:
-            sub_chunks = _split_for_speak(chunk, SPEAK_CHUNK_LIMIT)
+            sub_chunks = _split_for_speak(chunk)
             for sub in sub_chunks:
-                await self.tool_executor.execute("speak", {
-                    "message": sub,
-                    "zone": "home",
-                    "tone": "neutral",
-                })
+                await self.tool_executor.execute(
+                    "speak",
+                    {
+                        "message": sub,
+                        "zone": "home",
+                        "tone": "neutral",
+                    },
+                )
 
     async def _action_morning_greeting(self):
         """Generate and speak a morning greeting using LLM."""
@@ -192,7 +290,7 @@ class EventAutomation:
                 context_parts.append(f"外気温: {w.temperature}°C")
 
         # Biometrics
-        bio = self.world_model.user.biometrics
+        bio = self.world_model.biometric_state
         if bio.sleep.last_update > 0:
             quality = bio.sleep.quality_score
             duration = bio.sleep.duration_minutes
@@ -203,16 +301,20 @@ class EventAutomation:
         message = None
         if self.llm:
             try:
-                char_name = getattr(self.character, "name", "") if self.character else ""
+                # Stage 1: factual morning greeting (no character injection).
+                # Character voice is applied later via _handle_speak → PersonaRewriter.
                 prompt = (
-                    f"{'キャラクター名: ' + char_name + chr(10) if char_name else ''}"
-                    f"以下の状況に基づいて朝の挨拶を1文（50文字以内）で生成してください。\n"
+                    f"以下の状況に基づいて朝の挨拶を1文（50文字以内）で、"
+                    f"素のまま事実ベースで生成してください。"
+                    f"キャラ口調や装飾語尾は付けないでください（後段で付与されます）。\n"
                     f"セリフのみ出力してください。\n\n{context}"
                 )
-                response = await self.llm.chat([
-                    {"role": "system", "content": "短い日本語の朝の挨拶を生成してください。"},
-                    {"role": "user", "content": prompt},
-                ])
+                response = await self.llm.chat(
+                    [
+                        {"role": "system", "content": "短い日本語の朝の挨拶を素のまま生成してください。"},
+                        {"role": "user", "content": prompt},
+                    ]
+                )
                 if not response.error and response.content:
                     message = response.content.strip().strip("「」『』\"'")[:67]
             except Exception as e:
@@ -227,17 +329,160 @@ class EventAutomation:
             else:
                 message = "こんにちは。"
 
-        await self.tool_executor.execute("speak", {
-            "message": message,
-            "zone": "home",
-            "tone": "caring",
-        })
+        await self.tool_executor.execute(
+            "speak",
+            {
+                "message": message,
+                "zone": "home",
+                "tone": "caring",
+            },
+        )
+
+    async def _execute_boot_load_briefing(self):
+        """Play pre-generated boot load briefing cache.
+
+        Mixed mode: pre-synthesized chunks are injected as VoiceEvents
+        directly into the backend (instant playback via the 3s polling).
+        Chunks without audio_url fall back to speak() for at-wake TTS.
+        Order is preserved across both paths.
+        """
+        cache = self.boot_load_manager.cache
+        if not cache or not cache.briefing_chunks:
+            logger.warning("[BootLoad] キャッシュが空")
+            return
+
+        chunks = cache.briefing_chunks
+        audio_urls = list(cache.audio_urls or [])
+
+        injected = 0
+        spoken = 0
+        for idx, chunk in enumerate(chunks):
+            url = audio_urls[idx] if idx < len(audio_urls) else None
+            if url and self._session:
+                try:
+                    async with self._session.post(
+                        f"{BACKEND_URL}/voice-events/",
+                        json={
+                            "message": chunk,
+                            "audio_url": url,
+                            "zone": "home",
+                            "tone": "caring",
+                        },
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status in (200, 201):
+                            injected += 1
+                            continue
+                        logger.warning("[BootLoad] VoiceEvent inject HTTP %d", resp.status)
+                except Exception as e:
+                    logger.warning(f"[BootLoad] VoiceEvent inject エラー: {e}")
+                # fall through to speak() if injection failed
+
+            # No audio_url (or injection failed) → at-wake TTS
+            try:
+                await self.tool_executor.execute(
+                    "speak",
+                    {"message": chunk, "zone": "home", "tone": "caring"},
+                )
+                spoken += 1
+            except Exception as e:
+                logger.warning(f"[BootLoad] speak エラー: {e}")
+
+        logger.info(
+            "[BootLoad] 再生完了: injected=%d spoken=%d total=%d",
+            injected,
+            spoken,
+            len(chunks),
+        )
+
+    async def _action_task_planning(self):
+        """アクティブタスクの詳細プランを LLM で生成し、結果を発話する。"""
+        if not self.llm:
+            logger.debug("[task_planning] LLM未設定、スキップ")
+            return
+        try:
+            tasks = await self.tool_executor.dashboard.get_active_tasks()
+            if not tasks:
+                logger.info("[task_planning] アクティブタスクなし")
+                await self.tool_executor.execute(
+                    "speak",
+                    {
+                        "message": "現在アクティブなタスクはありません。",
+                        "zone": "home",
+                        "tone": "neutral",
+                    },
+                )
+                return
+
+            tasks_text = "\n".join(f"- [{t['id']}] {t['title']}: {t.get('description', '')}" for t in tasks[:10])
+            prompt = (
+                f"以下のアクティブタスクについて、各タスクの詳細な実行手順・目安時間・注意点を"
+                f"日本語で簡潔にまとめてください。発話用なので200文字以内でお願いします。\n\n{tasks_text}"
+            )
+            resp = await self.llm.chat(
+                [
+                    {"role": "system", "content": "あなたはタスク管理アシスタントです。簡潔に答えてください。"},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=300,
+            )
+            if resp.error:
+                logger.warning("[task_planning] LLMエラー: %s", resp.error)
+                return
+
+            content = resp.content.strip()
+            if content:
+                for chunk in _split_for_speak(content, SPEAK_CHUNK_LIMIT):
+                    await self.tool_executor.execute(
+                        "speak",
+                        {
+                            "message": chunk,
+                            "zone": "home",
+                            "tone": "informative",
+                        },
+                    )
+            logger.info("[task_planning] 完了 (%d tasks)", len(tasks))
+        except Exception as e:
+            logger.error("[task_planning] エラー: %s", e)
+
+    async def _action_weather_alert_announce(self):
+        """Announce active weather alerts (warning+ severity)."""
+        w = self.world_model.physical.weather
+        severe_levels = {"warning", "severe", "extreme", "critical"}
+        active = [
+            a for a in w.alerts
+            if (a.severity or "").lower() in severe_levels and a.title
+        ]
+        if not active:
+            logger.debug("[weather_alert_announce] no active severe alerts")
+            return
+
+        for alert in active[:3]:
+            area_part = f"（{alert.area}）" if alert.area else ""
+            message = f"気象警報: {alert.title}{area_part}。注意してください。"
+            for chunk in _split_for_speak(message, SPEAK_CHUNK_LIMIT):
+                await self.tool_executor.execute(
+                    "speak",
+                    {
+                        "message": chunk,
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                )
 
     async def _action_weather_report(self):
         """Speak weather summary from world model."""
         w = self.world_model.physical.weather
         if w.last_update == 0:
-            logger.debug("No weather data, skipping weather_report")
+            logger.warning("weather_report: weather-bridge data not yet received")
+            await self.tool_executor.execute(
+                "speak",
+                {
+                    "message": "天気情報はまだ取得できていません。",
+                    "zone": "home",
+                    "tone": "neutral",
+                },
+            )
             return
 
         parts = []
@@ -259,45 +504,19 @@ class EventAutomation:
             parts.append(f"この後、{rain_forecast.datetime}頃に雨の可能性があります")
 
         if not parts:
+            logger.info("weather_report: data present but all fields empty, skipping")
             return
 
         message = "、".join(parts) + "です。"
         # Truncate if too long
         if len(message) > SPEAK_CHUNK_LIMIT:
-            message = message[:SPEAK_CHUNK_LIMIT - 1] + "。"
+            message = message[: SPEAK_CHUNK_LIMIT - 1] + "。"
 
-        await self.tool_executor.execute("speak", {
-            "message": message,
-            "zone": "home",
-            "tone": "neutral",
-        })
-
-
-def _split_for_speak(text: str, limit: int) -> list[str]:
-    """Split text into chunks of at most `limit` characters, breaking at sentence ends."""
-    if len(text) <= limit:
-        return [text]
-
-    import re
-    sentences = re.split(r"(?<=。)", text)
-    chunks: list[str] = []
-    buf = ""
-    for s in sentences:
-        if not s:
-            continue
-        if len(buf) + len(s) <= limit:
-            buf += s
-        else:
-            if buf:
-                chunks.append(buf)
-            # If single sentence is too long, hard-truncate
-            if len(s) > limit:
-                while s:
-                    chunks.append(s[:limit])
-                    s = s[limit:]
-                buf = ""
-            else:
-                buf = s
-    if buf:
-        chunks.append(buf)
-    return chunks
+        await self.tool_executor.execute(
+            "speak",
+            {
+                "message": message,
+                "zone": "home",
+                "tone": "neutral",
+            },
+        )

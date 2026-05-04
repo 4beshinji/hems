@@ -1,4 +1,5 @@
 """Audio format conversion utilities."""
+
 import io
 import subprocess
 import tempfile
@@ -53,11 +54,18 @@ def _convert_with_ffmpeg(audio_data: bytes) -> bytes:
         try:
             result = subprocess.run(
                 [
-                    "ffmpeg", "-y", "-i", tmp_in.name,
-                    "-ar", str(TARGET_SAMPLE_RATE),
-                    "-ac", str(TARGET_CHANNELS),
-                    "-f", "wav",
-                    "-acodec", "pcm_s16le",
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    tmp_in.name,
+                    "-ar",
+                    str(TARGET_SAMPLE_RATE),
+                    "-ac",
+                    str(TARGET_CHANNELS),
+                    "-f",
+                    "wav",
+                    "-acodec",
+                    "pcm_s16le",
                     "pipe:1",
                 ],
                 capture_output=True,

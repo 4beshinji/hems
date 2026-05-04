@@ -1,4 +1,18 @@
+name: hems
+
 services:
+  # --- Shared Python base image (bootstrap) ---
+  # Build first via:  docker compose --profile bootstrap build base
+  # (or: make docker-base)
+  # Every Python service Dockerfile FROMs hems-base:py3.11.
+  base:
+    image: hems-base:py3.11
+    build:
+      context: ./base
+    profiles: ["bootstrap"]
+    command: ["true"]
+    restart: "no"
+
   # --- Central Bus ---
   mosquitto:
     image: eclipse-mosquitto:2
@@ -6,16 +20,20 @@ services:
     restart: always
     ports:
       - "${MQTT_BIND_ADDR:-127.0.0.1}:${HEMS_PORT_MQTT:-1893}:1883"
+    environment:
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
     volumes:
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
-      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
-      - ./mosquitto/aclfile:/mosquitto/config/aclfile:ro
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl.txt:/mosquitto/config/acl.txt:ro
+      - ./mosquitto/entrypoint.sh:/entrypoint.sh:ro
       - hems_mqtt_data:/mosquitto/data
       - hems_mqtt_log:/mosquitto/log
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_pub -h localhost -p 1883 -u ${MQTT_USER_BRAIN:-hems-brain} -P ${MQTT_PASS_BRAIN} -t hems/healthcheck -m ok -q 0 2>/dev/null || exit 1"]
+      test: ["CMD-SHELL", "mosquitto_pub -h localhost -p 1883 -u hems-health -P \"$$MQTT_PASS\" -t hems/healthcheck -m ok -q 0 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -33,12 +51,11 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_BRAIN:-hems-brain}
-      - MQTT_PASS=${MQTT_PASS_BRAIN:?MQTT_PASS_BRAIN is required}
-      - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
+      - MQTT_USER=hems-brain
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LLM_API_URL=${LLM_API_URL:-http://llm:8080/v1}
-      - LLM_MODEL=${LLM_MODEL:-qwen2.5-14b-instruct}
+      - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -60,10 +77,23 @@ services:
       - SWITCHBOT_BRIDGE_URL=${SWITCHBOT_BRIDGE_URL:-}
       - NEWS_BRIDGE_URL=${NEWS_BRIDGE_URL:-}
       - KNOWLEDGE_BRIDGE_URL=${KNOWLEDGE_BRIDGE_URL:-}
+      - TAPO_BRIDGE_URL=${TAPO_BRIDGE_URL:-}
       - AMBIENT_SPEAK_ENABLED=${AMBIENT_SPEAK_ENABLED:-true}
       - AMBIENT_SPEAK_INTERVAL=${AMBIENT_SPEAK_INTERVAL:-300}
       - EVENT_AUTOMATIONS=${EVENT_AUTOMATIONS:-}
       - LLM_NUM_CTX=${LLM_NUM_CTX:-}
+      - BOOT_LOAD_ENABLED=${BOOT_LOAD_ENABLED:-true}
+      - BOOT_LOAD_WINDOW_SEC=${BOOT_LOAD_WINDOW_SEC:-2700}
+      - BOOT_LOAD_MODEL=${BOOT_LOAD_MODEL:-}
+      - BOOT_LOAD_API_URL=${BOOT_LOAD_API_URL:-}
+      - BOOT_LOAD_PROVIDER=${BOOT_LOAD_PROVIDER:-}
+      - FALLBACK_WAKE_TIME=${FALLBACK_WAKE_TIME:-07:00}
+      - SUNRISE_ALARM_DEVICE=${SUNRISE_ALARM_DEVICE:-}
+      - SUNRISE_ALARM_START_SEC=${SUNRISE_ALARM_START_SEC:-7200}
+      - SUNRISE_ALARM_END_SEC=${SUNRISE_ALARM_END_SEC:-1800}
+      - HEMS_GMAIL_VIP_SENDERS=${HEMS_GMAIL_VIP_SENDERS:-}
+      - HEMS_GITHUB_VIP_REPOS=${HEMS_GITHUB_VIP_REPOS:-}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
     volumes:
       - ../services/brain/src:/app
       - ../config:/config:ro
@@ -90,9 +120,8 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/hems.db}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_BACKEND:-hems-backend}
-      - MQTT_PASS=${MQTT_PASS_BACKEND:?MQTT_PASS_BACKEND is required}
-      - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
+      - MQTT_USER=hems-backend
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       - TZ=${TZ:-Asia/Tokyo}
       - HA_BRIDGE_URL=${HA_BRIDGE_URL:-}
@@ -100,6 +129,8 @@ services:
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - BRAIN_CHAT_URL=${BRAIN_CHAT_URL:-http://brain:8080}
       - VOICE_SERVICE_URL=${VOICE_SERVICE_URL:-http://voice-service:8000}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
     volumes:
       - ../services/backend:/app
       - ../config:/config:ro
@@ -125,7 +156,7 @@ services:
       backend:
         condition: service_healthy
     environment:
-      - HEMS_API_KEY=${HEMS_API_KEY:?HEMS_API_KEY is required}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
     networks:
       - hems-net
     healthcheck:
@@ -141,7 +172,7 @@ services:
     container_name: hems-voice
     restart: always
     ports:
-      - "${HEMS_PORT_VOICE:-8012}:8000"
+      - "127.0.0.1:${HEMS_PORT_VOICE:-8012}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -149,6 +180,7 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       - TTS_PROVIDER=${TTS_PROVIDER:-espeak}
+      - TTS_FALLBACK=${TTS_FALLBACK:-}
       - VOICEVOX_URL=${VOICEVOX_URL:-http://voicevox:50021}
       - VOISONA_URL=${VOISONA_URL:-http://192.168.1.173:32766}
       - VOISONA_USERNAME=${VOISONA_USERNAME:-}
@@ -156,11 +188,12 @@ services:
       - VOISONA_VOICE_NAME=${VOISONA_VOICE_NAME:-nurse-robot-type-t_ja_JP}
       - VOISONA_LANGUAGE=${VOISONA_LANGUAGE:-ja_JP}
       - STYLE_BERT_VITS2_URL=${STYLE_BERT_VITS2_URL:-}
-      - LLM_API_URL=${LLM_API_URL:-http://llm:8080/v1}
-      - LLM_MODEL=${LLM_MODEL:-qwen2.5-14b-instruct}
+      - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
       - CHARACTER=${CHARACTER:-}
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
     volumes:
       - ../services/voice/src:/app
       - ../config:/config:ro
@@ -181,7 +214,7 @@ services:
     restart: unless-stopped
     profiles: ["mock"]
     ports:
-      - "${HEMS_PORT_MOCK_LLM:-8011}:8000"
+      - "127.0.0.1:${HEMS_PORT_MOCK_LLM:-8011}:8000"
     networks:
       - hems-net
     healthcheck:
@@ -206,7 +239,7 @@ services:
     # (/proc:ro マウントは AppArmor + healthcheck exec と競合するため使用しない)
     pid: "host"
     ports:
-      - "${HEMS_PORT_OPENCLAW_BRIDGE:-8013}:8000"
+      - "127.0.0.1:${HEMS_PORT_OPENCLAW_BRIDGE:-8013}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -216,8 +249,8 @@ services:
       - PORT=8000
       - TZ=${TZ:-Asia/Tokyo}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_LOCALCRAW:-hems-localcraw}
-      - MQTT_PASS=${MQTT_PASS_LOCALCRAW:-}
+      - MQTT_USER=hems-localcraw
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - OPENCLAW_METRICS_INTERVAL=${OPENCLAW_METRICS_INTERVAL:-10}
       - OPENCLAW_PROCESS_INTERVAL=${OPENCLAW_PROCESS_INTERVAL:-30}
       - HEMS_GMAIL_ENABLED=${HEMS_GMAIL_ENABLED:-false}
@@ -246,7 +279,7 @@ services:
     restart: always
     profiles: ["obsidian"]
     ports:
-      - "${HEMS_PORT_OBSIDIAN_BRIDGE:-8014}:8000"
+      - "127.0.0.1:${HEMS_PORT_OBSIDIAN_BRIDGE:-8014}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -254,8 +287,8 @@ services:
       - OBSIDIAN_VAULT_PATH=/vault
       - OBSIDIAN_WATCHER_DEBOUNCE=${OBSIDIAN_WATCHER_DEBOUNCE:-2.0}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_OBSIDIAN:-hems-obsidian}
-      - MQTT_PASS=${MQTT_PASS_OBSIDIAN:-}
+      - MQTT_USER=hems-obsidian
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -277,7 +310,7 @@ services:
     restart: always
     profiles: ["gas"]
     ports:
-      - "${HEMS_PORT_GAS_BRIDGE:-8015}:8000"
+      - "127.0.0.1:${HEMS_PORT_GAS_BRIDGE:-8015}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -291,8 +324,8 @@ services:
       - HEMS_GAS_DRIVE_INTERVAL=${HEMS_GAS_DRIVE_INTERVAL:-600}
       - HEMS_GAS_SHEETS=${HEMS_GAS_SHEETS:-}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_GAS:-hems-gas}
-      - MQTT_PASS=${MQTT_PASS_GAS:-}
+      - MQTT_USER=hems-gas
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -338,7 +371,7 @@ services:
     restart: always
     profiles: ["ha"]
     ports:
-      - "${HEMS_PORT_HA_BRIDGE:-8016}:8000"
+      - "127.0.0.1:${HEMS_PORT_HA_BRIDGE:-8016}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -348,8 +381,8 @@ services:
       - HEMS_HA_ENTITY_MAP=${HEMS_HA_ENTITY_MAP:-{}}
       - HEMS_HA_POLL_INTERVAL=${HEMS_HA_POLL_INTERVAL:-30}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_HA:-hems-ha-bridge}
-      - MQTT_PASS=${MQTT_PASS_HA:-}
+      - MQTT_USER=hems-ha
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -372,20 +405,22 @@ services:
     restart: always
     profiles: ["biometric"]
     ports:
-      - "${HEMS_PORT_BIOMETRIC_BRIDGE:-8017}:8000"
+      - "127.0.0.1:${HEMS_PORT_BIOMETRIC_BRIDGE:-8017}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
     environment:
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_BIOMETRIC:-hems-biometric}
-      - MQTT_PASS=${MQTT_PASS_BIOMETRIC:-}
+      - MQTT_USER=hems-biometric
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - BIOMETRIC_WEBHOOK_SECRET=${BIOMETRIC_WEBHOOK_SECRET:-}
       - BIOMETRIC_PROVIDER=${BIOMETRIC_PROVIDER:-gadgetbridge}
+      - BIOMETRIC_DB_PATH=/data/send_queue.db
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
       - ../services/biometric-bridge/src:/app
+      - hems_biometric_data:/data
     networks:
       - hems-net
     healthcheck:
@@ -402,7 +437,7 @@ services:
     restart: always
     profiles: ["voicevox"]
     ports:
-      - "${HEMS_PORT_VOICEVOX:-50031}:50021"
+      - "127.0.0.1:${HEMS_PORT_VOICEVOX:-50031}:50021"
     networks:
       - hems-net
     healthcheck:
@@ -422,7 +457,7 @@ services:
     restart: always
     profiles: ["ollama"]
     ports:
-      - "${HEMS_PORT_OLLAMA:-11444}:11434"
+      - "127.0.0.1:${HEMS_PORT_OLLAMA:-11444}:11434"
     volumes:
       - ollama_models:/root/.ollama
     networks:
@@ -457,117 +492,6 @@ services:
     networks:
       - hems-net
 
-  # --- llama.cpp server (Local LLM, OpenAI-compatible) ---
-  # GPU-agnostic base. Run `python infra/scripts/gpu_setup.py` to generate
-  # docker-compose.gpu.yml with NVIDIA/AMD-specific settings.
-  # Models live under ./models/ — fetch via `bash infra/scripts/pull_models.sh`.
-  llm:
-    image: ${LLM_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
-    container_name: hems-llm
-    restart: unless-stopped
-    profiles: ["llm"]
-    ports:
-      - "${HEMS_PORT_LLM:-8081}:8080"
-    volumes:
-      - ../models:/models:ro
-    environment:
-      - LLAMA_ARG_MODEL=/models/${LLM_MODEL_FILE:-Qwen2.5-14B-Instruct-Q4_K_M.gguf}
-      - LLAMA_ARG_CTX_SIZE=${LLM_CTX_SIZE:-32768}
-      - LLAMA_ARG_N_PARALLEL=${LLM_PARALLEL:-2}
-      - LLAMA_ARG_N_GPU_LAYERS=${LLM_GPU_LAYERS:-99}
-      - LLAMA_ARG_FLASH_ATTN=on
-      - LLAMA_ARG_HOST=0.0.0.0
-      - LLAMA_ARG_PORT=8080
-      - LLAMA_ARG_ALIAS=${LLM_MODEL:-qwen2.5-14b-instruct}
-    networks:
-      - hems-net
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
-
-  # --- Text Embeddings Inference (OpenAI-compatible /v1/embeddings) ---
-  # Loads the HF model on first boot; weights cached to ./models/embed.
-  embed:
-    image: ${EMBED_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.5}
-    container_name: hems-embed
-    restart: unless-stopped
-    profiles: ["llm"]
-    ports:
-      - "${HEMS_PORT_EMBED:-8090}:80"
-    volumes:
-      - ../models/embed:/data
-    command:
-      - "--model-id"
-      - "${EMBEDDING_HF_MODEL:-nomic-ai/nomic-embed-text-v1.5}"
-      - "--port"
-      - "80"
-    networks:
-      - hems-net
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:80/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-
-  # --- VLM light (always-on, routine scene analysis) ---
-  vlm-light:
-    image: ${LLM_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
-    container_name: hems-vlm-light
-    restart: unless-stopped
-    profiles: ["llm", "vlm"]
-    ports:
-      - "${HEMS_PORT_VLM_LIGHT:-8082}:8080"
-    volumes:
-      - ../models:/models:ro
-    environment:
-      - LLAMA_ARG_MODEL=/models/${VLM_LIGHT_MODEL_FILE:-MiniCPM-V-2_6-Q4_K_M.gguf}
-      - LLAMA_ARG_MMPROJ=/models/${VLM_LIGHT_MMPROJ_FILE:-mmproj-MiniCPM-V-2_6-f16.gguf}
-      - LLAMA_ARG_N_GPU_LAYERS=${VLM_LIGHT_GPU_LAYERS:-99}
-      - LLAMA_ARG_HOST=0.0.0.0
-      - LLAMA_ARG_PORT=8080
-      - LLAMA_ARG_ALIAS=${VLM_LIGHT_MODEL:-minicpm-v}
-    networks:
-      - hems-net
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
-
-  # --- VLM heavy (opt-in, event-driven deep analysis) ---
-  # Separate profile so VRAM-constrained deployments can skip it:
-  #   --profile llm vlm             → light only
-  #   --profile llm vlm vlm-heavy   → light + heavy
-  vlm-heavy:
-    image: ${LLM_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
-    container_name: hems-vlm-heavy
-    restart: unless-stopped
-    profiles: ["vlm-heavy"]
-    ports:
-      - "${HEMS_PORT_VLM_HEAVY:-8083}:8080"
-    volumes:
-      - ../models:/models:ro
-    environment:
-      - LLAMA_ARG_MODEL=/models/${VLM_HEAVY_MODEL_FILE:-Qwen2-VL-7B-Instruct-Q4_K_M.gguf}
-      - LLAMA_ARG_MMPROJ=/models/${VLM_HEAVY_MMPROJ_FILE:-mmproj-Qwen2-VL-7B-f16.gguf}
-      - LLAMA_ARG_N_GPU_LAYERS=${VLM_HEAVY_GPU_LAYERS:-99}
-      - LLAMA_ARG_HOST=0.0.0.0
-      - LLAMA_ARG_PORT=8080
-      - LLAMA_ARG_ALIAS=${VLM_HEAVY_MODEL:-qwen2-vl-7b}
-    networks:
-      - hems-net
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
-
   # --- PostgreSQL (optional, replaces SQLite) ---
   postgres:
     image: postgres:16-alpine
@@ -576,7 +500,7 @@ services:
     profiles: ["postgres"]
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-hems}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (required for --profile postgres)}
       - POSTGRES_DB=hems
     ports:
       - "127.0.0.1:${HEMS_PORT_POSTGRES:-5442}:5432"
@@ -598,25 +522,23 @@ services:
     restart: always
     profiles: ["perception"]
     ports:
-      - "${HEMS_PORT_PERCEPTION:-8018}:8000"
+      - "127.0.0.1:${HEMS_PORT_PERCEPTION:-8018}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
     environment:
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_PERCEPTION:-hems-perception}
-      - MQTT_PASS=${MQTT_PASS_PERCEPTION:-}
+      - MQTT_USER=hems-perception
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - HEMS_PERCEPTION_CAMERAS=${HEMS_PERCEPTION_CAMERAS:-[]}
       - HEMS_PERCEPTION_MODEL=${HEMS_PERCEPTION_MODEL:-yolo11s.pt}
       - HEMS_PERCEPTION_POSE_MODEL=${HEMS_PERCEPTION_POSE_MODEL:-yolo11s-pose.pt}
       - HEMS_PERCEPTION_CONFIDENCE=${HEMS_PERCEPTION_CONFIDENCE:-0.5}
       - HEMS_PERCEPTION_INTERVAL=${HEMS_PERCEPTION_INTERVAL:-5}
       - VLM_ENABLED=${VLM_ENABLED:-false}
-      - VLM_LIGHT_API_URL=${VLM_LIGHT_API_URL:-http://vlm-light:8080/v1}
-      - VLM_HEAVY_API_URL=${VLM_HEAVY_API_URL:-http://vlm-heavy:8080/v1}
-      - VLM_OLLAMA_URL=${VLM_OLLAMA_URL:-}
-      - VLM_LIGHT_MODEL=${VLM_LIGHT_MODEL:-minicpm-v}
-      - VLM_HEAVY_MODEL=${VLM_HEAVY_MODEL:-qwen2-vl-7b}
+      - VLM_OLLAMA_URL=${VLM_OLLAMA_URL:-http://ollama:11434}
+      - VLM_LIGHT_MODEL=${VLM_LIGHT_MODEL:-moondream}
+      - VLM_HEAVY_MODEL=${VLM_HEAVY_MODEL:-minicpm-v}
       - VLM_BASE_INTERVAL=${VLM_BASE_INTERVAL:-1800}
       - VLM_MIN_INTERVAL=${VLM_MIN_INTERVAL:-60}
       - VLM_MAX_INTERVAL=${VLM_MAX_INTERVAL:-7200}
@@ -645,7 +567,7 @@ services:
     restart: always
     profiles: ["switchbot"]
     ports:
-      - "${HEMS_PORT_SWITCHBOT_BRIDGE:-8019}:8000"
+      - "127.0.0.1:${HEMS_PORT_SWITCHBOT_BRIDGE:-8019}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -656,8 +578,8 @@ services:
       - SWITCHBOT_POLL_INTERVAL=${SWITCHBOT_POLL_INTERVAL:-30}
       - SWITCHBOT_WEBHOOK_URL=${SWITCHBOT_WEBHOOK_URL:-}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_SWITCHBOT:-hems-switchbot}
-      - MQTT_PASS=${MQTT_PASS_SWITCHBOT:-}
+      - MQTT_USER=hems-switchbot
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -671,6 +593,104 @@ services:
       retries: 3
       start_period: 10s
 
+  # --- Tapo Bridge (python-kasa direct LAN integration) ---
+  tapo-bridge:
+    build: ../services/tapo-bridge
+    container_name: hems-tapo-bridge
+    restart: always
+    profiles: ["tapo"]
+    ports:
+      - "127.0.0.1:${HEMS_PORT_TAPO_BRIDGE:-8020}:8000"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - TAPO_USERNAME=${TAPO_USERNAME:-}
+      - TAPO_PASSWORD=${TAPO_PASSWORD:-}
+      - TAPO_DEVICES=${TAPO_DEVICES:-{}}
+      - TAPO_ZONES=${TAPO_ZONES:-{}}
+      - TAPO_NAMES=${TAPO_NAMES:-{}}
+      - TAPO_POLL_INTERVAL=${TAPO_POLL_INTERVAL:-30}
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=hems-tapo
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/tapo-bridge/src:/app
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # --- Zigbee2MQTT (official image, needs USB coordinator stick) ---
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt:latest
+    container_name: hems-zigbee2mqtt
+    restart: unless-stopped
+    profiles: ["zigbee"]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    ports:
+      # Admin UI fallback — also reachable via nginx at http://<frontend>/z2m/
+      - "127.0.0.1:${HEMS_PORT_Z2M_UI:-8090}:8080"
+    volumes:
+      - ../config/zigbee2mqtt:/app/data
+      - ./zigbee2mqtt/entrypoint.sh:/usr/local/bin/hems-z2m-entrypoint.sh:ro
+      - /run/udev:/run/udev:ro
+    devices:
+      - ${HEMS_Z2M_USB_DEVICE:-/dev/ttyUSB0}:/dev/ttyUSB0
+    # Custom entrypoint applies a tiny patch to herdsman to bypass the strict
+    # preconfigured-key consistency check (see ./zigbee2mqtt/entrypoint.sh).
+    entrypoint: ["/usr/local/bin/hems-z2m-entrypoint.sh"]
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      - ZIGBEE2MQTT_CONFIG_MQTT_USER=hems-zigbee
+      - ZIGBEE2MQTT_CONFIG_MQTT_PASSWORD=${MQTT_PASS:?Set MQTT_PASS in .env}
+    networks:
+      - hems-net
+
+  # --- Weather Bridge (JMA / OpenWeatherMap → MQTT, always-on) ---
+  weather-bridge:
+    build: ../services/weather-bridge
+    container_name: hems-weather-bridge
+    restart: always
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_USER=hems-weather
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - WEATHER_PROVIDER=${WEATHER_PROVIDER:-jma}
+      - JMA_AREA_CODE=${JMA_AREA_CODE:-130000}
+      - JMA_DETAIL_CODE=${JMA_DETAIL_CODE:-130010}
+      - OWM_API_KEY=${OWM_API_KEY:-}
+      - OWM_LAT=${OWM_LAT:-35.6762}
+      - OWM_LON=${OWM_LON:-139.6503}
+      - OWM_UNITS=${OWM_UNITS:-metric}
+      - OWM_LANG=${OWM_LANG:-ja}
+      - HEMS_WEATHER_CURRENT_INTERVAL=${HEMS_WEATHER_CURRENT_INTERVAL:-600}
+      - HEMS_WEATHER_FORECAST_INTERVAL=${HEMS_WEATHER_FORECAST_INTERVAL:-1800}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/weather-bridge/src:/app
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
   # --- News Bridge (RSS + Ollama summarizer) ---
   news-bridge:
     build: ../services/news-bridge
@@ -678,21 +698,16 @@ services:
     restart: always
     profiles: ["news"]
     ports:
-      - "${HEMS_PORT_NEWS_BRIDGE:-8021}:8000"
+      - "127.0.0.1:${HEMS_PORT_NEWS_BRIDGE:-8021}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
     environment:
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_NEWS:-hems-news}
-      - MQTT_PASS=${MQTT_PASS_NEWS:-}
-      - NEWS_LLM_API_URL=${NEWS_LLM_API_URL:-http://llm:8080}
-      - NEWS_LLM_MODEL=${NEWS_LLM_MODEL:-}
-      - NEWS_LLM_SUMMARY_MODEL=${NEWS_LLM_SUMMARY_MODEL:-}
-      - LLM_API_URL=${LLM_API_URL:-}
-      - LLM_MODEL=${LLM_MODEL:-}
-      - OLLAMA_URL=${OLLAMA_URL:-}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
+      - MQTT_USER=hems-news
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5}
       - OLLAMA_SUMMARY_MODEL=${OLLAMA_SUMMARY_MODEL:-}
       - NEWS_SOURCES=${NEWS_SOURCES:-nhk_main,nhk_international,bbc_world,guardian_world}
       - NEWS_DAILY_HOUR=${NEWS_DAILY_HOUR:-7}
@@ -719,7 +734,7 @@ services:
     restart: always
     profiles: ["knowledge"]
     ports:
-      - "${HEMS_PORT_KNOWLEDGE_BRIDGE:-8022}:8000"
+      - "127.0.0.1:${HEMS_PORT_KNOWLEDGE_BRIDGE:-8022}:8000"
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -727,14 +742,14 @@ services:
       - KNOWLEDGE_SOURCES=${KNOWLEDGE_SOURCES:-[]}
       - KNOWLEDGE_WATCHER_DEBOUNCE=${KNOWLEDGE_WATCHER_DEBOUNCE:-3.0}
       - KNOWLEDGE_MAX_SEARCH_RESULTS=${KNOWLEDGE_MAX_SEARCH_RESULTS:-20}
-      - EMBEDDING_URL=${EMBEDDING_URL:-http://embed:80}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text-v1.5}
+      - EMBEDDING_URL=${EMBEDDING_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - EMBEDDING_CACHE_DIR=/app/data/embeddings
       - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-32}
       - RRF_K=${RRF_K:-60}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=${MQTT_USER_KNOWLEDGE:-hems-knowledge}
-      - MQTT_PASS=${MQTT_PASS_KNOWLEDGE:-}
+      - MQTT_USER=hems-knowledge
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -757,7 +772,7 @@ services:
     restart: always
     profiles: ["stt"]
     ports:
-      - "${HEMS_PORT_STT:-8023}:8000"
+      - "127.0.0.1:${HEMS_PORT_STT:-8023}:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -772,9 +787,9 @@ services:
       - STT_LLM_MODEL=${STT_LLM_MODEL:-}
       - LLM_API_URL=${LLM_API_URL:-}
       - LLM_MODEL=${LLM_MODEL:-}
-      - HEMS_API_KEY=${HEMS_API_KEY:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
     volumes:
       - ../services/stt/src:/app
       - hems_stt_models:/app/models
@@ -795,6 +810,7 @@ volumes:
   hems_audio_data:
   hems_pg_data:
   hems_knowledge_data:
+  hems_biometric_data:
   ollama_models:
   hems_perception_models:
   hems_stt_models:

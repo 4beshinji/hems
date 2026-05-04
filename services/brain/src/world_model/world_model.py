@@ -2,22 +2,91 @@
 WorldModel — maintains unified zone state from MQTT messages.
 Forked from SOMS with HEMS personal topic support.
 """
+
+import logging
 import os
 import re
 import time
-import logging
-from typing import Optional
+
 from .data_classes import (
-    ZoneState, OccupancyData, Event,
-    CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
+    BinarySensorState,
+    BiometricState,
+    CalendarEvent,
+    ClimateState,
+    CoverState,
+    CPUData,
+    DigitalSpace,
+    DiskData,
+    DiskPartition,
+    DriveFile,
+    Event,
+    FreeSlot,
+    GASState,
+    GmailLabel,
+    GoogleTask,
+    GPUData,
+    HASensorState,
+    HeartRateData,
+    HomeDevicesState,
+    KnowledgeState,
+    LightState,
+    MemoryData,
+    NewsState,
+    OccupancyData,
+    PCState,
+    PhysicalSpace,
+    ProcessInfo,
+    ServicesState,
     ServiceStatusData,
-    CalendarEvent, FreeSlot, GoogleTask, GmailLabel, DriveFile, SheetData,
-    LightState, ClimateState, CoverState, BinarySensorState, HASensorState,
-    HeartRateData, StressData, PhysicalSpace, DigitalSpace, UserState,
+    SheetData,
+    ShoppingState,
+    StressData,
+    UserState,
+    WeatherState,
+    ZoneState,
 )
-from .sensor_fusion import SensorFusion
+from .sensor_fusion import (
+    ChannelType,
+    EventCounter,
+    SensorFusion,
+    StateTracker,
+    TrendDetector,
+    classify_channel,
+)
 
 logger = logging.getLogger(__name__)
+
+# B-2: VIP sender / repo identification for service edge events.
+# Comma-separated list. A service event is treated as VIP if its payload's
+# `vip` field is true, OR if any configured VIP token is found in the event
+# summary / details / data.
+_VIP_GMAIL_SENDERS = [
+    s.strip().lower()
+    for s in os.getenv("HEMS_GMAIL_VIP_SENDERS", "").split(",")
+    if s.strip()
+]
+_VIP_GITHUB_REPOS = [
+    s.strip().lower()
+    for s in os.getenv("HEMS_GITHUB_VIP_REPOS", "").split(",")
+    if s.strip()
+]
+
+
+def _detect_service_vip(service_name: str, payload: dict) -> bool:
+    """Return True if the service event is from a VIP sender or repo."""
+    if payload.get("vip"):
+        return True
+    haystack = " ".join(
+        str(payload.get(k, ""))
+        for k in ("summary", "details", "subject", "from", "sender", "repo")
+    ).lower()
+    if not haystack:
+        return False
+    if service_name == "gmail":
+        return any(s and s in haystack for s in _VIP_GMAIL_SENDERS)
+    if service_name == "github":
+        return any(s and s in haystack for s in _VIP_GITHUB_REPOS)
+    return False
 
 # Prompt injection patterns to strip from MQTT-sourced text before LLM context
 _INJECTION_RE = re.compile(
@@ -42,6 +111,7 @@ def _sanitize_text(text: str, max_len: int = 200) -> str:
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len] + "…"
     return cleaned
+
 
 # Environment thresholds for event generation (configurable via env vars)
 CO2_HIGH = int(os.getenv("HEMS_THRESHOLD_CO2_HIGH", "1000"))
@@ -82,9 +152,9 @@ class WorldModel:
     # Slow-changing conditions get longer suppression to avoid duplicate tasks
     # while the physical environment slowly responds (e.g., AC cooling a room).
     SUPPRESSION_DEFAULTS: dict[str, float] = {
-        "temp_high": 1800,    # 30 min — AC takes time to cool
-        "temp_low": 1800,     # 30 min — heating takes time
-        "co2_high": 600,      # 10 min — ventilation is faster
+        "temp_high": 1800,  # 30 min — AC takes time to cool
+        "temp_low": 1800,  # 30 min — heating takes time
+        "co2_high": 600,  # 10 min — ventilation is faster
         "co2_critical": 600,  # 10 min
     }
 
@@ -95,42 +165,122 @@ class WorldModel:
         self.user = UserState()
 
         self._sensor_fusions: dict[str, SensorFusion] = {}
+        self._event_counter = EventCounter()
+        self._state_tracker = StateTracker()
+        self._trend_detector = TrendDetector()
         self.event_writer = None  # Set by Brain if event_store is available
 
-        # Guest mode: unix timestamp when mode auto-expires (0.0 = off).
-        # When active, rule_engine skips private HA automation and biometric
-        # alerts; only critical safety rules from zigbee sensors still fire.
-        self._guest_mode_expiry: float = 0.0
+        # VLM model swap coordination flag — brain skips LLM calls when True
+        self.vlm_model_swap_active: bool = False
+        # B-3: VLM swap stats — outage detection
+        self.vlm_swap_stats: dict = {
+            "last_swap_start_ts": 0.0,
+            "last_swap_end_ts": 0.0,
+            "last_swap_duration_sec": 0.0,
+            "success_count": 0,
+            "failure_count": 0,
+            "longest_swap_sec": 0.0,
+        }
+
+        # Guest mode: suppresses personal rules (biometric, etc.) for privacy
+        self._guest_mode_expiry: float = 0
 
         # Alert suppression: {(zone_id, alert_type): expiry_timestamp}
         # Prevents repeated task creation for slow-changing conditions.
         self._suppressed_alerts: dict[tuple, float] = {}
 
-    # --- Guest mode ---
+    # --- Backward-compatible property accessors ---
+    # These delegate to domain objects so existing code works unchanged.
+
+    @property
+    def zones(self) -> dict[str, ZoneState]:
+        return self.physical.zones
+
+    @zones.setter
+    def zones(self, value: dict[str, ZoneState]):
+        self.physical.zones = value
+
+    @property
+    def pc_state(self) -> PCState:
+        return self.digital.pc_state
+
+    @pc_state.setter
+    def pc_state(self, value: PCState):
+        self.digital.pc_state = value
+
+    @property
+    def services_state(self) -> ServicesState:
+        return self.digital.services_state
+
+    @services_state.setter
+    def services_state(self, value: ServicesState):
+        self.digital.services_state = value
+
+    @property
+    def knowledge_state(self) -> KnowledgeState:
+        return self.digital.knowledge_state
+
+    @knowledge_state.setter
+    def knowledge_state(self, value: KnowledgeState):
+        self.digital.knowledge_state = value
+
+    @property
+    def gas_state(self) -> GASState:
+        return self.digital.gas_state
+
+    @gas_state.setter
+    def gas_state(self, value: GASState):
+        self.digital.gas_state = value
+
+    @property
+    def home_devices(self) -> HomeDevicesState:
+        return self.physical.home_devices
+
+    @home_devices.setter
+    def home_devices(self, value: HomeDevicesState):
+        self.physical.home_devices = value
+
+    @property
+    def biometric_state(self) -> BiometricState:
+        return self.user.biometrics
+
+    @biometric_state.setter
+    def biometric_state(self, value: BiometricState):
+        self.user.biometrics = value
+
+    @property
+    def news_state(self) -> NewsState:
+        return self.digital.news_state
+
+    @news_state.setter
+    def news_state(self, value: NewsState):
+        self.digital.news_state = value
+
+    @property
+    def shopping_state(self) -> ShoppingState:
+        return self.digital.shopping_state
+
+    @shopping_state.setter
+    def shopping_state(self, value: ShoppingState):
+        self.digital.shopping_state = value
+
+    @property
+    def weather(self) -> WeatherState:
+        return self.physical.weather
+
+    @weather.setter
+    def weather(self, value: WeatherState):
+        self.physical.weather = value
 
     @property
     def is_guest_mode(self) -> bool:
-        """True while a guest-mode window is active (auto-expires)."""
         return time.time() < self._guest_mode_expiry
 
-    @property
-    def guest_mode_expiry(self) -> float:
-        """Unix timestamp when guest mode turns off (0.0 if not active)."""
-        return self._guest_mode_expiry
-
-    def set_guest_mode(self, enabled: bool, duration_hours: float = 4.0) -> None:
-        """Enable or disable guest mode.
-
-        `enabled=True` starts (or extends) a window of `duration_hours`.
-        `enabled=False` clears it immediately.
-        """
+    def set_guest_mode(self, enabled: bool, duration_hours: float = 0):
         if enabled:
-            hours = max(0.0, float(duration_hours))
-            self._guest_mode_expiry = time.time() + hours * 3600.0
-            logger.info("Guest mode enabled for %.1fh", hours)
+            self._guest_mode_expiry = time.time() + (duration_hours * 3600)
         else:
-            self._guest_mode_expiry = 0.0
-            logger.info("Guest mode disabled")
+            self._guest_mode_expiry = 0
 
     def suppress_alert(self, zone_id: str, alert_type: str, duration: float = None):
         """Suppress an alert for a zone after a task has been created for it.
@@ -159,24 +309,135 @@ class WorldModel:
         """Clear a suppression when the condition has resolved."""
         self._suppressed_alerts.pop((zone_id, alert_type), None)
 
-    def get_zone(self, zone_id: str) -> Optional[ZoneState]:
+    def get_zone(self, zone_id: str) -> ZoneState | None:
         """Get state of a specific zone (returns None if zone not yet seen)."""
-        return self.physical.zones.get(zone_id)
+        return self.zones.get(zone_id)
 
     def get_all_zones(self) -> dict[str, ZoneState]:
         """Get all zones."""
-        return self.physical.zones
+        return self.zones
 
     def _get_zone(self, zone_id: str) -> ZoneState:
         """Get or create a zone by ID (internal use)."""
-        if zone_id not in self.physical.zones:
-            self.physical.zones[zone_id] = ZoneState(zone_id=zone_id)
-        return self.physical.zones[zone_id]
+        if zone_id not in self.zones:
+            self.zones[zone_id] = ZoneState(zone_id=zone_id)
+        return self.zones[zone_id]
 
     def _get_fusion(self, key: str) -> SensorFusion:
         if key not in self._sensor_fusions:
             self._sensor_fusions[key] = SensorFusion()
         return self._sensor_fusions[key]
+
+    # --- Presence / occupancy reconciliation ─────────────────────────
+    # Camera person_count is the strongest signal, but often unavailable
+    # (no camera in zone, offline, VLM disabled). Fall back through:
+    # presence_state (HA/SwitchBot/Zigbee binary), recent motion events,
+    # PC activity, and biometric heart rate. Recorded sources let the
+    # LLM tell why the system thinks someone is home.
+
+    PRESENCE_MOTION_RECENT_SEC = 180  # motion event count as "recent" for 3 min
+    PRESENCE_BIOMETRIC_FRESH_SEC = 300  # HR freshness window (5 min)
+    PRESENCE_PC_FRESH_SEC = 180  # PC metric freshness (3 min)
+    PRESENCE_PC_CPU_ACTIVE = 10.0  # CPU% above which the PC counts as "active"
+
+    def reconcile_presence(self) -> dict[str, dict]:
+        """Run multi-source presence inference across all zones.
+
+        Populates OccupancyData.inferred_occupied / inference_source /
+        inference_sources for every known zone. Also returns a summary
+        dict keyed by zone for callers that want it.
+        """
+        now = time.time()
+        global_signals = self._global_presence_signals(now)
+        summary: dict[str, dict] = {}
+
+        # Any zone ever seen counts. If no zones have been created yet
+        # (e.g. cold start with only biometric/PC data), treat "home"
+        # as the default zone so inference still runs.
+        zone_ids = list(self.zones.keys())
+        if not zone_ids and (global_signals["pc_active"] or global_signals["biometric_fresh"]):
+            zone_ids = ["home"]
+
+        for zone_id in zone_ids:
+            zone = self._get_zone(zone_id)
+            sources: list[str] = []
+
+            # 1. Camera — strongest
+            if zone.occupancy.count > 0:
+                sources.append("camera")
+
+            # 2. HA/Zigbee/SwitchBot binary presence sensor
+            if zone.occupancy.presence_state is True:
+                sources.append("presence_sensor")
+
+            # 3. Recent motion events (counter window)
+            if (
+                zone.occupancy.last_motion_ts > 0
+                and now - zone.occupancy.last_motion_ts < self.PRESENCE_MOTION_RECENT_SEC
+            ):
+                sources.append("motion")
+            elif zone.occupancy.motion_event_count_5min > 0:
+                sources.append("motion")
+
+            # 4. Global signals (PC, biometrics) — attach only to the PC/biometric zone.
+            # We don't have a reliable way to locate the user, so attribute to
+            # the first zone seen (typically the primary living/work zone) or
+            # to any zone if only one exists.
+            is_primary = zone_id == zone_ids[0]
+            if is_primary:
+                if global_signals["pc_active"]:
+                    sources.append("pc_activity")
+                if global_signals["biometric_fresh"]:
+                    sources.append("biometric")
+
+            occupied = bool(sources)
+            zone.occupancy.inferred_occupied = occupied
+            zone.occupancy.inference_sources = sources
+            zone.occupancy.inference_source = sources[0] if sources else "none"
+            summary[zone_id] = {
+                "occupied": occupied,
+                "sources": list(sources),
+                "camera_count": zone.occupancy.count,
+                "presence_state": zone.occupancy.presence_state,
+            }
+
+        return summary
+
+    def _global_presence_signals(self, now: float) -> dict[str, bool]:
+        """Compute PC + biometric signals that don't belong to a specific zone."""
+        pc = self.digital.pc_state
+        pc_active = bool(
+            pc.cpu.last_update > 0
+            and (now - pc.cpu.last_update) < self.PRESENCE_PC_FRESH_SEC
+            and pc.cpu.usage_percent >= self.PRESENCE_PC_CPU_ACTIVE
+        )
+
+        bio = self.user.biometrics
+        hr_fresh = bool(
+            bio.heart_rate.bpm
+            and bio.heart_rate.last_update > 0
+            and (now - bio.heart_rate.last_update) < self.PRESENCE_BIOMETRIC_FRESH_SEC
+        )
+        return {"pc_active": pc_active, "biometric_fresh": hr_fresh}
+
+    def is_anyone_home(self) -> bool:
+        """Return True if any presence source indicates occupancy in any zone.
+
+        Use this instead of `all(z.occupancy.count == 0 ...)` to avoid
+        false absences when the camera is offline but PIR/motion/PC/HR
+        signals are active.
+        """
+        self.reconcile_presence()
+        return any(z.occupancy.inferred_occupied for z in self.zones.values())
+
+    def presence_sources(self) -> list[str]:
+        """Return the union of inference sources across all zones."""
+        seen: list[str] = []
+        for z in self.zones.values():
+            for s in z.occupancy.inference_sources:
+                if s not in seen:
+                    seen.append(s)
+        return seen
 
     def update_from_mqtt(self, topic: str, payload: dict):
         """Parse MQTT topic and update world state."""
@@ -185,10 +446,17 @@ class WorldModel:
         # office/{zone}/sensor/{device_id}/{channel}
         if len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
             zone_id = parts[1]
+            device_id = parts[3]
             channel = parts[4]
             value = payload.get(channel) or payload.get("value")
             if value is not None:
-                self._update_sensor(zone_id, channel, float(value))
+                ch_type = classify_channel(channel)
+                if ch_type == ChannelType.ANALOG:
+                    self._update_sensor(zone_id, channel, float(value))
+                elif ch_type == ChannelType.EVENT:
+                    self._update_event_channel(zone_id, channel, value, device_id)
+                elif ch_type == ChannelType.STATE:
+                    self._update_state_channel(zone_id, channel, value, device_id)
 
         # office/{zone}/camera/{camera_id}/status (occupancy)
         elif len(parts) >= 5 and parts[0] == "office" and parts[2] == "camera":
@@ -217,13 +485,15 @@ class WorldModel:
             if activity == "sedentary":
                 duration = payload.get("duration_minutes", 0)
                 if duration >= SEDENTARY_MINUTES:
-                    zone.add_event(Event(
-                        event_type="sedentary_alert",
-                        description=f"長時間着座検知: {duration}分",
-                        severity=1,
-                        zone=zone_id,
-                        data={"duration_minutes": duration},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="sedentary_alert",
+                            description=f"長時間着座検知: {duration}分",
+                            severity=1,
+                            zone=zone_id,
+                            data={"duration_minutes": duration},
+                        )
+                    )
 
         # office/{zone}/task_report/{task_id}
         elif "task_report" in topic:
@@ -231,13 +501,15 @@ class WorldModel:
             zone = self._get_zone(zone_id)
             safe_title = _sanitize_text(payload.get("title", ""), 100)
             safe_status = _sanitize_text(payload.get("report_status", ""), 30)
-            zone.add_event(Event(
-                event_type="task_report",
-                description=f"タスク報告: {safe_title} ({safe_status})",
-                severity=1 if payload.get("report_status") in ("needs_followup", "cannot_resolve") else 0,
-                zone=zone_id,
-                data=payload,
-            ))
+            zone.add_event(
+                Event(
+                    event_type="task_report",
+                    description=f"タスク報告: {safe_title} ({safe_status})",
+                    severity=1 if payload.get("report_status") in ("needs_followup", "cannot_resolve") else 0,
+                    zone=zone_id,
+                    data=payload,
+                )
+            )
 
         # hems/pc/* topics (OpenClaw bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "pc":
@@ -263,9 +535,21 @@ class WorldModel:
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "news":
             self._update_news_state(parts[2], payload)
 
+        # hems/weather/* topics (weather-bridge)
+        elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "weather":
+            self._update_weather_state(parts[2], payload)
+
         # hems/personal/* topics (Phase 2 — data-bridge)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "personal":
             self._update_personal(parts[2:], payload)
+
+        # hems/tapo/{vendor_ref}/state → power metering + on/off state
+        elif parts[0] == "hems" and len(parts) >= 4 and parts[1] == "tapo" and parts[3] == "state":
+            self._update_tapo_state(parts[2], payload)
+
+        # zigbee2mqtt/{device} → sensor channels + on/off state (Z2M direct)
+        elif parts[0] == "zigbee2mqtt" and len(parts) >= 2 and not parts[1].startswith("bridge"):
+            self._update_zigbee_state(parts[1], payload)
 
     def _update_sensor(self, zone_id: str, channel: str, value: float):
         zone = self._get_zone(zone_id)
@@ -292,11 +576,101 @@ class WorldModel:
             env.light = round(fused, 1)
         elif channel == "voc":
             env.voc = round(fused, 1)
+        elif channel == "pm25":
+            env.pm25 = round(fused, 1)
+        elif channel == "soil_moisture":
+            env.soil_moisture = round(fused, 1)
 
-        env.last_update = time.time()
+        # Trend detection
+        now = time.time()
+        self._trend_detector.record(fusion_key, fused, now)
+        env.trends[channel] = self._trend_detector.get_trend(fusion_key, fused, channel)
+
+        env.last_update = now
+        env.channel_last_seen[channel] = now
 
         # Generate events from threshold crossings
         self._check_thresholds(zone, channel, fused, prev)
+
+    def _update_event_channel(self, zone_id: str, channel: str, value, device_id: str):
+        """Process event/pulse sensor data (motion, vibration)."""
+        zone = self._get_zone(zone_id)
+        reading_key = f"{zone_id}:{channel}"
+        now = time.time()
+
+        if channel == "motion_count":
+            self._event_counter.record_count(reading_key, int(value), now)
+            if int(value) > 0:
+                zone.occupancy.last_motion_ts = now
+        elif value:
+            self._event_counter.record_event(reading_key, now)
+            zone.occupancy.last_motion_ts = now
+
+        # Aggregate all motion-type events for this zone
+        total = sum(
+            self._event_counter.get_count(f"{zone_id}:{ch}")
+            for ch in ("motion", "motion_count", "vibration")
+        )
+        zone.occupancy.motion_event_count_5min = total
+        zone.occupancy.motion_frequency_per_min = total / 5.0
+        zone.occupancy.last_update = now
+
+    def _update_state_channel(self, zone_id: str, channel: str, value, device_id: str):
+        """Process binary state sensor data (door, presence, contact, occupancy)."""
+        zone = self._get_zone(zone_id)
+        bool_value = bool(value)
+        state_key = f"{zone_id}:{device_id}:{channel}"
+        now = time.time()
+        changed = self._state_tracker.update(state_key, bool_value, now)
+
+        if channel == "door":
+            state_info = self._state_tracker.get_state(state_key)
+            if state_info:
+                zone.occupancy.door_states[device_id] = {
+                    "open": state_info["state"],
+                    "duration_sec": state_info["duration_sec"],
+                    "changes_1h": state_info["changes_1h"],
+                }
+            if changed:
+                zone.add_event(
+                    Event(
+                        event_type="door_opened" if bool_value else "door_closed",
+                        description=f"ドアが{'開' if bool_value else '閉'}きました ({device_id})",
+                        severity=0,
+                        zone=zone_id,
+                        data={"device_id": device_id, "state": bool_value},
+                    )
+                )
+
+        elif channel == "contact":
+            # contact=false → door open (contact sensor logic inverted)
+            door_open = not bool_value
+            door_key = f"{zone_id}:{device_id}:door"
+            self._state_tracker.update(door_key, door_open, now)
+            state_info = self._state_tracker.get_state(door_key)
+            if state_info:
+                zone.occupancy.door_states[device_id] = {
+                    "open": state_info["state"],
+                    "duration_sec": state_info["duration_sec"],
+                    "changes_1h": state_info["changes_1h"],
+                }
+
+        elif channel in ("presence", "occupancy"):
+            zone.occupancy.presence_state = bool_value
+            state_info = self._state_tracker.get_state(state_key)
+            if state_info:
+                zone.occupancy.presence_duration_sec = state_info["duration_sec"]
+            # Each activation also counts as a motion event for the zone
+            if bool_value:
+                self._event_counter.record_event(f"{zone_id}:motion", now)
+                total = sum(
+                    self._event_counter.get_count(f"{zone_id}:{ch}")
+                    for ch in ("motion", "motion_count", "vibration")
+                )
+                zone.occupancy.motion_event_count_5min = total
+                zone.occupancy.motion_frequency_per_min = total / 5.0
+                zone.occupancy.last_motion_ts = now
+            zone.occupancy.last_update = now
 
     def _check_thresholds(self, zone: ZoneState, channel: str, value: float, prev: float | None):
         zid = zone.zone_id
@@ -308,22 +682,26 @@ class WorldModel:
 
             if value > CO2_CRITICAL and (prev is None or prev <= CO2_CRITICAL):
                 if not self._is_suppressed(zid, "co2_critical"):
-                    zone.add_event(Event(
-                        event_type="co2_critical",
-                        description=f"CO2危険レベル: {int(value)}ppm",
-                        severity=2,
-                        zone=zid,
-                        data={"co2": value},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="co2_critical",
+                            description=f"CO2危険レベル: {int(value)}ppm",
+                            severity=2,
+                            zone=zid,
+                            data={"co2": value},
+                        )
+                    )
             elif value > CO2_HIGH and (prev is None or prev <= CO2_HIGH):
                 if not self._is_suppressed(zid, "co2_high"):
-                    zone.add_event(Event(
-                        event_type="co2_high",
-                        description=f"CO2上昇: {int(value)}ppm",
-                        severity=1,
-                        zone=zid,
-                        data={"co2": value},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="co2_high",
+                            description=f"CO2上昇: {int(value)}ppm",
+                            severity=1,
+                            zone=zid,
+                            data={"co2": value},
+                        )
+                    )
 
         elif channel == "temperature":
             # Auto-clear suppression when temperature returns to normal range
@@ -333,22 +711,26 @@ class WorldModel:
 
             if value > TEMP_HIGH and (prev is None or prev <= TEMP_HIGH):
                 if not self._is_suppressed(zid, "temp_high"):
-                    zone.add_event(Event(
-                        event_type="temp_high",
-                        description=f"室温上昇: {value:.1f}度",
-                        severity=1,
-                        zone=zid,
-                        data={"temperature": value},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="temp_high",
+                            description=f"室温上昇: {value:.1f}度",
+                            severity=1,
+                            zone=zid,
+                            data={"temperature": value},
+                        )
+                    )
             elif value < TEMP_LOW and (prev is None or prev >= TEMP_LOW):
                 if not self._is_suppressed(zid, "temp_low"):
-                    zone.add_event(Event(
-                        event_type="temp_low",
-                        description=f"室温低下: {value:.1f}度",
-                        severity=1,
-                        zone=zid,
-                        data={"temperature": value},
-                    ))
+                    zone.add_event(
+                        Event(
+                            event_type="temp_low",
+                            description=f"室温低下: {value:.1f}度",
+                            severity=1,
+                            zone=zid,
+                            data={"temperature": value},
+                        )
+                    )
 
     def _update_pc_state(self, path_parts: list[str], payload: dict):
         """Handle hems/pc/* topics from OpenClaw bridge."""
@@ -356,7 +738,7 @@ class WorldModel:
             return
 
         category = path_parts[0]
-        pc = self.digital.pc_state
+        pc = self.pc_state
 
         if category == "metrics" and len(path_parts) >= 2:
             metric = path_parts[1]
@@ -403,12 +785,14 @@ class WorldModel:
                 pc.disk = DiskData(partitions=partitions, last_update=now)
                 for p in partitions:
                     if p.percent > PC_DISK_HIGH:
-                        pc.add_event(Event(
-                            event_type="pc_disk_high",
-                            description=f"ディスク残量警告: {p.mount} ({p.percent:.0f}%使用)",
-                            severity=1,
-                            data={"mount": p.mount, "percent": p.percent},
-                        ))
+                        pc.add_event(
+                            Event(
+                                event_type="pc_disk_high",
+                                description=f"ディスク残量警告: {p.mount} ({p.percent:.0f}%使用)",
+                                severity=1,
+                                data={"mount": p.mount, "percent": p.percent},
+                            )
+                        )
             elif metric == "temperature":
                 if "cpu_temp_c" in payload:
                     pc.cpu.temp_c = payload["cpu_temp_c"]
@@ -432,12 +816,14 @@ class WorldModel:
         elif category == "events":
             # Threshold events from bridge (cpu_high, memory_high, gpu_hot, disk_low)
             event_type = path_parts[1] if len(path_parts) >= 2 else "unknown"
-            pc.add_event(Event(
-                event_type=f"pc_{event_type}",
-                description=f"PC閾値イベント: {event_type}",
-                severity=1 if "hot" not in event_type else 2,
-                data=payload,
-            ))
+            pc.add_event(
+                Event(
+                    event_type=f"pc_{event_type}",
+                    description=f"PC閾値イベント: {event_type}",
+                    severity=1 if "hot" not in event_type else 2,
+                    data=payload,
+                )
+            )
 
         # Update screen time tracking when PC metrics are received
         if pc.bridge_connected and pc.cpu.last_update > 0:
@@ -447,6 +833,7 @@ class WorldModel:
         """Track daily screen time based on PC activity."""
         st = self.user.screen_time
         from datetime import datetime
+
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
         # Reset daily counter if new day
@@ -465,32 +852,38 @@ class WorldModel:
 
     def _check_pc_thresholds(self, metric: str, value: float, prev: float):
         """Generate events from PC metric threshold crossings."""
-        pc = self.digital.pc_state
+        pc = self.pc_state
         if metric == "cpu" and value > PC_CPU_HIGH and prev <= PC_CPU_HIGH:
-            pc.add_event(Event(
-                event_type="pc_cpu_high",
-                description=f"PC CPU使用率高: {value:.0f}%",
-                severity=1,
-                data={"usage_percent": value},
-            ))
+            pc.add_event(
+                Event(
+                    event_type="pc_cpu_high",
+                    description=f"PC CPU使用率高: {value:.0f}%",
+                    severity=1,
+                    data={"usage_percent": value},
+                )
+            )
         elif metric == "memory" and value > PC_MEMORY_HIGH and prev <= PC_MEMORY_HIGH:
-            pc.add_event(Event(
-                event_type="pc_memory_high",
-                description=f"PCメモリ使用率高: {value:.0f}%",
-                severity=1,
-                data={"percent": value},
-            ))
+            pc.add_event(
+                Event(
+                    event_type="pc_memory_high",
+                    description=f"PCメモリ使用率高: {value:.0f}%",
+                    severity=1,
+                    data={"percent": value},
+                )
+            )
         elif metric == "gpu_temp" and value > PC_GPU_TEMP_HIGH and prev <= PC_GPU_TEMP_HIGH:
-            pc.add_event(Event(
-                event_type="pc_gpu_hot",
-                description=f"GPU温度警告: {value:.0f}°C",
-                severity=2,
-                data={"temp_c": value},
-            ))
+            pc.add_event(
+                Event(
+                    event_type="pc_gpu_hot",
+                    description=f"GPU温度警告: {value:.0f}°C",
+                    severity=2,
+                    data={"temp_c": value},
+                )
+            )
 
     def _update_service_state(self, service_name: str, msg_type: str, payload: dict):
         """Handle hems/services/{name}/status and hems/services/{name}/event topics."""
-        ss = self.digital.services_state
+        ss = self.services_state
 
         if msg_type == "status":
             prev = ss.services.get(service_name)
@@ -509,27 +902,40 @@ class WorldModel:
 
             # Generate event on unread increase
             if ssd.unread_count > prev_count:
-                ss.add_event(Event(
-                    event_type="service_unread_increase",
-                    description=ssd.summary,
-                    severity=0,
-                    data={"service": service_name, "prev": prev_count, "new": ssd.unread_count},
-                ))
+                ss.add_event(
+                    Event(
+                        event_type="service_unread_increase",
+                        description=ssd.summary,
+                        severity=0,
+                        data={"service": service_name, "prev": prev_count, "new": ssd.unread_count},
+                    )
+                )
 
         elif msg_type == "event":
-            ss.add_event(Event(
-                event_type=f"service_{payload.get('type', 'unknown')}",
-                description=_sanitize_text(payload.get("summary", f"{service_name} event")),
-                severity=0,
-                data=payload,
-            ))
+            is_vip = _detect_service_vip(service_name, payload)
+            event_type = (
+                "service_vip_event"
+                if is_vip
+                else f"service_{payload.get('type', 'unknown')}"
+            )
+            data_with_vip = dict(payload)
+            data_with_vip["service"] = service_name
+            data_with_vip["vip"] = is_vip
+            ss.add_event(
+                Event(
+                    event_type=event_type,
+                    description=_sanitize_text(payload.get("summary", f"{service_name} event")),
+                    severity=2 if is_vip else 0,
+                    data=data_with_vip,
+                )
+            )
 
     def _update_gas_state(self, path_parts: list[str], payload: dict):
         """Handle hems/gas/* topics from GAS bridge."""
         if not path_parts:
             return
 
-        gs = self.digital.gas_state
+        gs = self.gas_state
         category = path_parts[0]
 
         if category == "calendar" and len(path_parts) >= 2:
@@ -539,18 +945,20 @@ class WorldModel:
                 for ev in payload.get("events", []):
                     start_ts = self._parse_iso_ts(ev.get("start", ""))
                     end_ts = self._parse_iso_ts(ev.get("end", ""))
-                    events.append(CalendarEvent(
-                        id=ev.get("id", ""),
-                        title=ev.get("title", ""),
-                        start=ev.get("start", ""),
-                        end=ev.get("end", ""),
-                        location=ev.get("location", ""),
-                        calendar_name=ev.get("calendarName", ""),
-                        is_all_day=ev.get("isAllDay", False),
-                        description=ev.get("description", ""),
-                        start_ts=start_ts,
-                        end_ts=end_ts,
-                    ))
+                    events.append(
+                        CalendarEvent(
+                            id=ev.get("id", ""),
+                            title=ev.get("title", ""),
+                            start=ev.get("start", ""),
+                            end=ev.get("end", ""),
+                            location=ev.get("location", ""),
+                            calendar_name=ev.get("calendarName", ""),
+                            is_all_day=ev.get("isAllDay", False),
+                            description=ev.get("description", ""),
+                            start_ts=start_ts,
+                            end_ts=end_ts,
+                        )
+                    )
                 gs.calendar_events = events
                 gs.last_calendar_update = time.time()
                 gs.bridge_connected = True
@@ -571,15 +979,17 @@ class WorldModel:
             for tl in payload.get("taskLists", []):
                 list_name = tl.get("title", "")
                 for t in tl.get("tasks", []):
-                    tasks.append(GoogleTask(
-                        id=t.get("id", ""),
-                        title=t.get("title", ""),
-                        notes=t.get("notes", ""),
-                        due=t.get("due", ""),
-                        status=t.get("status", ""),
-                        list_name=list_name,
-                        is_overdue=t.get("is_overdue", False),
-                    ))
+                    tasks.append(
+                        GoogleTask(
+                            id=t.get("id", ""),
+                            title=t.get("title", ""),
+                            notes=t.get("notes", ""),
+                            due=t.get("due", ""),
+                            status=t.get("status", ""),
+                            list_name=list_name,
+                            is_overdue=t.get("is_overdue", False),
+                        )
+                    )
             if sub == "all":
                 gs.tasks = tasks
                 gs.last_tasks_update = time.time()
@@ -639,6 +1049,7 @@ class WorldModel:
             return 0
         try:
             from datetime import datetime
+
             # Handle Z suffix and various formats
             s = iso_str.replace("Z", "+00:00")
             dt = datetime.fromisoformat(s)
@@ -647,50 +1058,169 @@ class WorldModel:
             return 0
 
     def _update_vlm(self, path_parts: list[str], payload: dict):
-        """Handle hems/perception/vlm/{zone} topics (VLM scene analysis)."""
-        if len(path_parts) < 2 or path_parts[0] != "vlm":
-            return
-        # Skip non-zone subtopic (status is a retained bridge health message).
-        if path_parts[1] == "status":
+        """Handle hems/perception/* topics (VLM scene analysis + model swap)."""
+        if not path_parts:
             return
 
-        zone_id = path_parts[1]
-        zone = self._get_zone(zone_id)
-        now = time.time()
+        # hems/perception/vlm/{zone} — scene analysis result
+        if (
+            len(path_parts) >= 2
+            and path_parts[0] == "vlm"
+            and path_parts[1] != "model_swap"
+            and path_parts[1] != "status"
+        ):
+            zone_id = path_parts[1]
+            zone = self._get_zone(zone_id)
+            now = time.time()
 
-        description = _sanitize_text(payload.get("description", ""), 500)
-        objects = payload.get("objects", [])
-        scene_type = payload.get("scene_type", "unknown")
-        anomalies = payload.get("anomalies", [])
+            description = _sanitize_text(payload.get("description", ""), 500)
+            objects = payload.get("objects", [])
+            scene_type = payload.get("scene_type", "unknown")
+            anomalies = payload.get("anomalies", [])
 
-        if isinstance(objects, list):
-            objects = [_sanitize_text(str(o), 50) for o in objects[:20]]
-        else:
-            objects = []
-        if isinstance(anomalies, list):
-            anomalies = [_sanitize_text(str(a), 50) for a in anomalies[:10]]
-        else:
-            anomalies = []
+            # Sanitize list items
+            if isinstance(objects, list):
+                objects = [_sanitize_text(str(o), 50) for o in objects[:20]]
+            else:
+                objects = []
+            if isinstance(anomalies, list):
+                anomalies = [_sanitize_text(str(a), 50) for a in anomalies[:10]]
+            else:
+                anomalies = []
 
-        zone.occupancy.scene_description = description
-        zone.occupancy.scene_objects = objects
-        zone.occupancy.scene_type = _sanitize_text(str(scene_type), 30)
-        zone.occupancy.scene_anomalies = anomalies
-        zone.occupancy.vlm_last_update = now
+            scene_type_clean = _sanitize_text(str(scene_type), 30)
+            prev_anomalies = zone.occupancy.scene_anomalies
+            zone.occupancy.scene_description = description
+            zone.occupancy.scene_objects = objects
+            zone.occupancy.scene_type = scene_type_clean
+            zone.occupancy.scene_anomalies = anomalies
+            zone.occupancy.vlm_last_update = now
 
-        if anomalies:
-            zone.add_event(Event(
-                event_type="vlm_anomaly",
-                description=f"VLM検知: {', '.join(anomalies[:3])}",
-                severity=1,
-                zone=zone_id,
-                data={
-                    "anomalies": anomalies,
-                    "description": description[:200],
-                    "model": payload.get("model", ""),
-                    "tier": payload.get("tier", ""),
-                },
-            ))
+            # Append to rolling history (maxlen 10, drop entries older than 1h)
+            from .data_classes import SceneSnapshot
+
+            snapshot = SceneSnapshot(
+                timestamp=now,
+                description=description,
+                objects=list(objects),
+                scene_type=scene_type_clean,
+                anomalies=list(anomalies),
+                tier=_sanitize_text(str(payload.get("tier", "")), 10),
+                model=_sanitize_text(str(payload.get("model", "")), 40),
+            )
+            hist = zone.occupancy.vlm_history
+            hist.append(snapshot)
+            cutoff = now - 3600
+            zone.occupancy.vlm_history = [s for s in hist if s.timestamp >= cutoff][-10:]
+
+            # Anomaly tracking state for re-evaluation rule
+            if anomalies:
+                if not prev_anomalies or set(anomalies) != set(prev_anomalies):
+                    # New or changed anomaly set → reset tracker
+                    zone.occupancy.anomaly_first_seen = now
+                    zone.occupancy.anomaly_escalated = False
+                    zone.occupancy.anomaly_rescan_requested = 0
+            else:
+                # Anomaly cleared
+                zone.occupancy.anomaly_first_seen = 0
+                zone.occupancy.anomaly_escalated = False
+                zone.occupancy.anomaly_rescan_requested = 0
+
+            # Generate events for anomalies
+            if anomalies:
+                zone.add_event(
+                    Event(
+                        event_type="vlm_anomaly",
+                        description=f"VLM検知: {', '.join(anomalies[:3])}",
+                        severity=1,
+                        zone=zone_id,
+                        data={
+                            "anomalies": anomalies,
+                            "description": description[:200],
+                            "model": payload.get("model", ""),
+                            "tier": payload.get("tier", ""),
+                        },
+                    )
+                )
+
+        # hems/perception/vlm/model_swap — VRAM coordination
+        elif len(path_parts) >= 2 and path_parts[0] == "vlm" and path_parts[1] == "model_swap":
+            status = payload.get("status", "")
+            stats = self.vlm_swap_stats
+            now_ts = time.time()
+            if status == "heavy_loading":
+                self.vlm_model_swap_active = True
+                stats["last_swap_start_ts"] = now_ts
+                logger.info("VLM model swap: heavy model loading — brain entering rule-only mode")
+            elif status == "ready":
+                self.vlm_model_swap_active = False
+                start = stats.get("last_swap_start_ts", 0)
+                if start > 0:
+                    duration = now_ts - start
+                    stats["last_swap_end_ts"] = now_ts
+                    stats["last_swap_duration_sec"] = duration
+                    if duration > stats.get("longest_swap_sec", 0):
+                        stats["longest_swap_sec"] = duration
+                stats["success_count"] = stats.get("success_count", 0) + 1
+                logger.info("VLM model swap: ready — brain resuming LLM mode")
+            elif status in ("failed", "error"):
+                self.vlm_model_swap_active = False
+                stats["failure_count"] = stats.get("failure_count", 0) + 1
+                logger.warning(f"VLM model swap failed: {payload.get('error', '')}")
+
+    def _update_tapo_state(self, vendor_ref: str, payload: dict):
+        """Tapo plug state → feed power metering into zone sensors if provided.
+
+        Tapo P110 exposes power_watts/voltage/current/energy_kwh. Feed power
+        readings into timeseries for the EnergyPanel; the device itself is
+        tracked in the Device Registry (auto-register happens separately).
+        """
+        zone_id = payload.get("zone", "home")
+        power = payload.get("power_watts")
+        if power is not None:
+            zone = self._get_zone(zone_id)
+            zone.add_event(
+                Event(
+                    event_type="tapo_power",
+                    description=f"{vendor_ref}: {power:.1f}W",
+                    severity=0,
+                    zone=zone_id,
+                    data={"power_watts": float(power), "vendor_ref": vendor_ref},
+                )
+            )
+
+    def _update_zigbee_state(self, vendor_ref: str, payload: dict):
+        """Zigbee2MQTT device update → feed sensor channels into zone state.
+
+        Z2M publishes the full payload per device (state + sensor readings).
+        Device auto-registration is handled separately via parse_mqtt;
+        here we route sensor values to the zone using channel classification.
+        """
+        zone_id = payload.get("zone")
+        if not zone_id:
+            return
+
+        _SKIP_KEYS = {
+            "zone", "linkquality", "battery", "voltage", "update",
+            "update_available", "last_seen", "elapsed", "state", "power_on_behavior",
+        }
+        device_id = f"zigbee.{vendor_ref}"
+
+        for key, value in payload.items():
+            if key in _SKIP_KEYS or value is None:
+                continue
+            ch_type = classify_channel(key)
+            if ch_type == ChannelType.ANALOG:
+                try:
+                    fval = float(value)
+                except (TypeError, ValueError):
+                    continue
+                mapped = "light" if key == "illuminance" else key
+                self._update_sensor(zone_id, mapped, fval)
+            elif ch_type == ChannelType.EVENT:
+                self._update_event_channel(zone_id, key, value, device_id)
+            elif ch_type == ChannelType.STATE:
+                self._update_state_channel(zone_id, key, value, device_id)
 
     def _update_personal(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/* topics."""
@@ -712,17 +1242,19 @@ class WorldModel:
 
     def _update_news_state(self, sub_topic: str, payload: dict):
         """Handle hems/news/* topics from news-bridge."""
-        ns = self.digital.news_state
+        ns = self.news_state
 
         if sub_topic == "daily":
             ns.daily_summary = payload.get("summary", "")
             ns.daily_chunks = payload.get("chunks", [])
             ns.daily_timestamp = payload.get("timestamp", time.time())
-            ns.add_event(Event(
-                event_type="news_daily",
-                description=f"日次ニュースサマリ更新 ({payload.get('article_count', 0)}件)",
-                severity=0,
-            ))
+            ns.add_event(
+                Event(
+                    event_type="news_daily",
+                    description=f"日次ニュースサマリ更新 ({payload.get('article_count', 0)}件)",
+                    severity=0,
+                )
+            )
 
         elif sub_topic == "urgent":
             article = {
@@ -737,23 +1269,81 @@ class WorldModel:
             # Keep only recent 10 urgent articles
             if len(ns.urgent_articles) > 10:
                 ns.urgent_articles = ns.urgent_articles[-10:]
-            ns.add_event(Event(
-                event_type="news_urgent",
-                description=f"速報: {article['title'][:50]}",
-                severity=1,
-                data=article,
-            ))
+            ns.add_event(
+                Event(
+                    event_type="news_urgent",
+                    description=f"速報: {article['title'][:50]}",
+                    severity=1,
+                    data=article,
+                )
+            )
 
         elif sub_topic == "bridge":
             # hems/news/bridge/status
             ns.bridge_connected = payload.get("connected", False)
+
+    def _update_weather_state(self, sub_topic: str, payload: dict):
+        """Handle hems/weather/* topics from weather-bridge."""
+        from .data_classes import WeatherAlert, WeatherForecast
+
+        w = self.weather
+        now = time.time()
+
+        if sub_topic == "current":
+            w.condition = payload.get("condition", payload.get("weather_main", w.condition))
+            w.temperature = float(payload.get("temperature", payload.get("temp", w.temperature)))
+            w.humidity = float(payload.get("humidity", w.humidity))
+            w.wind_speed = float(payload.get("wind_speed", w.wind_speed))
+            w.last_update = now
+
+        elif sub_topic == "forecast":
+            entries = payload.get("entries", []) if isinstance(payload, dict) else []
+            forecast: list[WeatherForecast] = []
+            for f in entries:
+                if not isinstance(f, dict):
+                    continue
+                forecast.append(
+                    WeatherForecast(
+                        datetime=str(f.get("datetime", "")),
+                        condition=str(f.get("condition", f.get("weather_main", ""))),
+                        temperature=float(f.get("temperature", f.get("temp", 0)) or 0),
+                        precipitation_probability=int(f.get("precipitation_probability", 0) or 0),
+                        wind_speed=float(f.get("wind_speed", 0) or 0),
+                    )
+                )
+            w.forecast = forecast
+            w.last_update = now
+
+        elif sub_topic == "alerts":
+            raw_alerts = payload.get("alerts", []) if isinstance(payload, dict) else []
+            alerts: list[WeatherAlert] = []
+            for a in raw_alerts:
+                if not isinstance(a, dict):
+                    continue
+                alerts.append(
+                    WeatherAlert(
+                        title=_sanitize_text(a.get("title", a.get("event", "")), 120),
+                        severity=str(a.get("severity", "unknown")).lower(),
+                        description=_sanitize_text(a.get("description", a.get("headline", "")), 300),
+                        area=_sanitize_text(a.get("area", ""), 80),
+                        issued_at=str(a.get("issued_at", a.get("start", ""))),
+                        expires_at=str(a.get("expires_at", a.get("end", ""))),
+                    )
+                )
+            w.alerts = alerts
+            w.last_alerts_update = now
+
+        elif sub_topic == "bridge":
+            # hems/weather/bridge/status → keep last update for freshness tracking
+            if payload.get("connected") is not None:
+                w.last_update = w.last_update or now
 
     def _update_biometric_state(self, path_parts: list[str], payload: dict):
         """Handle hems/personal/biometrics/* topics from biometric bridge."""
         if not path_parts:
             return
 
-        bio = self.user.biometrics
+        bio = self.biometric_state
         now = time.time()
 
         # hems/personal/biometrics/bridge/status
@@ -778,6 +1368,7 @@ class WorldModel:
                 if "resting_bpm" in payload:
                     bio.heart_rate.resting_bpm = int(payload["resting_bpm"])
                 bio.bridge_connected = True
+                bio.record_history("heart_rate", float(bpm), now)
                 self._check_biometric_thresholds("heart_rate", float(bpm), float(prev_bpm) if prev_bpm else None)
 
         elif metric == "spo2":
@@ -787,12 +1378,14 @@ class WorldModel:
                 bio.spo2.percent = int(pct)
                 bio.spo2.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("spo2", float(pct), now)
                 self._check_biometric_thresholds("spo2", float(pct), float(prev_pct) if prev_pct else None)
 
         elif metric == "sleep":
             bio.sleep.stage = payload.get("stage", bio.sleep.stage)
             if "duration_minutes" in payload:
                 bio.sleep.duration_minutes = int(payload["duration_minutes"])
+                bio.record_history("sleep_duration", float(payload["duration_minutes"]), now)
             if "deep_minutes" in payload:
                 bio.sleep.deep_minutes = int(payload["deep_minutes"])
             if "rem_minutes" in payload:
@@ -801,6 +1394,7 @@ class WorldModel:
                 bio.sleep.light_minutes = int(payload["light_minutes"])
             if "quality_score" in payload:
                 bio.sleep.quality_score = int(payload["quality_score"])
+                bio.record_history("sleep_quality", float(payload["quality_score"]), now)
             if "sleep_start_ts" in payload:
                 bio.sleep.sleep_start_ts = float(payload["sleep_start_ts"])
             if "sleep_end_ts" in payload:
@@ -811,6 +1405,7 @@ class WorldModel:
         elif metric == "activity":
             if "steps" in payload:
                 bio.activity.steps = int(payload["steps"])
+                bio.record_history("steps", float(payload["steps"]), now)
             if "steps_goal" in payload:
                 bio.activity.steps_goal = int(payload["steps_goal"])
             if "calories" in payload:
@@ -830,11 +1425,13 @@ class WorldModel:
                 bio.stress.category = StressData.classify_category(int(level))
                 bio.stress.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("stress", float(level), now)
                 self._check_biometric_thresholds("stress", float(level), float(prev_level) if prev_level else None)
 
         elif metric == "fatigue":
             if "score" in payload:
                 bio.fatigue.score = int(payload["score"])
+                bio.record_history("fatigue", float(payload["score"]), now)
             if "factors" in payload:
                 bio.fatigue.factors = payload["factors"]
             bio.fatigue.last_update = now
@@ -847,13 +1444,16 @@ class WorldModel:
                 bio.hrv.rmssd_ms = int(rmssd)
                 bio.hrv.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("hrv", float(rmssd), now)
                 if int(rmssd) < HRV_LOW and (prev_rmssd is None or prev_rmssd >= HRV_LOW):
-                    bio.add_event(Event(
-                        event_type="hrv_low",
-                        description=f"HRV低下: {int(rmssd)}ms",
-                        severity=1,
-                        data={"rmssd_ms": int(rmssd)},
-                    ))
+                    bio.add_event(
+                        Event(
+                            event_type="hrv_low",
+                            description=f"HRV低下: {int(rmssd)}ms",
+                            severity=1,
+                            data={"rmssd_ms": int(rmssd)},
+                        )
+                    )
 
         elif metric == "body_temperature":
             celsius = payload.get("celsius")
@@ -862,13 +1462,16 @@ class WorldModel:
                 bio.body_temperature.celsius = float(celsius)
                 bio.body_temperature.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("body_temperature", float(celsius), now)
                 if float(celsius) > BODY_TEMP_HIGH and (prev_temp is None or prev_temp <= BODY_TEMP_HIGH):
-                    bio.add_event(Event(
-                        event_type="body_temp_high",
-                        description=f"体温上昇: {float(celsius):.1f}°C",
-                        severity=1,
-                        data={"celsius": float(celsius)},
-                    ))
+                    bio.add_event(
+                        Event(
+                            event_type="body_temp_high",
+                            description=f"体温上昇: {float(celsius):.1f}°C",
+                            severity=1,
+                            data={"celsius": float(celsius)},
+                        )
+                    )
 
         elif metric == "respiratory_rate":
             rate = payload.get("breaths_per_minute")
@@ -877,13 +1480,16 @@ class WorldModel:
                 bio.respiratory_rate.breaths_per_minute = int(rate)
                 bio.respiratory_rate.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("respiratory_rate", float(rate), now)
                 if int(rate) > RESPIRATORY_RATE_HIGH and (prev_rate is None or prev_rate <= RESPIRATORY_RATE_HIGH):
-                    bio.add_event(Event(
-                        event_type="respiratory_rate_high",
-                        description=f"呼吸数上昇: {int(rate)}回/分",
-                        severity=1,
-                        data={"breaths_per_minute": int(rate)},
-                    ))
+                    bio.add_event(
+                        Event(
+                            event_type="respiratory_rate_high",
+                            description=f"呼吸数上昇: {int(rate)}回/分",
+                            severity=1,
+                            data={"breaths_per_minute": int(rate)},
+                        )
+                    )
 
         elif metric == "steps":
             # Alternative topic: hems/personal/biometrics/{provider}/steps
@@ -896,57 +1502,66 @@ class WorldModel:
 
     def _check_biometric_thresholds(self, metric: str, value: float, prev: float | None):
         """Generate events from biometric threshold crossings."""
-        bio = self.user.biometrics
+        bio = self.biometric_state
 
         if metric == "heart_rate":
             if value > HR_HIGH and (prev is None or prev <= HR_HIGH):
-                bio.add_event(Event(
-                    event_type="hr_high",
-                    description=f"心拍数上昇: {int(value)}bpm",
-                    severity=1,
-                    data={"bpm": value},
-                ))
+                bio.add_event(
+                    Event(
+                        event_type="hr_high",
+                        description=f"心拍数上昇: {int(value)}bpm",
+                        severity=1,
+                        data={"bpm": value},
+                    )
+                )
             elif value < HR_LOW and (prev is None or prev >= HR_LOW):
-                bio.add_event(Event(
-                    event_type="hr_low",
-                    description=f"心拍数低下: {int(value)}bpm",
-                    severity=1,
-                    data={"bpm": value},
-                ))
+                bio.add_event(
+                    Event(
+                        event_type="hr_low",
+                        description=f"心拍数低下: {int(value)}bpm",
+                        severity=1,
+                        data={"bpm": value},
+                    )
+                )
 
         elif metric == "spo2":
             if value < SPO2_LOW and (prev is None or prev >= SPO2_LOW):
-                bio.add_event(Event(
-                    event_type="spo2_low",
-                    description=f"SpO2低下: {int(value)}%",
-                    severity=2,
-                    data={"percent": value},
-                ))
+                bio.add_event(
+                    Event(
+                        event_type="spo2_low",
+                        description=f"SpO2低下: {int(value)}%",
+                        severity=2,
+                        data={"percent": value},
+                    )
+                )
 
         elif metric == "stress":
             if value > STRESS_HIGH and (prev is None or prev <= STRESS_HIGH):
-                bio.add_event(Event(
-                    event_type="stress_high",
-                    description=f"ストレス高: {int(value)}",
-                    severity=1,
-                    data={"level": value},
-                ))
+                bio.add_event(
+                    Event(
+                        event_type="stress_high",
+                        description=f"ストレス高: {int(value)}",
+                        severity=1,
+                        data={"level": value},
+                    )
+                )
 
     def _update_home_device(self, path_parts: list[str], payload: dict):
         """Handle hems/home/{zone}/{domain}/{entity_id}/state topics from HA bridge."""
         # hems/home/bridge/status
         if len(path_parts) >= 2 and path_parts[0] == "bridge" and path_parts[1] == "status":
-            self.physical.home_devices.bridge_connected = payload.get("connected", False)
+            self.home_devices.bridge_connected = payload.get("connected", False)
             return
 
         # hems/home/{zone}/{domain}/{entity_id}/state
         if len(path_parts) < 3:
             return
 
+        zone_id = path_parts[0]
         domain = path_parts[1] if len(path_parts) >= 2 else ""
         entity_id = path_parts[2] if len(path_parts) >= 3 else ""
         now = time.time()
-        hd = self.physical.home_devices
+        hd = self.home_devices
         hd.bridge_connected = True
 
         if domain == "light":
@@ -981,17 +1596,29 @@ class WorldModel:
             existing = hd.binary_sensors.get(entity_id)
             prev_state = existing.state if existing else False
             changed = existing is None or prev_state != new_state
+            device_class = payload.get("device_class", existing.device_class if existing else "")
             hd.binary_sensors[entity_id] = BinarySensorState(
                 entity_id=entity_id,
                 state=new_state,
-                device_class=payload.get("device_class", existing.device_class if existing else ""),
+                device_class=device_class,
                 last_update=now,
                 last_changed=now if changed else (existing.last_changed if existing else now),
                 previous_state=prev_state,
             )
             if changed and existing is not None:
-                self._handle_binary_sensor_event(hd, entity_id, new_state, prev_state,
-                                                  hd.binary_sensors[entity_id].device_class)
+                self._handle_binary_sensor_event(
+                    hd, entity_id, new_state, prev_state, device_class
+                )
+            # Aggregate motion/occupancy/presence sensors into zone occupancy so
+            # PIR-style devices (HA, SwitchBot, Zigbee via HA) contribute to
+            # presence inference, not just the camera.
+            if device_class in ("motion", "occupancy", "presence"):
+                channel = "motion" if device_class == "motion" else "presence"
+                if channel == "motion" and new_state:
+                    self._update_event_channel(zone_id, "motion", True, entity_id)
+                elif channel == "presence":
+                    # Use state channel semantics for occupancy/presence class
+                    self._update_state_channel(zone_id, "presence", new_state, entity_id)
         elif domain == "sensor":
             try:
                 raw_val = payload.get("state", payload.get("value", 0))
@@ -1012,46 +1639,53 @@ class WorldModel:
             if device_class == "power":
                 self._check_power_thresholds(hd, entity_id, value, prev_value)
 
-    def _handle_binary_sensor_event(self, hd, entity_id: str, new_state: bool,
-                                     prev_state: bool, device_class: str):
+    def _handle_binary_sensor_event(self, hd, entity_id: str, new_state: bool, prev_state: bool, device_class: str):
         """Generate events for binary sensor state transitions."""
         if device_class in ("door", "window"):
             event_type = f"{device_class}_{'opened' if new_state else 'closed'}"
             desc = f"{'開' if new_state else '閉'}きました ({entity_id})"
-            hd.add_event(Event(
-                event_type=event_type,
-                description=desc,
-                severity=0,
-                data={"entity_id": entity_id, "device_class": device_class, "state": new_state},
-            ))
+            hd.add_event(
+                Event(
+                    event_type=event_type,
+                    description=desc,
+                    severity=0,
+                    data={"entity_id": entity_id, "device_class": device_class, "state": new_state},
+                )
+            )
         elif device_class == "moisture" and new_state:
-            hd.add_event(Event(
-                event_type="moisture_detected",
-                description=f"水漏れ検知 ({entity_id})",
-                severity=2,
-                data={"entity_id": entity_id},
-            ))
+            hd.add_event(
+                Event(
+                    event_type="moisture_detected",
+                    description=f"水漏れ検知 ({entity_id})",
+                    severity=2,
+                    data={"entity_id": entity_id},
+                )
+            )
         elif device_class == "vibration" and not new_state:
-            hd.add_event(Event(
-                event_type="vibration_stopped",
-                description=f"振動停止 ({entity_id})",
-                severity=0,
-                data={"entity_id": entity_id},
-            ))
+            hd.add_event(
+                Event(
+                    event_type="vibration_stopped",
+                    description=f"振動停止 ({entity_id})",
+                    severity=0,
+                    data={"entity_id": entity_id},
+                )
+            )
 
     def _check_power_thresholds(self, hd, entity_id: str, value: float, prev_value: float):
         """Generate event when power drops to idle level."""
         if prev_value > POWER_IDLE_WATTS and value <= POWER_IDLE_WATTS:
-            hd.add_event(Event(
-                event_type="power_drop_idle",
-                description=f"電力がアイドルに低下 ({entity_id}: {prev_value:.1f}W → {value:.1f}W)",
-                severity=0,
-                data={"entity_id": entity_id, "value": value, "previous_value": prev_value},
-            ))
+            hd.add_event(
+                Event(
+                    event_type="power_drop_idle",
+                    description=f"電力がアイドルに低下 ({entity_id}: {prev_value:.1f}W → {value:.1f}W)",
+                    severity=0,
+                    data={"entity_id": entity_id, "value": value, "previous_value": prev_value},
+                )
+            )
 
     def _update_knowledge_state(self, msg_type: str, payload: dict):
         """Handle hems/personal/notes/stats and hems/personal/notes/changed."""
-        ks = self.digital.knowledge_state
+        ks = self.knowledge_state
 
         if msg_type == "stats":
             ks.total_notes = payload.get("total_notes", 0)
@@ -1066,17 +1700,20 @@ class WorldModel:
                 "action": _sanitize_text(payload.get("action", ""), 30),
             }
             ks.add_recent_change(change)
-            ks.add_event(Event(
-                event_type="note_changed",
-                description=f"ノート変更: {change['title']} ({change['action']})",
-                severity=0,
-                data=payload,
-            ))
+            ks.add_event(
+                Event(
+                    event_type="note_changed",
+                    description=f"ノート変更: {change['title']} ({change['action']})",
+                    severity=0,
+                    data=payload,
+                )
+            )
 
     def _update_external_knowledge_state(self, msg_type: str, payload: dict):
         """Handle hems/personal/knowledge/stats and hems/personal/knowledge/changed."""
         from world_model.data_classes import KnowledgeSourceInfo
-        ks = self.digital.knowledge_state
+
+        ks = self.knowledge_state
 
         if msg_type == "stats":
             ks.external_bridge_connected = True
@@ -1096,12 +1733,14 @@ class WorldModel:
             title = _sanitize_text(payload.get("title", ""), 100)
             source = _sanitize_text(payload.get("source", ""), 50)
             action = _sanitize_text(payload.get("action", ""), 30)
-            ks.add_event(Event(
-                event_type="knowledge_changed",
-                description=f"外部ナレッジ変更: {source}/{title} ({action})",
-                severity=0,
-                data=payload,
-            ))
+            ks.add_event(
+                Event(
+                    event_type="knowledge_changed",
+                    description=f"外部ナレッジ変更: {source}/{title} ({action})",
+                    severity=0,
+                    data=payload,
+                )
+            )
 
     def get_llm_context(self) -> str:
         """Build text context for LLM from current world state (tri-domain)."""
@@ -1125,30 +1764,84 @@ class WorldModel:
         """Build physical space context (zones + smart home)."""
         lines = []
 
+        # VLM model swap banner — brain is in rule-based fallback during heavy load
+        if getattr(self, "vlm_model_swap_active", False):
+            lines.append("### ⚠ VLMモデル切替中\n  重量モデルがVRAM占有中 — brainはrule-basedモード")
+
+        # Trend arrows for analog channels
+        _TREND = {"rising": "↑", "falling": "↓", "stable": ""}
+
         # Zone data
-        for zone_id, zone in self.physical.zones.items():
+        for zone_id, zone in self.zones.items():
             env = zone.environment
             parts = [f"### {zone_id}"]
 
+            def _t(ch: str) -> str:
+                return _TREND.get(env.trends.get(ch, "stable"), "")
+
+            # Fused sensor summary — one line per zone, priority order
+            # (temp, hum, pressure, voc, pm25, light, soil). Skips None channels,
+            # truncates to 140 chars.
+            summary_bits: list[str] = []
             if env.temperature is not None:
-                temp_str = f"  温度: {env.temperature}度 ({env.thermal_comfort})"
-                if env.temperature > TEMP_HIGH and self._is_suppressed(zone_id, "temp_high"):
-                    temp_str += " (対応中)"
-                elif env.temperature < TEMP_LOW and self._is_suppressed(zone_id, "temp_low"):
+                summary_bits.append(f"temp {env.temperature:.1f}C")
+            if env.humidity is not None:
+                summary_bits.append(f"hum {env.humidity:.0f}%")
+            if env.pressure is not None:
+                summary_bits.append(f"pressure {env.pressure:.0f}hPa")
+            if env.voc is not None:
+                summary_bits.append(f"voc {env.voc:.0f}")
+            if env.pm25 is not None:
+                summary_bits.append(f"pm25 {env.pm25:.0f}")
+            if env.light is not None:
+                summary_bits.append(f"light {env.light:.0f}lx")
+            if env.soil_moisture is not None:
+                summary_bits.append(f"soil {env.soil_moisture:.0f}%")
+            if summary_bits:
+                summary_line = f"  sensors: {', '.join(summary_bits)}"
+                if len(summary_line) > 140:
+                    summary_line = summary_line[:139] + "…"
+                parts.append(summary_line)
+
+            if env.temperature is not None:
+                temp_str = f"  温度: {env.temperature}度 ({env.thermal_comfort}){_t('temperature')}"
+                if (env.temperature > TEMP_HIGH and self._is_suppressed(zone_id, "temp_high")) or (
+                    env.temperature < TEMP_LOW and self._is_suppressed(zone_id, "temp_low")
+                ):
                     temp_str += " (対応中)"
                 parts.append(temp_str)
             if env.humidity is not None:
-                parts.append(f"  湿度: {env.humidity}%")
+                parts.append(f"  湿度: {env.humidity}%{_t('humidity')}")
             if env.co2 is not None:
-                co2_str = f"  CO2: {int(env.co2)}ppm"
+                co2_str = f"  CO2: {int(env.co2)}ppm{_t('co2')}"
                 if env.is_stuffy and (
-                    self._is_suppressed(zone_id, "co2_high") or
-                    self._is_suppressed(zone_id, "co2_critical")
+                    self._is_suppressed(zone_id, "co2_high") or self._is_suppressed(zone_id, "co2_critical")
                 ):
                     co2_str += " (対応中)"
                 elif env.is_stuffy:
                     co2_str += " (換気推奨)"
                 parts.append(co2_str)
+
+            # Motion event frequency (EventCounter)
+            if zone.occupancy.motion_event_count_5min > 0:
+                parts.append(f"  動体検知: 直近5分で{zone.occupancy.motion_event_count_5min}回")
+
+            # Presence state (StateTracker)
+            if zone.occupancy.presence_state is not None:
+                dur_min = int(zone.occupancy.presence_duration_sec / 60)
+                state_str = "在室検知中" if zone.occupancy.presence_state else "不在"
+                parts.append(f"  在室センサー: {state_str} ({dur_min}分間)")
+
+            # Door states (StateTracker)
+            for dev_id, door_info in zone.occupancy.door_states.items():
+                dur_min = int(door_info["duration_sec"] / 60)
+                state_str = "開放中" if door_info["open"] else "閉鎖中"
+                changes = door_info.get("changes_1h", 0)
+                door_line = f"  ドア({dev_id}): {state_str} ({dur_min}分間)"
+                if changes > 0:
+                    door_line += f" [1h内 {changes}回開閉]"
+                parts.append(door_line)
+
             if zone.occupancy and zone.occupancy.count > 0:
                 parts.append(f"  在室: {zone.occupancy.count}人")
                 if zone.occupancy.activity_class != "unknown":
@@ -1156,17 +1849,64 @@ class WorldModel:
                 if zone.occupancy.posture != "unknown":
                     duration_min = int(zone.occupancy.posture_duration_sec / 60)
                     parts.append(f"  姿勢: {zone.occupancy.posture} ({duration_min}分)")
-                # VLM scene data (if recent, <5min)
-                if zone.occupancy.vlm_last_update > 0 and time.time() - zone.occupancy.vlm_last_update < 300:
+
+            # VLM scene data — 3-stage freshness gate (independent of live occupancy)
+            #   fresh (<300s)   → full description + objects + anomalies
+            #   aged  (<1800s)  → prefix with "約N分前の観測" so LLM knows staleness
+            #   stale (≥1800s)  → only keep minimal summary, and only if zone is occupied
+            if zone.occupancy.vlm_last_update > 0:
+                age_sec = time.time() - zone.occupancy.vlm_last_update
+                age_min = int(age_sec / 60)
+                occ_now = zone.occupancy.count > 0 or zone.occupancy.inferred_occupied
+
+                if age_sec < 300:
                     if zone.occupancy.scene_description:
                         parts.append(f"  シーン: {zone.occupancy.scene_description[:100]}")
+                    if zone.occupancy.scene_objects:
+                        objs = zone.occupancy.scene_objects[:6]
+                        parts.append(f"  物体: [{', '.join(objs)}]")
                     if zone.occupancy.scene_anomalies:
                         parts.append(f"  異常検知: {', '.join(zone.occupancy.scene_anomalies[:3])}")
+                elif age_sec < 1800:
+                    if zone.occupancy.scene_description:
+                        parts.append(f"  シーン (約{age_min}分前の観測): {zone.occupancy.scene_description[:100]}")
+                    if zone.occupancy.scene_objects:
+                        objs = zone.occupancy.scene_objects[:6]
+                        parts.append(f"  物体 (約{age_min}分前): [{', '.join(objs)}]")
+                    if zone.occupancy.scene_anomalies:
+                        parts.append(
+                            f"  異常検知 (約{age_min}分前): {', '.join(zone.occupancy.scene_anomalies[:3])}"
+                        )
+                elif occ_now:
+                    # Stale but zone still occupied — keep a terse summary only
+                    obj_hint = (
+                        f" 物体=[{', '.join(zone.occupancy.scene_objects[:4])}]"
+                        if zone.occupancy.scene_objects
+                        else ""
+                    )
+                    parts.append(f"  VLM最終観測: {age_min}分前{obj_hint}")
+
+            # VLM history one-line summary: union of objects across last 3 snapshots
+            # so the LLM has temporal context (e.g., dish appearing then disappearing).
+            history = list(zone.occupancy.vlm_history)[-3:] if hasattr(zone.occupancy, "vlm_history") else []
+            if len(history) >= 2:
+                obj_union: list[str] = []
+                for snap in history:
+                    for o in (snap.objects or [])[:6]:
+                        if o not in obj_union:
+                            obj_union.append(o)
+                latest = history[-1]
+                hist_age_min = int((time.time() - history[0].timestamp) / 60)
+                obj_str = f"[{', '.join(obj_union[:8])}]" if obj_union else ""
+                parts.append(
+                    f"  VLM履歴 (過去{hist_age_min}分, {len(history)}観測): "
+                    f"{obj_str} 最新「{(latest.description or '')[:60]}」"
+                )
 
             lines.append("\n".join(parts))
 
         # Home devices (HA integration)
-        hd = self.physical.home_devices
+        hd = self.home_devices
         if hd.bridge_connected:
             home_parts = ["### スマートホーム"]
             lights_on = [lt for lt in hd.lights.values() if lt.on]
@@ -1178,15 +1918,20 @@ class WorldModel:
                     home_parts.append(f"  照明: {name} ON({pct}%)")
             if lights_off:
                 names = ", ".join(
-                    lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id
-                    for lt in lights_off
+                    lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id for lt in lights_off
                 )
                 home_parts.append(f"  照明: {names} OFF")
 
             for c in hd.climates.values():
                 name = c.entity_id.split(".")[-1] if "." in c.entity_id else c.entity_id
-                mode_names = {"off": "停止", "cool": "冷房", "heat": "暖房",
-                              "dry": "除湿", "fan_only": "送風", "auto": "自動"}
+                mode_names = {
+                    "off": "停止",
+                    "cool": "冷房",
+                    "heat": "暖房",
+                    "dry": "除湿",
+                    "fan_only": "送風",
+                    "auto": "自動",
+                }
                 mode_ja = mode_names.get(c.mode, c.mode)
                 temp_str = f"{c.target_temp:.0f}°C" if c.target_temp else ""
                 curr_str = f" (室温{c.current_temp:.1f}°C)" if c.current_temp else ""
@@ -1198,10 +1943,8 @@ class WorldModel:
                 home_parts.append(f"  カーテン: {name} {status}")
 
             if hd.switches:
-                on_switches = [k.split(".")[-1] if "." in k else k
-                               for k, v in hd.switches.items() if v]
-                off_switches = [k.split(".")[-1] if "." in k else k
-                                for k, v in hd.switches.items() if not v]
+                on_switches = [k.split(".")[-1] if "." in k else k for k, v in hd.switches.items() if v]
+                off_switches = [k.split(".")[-1] if "." in k else k for k, v in hd.switches.items() if not v]
                 if on_switches:
                     home_parts.append(f"  スイッチ: {', '.join(on_switches)} ON")
                 if off_switches:
@@ -1209,8 +1952,12 @@ class WorldModel:
 
             # Binary sensors
             _DEVICE_CLASS_JA = {
-                "door": "ドア", "window": "窓", "moisture": "水漏れ",
-                "vibration": "振動", "motion": "モーション", "occupancy": "在室",
+                "door": "ドア",
+                "window": "窓",
+                "moisture": "水漏れ",
+                "vibration": "振動",
+                "motion": "モーション",
+                "occupancy": "在室",
             }
             for bs in hd.binary_sensors.values():
                 if bs.device_class == "moisture":
@@ -1238,6 +1985,34 @@ class WorldModel:
                 home_parts.append("  ⚠ HAブリッジ: 切断中")
             lines.append("\n".join(home_parts))
 
+        # Weather (weather-bridge)
+        w = self.weather
+        if w.last_update > 0 or w.alerts:
+            weather_parts = ["### 天気"]
+            if w.last_update > 0:
+                weather_parts.append(
+                    f"  現在: {w.condition} {w.temperature:.0f}°C 湿度{w.humidity:.0f}% 風速{w.wind_speed:.1f}m/s"
+                )
+            if w.alerts:
+                _SEV_JA = {
+                    "extreme": "最大",
+                    "severe": "重大",
+                    "moderate": "中程度",
+                    "minor": "軽微",
+                    "unknown": "",
+                }
+                for a in w.alerts[:5]:
+                    sev = _SEV_JA.get(a.severity, a.severity)
+                    prefix = "⚠ " if a.severity in ("extreme", "severe") else ""
+                    title = a.title or "天気警報"
+                    label = f"{prefix}警報[{sev}]" if sev else f"{prefix}警報"
+                    suffix = f" ({a.area})" if a.area else ""
+                    line = f"  {label}: {title}{suffix}"
+                    if len(line) > 140:
+                        line = line[:139] + "…"
+                    weather_parts.append(line)
+            lines.append("\n".join(weather_parts))
+
         return "\n\n".join(lines)
 
     def _get_digital_context(self) -> str:
@@ -1245,17 +2020,33 @@ class WorldModel:
         lines = []
 
         # PC state
-        pc = self.digital.pc_state
+        pc = self.pc_state
         if pc.cpu.last_update > 0 or pc.memory.last_update > 0:
             pc_parts = ["### PC"]
             if pc.cpu.last_update > 0:
                 pc_parts.append(f"  CPU: {pc.cpu.usage_percent:.0f}% ({pc.cpu.core_count}コア)")
                 if pc.cpu.temp_c > 0:
                     pc_parts.append(f"  CPU温度: {pc.cpu.temp_c:.0f}°C")
+                if pc.cpu.usage_percent >= 80 and pc.top_processes:
+                    top_cpu = sorted(pc.top_processes, key=lambda p: p.cpu_percent, reverse=True)[:3]
+                    pc_parts.append(
+                        "  上位プロセス(CPU): "
+                        + ", ".join(f"{p.name}({p.cpu_percent:.0f}%)" for p in top_cpu)
+                    )
             if pc.memory.last_update > 0:
-                pc_parts.append(f"  メモリ: {pc.memory.used_gb:.1f}/{pc.memory.total_gb:.1f}GB ({pc.memory.percent:.0f}%)")
+                pc_parts.append(
+                    f"  メモリ: {pc.memory.used_gb:.1f}/{pc.memory.total_gb:.1f}GB ({pc.memory.percent:.0f}%)"
+                )
+                if pc.memory.percent >= 85 and pc.top_processes:
+                    top_mem = sorted(pc.top_processes, key=lambda p: p.mem_mb, reverse=True)[:3]
+                    pc_parts.append(
+                        "  上位プロセス(メモリ): "
+                        + ", ".join(f"{p.name}({p.mem_mb / 1024:.1f}GB)" for p in top_mem)
+                    )
             if pc.gpu.last_update > 0:
-                pc_parts.append(f"  GPU: {pc.gpu.usage_percent:.0f}%, VRAM {pc.gpu.vram_used_gb:.1f}/{pc.gpu.vram_total_gb:.1f}GB")
+                pc_parts.append(
+                    f"  GPU: {pc.gpu.usage_percent:.0f}%, VRAM {pc.gpu.vram_used_gb:.1f}/{pc.gpu.vram_total_gb:.1f}GB"
+                )
                 if pc.gpu.temp_c > 0:
                     pc_parts.append(f"  GPU温度: {pc.gpu.temp_c:.0f}°C")
             if pc.disk.partitions:
@@ -1266,9 +2057,9 @@ class WorldModel:
             lines.append("\n".join(pc_parts))
 
         # Services state
-        if self.digital.services_state.services:
+        if self.services_state.services:
             svc_parts = ["### サービス"]
-            for name, svc in self.digital.services_state.services.items():
+            for name, svc in self.services_state.services.items():
                 if svc.error:
                     svc_parts.append(f"  {name}: ⚠ {svc.summary}")
                 else:
@@ -1276,7 +2067,7 @@ class WorldModel:
             lines.append("\n".join(svc_parts))
 
         # GAS state
-        gs = self.digital.gas_state
+        gs = self.gas_state
         if gs.bridge_connected:
             gas_parts = ["### Google連携"]
             now_ts = time.time()
@@ -1300,20 +2091,56 @@ class WorldModel:
             if inbox and inbox.unread > 0:
                 gas_parts.append(f"  Gmail未読: {inbox.unread}通")
 
-            long_slots = [s for s in gs.free_slots if s.duration_minutes >= 120]
+            # Recent gmail subject/sender (VIP first, max 5, subject 60-char truncate)
+            if gs.gmail_recent:
+                def _is_vip(thread):
+                    sender = str(thread.get("from", "") or thread.get("sender", "")).lower()
+                    return any(v and v in sender for v in _VIP_GMAIL_SENDERS)
+
+                vip = [t for t in gs.gmail_recent if _is_vip(t)]
+                rest = [t for t in gs.gmail_recent if not _is_vip(t)]
+                ordered = (vip + rest)[:5]
+                if ordered:
+                    gas_parts.append("  最近のGmail:")
+                    for t in ordered:
+                        subj = _sanitize_text(str(t.get("subject", "") or "(件名なし)"), 60)
+                        sender = _sanitize_text(str(t.get("from", "") or t.get("sender", "")), 40)
+                        vip_tag = "★ " if _is_vip(t) else ""
+                        gas_parts.append(f"    - {vip_tag}{sender}: {subj}")
+
+            # Free slots: show top 3 as HH:MM-HH:MM ranges (≥60 min); fall back to count for short slots
+            long_slots = [s for s in gs.free_slots if s.duration_minutes >= 60]
             if long_slots:
-                gas_parts.append(f"  空き時間(2h+): {len(long_slots)}スロット")
+                from datetime import datetime as _dt
+
+                def _fmt_slot(s):
+                    try:
+                        start_t = _dt.fromisoformat(s.start.replace("Z", "+00:00")).strftime("%H:%M")
+                        end_t = _dt.fromisoformat(s.end.replace("Z", "+00:00")).strftime("%H:%M")
+                        return f"{start_t}-{end_t}"
+                    except (ValueError, AttributeError):
+                        return None
+
+                slot_strs = [r for r in (_fmt_slot(s) for s in long_slots[:3]) if r]
+                if slot_strs:
+                    extra = f" (+{len(long_slots) - len(slot_strs)})" if len(long_slots) > len(slot_strs) else ""
+                    gas_parts.append(f"  空き時間: {', '.join(slot_strs)}{extra}")
+                else:
+                    gas_parts.append(f"  空き時間(1h+): {len(long_slots)}スロット")
 
             lines.append("\n".join(gas_parts))
 
         # Knowledge base
-        ks = self.digital.knowledge_state
+        ks = self.knowledge_state
         if ks.bridge_connected:
             kb_parts = ["### ナレッジベース"]
             kb_parts.append(f"  ノート数: {ks.total_notes}")
             if ks.recent_changes:
-                last = ks.recent_changes[-1]
-                kb_parts.append(f"  最終変更: {last['title']}")
+                # Show up to 3 most recent changes so LLM can mention/build on what user was just working on
+                latest = ks.recent_changes[-3:]
+                titles = ", ".join(c.get("title", "") for c in latest if c.get("title"))
+                if titles:
+                    kb_parts.append(f"  直近の変更: {titles}")
             lines.append("\n".join(kb_parts))
 
         # External knowledge sources
@@ -1322,14 +2149,23 @@ class WorldModel:
             ek_parts.append(f"  総ドキュメント数: {ks.external_total_docs}")
             for src in ks.external_sources:
                 ek_parts.append(f"  ソース({src.name}): {src.doc_count}件")
+            # Include up to 2 most recent knowledge_changed events with timing.
+            recent_kn_events = [e for e in ks.events if e.event_type == "knowledge_changed"][-2:]
+            if recent_kn_events:
+                from datetime import datetime as _dt
+
+                for e in recent_kn_events:
+                    ts_str = _dt.fromtimestamp(e.timestamp).strftime("%H:%M") if e.timestamp else ""
+                    ek_parts.append(f"  最近の更新 ({ts_str}): {e.description}")
             lines.append("\n".join(ek_parts))
 
         # News state
-        ns = self.digital.news_state
+        ns = self.news_state
         if ns.bridge_connected or ns.daily_timestamp > 0:
             news_parts = ["### ニュース"]
             if ns.daily_timestamp > 0:
                 from datetime import datetime as _dt
+
                 ts_str = _dt.fromtimestamp(ns.daily_timestamp).strftime("%H:%M")
                 news_parts.append(f"  最終サマリ: {ts_str} ({len(ns.daily_chunks)}カテゴリ)")
             if ns.urgent_articles:
@@ -1343,56 +2179,127 @@ class WorldModel:
         return "\n\n".join(lines)
 
     def _get_user_context(self) -> str:
-        """Build user state context (occupancy summary + biometrics)."""
+        """Build user state context (occupancy summary + biometrics + schedule)."""
         lines = []
 
-        # Occupancy summary (aggregated from zones)
-        occupied_zones = {zid: z for zid, z in self.physical.zones.items()
-                         if z.occupancy and z.occupancy.count > 0}
+        # Occupancy summary — include both camera-confirmed and inferred occupancy
+        # so the LLM sees why the system thinks someone is (or isn't) home.
+        occupied_zones = {
+            zid: z
+            for zid, z in self.zones.items()
+            if z.occupancy and (z.occupancy.count > 0 or z.occupancy.inferred_occupied)
+        }
         if occupied_zones:
             occ_parts = ["### 在室状態"]
             for zid, z in occupied_zones.items():
                 occ = z.occupancy
-                status = f"  {zid}: {occ.count}人"
+                if occ.count > 0:
+                    status = f"  {zid}: {occ.count}人 (カメラ確認)"
+                else:
+                    srcs = ", ".join(occ.inference_sources) if occ.inference_sources else "?"
+                    status = f"  {zid}: 在室推定 (根拠: {srcs})"
                 if occ.activity_class != "unknown":
-                    status += f", 活動={occ.activity_class}"
+                    status += f", 活動={occ.activity_class} ({occ.activity_level:.2f})"
                 if occ.posture != "unknown":
                     dur = int(occ.posture_duration_sec / 60)
-                    status += f", 姿勢={occ.posture}({dur}分)"
+                    # Highlight sustained seated/lying posture as a streak to make
+                    # sedentary judgement explicit material for the LLM
+                    if occ.posture in ("sitting", "lying") and dur >= 30:
+                        status += f", 姿勢={occ.posture} ({dur}分streak)"
+                    else:
+                        status += f", 姿勢={occ.posture}({dur}分)"
                 occ_parts.append(status)
             lines.append("\n".join(occ_parts))
+        elif self.zones:
+            # All zones empty — make "unoccupied" explicit and list the sources
+            # the system checked, so the LLM doesn't silently assume the user
+            # is home on stale data.
+            lines.append("### 在室状態\n  全ゾーン不在 (カメラ/PIR/PC/生体いずれも反応なし)")
+
+        # Schedule predictions (arrival/wake)
+        sched = self.user.schedule
+        if sched.last_update > 0 and (sched.next_arrival_ts or sched.next_wake_ts or sched.weekday_arrival_str):
+            from datetime import datetime as _dt
+
+            sc_parts = ["### 生活パターン"]
+            now_ts = time.time()
+            if sched.next_arrival_ts > now_ts:
+                mins = int((sched.next_arrival_ts - now_ts) / 60)
+                ts_str = _dt.fromtimestamp(sched.next_arrival_ts).strftime("%H:%M")
+                sc_parts.append(f"  帰宅予測: {ts_str} (あと{mins}分)")
+            if sched.next_wake_ts > now_ts:
+                mins = int((sched.next_wake_ts - now_ts) / 60)
+                ts_str = _dt.fromtimestamp(sched.next_wake_ts).strftime("%m/%d %H:%M")
+                sc_parts.append(f"  次回起床予測: {ts_str} (あと{mins}分)")
+            if sched.weekday_arrival_str:
+                stdev_str = f" (±{sched.arrival_stdev_min}分)" if sched.arrival_stdev_min else ""
+                sc_parts.append(f"  今日の曜日の帰宅傾向: {sched.weekday_arrival_str}{stdev_str}")
+            if sched.weekday_wake_str:
+                sc_parts.append(f"  今日の曜日の起床傾向: {sched.weekday_wake_str}")
+            if len(sc_parts) > 1:
+                lines.append("\n".join(sc_parts))
 
         # Biometrics
-        bio = self.user.biometrics
+        bio = self.biometric_state
         if bio.last_update > 0:
+            now_ts = time.time()
+
+            def _stale_tag(last: float) -> str:
+                """Stage label for biometric data freshness.
+
+                <10min: live / <60min: N分前 / >=60min: stale
+                LLM uses this to weigh whether the value should drive a decision.
+                """
+                if not last or last <= 0:
+                    return ""
+                age = now_ts - last
+                if age < 600:
+                    return " (live)"
+                if age < 3600:
+                    return f" ({int(age / 60)}分前)"
+                if age < 86400:
+                    return f" (stale: {int(age / 3600)}時間前)"
+                return f" (stale: {int(age / 86400)}日前)"
+
             bio_parts = ["### バイオメトリクス"]
             if bio.heart_rate.bpm is not None:
-                hr_str = f"  心拍: {bio.heart_rate.bpm}bpm ({bio.heart_rate.zone})"
+                hr_str = f"  心拍: {bio.heart_rate.bpm}bpm ({bio.heart_rate.zone}){_stale_tag(bio.heart_rate.last_update)}"
                 if bio.heart_rate.resting_bpm is not None:
                     hr_str += f", 安静時{bio.heart_rate.resting_bpm}bpm"
                 bio_parts.append(hr_str)
             if bio.spo2.percent is not None:
-                bio_parts.append(f"  SpO2: {bio.spo2.percent}%")
+                bio_parts.append(f"  SpO2: {bio.spo2.percent}%{_stale_tag(bio.spo2.last_update)}")
             if bio.stress.last_update > 0:
-                bio_parts.append(f"  ストレス: {bio.stress.category} ({bio.stress.level})")
+                bio_parts.append(
+                    f"  ストレス: {bio.stress.category} ({bio.stress.level}){_stale_tag(bio.stress.last_update)}"
+                )
             if bio.fatigue.last_update > 0:
-                bio_parts.append(f"  疲労度: {bio.fatigue.score}/100")
+                bio_parts.append(f"  疲労度: {bio.fatigue.score}/100{_stale_tag(bio.fatigue.last_update)}")
             if bio.sleep.last_update > 0:
                 sleep_str = f"  睡眠: {bio.sleep.duration_minutes}分"
                 if bio.sleep.quality_score > 0:
                     sleep_str += f" (品質{bio.sleep.quality_score}/100)"
                 if bio.sleep.stage != "unknown":
                     sleep_str += f", ステージ={bio.sleep.stage}"
+                sleep_str += _stale_tag(bio.sleep.last_update)
                 bio_parts.append(sleep_str)
             if bio.hrv.rmssd_ms is not None:
-                bio_parts.append(f"  HRV(RMSSD): {bio.hrv.rmssd_ms}ms")
+                bio_parts.append(f"  HRV(RMSSD): {bio.hrv.rmssd_ms}ms{_stale_tag(bio.hrv.last_update)}")
             if bio.body_temperature.celsius is not None:
-                bio_parts.append(f"  体温: {bio.body_temperature.celsius:.1f}°C")
+                bio_parts.append(
+                    f"  体温: {bio.body_temperature.celsius:.1f}°C{_stale_tag(bio.body_temperature.last_update)}"
+                )
             if bio.respiratory_rate.breaths_per_minute is not None:
-                bio_parts.append(f"  呼吸数: {bio.respiratory_rate.breaths_per_minute}回/分")
+                bio_parts.append(
+                    f"  呼吸数: {bio.respiratory_rate.breaths_per_minute}回/分"
+                    f"{_stale_tag(bio.respiratory_rate.last_update)}"
+                )
             if bio.activity.last_update > 0:
                 pct = int(bio.activity.goal_progress * 100)
-                bio_parts.append(f"  歩数: {bio.activity.steps}/{bio.activity.steps_goal} ({pct}%)")
+                bio_parts.append(
+                    f"  歩数: {bio.activity.steps}/{bio.activity.steps_goal} ({pct}%)"
+                    f"{_stale_tag(bio.activity.last_update)}"
+                )
             if not bio.bridge_connected:
                 bio_parts.append("  ⚠ バイオメトリクスブリッジ: 切断中")
             lines.append("\n".join(bio_parts))

@@ -1,6 +1,7 @@
 """
 GAS status — in-memory store updated by Brain snapshots (GAS bridge).
 """
+
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/gas", tags=["gas"])

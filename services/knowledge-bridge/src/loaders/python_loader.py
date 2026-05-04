@@ -1,8 +1,10 @@
 """
 Python loader — .py files with AST-based docstring and signature extraction.
 """
+
 import ast
 from pathlib import Path
+
 from loguru import logger
 
 from .base import BaseLoader, DocumentEntry
@@ -30,10 +32,16 @@ class PythonLoader(BaseLoader):
         except SyntaxError:
             # Fall back to raw content if unparseable
             return DocumentEntry(
-                path=rel_path, source_name=source_name, title=title,
-                doc_type=self.doc_type, tags=tags, metadata=metadata,
-                word_count=len(content.split()), modified_at=stat.st_mtime,
-                content=content, body=content,
+                path=rel_path,
+                source_name=source_name,
+                title=title,
+                doc_type=self.doc_type,
+                tags=tags,
+                metadata=metadata,
+                word_count=len(content.split()),
+                modified_at=stat.st_mtime,
+                content=content,
+                body=content,
             )
 
         # Module docstring
@@ -75,8 +83,14 @@ class PythonLoader(BaseLoader):
         body = "\n".join(body_parts) if body_parts else content
 
         return DocumentEntry(
-            path=rel_path, source_name=source_name, title=title,
-            doc_type=self.doc_type, tags=tags, metadata=metadata,
-            word_count=len(body.split()), modified_at=stat.st_mtime,
-            content=content, body=body,
+            path=rel_path,
+            source_name=source_name,
+            title=title,
+            doc_type=self.doc_type,
+            tags=tags,
+            metadata=metadata,
+            word_count=len(body.split()),
+            modified_at=stat.st_mtime,
+            content=content,
+            body=body,
         )

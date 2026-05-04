@@ -1,11 +1,12 @@
 """
 Biometric data — persisted to DB, updated by Brain snapshots (biometric-bridge integration).
 """
+
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, desc, delete
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -22,9 +23,7 @@ _CLEANUP_INTERVAL = 100
 @router.get("/")
 async def get_biometric(db: AsyncSession = Depends(get_db)):
     """Get latest biometric data."""
-    result = await db.execute(
-        select(BiometricReading).order_by(desc(BiometricReading.recorded_at)).limit(1)
-    )
+    result = await db.execute(select(BiometricReading).order_by(desc(BiometricReading.recorded_at)).limit(1))
     reading = result.scalar_one_or_none()
     if not reading:
         return {"status": "no_data"}
@@ -37,11 +36,9 @@ async def get_biometric_history(
     db: AsyncSession = Depends(get_db),
 ):
     """Get biometric history for the given time window."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
     result = await db.execute(
-        select(BiometricReading)
-        .where(BiometricReading.recorded_at >= cutoff)
-        .order_by(BiometricReading.recorded_at)
+        select(BiometricReading).where(BiometricReading.recorded_at >= cutoff).order_by(BiometricReading.recorded_at)
     )
     readings = result.scalars().all()
     return [_reading_to_dict(r) for r in readings]
@@ -74,10 +71,8 @@ async def update_biometric(data: dict, db: AsyncSession = Depends(get_db)):
     _write_count += 1
     if _write_count >= _CLEANUP_INTERVAL:
         _write_count = random.randint(0, 10)  # jitter to avoid thundering herd
-        cutoff = datetime.now(timezone.utc) - timedelta(days=_RETENTION_DAYS)
-        await db.execute(
-            delete(BiometricReading).where(BiometricReading.recorded_at < cutoff)
-        )
+        cutoff = datetime.now(UTC) - timedelta(days=_RETENTION_DAYS)
+        await db.execute(delete(BiometricReading).where(BiometricReading.recorded_at < cutoff))
         await db.commit()
 
     return {"updated": True}
@@ -88,10 +83,19 @@ def _reading_to_dict(reading: BiometricReading) -> dict:
     if reading.recorded_at:
         result["recorded_at"] = reading.recorded_at.isoformat()
     for col in (
-        "heart_rate", "resting_heart_rate", "spo2", "steps", "calories",
-        "active_minutes", "stress_level", "fatigue_score",
-        "sleep_duration_minutes", "sleep_quality_score",
-        "hrv_ms", "body_temperature", "respiratory_rate",
+        "heart_rate",
+        "resting_heart_rate",
+        "spo2",
+        "steps",
+        "calories",
+        "active_minutes",
+        "stress_level",
+        "fatigue_score",
+        "sleep_duration_minutes",
+        "sleep_quality_score",
+        "hrv_ms",
+        "body_temperature",
+        "respiratory_rate",
     ):
         val = getattr(reading, col, None)
         if val is not None:

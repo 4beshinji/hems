@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+.git/
+.gitignore
+*.log
+.DS_Store
+.vscode/
+.idea/
+README.md
+CHANGELOG.md
+coverage/
+.eslintcache

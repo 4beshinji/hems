@@ -2,29 +2,43 @@
 Knowledge Bridge — multi-format document ingestion service for HEMS.
 Hybrid search: BM25 + Vector (OpenAI-compat embedding, default TEI) + Title boost via RRF.
 """
+
 import asyncio
+import sys
 import time
 from contextlib import asynccontextmanager
+
+from document_index import DocumentIndex
+from embedding import EmbeddingClient
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from loguru import logger
+from pydantic import BaseModel
+from source_watcher import SourceWatcher
 
 from config import (
-    KNOWLEDGE_SOURCES, MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS,
-    WATCHER_DEBOUNCE, MAX_SEARCH_RESULTS, LOG_LEVEL,
-    DEFAULT_EXTENSIONS, DEFAULT_EXCLUDE_PATTERNS,
-    EMBEDDING_URL, EMBEDDING_MODEL, EMBEDDING_CACHE_DIR, EMBEDDING_BATCH_SIZE,
+    DEFAULT_EXCLUDE_PATTERNS,
+    DEFAULT_EXTENSIONS,
+    EMBEDDING_CACHE_DIR,
+    EMBEDDING_MODEL,
+    EMBEDDING_URL,
+    KNOWLEDGE_SOURCES,
+    LOG_LEVEL,
+    MAX_SEARCH_RESULTS,
+    MQTT_BROKER,
+    MQTT_PASS,
+    MQTT_PORT,
+    MQTT_USER,
+    WATCHER_DEBOUNCE,
 )
-from embedding import EmbeddingClient
-from document_index import DocumentIndex
-from source_watcher import SourceWatcher
 from mqtt_publisher import MQTTPublisher
 
-logger.configure(handlers=[{"sink": "ext://sys.stderr", "level": LOG_LEVEL}])
+logger.configure(handlers=[{"sink": sys.stderr, "level": LOG_LEVEL}])
 
 # Shared state
 embedder = EmbeddingClient(
-    url=EMBEDDING_URL, model=EMBEDDING_MODEL, cache_dir=EMBEDDING_CACHE_DIR,
+    url=EMBEDDING_URL,
+    model=EMBEDDING_MODEL,
+    cache_dir=EMBEDDING_CACHE_DIR,
 )
 doc_index = DocumentIndex(embedding_client=embedder)
 mqtt_pub = MQTTPublisher(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS)
@@ -69,8 +83,9 @@ async def lifespan(app: FastAPI):
 
     search_mode = "BM25 + Vector + Title" if embedder.available else "BM25 + Title"
     source_names = [s.get("name") for s in KNOWLEDGE_SOURCES]
-    logger.info(f"Knowledge Bridge started (sources={source_names}, "
-                f"total={doc_index.get_total_docs()}, search={search_mode})")
+    logger.info(
+        f"Knowledge Bridge started (sources={source_names}, total={doc_index.get_total_docs()}, search={search_mode})"
+    )
     yield
 
     for t in tasks:
@@ -85,6 +100,7 @@ app = FastAPI(title="Knowledge Bridge", lifespan=lifespan)
 
 # --- Request/Response models ---
 
+
 class SearchRequest(BaseModel):
     query: str = ""
     source: str | None = None
@@ -95,6 +111,7 @@ class SearchRequest(BaseModel):
 
 
 # --- REST endpoints ---
+
 
 @app.get("/health")
 async def health():
@@ -114,8 +131,12 @@ async def search_documents(req: SearchRequest):
     """Hybrid search across all knowledge sources."""
     max_r = min(req.max_results, MAX_SEARCH_RESULTS)
     results = await doc_index.search(
-        query=req.query, source=req.source, doc_type=req.doc_type,
-        tags=req.tags, path_prefix=req.path_prefix, max_results=max_r,
+        query=req.query,
+        source=req.source,
+        doc_type=req.doc_type,
+        tags=req.tags,
+        path_prefix=req.path_prefix,
+        max_results=max_r,
     )
     return {"results": results, "count": len(results)}
 

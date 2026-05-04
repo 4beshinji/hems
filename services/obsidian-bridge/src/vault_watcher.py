@@ -2,14 +2,16 @@
 Vault watcher — monitors Obsidian vault for file changes via watchdog.
 Debounces events and triggers MQTT publish + index update.
 """
+
 import asyncio
 import time
 from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
-from loguru import logger
 
+from loguru import logger
 from vault_index import VaultIndex
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
+from watchdog.observers import Observer
+
 from mqtt_publisher import MQTTPublisher
 
 
@@ -75,8 +77,7 @@ class _VaultEventHandler(FileSystemEventHandler):
 class VaultWatcher:
     """Watches vault directory, updates index and publishes MQTT events."""
 
-    def __init__(self, vault_index: VaultIndex, mqtt_pub: MQTTPublisher,
-                 debounce: float = 2.0):
+    def __init__(self, vault_index: VaultIndex, mqtt_pub: MQTTPublisher, debounce: float = 2.0):
         self.index = vault_index
         self.mqtt = mqtt_pub
         self._handler = _VaultEventHandler(vault_index.vault_path, debounce)

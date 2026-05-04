@@ -1,9 +1,11 @@
 """
 CSV loader — .csv files with header + row text extraction.
 """
+
 import csv
 import io
 from pathlib import Path
+
 from loguru import logger
 
 from .base import BaseLoader, DocumentEntry
@@ -32,10 +34,16 @@ class CsvLoader(BaseLoader):
             rows = list(reader)
         except csv.Error:
             return DocumentEntry(
-                path=rel_path, source_name=source_name, title=title,
-                doc_type=self.doc_type, tags=tags, metadata=metadata,
-                word_count=len(content.split()), modified_at=stat.st_mtime,
-                content=content, body=content[:5000],
+                path=rel_path,
+                source_name=source_name,
+                title=title,
+                doc_type=self.doc_type,
+                tags=tags,
+                metadata=metadata,
+                word_count=len(content.split()),
+                modified_at=stat.st_mtime,
+                content=content,
+                body=content[:5000],
             )
 
         if not rows:
@@ -47,7 +55,7 @@ class CsvLoader(BaseLoader):
 
         # Build searchable text: header labels + sample rows
         body_parts = [" ".join(headers)]
-        for row in rows[1:MAX_ROWS + 1]:
+        for row in rows[1 : MAX_ROWS + 1]:
             row_text = " ".join(f"{h}: {v}" for h, v in zip(headers, row) if v.strip())
             if row_text:
                 body_parts.append(row_text)
@@ -55,8 +63,14 @@ class CsvLoader(BaseLoader):
         body = "\n".join(body_parts)
 
         return DocumentEntry(
-            path=rel_path, source_name=source_name, title=title,
-            doc_type=self.doc_type, tags=tags, metadata=metadata,
-            word_count=len(body.split()), modified_at=stat.st_mtime,
-            content=content, body=body,
+            path=rel_path,
+            source_name=source_name,
+            title=title,
+            doc_type=self.doc_type,
+            tags=tags,
+            metadata=metadata,
+            word_count=len(body.split()),
+            modified_at=stat.st_mtime,
+            content=content,
+            body=body,
         )

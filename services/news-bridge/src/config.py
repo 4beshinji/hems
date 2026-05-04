@@ -1,5 +1,7 @@
 """Configuration for HEMS News Bridge service."""
+
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()

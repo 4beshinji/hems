@@ -1,5 +1,6 @@
 """Unit tests for EDF scheduler."""
-from datetime import datetime, timedelta
+
+from datetime import datetime
 
 from timeline.edf_scheduler import schedule_edf
 from timeline.models import CandidateTask, FreeWindow
@@ -65,7 +66,7 @@ def test_deadline_ordering():
         _task(2, duration_min=30, deadline=_dt(12)),  # earlier deadline
     ]
     windows = [FreeWindow(start=_dt(9), end=_dt(11))]
-    scheduled, overflow = schedule_edf(tasks, windows, _dt(8))
+    scheduled, _overflow = schedule_edf(tasks, windows, _dt(8))
 
     assert len(scheduled) == 2
     assert scheduled[0].ref_task_id == 2  # earlier deadline wins
@@ -79,7 +80,7 @@ def test_urgency_ordering_when_deadlines_equal():
         _task(2, duration_min=30, urgency=4),  # higher urgency
     ]
     windows = [FreeWindow(start=_dt(9), end=_dt(11))]
-    scheduled, overflow = schedule_edf(tasks, windows, _dt(8))
+    scheduled, _overflow = schedule_edf(tasks, windows, _dt(8))
 
     assert scheduled[0].ref_task_id == 2
     assert scheduled[1].ref_task_id == 1
@@ -89,8 +90,8 @@ def test_preferred_slot_respected_pass1():
     # Task prefers morning; given a morning and afternoon window
     tasks = [_task(1, duration_min=30, preferred_slot="morning")]
     windows = [
-        FreeWindow(start=_dt(14), end=_dt(16)),   # afternoon (earlier in list)
-        FreeWindow(start=_dt(9), end=_dt(11)),    # morning
+        FreeWindow(start=_dt(14), end=_dt(16)),  # afternoon (earlier in list)
+        FreeWindow(start=_dt(9), end=_dt(11)),  # morning
     ]
     scheduled, _ = schedule_edf(tasks, windows, _dt(8))
 
@@ -125,7 +126,7 @@ def test_locked_task_placed_first():
         _task(2, duration_min=30),  # unlocked
     ]
     windows = [FreeWindow(start=_dt(9), end=_dt(13))]
-    scheduled, overflow = schedule_edf(tasks, windows, _dt(8))
+    scheduled, _overflow = schedule_edf(tasks, windows, _dt(8))
 
     locked_placements = [s for s in scheduled if s.is_locked]
     assert len(locked_placements) == 1

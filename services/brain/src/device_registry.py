@@ -7,21 +7,21 @@ Tracks all devices (Namaeda/Kareda/Ha/Remote) and provides:
 - Automatic state transitions (online → stale → offline)
 """
 
-import time
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
 # State thresholds (seconds since last_seen)
-ONLINE_THRESHOLD = 120       # 2 minutes
-STALE_THRESHOLD = 900        # 15 minutes
+ONLINE_THRESHOLD = 120  # 2 minutes
+STALE_THRESHOLD = 900  # 15 minutes
 
 # Adaptive timeouts by device state
 TIMEOUT_BY_STATE = {
     "online": 10.0,
-    "sleeping": 30.0,   # queued, wait for wake
+    "sleeping": 30.0,  # queued, wait for wake
     "stale": 20.0,
-    "offline": 5.0,     # fast-fail
+    "offline": 5.0,  # fast-fail
 }
 
 
@@ -29,27 +29,41 @@ class DeviceInfo:
     """Single device metadata."""
 
     __slots__ = (
-        "device_id", "device_type", "power_mode", "state",
-        "parent_id", "children", "hops_to_mqtt", "battery_pct",
-        "last_seen", "next_wake_epoch", "capabilities", "queue_status",
-        "utility_score", "_last_used",
+        "_last_used",
+        "battery_pct",
+        "capabilities",
+        "children",
+        "device_id",
+        "device_type",
+        "hops_to_mqtt",
+        "last_seen",
+        "last_seen_reported",
+        "link_quality",
+        "next_wake_epoch",
+        "parent_id",
+        "power_mode",
+        "queue_status",
+        "state",
+        "utility_score",
     )
 
     def __init__(self, device_id: str, device_type: str = "unknown"):
         self.device_id: str = device_id
-        self.device_type: str = device_type          # namaeda|kareda|ha|remote
+        self.device_type: str = device_type  # namaeda|kareda|ha|remote
         self.power_mode: str = "ALWAYS_ON"
         self.state: str = "online"
         self.parent_id: str | None = None
-        self.children: dict[str, "DeviceInfo"] = {}
+        self.children: dict[str, DeviceInfo] = {}
         self.hops_to_mqtt: int = 0
         self.battery_pct: int | None = None
+        self.link_quality: int | None = None  # Z2M LQI (0-255), Switchbot RSSI
+        self.last_seen_reported: float | None = None  # device-reported timestamp (vs self.last_seen = wall-clock receipt)
         self.last_seen: float = time.time()
         self.next_wake_epoch: float | None = None
         self.capabilities: list[str] = []
-        self.queue_status: dict | None = None        # {"queued_count": N, "targets": [...]}
+        self.queue_status: dict | None = None  # {"queued_count": N, "targets": [...]}
         self.utility_score: float = 1.0
-        self._last_used: float = 0.0                 # last time data influenced a decision
+        self._last_used: float = 0.0  # last time data influenced a decision
 
     def to_dict(self) -> dict:
         return {
@@ -223,6 +237,10 @@ class DeviceRegistry:
             device.power_mode = payload["power_mode"]
         if "battery_pct" in payload:
             device.battery_pct = payload["battery_pct"]
+        if "link_quality" in payload:
+            device.link_quality = payload["link_quality"]
+        if "last_seen_reported" in payload:
+            device.last_seen_reported = payload["last_seen_reported"]
         if "hops_to_mqtt" in payload:
             device.hops_to_mqtt = payload["hops_to_mqtt"]
         if "capabilities" in payload:
@@ -258,7 +276,10 @@ class DeviceRegistry:
         if affected:
             logger.debug(
                 "Utility boost: zone=%s, type=%s, boost=+%.1f, devices=%d",
-                zone_id, action_type, boost, affected,
+                zone_id,
+                action_type,
+                boost,
+                affected,
             )
 
     def decay_utility_scores(self):
@@ -276,9 +297,7 @@ class DeviceRegistry:
             if days_idle <= GRACE_DAYS:
                 continue
             # Linear decay: ceiling goes from 2.0 → 0.5 over (30-7)=23 days
-            decay_progress = min(
-                (days_idle - GRACE_DAYS) / (FULL_DECAY_DAYS - GRACE_DAYS), 1.0
-            )
+            decay_progress = min((days_idle - GRACE_DAYS) / (FULL_DECAY_DAYS - GRACE_DAYS), 1.0)
             ceiling = 2.0 - 1.5 * decay_progress  # 2.0 → 0.5
             d.utility_score = max(0.5, min(d.utility_score, ceiling))
 

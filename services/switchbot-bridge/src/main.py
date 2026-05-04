@@ -5,18 +5,19 @@ Polling: Periodically fetches device status → MQTT publish
 Webhook: Receives SwitchBot push events → MQTT publish
 REST API: Brain tool calls → SwitchBot API commands
 """
+
 import asyncio
 from contextlib import asynccontextmanager
 
 import aiohttp
+from device_mapper import DeviceMapper
 from fastapi import FastAPI, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel
+from switchbot_client import SwitchBotClient
 
 import config
-from device_mapper import DeviceMapper
 from mqtt_publisher import MQTTPublisher
-from switchbot_client import SwitchBotClient
 
 # Module-level shared state
 sb_client: SwitchBotClient | None = None
@@ -124,19 +125,25 @@ async def _poll_all_devices():
                     _publish_device_state(device_id, parsed)
 
             # Publish bridge status
-            mqtt_pub.publish("hems/switchbot/bridge/status", {
-                "connected": sb_client.connected,
-                "device_count": len(physical),
-                "ir_device_count": len(infrared),
-            })
+            mqtt_pub.publish(
+                "hems/switchbot/bridge/status",
+                {
+                    "connected": sb_client.connected,
+                    "device_count": len(physical),
+                    "ir_device_count": len(infrared),
+                },
+            )
 
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"Poll error: {e}")
-            mqtt_pub.publish("hems/switchbot/bridge/status", {
-                "connected": False,
-            })
+            mqtt_pub.publish(
+                "hems/switchbot/bridge/status",
+                {
+                    "connected": False,
+                },
+            )
 
         await asyncio.sleep(config.POLL_INTERVAL)
 
@@ -144,9 +151,12 @@ async def _poll_all_devices():
 async def _bridge_status_loop():
     """Periodically publish bridge connection status."""
     while True:
-        mqtt_pub.publish("hems/switchbot/bridge/status", {
-            "connected": sb_client.connected,
-        })
+        mqtt_pub.publish(
+            "hems/switchbot/bridge/status",
+            {
+                "connected": sb_client.connected,
+            },
+        )
         await asyncio.sleep(30)
 
 
@@ -155,8 +165,7 @@ async def lifespan(app: FastAPI):
     global sb_client, mqtt_pub, device_mapper
 
     device_mapper = DeviceMapper(config.SWITCHBOT_DEVICE_MAP)
-    mqtt_pub = MQTTPublisher(config.MQTT_BROKER, config.MQTT_PORT,
-                             config.MQTT_USER, config.MQTT_PASS)
+    mqtt_pub = MQTTPublisher(config.MQTT_BROKER, config.MQTT_PORT, config.MQTT_USER, config.MQTT_PASS)
     mqtt_pub.connect()
 
     sb_client = SwitchBotClient(config.SWITCHBOT_TOKEN, config.SWITCHBOT_SECRET)
@@ -174,11 +183,14 @@ async def lifespan(app: FastAPI):
 
         # Setup webhook if configured
         if config.WEBHOOK_URL:
-            result = await sb_client._api_post("/webhook/setupWebhook", {
-                "action": "setupWebhook",
-                "url": config.WEBHOOK_URL,
-                "deviceList": "ALL",
-            })
+            result = await sb_client._api_post(
+                "/webhook/setupWebhook",
+                {
+                    "action": "setupWebhook",
+                    "url": config.WEBHOOK_URL,
+                    "deviceList": "ALL",
+                },
+            )
             if result:
                 logger.info(f"SwitchBot webhook registered: {config.WEBHOOK_URL}")
 
@@ -199,8 +211,7 @@ app = FastAPI(title="HEMS SwitchBot Bridge", lifespan=lifespan)
 
 # Allowed commands per domain (whitelist approach)
 _ALLOWED_COMMANDS: dict[str, set[str]] = {
-    "light": {"turnOn", "turnOff", "toggle", "setBrightness", "setColor",
-              "setColorTemperature"},
+    "light": {"turnOn", "turnOff", "toggle", "setBrightness", "setColor", "setColorTemperature"},
     "cover": {"turnOn", "turnOff", "setPosition", "open", "close", "pause"},
     "switch": {"turnOn", "turnOff", "toggle", "press"},
     "climate": {"turnOn", "turnOff", "setAll"},
@@ -260,6 +271,7 @@ def _validate_command(device_id: str, command: str, parameter: str = "default") 
 
 # --- REST API ---
 
+
 class CommandRequest(BaseModel):
     command: str
     parameter: str = "default"
@@ -284,25 +296,29 @@ async def get_devices():
         device_type = d.get("deviceType", "")
         domain = sb_client.get_domain(device_type)
         zone = device_mapper.get_zone(device_id)
-        devices.append({
-            "device_id": device_id,
-            "device_name": d.get("deviceName", ""),
-            "device_type": device_type,
-            "domain": domain,
-            "zone": zone,
-            "hems_entity_id": f"switchbot.{device_id}",
-            "hub_device_id": d.get("hubDeviceId", ""),
-            "enable_cloud_service": d.get("enableCloudService", False),
-        })
+        devices.append(
+            {
+                "device_id": device_id,
+                "device_name": d.get("deviceName", ""),
+                "device_type": device_type,
+                "domain": domain,
+                "zone": zone,
+                "hems_entity_id": f"switchbot.{device_id}",
+                "hub_device_id": d.get("hubDeviceId", ""),
+                "enable_cloud_service": d.get("enableCloudService", False),
+            }
+        )
 
     ir_devices = []
     for d in infrared:
-        ir_devices.append({
-            "device_id": d["deviceId"],
-            "device_name": d.get("deviceName", ""),
-            "remote_type": d.get("remoteType", ""),
-            "hub_device_id": d.get("hubDeviceId", ""),
-        })
+        ir_devices.append(
+            {
+                "device_id": d["deviceId"],
+                "device_name": d.get("deviceName", ""),
+                "remote_type": d.get("remoteType", ""),
+                "hub_device_id": d.get("hubDeviceId", ""),
+            }
+        )
 
     return {"devices": devices, "ir_devices": ir_devices}
 
@@ -333,7 +349,10 @@ async def send_command(device_id: str, req: CommandRequest):
         raise HTTPException(400, f"Invalid command: {err}")
 
     result = await sb_client.send_command(
-        device_id, req.command, req.parameter, req.command_type,
+        device_id,
+        req.command,
+        req.parameter,
+        req.command_type,
     )
     if result is not None:
         # Refresh status after command
@@ -355,7 +374,6 @@ async def webhook_receiver(request: Request):
         raise HTTPException(400, "Invalid JSON")
 
     event_type = body.get("eventType", "")
-    event_version = body.get("eventVersion", "")
     context = body.get("context", {})
 
     if event_type == "changeReport":

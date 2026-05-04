@@ -7,14 +7,21 @@ Knowledge: search_knowledge, get_knowledge_sources, read_knowledge_document
 """
 
 
-def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
-              obsidian_enabled: bool = False, ha_enabled: bool = False,
-              biometric_enabled: bool = False,
-              perception_enabled: bool = False,
-              shopping_enabled: bool = False,
-              switchbot_enabled: bool = False,
-              news_enabled: bool = False,
-              knowledge_enabled: bool = False) -> list:
+def get_tools(
+    openclaw_enabled: bool = False,
+    services_enabled: bool = False,
+    obsidian_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    shopping_enabled: bool = False,
+    switchbot_enabled: bool = False,
+    news_enabled: bool = False,
+    knowledge_enabled: bool = False,
+    gas_enabled: bool = False,
+    tapo_enabled: bool = False,
+    device_registry_enabled: bool = True,
+) -> list:
     tools = [
         {
             "type": "function",
@@ -26,12 +33,17 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
                     "properties": {
                         "title": {"type": "string", "description": "タスクのタイトル（日本語、簡潔に）"},
                         "description": {"type": "string", "description": "タスクの詳細説明（状況と対応方法を含む）"},
-                        "urgency": {"type": "integer", "description": "緊急度 0=延期可 1=低 2=通常 3=高 4=緊急", "minimum": 0, "maximum": 4},
+                        "urgency": {
+                            "type": "integer",
+                            "description": "緊急度 0=延期可 1=低 2=通常 3=高 4=緊急",
+                            "minimum": 0,
+                            "maximum": 4,
+                        },
                         "zone": {"type": "string", "description": "ゾーン名 (例: living_room, bedroom)"},
                         "task_type": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "タスク種別タグ (例: ['ventilation'], ['cleaning'])"
+                            "description": "タスク種別タグ (例: ['ventilation'], ['cleaning'])",
                         },
                         "location": {"type": "string", "description": "具体的な場所"},
                         "estimated_duration": {"type": "integer", "description": "推定所要時間（分）", "default": 10},
@@ -78,7 +90,11 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "message": {"type": "string", "description": "メッセージ（70文字以内、日本語）", "maxLength": 70},
+                        "message": {
+                            "type": "string",
+                            "description": "メッセージ（70文字以内、日本語）",
+                            "maxLength": 70,
+                        },
                         "zone": {"type": "string", "description": "対象ゾーン"},
                         "tone": {
                             "type": "string",
@@ -119,6 +135,41 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_sensor_history",
+                "description": (
+                    "指定ゾーン・チャンネルのセンサー値履歴を返す (read-only)。"
+                    "「さっきまでVOCが高かったか」等、最近の推移を確認するのに使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone": {"type": "string", "description": "ゾーンID"},
+                        "channel": {
+                            "type": "string",
+                            "description": "temperature/humidity/co2/pressure/voc/pm25/light/soil_moisture 等",
+                        },
+                        "hours": {
+                            "type": "integer",
+                            "description": "さかのぼる時間（1〜168）",
+                            "minimum": 1,
+                            "maximum": 168,
+                            "default": 6,
+                        },
+                        "max_points": {
+                            "type": "integer",
+                            "description": "返す最大サンプル数",
+                            "minimum": 1,
+                            "maximum": 500,
+                            "default": 200,
+                        },
+                    },
+                    "required": ["zone", "channel"],
+                },
+            },
+        },
     ]
 
     if openclaw_enabled:
@@ -152,16 +203,33 @@ def get_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
     if knowledge_enabled:
         tools.extend(_get_knowledge_tools())
 
+    if gas_enabled:
+        tools.extend(_get_gas_tools())
+
+    if tapo_enabled:
+        tools.extend(_get_tapo_tools())
+
+    if device_registry_enabled:
+        tools.extend(_get_device_registry_tools())
+        tools.extend(_get_scene_tools())
+
     return tools
 
 
-def get_chat_tools(openclaw_enabled: bool = False, services_enabled: bool = False,
-                   obsidian_enabled: bool = False, ha_enabled: bool = False,
-                   biometric_enabled: bool = False,
-                   perception_enabled: bool = False,
-                   switchbot_enabled: bool = False,
-                   news_enabled: bool = False,
-                   knowledge_enabled: bool = False) -> list:
+def get_chat_tools(
+    openclaw_enabled: bool = False,
+    services_enabled: bool = False,
+    obsidian_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    switchbot_enabled: bool = False,
+    news_enabled: bool = False,
+    knowledge_enabled: bool = False,
+    gas_enabled: bool = False,
+    tapo_enabled: bool = False,
+    device_registry_enabled: bool = True,
+) -> list:
     """Return read-only tool subset for conversational chat.
 
     Excludes action tools: create_task, speak, send_device_command, control_*,
@@ -169,45 +237,93 @@ def get_chat_tools(openclaw_enabled: bool = False, services_enabled: bool = Fals
     """
     # Read-only tool names allowed in chat
     _CHAT_ALLOWED = {
-        "get_zone_status", "get_active_tasks", "get_device_status",
-        "get_pc_status", "get_service_status",
-        "search_notes", "get_recent_notes",
-        "get_home_devices", "get_sensor_data", "get_weather",
-        "get_biometrics", "get_sleep_summary",
+        "get_zone_status",
+        "get_active_tasks",
+        "get_device_status",
+        "get_sensor_history",
+        "get_pc_status",
+        "get_service_status",
+        "search_notes",
+        "get_recent_notes",
+        "list_note_tags",
+        "get_home_devices",
+        "get_sensor_data",
+        "get_weather",
+        "get_biometrics",
+        "get_sleep_summary",
+        "get_biometric_trend",
+        "get_sleep_history",
         "get_perception_status",
+        "list_cameras",
+        "get_vlm_status",
+        "get_activity_history",
+        "list_scene_objects",
+        "get_scene_timeline",
         "get_shopping_list",
         "get_switchbot_devices",
         "get_news_summary",
-        "search_knowledge", "get_knowledge_sources", "read_knowledge_document",
+        "search_knowledge",
+        "get_knowledge_sources",
+        "read_knowledge_document",
+        "get_recent_knowledge_changes",
+        "get_recent_emails",
+        "gas_query_free_slots",
+        "gas_query_sheet",
+        "get_entity_status",
+        "get_power_consumption",
+        "list_processes",
+        "list_devices",
+        "describe_device",
+        "control_actuator",
+        "list_scenes",
     }
 
     all_tools = get_tools(
-        openclaw_enabled=openclaw_enabled, services_enabled=services_enabled,
-        obsidian_enabled=obsidian_enabled, ha_enabled=ha_enabled,
-        biometric_enabled=biometric_enabled, perception_enabled=perception_enabled,
-        shopping_enabled=True, switchbot_enabled=switchbot_enabled,
-        news_enabled=news_enabled, knowledge_enabled=knowledge_enabled,
+        openclaw_enabled=openclaw_enabled,
+        services_enabled=services_enabled,
+        obsidian_enabled=obsidian_enabled,
+        ha_enabled=ha_enabled,
+        biometric_enabled=biometric_enabled,
+        perception_enabled=perception_enabled,
+        device_registry_enabled=device_registry_enabled,
+        shopping_enabled=True,
+        switchbot_enabled=switchbot_enabled,
+        news_enabled=news_enabled,
+        knowledge_enabled=knowledge_enabled,
+        gas_enabled=gas_enabled,
+        tapo_enabled=tapo_enabled,
     )
     return [t for t in all_tools if t["function"]["name"] in _CHAT_ALLOWED]
 
 
-def get_tool_names(openclaw_enabled: bool = False, services_enabled: bool = False,
-                   obsidian_enabled: bool = False, ha_enabled: bool = False,
-                   biometric_enabled: bool = False,
-                   perception_enabled: bool = False,
-                   shopping_enabled: bool = False,
-                   switchbot_enabled: bool = False,
-                   news_enabled: bool = False,
-                   knowledge_enabled: bool = False) -> list:
+def get_tool_names(
+    openclaw_enabled: bool = False,
+    services_enabled: bool = False,
+    obsidian_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    shopping_enabled: bool = False,
+    switchbot_enabled: bool = False,
+    news_enabled: bool = False,
+    knowledge_enabled: bool = False,
+) -> list:
     """Return list of all enabled tool names."""
-    return [t["function"]["name"] for t in get_tools(openclaw_enabled, services_enabled,
-                                                      obsidian_enabled, ha_enabled,
-                                                      biometric_enabled,
-                                                      perception_enabled,
-                                                      shopping_enabled,
-                                                      switchbot_enabled,
-                                                      news_enabled,
-                                                      knowledge_enabled)]
+    return [
+        t["function"]["name"]
+        for t in get_tools(
+            openclaw_enabled,
+            services_enabled,
+            obsidian_enabled,
+            ha_enabled,
+            biometric_enabled,
+            perception_enabled,
+            shopping_enabled,
+            switchbot_enabled,
+            news_enabled,
+            knowledge_enabled,
+        )
+    ]
 
 
 def _get_service_tools() -> list:
@@ -249,7 +365,10 @@ def _get_obsidian_tools() -> list:
                             "items": {"type": "string"},
                             "description": "タグフィルター（例: ['daily', 'project']）",
                         },
-                        "path_prefix": {"type": "string", "description": "パスプレフィックスフィルター（例: 'projects/'）"},
+                        "path_prefix": {
+                            "type": "string",
+                            "description": "パスプレフィックスフィルター（例: 'projects/'）",
+                        },
                         "max_results": {"type": "integer", "description": "最大結果数", "default": 5, "maximum": 10},
                     },
                     "required": ["query"],
@@ -287,6 +406,20 @@ def _get_obsidian_tools() -> list:
                     "properties": {
                         "limit": {"type": "integer", "description": "取得件数", "default": 5, "maximum": 20},
                     },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_note_tags",
+                "description": (
+                    "Obsidian Vault に存在するタグ一覧と各タグの使用回数を取得する。"
+                    "テーマや関心領域の俯瞰、関連ノートの検索キーワード選びに使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
                 },
             },
         },
@@ -352,6 +485,38 @@ def _get_pc_tools() -> list:
         {
             "type": "function",
             "function": {
+                "name": "list_processes",
+                "description": (
+                    "PCで実行中のプロセスを取得する (read-only)。"
+                    "CPU/メモリを多く使うプロセスを特定する用途に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "返すプロセス数",
+                            "minimum": 1,
+                            "maximum": 50,
+                            "default": 10,
+                        },
+                        "sort_by": {
+                            "type": "string",
+                            "enum": ["cpu", "memory"],
+                            "description": "ソート基準",
+                            "default": "cpu",
+                        },
+                        "name_contains": {
+                            "type": "string",
+                            "description": "プロセス名フィルタ (省略可)",
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "send_pc_notification",
                 "description": "デスクトップ通知を送信する。PCでの作業中に音声以外で通知したい場合に使用。",
                 "parameters": {
@@ -386,8 +551,18 @@ def _get_ha_tools() -> list:
                     "properties": {
                         "entity_id": {"type": "string", "description": "HA entity_id (例: light.living_room)"},
                         "on": {"type": "boolean", "description": "ON/OFF"},
-                        "brightness": {"type": "integer", "description": "明るさ (0-255)", "minimum": 0, "maximum": 255},
-                        "color_temp": {"type": "integer", "description": "色温度 (mirek, 153-500)", "minimum": 153, "maximum": 500},
+                        "brightness": {
+                            "type": "integer",
+                            "description": "明るさ (0-255)",
+                            "minimum": 0,
+                            "maximum": 255,
+                        },
+                        "color_temp": {
+                            "type": "integer",
+                            "description": "色温度 (mirek, 153-500)",
+                            "minimum": 153,
+                            "maximum": 500,
+                        },
                     },
                     "required": ["entity_id", "on"],
                 },
@@ -407,7 +582,12 @@ def _get_ha_tools() -> list:
                             "enum": ["off", "cool", "heat", "dry", "fan_only", "auto"],
                             "description": "運転モード",
                         },
-                        "temperature": {"type": "number", "description": "設定温度 (16-30)", "minimum": 16, "maximum": 30},
+                        "temperature": {
+                            "type": "number",
+                            "description": "設定温度 (16-30)",
+                            "minimum": 16,
+                            "maximum": 30,
+                        },
                         "fan_mode": {
                             "type": "string",
                             "enum": ["auto", "low", "medium", "high"],
@@ -432,7 +612,12 @@ def _get_ha_tools() -> list:
                             "enum": ["open", "close", "stop"],
                             "description": "開閉操作",
                         },
-                        "position": {"type": "integer", "description": "ポジション (0=閉, 100=全開)", "minimum": 0, "maximum": 100},
+                        "position": {
+                            "type": "integer",
+                            "description": "ポジション (0=閉, 100=全開)",
+                            "minimum": 0,
+                            "maximum": 100,
+                        },
                     },
                     "required": ["entity_id"],
                 },
@@ -473,7 +658,10 @@ def _get_ha_tools() -> list:
                     "type": "object",
                     "properties": {
                         "entity_id": {"type": "string", "description": "特定のsensor entity_id（省略で全件）"},
-                        "device_class": {"type": "string", "description": "デバイスクラスでフィルタ（例: power, carbon_dioxide, pm25）"},
+                        "device_class": {
+                            "type": "string",
+                            "description": "デバイスクラスでフィルタ（例: power, carbon_dioxide, pm25）",
+                        },
                     },
                 },
             },
@@ -489,6 +677,51 @@ def _get_ha_tools() -> list:
                         "entity_id": {"type": "string", "description": "HA scene entity_id (例: scene.good_night)"},
                     },
                     "required": ["entity_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_entity_status",
+                "description": (
+                    "HAの単一エンティティ状態を即時取得する (read-only)。"
+                    "バッテリ・接続状態・直近state変化の確認に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {
+                            "type": "string",
+                            "description": "HA entity_id (例: light.living_room, sensor.battery_level)",
+                        },
+                    },
+                    "required": ["entity_id"],
+                },
+            },
+        },
+    ]
+
+
+def _get_tapo_tools() -> list:
+    """Tapo bridge tools — only included when tapo-bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_power_consumption",
+                "description": (
+                    "Tapo P110/P115 スマートプラグの瞬時電力 (W) と直近の電圧/電流/累計消費電力を取得する。"
+                    "「いま冷蔵庫いくら使ってる?」「ヒーター付けたら何W?」のような問いに使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "デバイスID (例: tapo.plug_desklight)。省略で全Tapoプラグの電力一覧を返す",
+                        },
+                    },
                 },
             },
         },
@@ -561,6 +794,91 @@ def _get_perception_tools() -> list:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_scene_objects",
+                "description": "過去のVLM観測履歴から指定ゾーンで確認された物体のユニークリストを取得する。短時間で複数回VLMを呼ばずに、過去N分間で何が見えていたかを確認したい場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone_id": {"type": "string", "description": "ゾーンID"},
+                        "since_minutes": {
+                            "type": "integer",
+                            "description": "何分前までの履歴を見るか (デフォルト60, 最大60)",
+                            "default": 60,
+                        },
+                    },
+                    "required": ["zone_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_scene_timeline",
+                "description": "指定ゾーンのVLMシーン履歴を時系列で取得する。最新10件まで。シーンの変化を把握したい場合に使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone_id": {"type": "string", "description": "ゾーンID"},
+                    },
+                    "required": ["zone_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_cameras",
+                "description": (
+                    "登録されているカメラの一覧と接続状態を取得する。"
+                    "カメラ毎の zone / type / connected を返す。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_vlm_status",
+                "description": (
+                    "VLM scheduler の現在状態 (light/heavy model 名、最後の処理時刻、保留中リクエスト数) を取得する。"
+                    "VLM が応答しない / 遅い時に状態確認に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_activity_history",
+                "description": (
+                    "指定ゾーンの活動レベル/姿勢履歴を時系列で取得する。"
+                    "最近のVLMスナップショット (timestamp, scene_type, anomalies) を最新N件返す。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone_id": {"type": "string", "description": "ゾーンID"},
+                        "limit": {
+                            "type": "integer",
+                            "description": "返すスナップショットの最大件数 (デフォルト10)",
+                            "minimum": 1,
+                            "maximum": 30,
+                            "default": 10,
+                        },
+                    },
+                    "required": ["zone_id"],
+                },
+            },
+        },
     ]
 
 
@@ -586,6 +904,72 @@ def _get_biometric_tools() -> list:
                 "parameters": {
                     "type": "object",
                     "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_biometric_trend",
+                "description": (
+                    "生体メトリックの履歴 (時系列) を取得する。"
+                    "傾向 (上昇/下降/平均/標準偏差) を判断したい場合に使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "metric": {
+                            "type": "string",
+                            "enum": [
+                                "heart_rate",
+                                "hrv",
+                                "stress",
+                                "fatigue",
+                                "spo2",
+                                "body_temperature",
+                                "respiratory_rate",
+                                "steps",
+                            ],
+                            "description": "対象メトリック",
+                        },
+                        "window_hours": {
+                            "type": "number",
+                            "description": "今から何時間遡るか",
+                            "minimum": 1,
+                            "maximum": 168,
+                            "default": 24,
+                        },
+                        "max_samples": {
+                            "type": "integer",
+                            "description": "返す最大サンプル数 (オーバーする時は等間隔ダウンサンプル)",
+                            "minimum": 10,
+                            "maximum": 500,
+                            "default": 100,
+                        },
+                    },
+                    "required": ["metric"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_sleep_history",
+                "description": (
+                    "直近 N 日分の睡眠品質スコア / 睡眠時間履歴を取得する。"
+                    "睡眠傾向の評価や、品質変化に基づいた助言の根拠に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "days": {
+                            "type": "integer",
+                            "description": "遡る日数",
+                            "minimum": 1,
+                            "maximum": 14,
+                            "default": 7,
+                        },
+                    },
                 },
             },
         },
@@ -636,6 +1020,110 @@ def _get_shopping_tools() -> list:
                         "category": {"type": "string", "description": "カテゴリでフィルタ"},
                         "store": {"type": "string", "description": "店舗でフィルタ"},
                     },
+                },
+            },
+        },
+    ]
+
+
+def _get_gas_tools() -> list:
+    """GAS bridge tools (read-only) — only included when gas-bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_recent_emails",
+                "description": (
+                    "最近のGmailスレッド一覧を取得する (read-only)。"
+                    "サマリ件数だけでは不足な場合や、特定の送信者・件名を確認する際に使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "返すスレッドの最大件数",
+                            "minimum": 1,
+                            "maximum": 50,
+                            "default": 10,
+                        },
+                        "sender_contains": {
+                            "type": "string",
+                            "description": "送信者(from)に含まれる文字列でフィルタ (省略可)",
+                        },
+                        "subject_contains": {
+                            "type": "string",
+                            "description": "件名に含まれる文字列でフィルタ (省略可)",
+                        },
+                        "unread_only": {
+                            "type": "boolean",
+                            "description": "未読のみ返す",
+                            "default": False,
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "gas_query_free_slots",
+                "description": (
+                    "カレンダーの空き時間スロット (HH:MM-HH:MM) を時刻つきで取得する (read-only)。"
+                    "予定の合間に作業時間が必要な時、新規予定を提案する時に使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "date_range_hours": {
+                            "type": "integer",
+                            "description": "今から何時間先まで探索するか",
+                            "minimum": 1,
+                            "maximum": 168,
+                            "default": 24,
+                        },
+                        "min_duration_minutes": {
+                            "type": "integer",
+                            "description": "返すスロットの最小長 (分)",
+                            "minimum": 15,
+                            "maximum": 480,
+                            "default": 60,
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "返すスロットの最大件数",
+                            "minimum": 1,
+                            "maximum": 20,
+                            "default": 5,
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "gas_query_sheet",
+                "description": (
+                    "Google Sheets の指定タブを取得する (read-only)。"
+                    "world_model.gas_state.sheets にキャッシュされたシートデータを返す。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "シート名 (タブ名)",
+                        },
+                        "max_rows": {
+                            "type": "integer",
+                            "description": "返す最大行数",
+                            "minimum": 1,
+                            "maximum": 200,
+                            "default": 50,
+                        },
+                    },
+                    "required": ["name"],
                 },
             },
         },
@@ -704,7 +1192,10 @@ def _get_switchbot_tools() -> list:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "device_id": {"type": "string", "description": "IRデバイスID（SwitchBotアプリで登録した仮想デバイス）"},
+                        "device_id": {
+                            "type": "string",
+                            "description": "IRデバイスID（SwitchBotアプリで登録した仮想デバイス）",
+                        },
                         "command": {
                             "type": "string",
                             "description": "コマンド (例: turnOn, turnOff, setAll)",
@@ -774,6 +1265,209 @@ def _get_knowledge_tools() -> list:
                         "path": {"type": "string", "description": "ドキュメントパス"},
                     },
                     "required": ["source", "path"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_recent_knowledge_changes",
+                "description": (
+                    "ナレッジソースで最近変更されたドキュメント一覧を取得する。"
+                    "ユーザーが直近に追加・編集した資料を察知して、それを起点にした提案や引用に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "取得件数", "default": 10, "maximum": 50},
+                        "source": {"type": "string", "description": "ソース名でフィルタ (省略可)"},
+                    },
+                },
+            },
+        },
+    ]
+
+
+def _get_scene_tools() -> list:
+    """Scene tools — execute predefined multi-device action sequences."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "execute_scene_by_name",
+                "description": (
+                    "事前定義されたシーン (programmatic name) を実行する。"
+                    "例: wake_up → デスクライトON→IRシーリング→電球段階点灯。"
+                    "HAのexecute_sceneとは別 (HA scene は entity_id.* を使う)。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "シーンのprogrammatic name (例: wake_up, bedtime)",
+                        },
+                    },
+                    "required": ["name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_scenes",
+                "description": "登録済みの有効シーン一覧を取得する。",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
+
+
+def _get_device_registry_tools() -> list:
+    """Unified sensor + actuator tools via Device Registry (vendor-agnostic).
+
+    control_actuator dispatches by Device.vendor to the appropriate bridge/MQTT.
+    Use list_devices to discover devices by purpose/zone/capability.
+    """
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "control_actuator",
+                "description": (
+                    "登録済みデバイスに制御コマンドを送る（ベンダー非依存）。"
+                    "list_devicesで対象を確認してからdevice_idを指定。"
+                    "actionは on/off/toggle/set_brightness/set_color_temp/set_color_xy/"
+                    "set_color_hs/set_position/set_temperature/pulse/rainbow/ir_send。"
+                    "pulseは指定秒数ONにしてから自動OFF（水ポンプ等に使う）。"
+                    "rainbowは色相を虹色に循環させる（カラーLED専用、最大60秒）。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "デバイスID (例: tapo.plug_desklight, zigbee.bulb_bedroom)",
+                        },
+                        "action": {
+                            "type": "string",
+                            "enum": [
+                                "on",
+                                "off",
+                                "toggle",
+                                "set_brightness",
+                                "set_color_temp",
+                                "set_color_xy",
+                                "set_color_hs",
+                                "set_position",
+                                "set_temperature",
+                                "pulse",
+                                "rainbow",
+                                "ir_send",
+                            ],
+                            "description": "アクション種別",
+                        },
+                        "params": {
+                            "type": "object",
+                            "description": (
+                                "アクション引数。set_brightness={value:0-255}, "
+                                "set_color_temp={value:153-500}, "
+                                "set_color_xy={x:0.0-1.0, y:0.0-1.0}, "
+                                "set_color_hs={hue:0-360, saturation:0-100}, "
+                                "set_position={value:0-100}, "
+                                "set_temperature={value:16-30}, pulse={duration_s:1-600}, "
+                                "rainbow={duration_s:1-60}, "
+                                "ir_send={command:str, parameter:str}"
+                            ),
+                        },
+                    },
+                    "required": ["device_id", "action"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_devices",
+                "description": (
+                    "登録済みデバイス一覧を取得する。用途・ゾーン・機能・種別でフィルタ可能。"
+                    "actuator制御前に対象デバイスを特定するために使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["sensor", "actuator", "both"],
+                            "description": "デバイス種別",
+                        },
+                        "zone": {"type": "string", "description": "ゾーン名フィルタ"},
+                        "vendor": {
+                            "type": "string",
+                            "enum": ["zigbee", "switchbot", "tapo", "ha", "mcp", "ir_via_hub"],
+                            "description": "ベンダーフィルタ",
+                        },
+                        "capability": {
+                            "type": "string",
+                            "enum": [
+                                "on_off",
+                                "brightness",
+                                "color_temp",
+                                "set_position",
+                                "set_temperature",
+                                "pulse",
+                                "ir_send",
+                            ],
+                            "description": "機能フィルタ",
+                        },
+                        "purpose_contains": {
+                            "type": "string",
+                            "description": "用途テキスト部分一致フィルタ (例: '水やり', '起床')",
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "describe_device",
+                "description": (
+                    "特定デバイスの詳細情報（メタデータ+現在状態+最新値）を取得する。"
+                    "control_actuatorを呼ぶ前の現状確認に使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {"type": "string", "description": "デバイスID"},
+                    },
+                    "required": ["device_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "zigbee_permit_join",
+                "description": (
+                    "Zigbee コーディネーターのペアリングモードを開閉する。"
+                    "新しい Zigbee デバイス登録時のみ使用。安全のため duration_s は通常 60-120 秒。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "enable": {
+                            "type": "boolean",
+                            "description": "true=ペアリング開始, false=終了",
+                        },
+                        "duration_s": {
+                            "type": "integer",
+                            "description": "自動終了までの秒数 (0=手動終了, 最大3600)",
+                            "minimum": 0,
+                            "maximum": 3600,
+                        },
+                    },
+                    "required": ["enable"],
                 },
             },
         },

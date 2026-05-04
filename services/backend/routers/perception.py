@@ -2,6 +2,7 @@
 Perception (camera detection) router — in-memory store for latest snapshot.
 Brain pushes perception snapshots every cognitive cycle.
 """
+
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/perception", tags=["perception"])

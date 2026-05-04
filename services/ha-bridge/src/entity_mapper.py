@@ -1,7 +1,9 @@
 """
 Maps Home Assistant entity_id to HEMS zone/domain structure.
 """
+
 import json
+
 from loguru import logger
 
 

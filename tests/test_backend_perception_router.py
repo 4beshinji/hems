@@ -1,6 +1,7 @@
 """
 Tests for backend perception router — in-memory store.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -10,11 +11,13 @@ def client():
     """Create a test client for the perception router."""
     import sys
     from pathlib import Path
+
     backend_path = Path(__file__).resolve().parent.parent / "services" / "backend"
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
 
     from fastapi import FastAPI
+
     from routers.perception import router
 
     app = FastAPI()

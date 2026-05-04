@@ -1,18 +1,25 @@
 """
 Tests for DashboardClient.push_pc_snapshot.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
+
 from world_model.data_classes import (
-    CPUData, MemoryData, GPUData, DiskData, DiskPartition, ProcessInfo,
+    CPUData,
+    DiskData,
+    DiskPartition,
+    GPUData,
+    MemoryData,
+    ProcessInfo,
 )
 
 
 class TestPushPCSnapshot:
-
     def _make_client(self, mock_session):
         from dashboard_client import DashboardClient
+
         client = DashboardClient(session=mock_session)
         return client
 

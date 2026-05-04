@@ -1,19 +1,25 @@
 """
 Tests for RuleEngine GAS rules.
 """
+
 import time
 from datetime import datetime as _real_dt
 from unittest.mock import patch
 
 import pytest
+
 from world_model.data_classes import (
-    CalendarEvent, GoogleTask, GmailLabel,
-    DriveFile, SheetData,
+    CalendarEvent,
+    DriveFile,
+    GmailLabel,
+    GoogleTask,
+    SheetData,
 )
 
 
 class _FakeDatetime(_real_dt):
     """datetime subclass that freezes .now() to 14:00 (outside 8-9 AM briefing window)."""
+
     @classmethod
     def now(cls, tz=None):
         if tz:
@@ -32,6 +38,7 @@ class TestRuleEngineGASRules:
 
     def _make_engine(self):
         from rule_engine import RuleEngine
+
         engine = RuleEngine()
         engine._cooldowns = {}
         return engine
@@ -47,7 +54,8 @@ class TestRuleEngineGASRules:
         world_model.digital.gas_state.bridge_connected = True
         world_model.digital.gas_state.calendar_events = [
             CalendarEvent(
-                id="ev1", title="Team Standup",
+                id="ev1",
+                title="Team Standup",
                 start="2026-02-19T10:00:00+09:00",
                 start_ts=self._ts(300),  # 5 min from now
                 end_ts=self._ts(1800),
@@ -63,7 +71,8 @@ class TestRuleEngineGASRules:
         world_model.digital.gas_state.bridge_connected = True
         world_model.digital.gas_state.calendar_events = [
             CalendarEvent(
-                id="ev1", title="Meeting",
+                id="ev1",
+                title="Meeting",
                 start_ts=self._ts(3600),  # 60 min from now
                 end_ts=self._ts(5400),
             ),
@@ -77,8 +86,11 @@ class TestRuleEngineGASRules:
         world_model.digital.gas_state.bridge_connected = True
         world_model.digital.gas_state.calendar_events = [
             CalendarEvent(
-                id="ev1", title="Holiday", is_all_day=True,
-                start_ts=self._ts(300), end_ts=self._ts(86400),
+                id="ev1",
+                title="Holiday",
+                is_all_day=True,
+                start_ts=self._ts(300),
+                end_ts=self._ts(86400),
             ),
         ]
         actions = engine.evaluate(world_model)
@@ -223,8 +235,10 @@ class TestRuleEngineGASRules:
         world_model.digital.gas_state.bridge_connected = True
         world_model.digital.gas_state.sheets = {
             "notes": SheetData(
-                name="notes", headers=["title", "content"],
-                values=[["Hello", "World"]], last_update=1.0,
+                name="notes",
+                headers=["title", "content"],
+                values=[["Hello", "World"]],
+                last_update=1.0,
             ),
         }
         actions = engine.evaluate(world_model)
@@ -253,6 +267,7 @@ class TestRuleEngineGASRules:
         world_model.digital.gas_state.bridge_connected = False
         world_model.digital.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=50)}
         actions = engine.evaluate(world_model)
-        gas_actions = [a for a in actions if "未読" in a["args"].get("message", "")
-                       or "メール" in a["args"].get("title", "")]
+        gas_actions = [
+            a for a in actions if "未読" in a["args"].get("message", "") or "メール" in a["args"].get("title", "")
+        ]
         assert len(gas_actions) == 0

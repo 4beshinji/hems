@@ -6,7 +6,7 @@ Serves dual purpose:
   1. Makes the AI character feel alive with proactive comments
   2. Exercises VoiSona TTS pipeline as an implicit health check
 """
-import asyncio
+
 import os
 import time
 from datetime import datetime
@@ -16,17 +16,17 @@ from loguru import logger
 AMBIENT_INTERVAL = int(os.getenv("AMBIENT_SPEAK_INTERVAL", "300"))  # 5 min default
 AMBIENT_ENABLED = os.getenv("AMBIENT_SPEAK_ENABLED", "true").lower() in ("true", "1", "yes")
 
-# Prompt for generating ambient speech
+# Prompt for generating ambient speech. Stage 1 is character-free — character
+# voice is applied post-hoc via PersonaRewriter (passed to AmbientSpeaker below).
 _AMBIENT_PROMPT = """\
-あなたは家庭環境管理AIのキャラクターです。
-以下の現在の状況に基づいて、自然な短い一言コメント（40文字以内）を生成してください。
+家庭環境の状況に基づいて、自然な短い一言コメント（40文字以内）を日本語で生成してください。
 
 ルール:
-- テスト感を出さず、自然な会話のように
-- 現在の時刻、室温、湿度、天気などに触れてよい
-- ユーザーへの気遣い、季節の話題、ちょっとした雑談でもOK
+- 素朴で事実ベースの一言。キャラ口調や語尾装飾は付けない（後段で付与される）
+- 現在の時刻、室温、湿度、天気、在室状況などから1つ選んで自然に触れる
+- ユーザーへの気遣い、季節の話題、ちょっとした雑談でも可
 - 同じ話題を繰り返さない（前回の話題を避ける）
-- 返答はセリフのみ。説明や括弧書きは不要
+- 出力はセリフのみ。説明・括弧書き・装飾語尾は不要
 
 現在の状況:
 {context}
@@ -37,12 +37,17 @@ _AMBIENT_PROMPT = """\
 
 
 class AmbientSpeaker:
-    """Generates periodic ambient speech using LLM + world model context."""
+    """Generates periodic ambient speech using LLM + world model context.
 
-    def __init__(self, llm_client, world_model, character=None):
+    Stage 1: raw factual utterance (this class). Stage 2: character voice via
+    PersonaRewriter (provided as constructor arg; may be None in tests).
+    """
+
+    def __init__(self, llm_client, world_model, character=None, persona_rewriter=None):
         self.llm = llm_client
         self.world_model = world_model
         self.character = character
+        self.persona_rewriter = persona_rewriter
         self._last_speak_time: float = 0.0
         self._last_message: str = "（まだ何も話していません）"
         self._consecutive_failures: int = 0
@@ -114,6 +119,26 @@ class AmbientSpeaker:
             if zone.occupancy.count > 0:
                 parts.append(f"在室: {zone_id}")
 
+        # Recent knowledge / notes activity (last hour) — gives ambient speech
+        # something to riff on when the user has been writing/editing
+        ks = self.world_model.knowledge_state
+        recent_window = time.time() - 3600
+        if ks.recent_changes:
+            recent_titles = [
+                c.get("title", "")
+                for c in ks.recent_changes[-3:]
+                if c.get("title")
+            ]
+            if recent_titles:
+                parts.append(f"直近の編集ノート: {', '.join(recent_titles[-2:])}")
+        if ks.events:
+            recent_kn_evs = [
+                e for e in ks.events
+                if e.event_type == "knowledge_changed" and e.timestamp >= recent_window
+            ][-2:]
+            if recent_kn_evs:
+                parts.append(f"外部ナレッジ更新: {recent_kn_evs[-1].description}")
+
         return "\n".join(parts)
 
     async def generate(self) -> dict | None:
@@ -129,16 +154,14 @@ class AmbientSpeaker:
             last_message=self._last_message,
         )
 
-        # Add character personality hint
-        char_name = getattr(self.character, "name", "") if self.character else ""
-        if char_name:
-            prompt = f"キャラクター名: {char_name}\n" + prompt
-
+        # Stage 1: raw factual generation (no character hint in prompt).
         try:
-            response = await self.llm.chat([
-                {"role": "system", "content": "短い日本語のセリフを1つだけ生成してください。"},
-                {"role": "user", "content": prompt},
-            ])
+            response = await self.llm.chat(
+                [
+                    {"role": "system", "content": "短い日本語のセリフを1つだけ素のまま生成してください。"},
+                    {"role": "user", "content": prompt},
+                ]
+            )
 
             if response.error:
                 self._consecutive_failures += 1

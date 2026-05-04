@@ -2,36 +2,35 @@
 Chat router — conversational AI endpoint.
 Persists messages and proxies to Brain chat server for LLM processing.
 """
+
 import asyncio
-import io
 import json
 import os
 import re
-import struct
 import subprocess
 import tempfile
-import wave
-from typing import List
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from loguru import logger
 
-from database import get_db
 import models
 import schemas
+from database import get_db
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 BRAIN_CHAT_URL = os.getenv("BRAIN_CHAT_URL", "http://brain:8080")
 VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
-_HEMS_API_KEY = os.getenv("HEMS_API_KEY", "")
-_AUTH_HEADERS = {"Authorization": f"Bearer {_HEMS_API_KEY}"} if _HEMS_API_KEY else {}
+SLIDING_WINDOW = 20  # max messages sent to brain
+TTS_MAX_LENGTH = 100  # auto-synthesize responses shorter than this
 
-SLIDING_WINDOW = 20     # max messages sent to brain
-TTS_MAX_LENGTH = 100    # auto-synthesize responses shorter than this
+
+def _internal_headers() -> dict:
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 @router.post("/", response_model=schemas.ChatResponse)
@@ -87,10 +86,7 @@ async def send_message(req: schemas.ChatMessageSend, db: AsyncSession = Depends(
 
     # 5. TTS synthesis: force if tts=True, auto for short responses, skip if tts=False
     audio_url = None
-    should_tts = (
-        req.tts is True
-        or (req.tts is None and len(brain_response["content"]) <= TTS_MAX_LENGTH)
-    )
+    should_tts = req.tts is True or (req.tts is None and len(brain_response["content"]) <= TTS_MAX_LENGTH)
     if should_tts and brain_response["content"]:
         audio_url = await _synthesize_speech(brain_response["content"])
 
@@ -101,15 +97,14 @@ async def send_message(req: schemas.ChatMessageSend, db: AsyncSession = Depends(
         content=brain_response["content"],
         audio_url=audio_url,
         tool_calls_json=json.dumps(brain_response.get("tool_calls", []), ensure_ascii=False)
-        if brain_response.get("tool_calls") else None,
+        if brain_response.get("tool_calls")
+        else None,
     )
     db.add(assistant_msg)
 
     # Update conversation timestamp
     await db.execute(
-        update(models.Conversation)
-        .where(models.Conversation.id == conv.id)
-        .values(updated_at=user_msg.created_at)
+        update(models.Conversation).where(models.Conversation.id == conv.id).values(updated_at=user_msg.created_at)
     )
     await db.commit()
     await db.refresh(assistant_msg)
@@ -121,7 +116,7 @@ async def send_message(req: schemas.ChatMessageSend, db: AsyncSession = Depends(
     )
 
 
-@router.get("/conversations", response_model=List[schemas.ConversationSummary])
+@router.get("/conversations", response_model=list[schemas.ConversationSummary])
 async def list_conversations(limit: int = 20, db: AsyncSession = Depends(get_db)):
     """List recent conversations."""
     limit = min(limit, 50)
@@ -143,20 +138,23 @@ async def list_conversations(limit: int = 20, db: AsyncSession = Depends(get_db)
             .limit(1)
         )
         last = msg_result.scalar_one_or_none()
-        items.append(schemas.ConversationSummary(
-            id=c.id, title=c.title, is_active=c.is_active,
-            created_at=c.created_at, updated_at=c.updated_at,
-            last_message=last[:100] if last else None,
-        ))
+        items.append(
+            schemas.ConversationSummary(
+                id=c.id,
+                title=c.title,
+                is_active=c.is_active,
+                created_at=c.created_at,
+                updated_at=c.updated_at,
+                last_message=last[:100] if last else None,
+            )
+        )
     return items
 
 
 @router.get("/conversations/{conversation_id}", response_model=schemas.ConversationDetail)
 async def get_conversation(conversation_id: int, db: AsyncSession = Depends(get_db)):
     """Get conversation with full message history."""
-    result = await db.execute(
-        select(models.Conversation).where(models.Conversation.id == conversation_id)
-    )
+    result = await db.execute(select(models.Conversation).where(models.Conversation.id == conversation_id))
     conv = result.scalar_one_or_none()
     if not conv:
         raise HTTPException(404, "Conversation not found")
@@ -169,8 +167,11 @@ async def get_conversation(conversation_id: int, db: AsyncSession = Depends(get_
     messages = [schemas.ChatMessage.model_validate(m) for m in msg_result.scalars().all()]
 
     return schemas.ConversationDetail(
-        id=conv.id, title=conv.title, is_active=conv.is_active,
-        created_at=conv.created_at, updated_at=conv.updated_at,
+        id=conv.id,
+        title=conv.title,
+        is_active=conv.is_active,
+        created_at=conv.created_at,
+        updated_at=conv.updated_at,
         messages=messages,
     )
 
@@ -178,9 +179,7 @@ async def get_conversation(conversation_id: int, db: AsyncSession = Depends(get_
 @router.delete("/conversations/{conversation_id}")
 async def archive_conversation(conversation_id: int, db: AsyncSession = Depends(get_db)):
     """Archive (soft delete) a conversation."""
-    result = await db.execute(
-        select(models.Conversation).where(models.Conversation.id == conversation_id)
-    )
+    result = await db.execute(select(models.Conversation).where(models.Conversation.id == conversation_id))
     conv = result.scalar_one_or_none()
     if not conv:
         raise HTTPException(404, "Conversation not found")
@@ -192,14 +191,14 @@ async def archive_conversation(conversation_id: int, db: AsyncSession = Depends(
 
 # --- Internal helpers ---
 
+
 async def _call_brain(history: list[dict], user_message: str) -> dict:
     """Proxy chat request to Brain HTTP server."""
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
             resp = await client.post(
                 f"{BRAIN_CHAT_URL}/chat",
                 json={"messages": history, "user_message": user_message},
-                headers=_AUTH_HEADERS,
             )
             if resp.status_code != 200:
                 logger.warning(f"Brain chat error: {resp.status_code} {resp.text[:200]}")
@@ -236,7 +235,7 @@ async def _synth_single(text: str) -> str | None:
             resp = await client.post(
                 f"{VOICE_SERVICE_URL}/api/voice/synthesize",
                 json={"text": text, "tone": "neutral"},
-                headers=_AUTH_HEADERS,
+                headers=_internal_headers(),
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -284,7 +283,7 @@ async def _synth_chunk(client: httpx.AsyncClient, text: str, index: int) -> tupl
         resp = await client.post(
             f"{VOICE_SERVICE_URL}/api/voice/synthesize",
             json={"text": text, "tone": "neutral", "format": "wav"},
-            headers=_AUTH_HEADERS,
+            headers=_internal_headers(),
         )
         if resp.status_code != 200:
             logger.debug(f"Chunk {index} synth failed: {resp.status_code}")
@@ -327,9 +326,18 @@ def _concat_audio(wav_chunks: list[bytes]) -> bytes:
         out_path = os.path.join(tmpdir, "out.mp3")
         result = subprocess.run(
             [
-                "ffmpeg", "-y",
-                "-f", "concat", "-safe", "0", "-i", list_path,
-                "-acodec", "libmp3lame", "-q:a", "2",
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                list_path,
+                "-acodec",
+                "libmp3lame",
+                "-q:a",
+                "2",
                 out_path,
             ],
             capture_output=True,
@@ -361,10 +369,7 @@ async def _synth_chunked(text: str) -> str | None:
             return await _synth_chunk(client, chunk_text, idx)
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
-        tasks = [
-            limited_synth(client, chunk, i)
-            for i, chunk in enumerate(chunks)
-        ]
+        tasks = [limited_synth(client, chunk, i) for i, chunk in enumerate(chunks)]
         results = await asyncio.gather(*tasks)
 
     # Collect in order, skip failures
@@ -374,15 +379,14 @@ async def _synth_chunked(text: str) -> str | None:
         return None
 
     # Concatenate
-    combined = await asyncio.get_event_loop().run_in_executor(
-        None, _concat_audio, wav_data
-    )
+    combined = await asyncio.get_event_loop().run_in_executor(None, _concat_audio, wav_data)
 
     # Save to voice service audio directory via a temp upload or direct write
     # Since voice service manages audio files, we save via its endpoint
     # Alternative: write directly if we share the volume
     import hashlib
     import time
+
     filename = f"chat_tts_{int(time.time())}_{hashlib.md5(text[:50].encode()).hexdigest()[:8]}.mp3"
 
     # Try to write to voice service audio dir (shared volume)

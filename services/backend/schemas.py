@@ -1,82 +1,81 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List
 from datetime import datetime
 
+from pydantic import BaseModel, ConfigDict, Field
 
 # --- Task ---
 
+
 class TaskCreate(BaseModel):
     title: str
-    description: Optional[str] = None
-    location: Optional[str] = None
-    expires_at: Optional[datetime] = None
-    task_type: Optional[List[str]] = None
+    description: str | None = None
+    location: str | None = None
+    expires_at: datetime | None = None
+    task_type: list[str] | None = None
     urgency: int = 2
-    zone: Optional[str] = None
+    zone: str | None = None
     estimated_duration: int = 10
-    announcement_audio_url: Optional[str] = None
-    announcement_text: Optional[str] = None
-    completion_audio_url: Optional[str] = None
-    completion_text: Optional[str] = None
-    cognitive_load: Optional[int] = None
-    preferred_time_slot: Optional[str] = None
-    deadline: Optional[datetime] = None
-    source: Optional[str] = None
-    source_ref: Optional[str] = None
-    confidence: Optional[float] = None
-    proposal_status: Optional[str] = None
+    announcement_audio_url: str | None = None
+    announcement_text: str | None = None
+    completion_audio_url: str | None = None
+    completion_text: str | None = None
+    cognitive_load: int | None = None
+    preferred_time_slot: str | None = None
+    deadline: datetime | None = None
+    source: str | None = None
+    source_ref: str | None = None
+    confidence: float | None = None
+    proposal_status: str | None = None
 
 
 class Task(BaseModel):
     id: int
     title: str
-    description: Optional[str] = None
-    location: Optional[str] = None
+    description: str | None = None
+    location: str | None = None
     is_completed: bool = False
     is_queued: bool = False
-    created_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    dispatched_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
-    task_type: Optional[List[str]] = None
+    created_at: datetime | None = None
+    completed_at: datetime | None = None
+    dispatched_at: datetime | None = None
+    expires_at: datetime | None = None
+    task_type: list[str] | None = None
     urgency: int = 2
-    zone: Optional[str] = None
+    zone: str | None = None
     estimated_duration: int = 10
-    announcement_audio_url: Optional[str] = None
-    announcement_text: Optional[str] = None
-    completion_audio_url: Optional[str] = None
-    completion_text: Optional[str] = None
-    assigned_to: Optional[int] = None
-    accepted_at: Optional[datetime] = None
-    last_reminded_at: Optional[datetime] = None
-    report_status: Optional[str] = None
-    completion_note: Optional[str] = None
-    cognitive_load: Optional[int] = None
-    preferred_time_slot: Optional[str] = None
-    deadline: Optional[datetime] = None
-    source: Optional[str] = None
-    source_ref: Optional[str] = None
-    confidence: Optional[float] = None
-    proposal_status: Optional[str] = None
-    dismissed_at: Optional[datetime] = None
-    dismiss_reason: Optional[str] = None
-    locked_start: Optional[datetime] = None
+    announcement_audio_url: str | None = None
+    announcement_text: str | None = None
+    completion_audio_url: str | None = None
+    completion_text: str | None = None
+    assigned_to: int | None = None
+    accepted_at: datetime | None = None
+    last_reminded_at: datetime | None = None
+    report_status: str | None = None
+    completion_note: str | None = None
+    cognitive_load: int | None = None
+    preferred_time_slot: str | None = None
+    deadline: datetime | None = None
+    source: str | None = None
+    source_ref: str | None = None
+    confidence: float | None = None
+    proposal_status: str | None = None
+    dismissed_at: datetime | None = None
+    dismiss_reason: str | None = None
+    locked_start: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskComplete(BaseModel):
-    report_status: Optional[str] = None
-    completion_note: Optional[str] = None
+    report_status: str | None = None
+    completion_note: str | None = None
 
 
 class TaskAccept(BaseModel):
-    user_id: Optional[int] = None
+    user_id: int | None = None
 
 
 class TaskDismiss(BaseModel):
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 class TaskLock(BaseModel):
@@ -85,48 +84,49 @@ class TaskLock(BaseModel):
 
 # --- Timeline ---
 
+
 class ScheduledBlock(BaseModel):
     id: int
     date: str
     start_ts: datetime
     end_ts: datetime
     kind: str
-    ref_task_id: Optional[int] = None
-    ref_calendar_event_id: Optional[str] = None
+    ref_task_id: int | None = None
+    ref_calendar_event_id: str | None = None
     title: str
-    location: Optional[str] = None
+    location: str | None = None
     is_locked: bool = False
     travel_buffer_minutes: int = 0
-    generated_at: Optional[datetime] = None
+    generated_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ScheduledBlockIn(BaseModel):
     start_ts: datetime
     end_ts: datetime
     kind: str
-    ref_task_id: Optional[int] = None
-    ref_calendar_event_id: Optional[str] = None
+    ref_task_id: int | None = None
+    ref_calendar_event_id: str | None = None
     title: str
-    location: Optional[str] = None
+    location: str | None = None
     is_locked: bool = False
     travel_buffer_minutes: int = 0
 
 
 class TimelineRegenerate(BaseModel):
     date: str
-    blocks: List[ScheduledBlockIn]
+    blocks: list[ScheduledBlockIn]
 
 
 class TimelineResponse(BaseModel):
     date: str
-    blocks: List[ScheduledBlock]
-    generated_at: Optional[datetime] = None
+    blocks: list[ScheduledBlock]
+    generated_at: datetime | None = None
 
 
 # --- SystemStats ---
+
 
 class SystemStatsResponse(BaseModel):
     tasks_completed: int = 0
@@ -138,142 +138,163 @@ class SystemStatsResponse(BaseModel):
 
 # --- VoiceEvent ---
 
+
 class VoiceEventCreate(BaseModel):
     message: str
     audio_url: str
-    zone: Optional[str] = None
+    zone: str | None = None
     tone: str = "neutral"
-    motion_id: Optional[str] = None
+    motion_id: str | None = None
 
 
 class VoiceEvent(BaseModel):
     id: int
     message: str
     audio_url: str
-    zone: Optional[str] = None
+    zone: str | None = None
     tone: str = "neutral"
-    motion_id: Optional[str] = None
-    created_at: Optional[datetime] = None
+    motion_id: str | None = None
+    created_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- User ---
 
+
 class UserCreate(BaseModel):
     username: str
-    display_name: Optional[str] = None
+    display_name: str | None = None
 
 
 class UserUpdate(BaseModel):
-    username: Optional[str] = None
-    display_name: Optional[str] = None
+    username: str | None = None
+    display_name: str | None = None
 
 
 class User(BaseModel):
     id: int
     username: str
-    display_name: Optional[str] = None
+    display_name: str | None = None
     is_active: bool = True
-    created_at: Optional[datetime] = None
+    created_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Zone / Sensor ---
 
+
 class EnvironmentData(BaseModel):
-    temperature: Optional[float] = None
-    humidity: Optional[float] = None
-    co2: Optional[float] = None
-    pressure: Optional[float] = None
-    light: Optional[float] = None
-    voc: Optional[float] = None
-    last_update: Optional[float] = None
+    temperature: float | None = None
+    humidity: float | None = None
+    co2: float | None = None
+    pressure: float | None = None
+    light: float | None = None
+    voc: float | None = None
+    last_update: float | None = None
 
 
 class OccupancyData(BaseModel):
     count: int = 0
-    last_update: Optional[float] = None
+    last_update: float | None = None
 
 
 class ZoneSnapshot(BaseModel):
     zone_id: str
     environment: EnvironmentData = EnvironmentData()
     occupancy: OccupancyData = OccupancyData()
-    events: List[dict] = []
+    events: list[dict] = []
 
 
 class ZonesUpdate(BaseModel):
-    zones: List[ZoneSnapshot]
+    zones: list[ZoneSnapshot]
 
 
 # --- Shopping List ---
 
+
 class ShoppingItemCreate(BaseModel):
     name: str
-    category: Optional[str] = None
+    category: str | None = None
     quantity: int = 1
-    unit: Optional[str] = None
-    store: Optional[str] = None
-    price: Optional[int] = None
+    unit: str | None = None
+    store: str | None = None
+    store_category: str | None = None
+    price: int | None = None
     is_recurring: bool = False
-    recurrence_days: Optional[int] = None
-    notes: Optional[str] = None
+    recurrence_days: int | None = None
+    notes: str | None = None
     priority: int = 1
     created_by: str = "user"
 
 
 class ShoppingItemUpdate(BaseModel):
-    name: Optional[str] = None
-    category: Optional[str] = None
-    quantity: Optional[int] = None
-    unit: Optional[str] = None
-    store: Optional[str] = None
-    price: Optional[int] = None
-    is_recurring: Optional[bool] = None
-    recurrence_days: Optional[int] = None
-    notes: Optional[str] = None
-    priority: Optional[int] = None
+    name: str | None = None
+    category: str | None = None
+    quantity: int | None = None
+    unit: str | None = None
+    store: str | None = None
+    store_category: str | None = None
+    price: int | None = None
+    is_recurring: bool | None = None
+    recurrence_days: int | None = None
+    notes: str | None = None
+    priority: int | None = None
+
+
+class ShoppingItemPatch(BaseModel):
+    """Partial update — only fields explicitly provided are written."""
+
+    name: str | None = None
+    category: str | None = None
+    quantity: int | None = None
+    unit: str | None = None
+    store: str | None = None
+    store_category: str | None = None
+    price: int | None = None
+    is_recurring: bool | None = None
+    recurrence_days: int | None = None
+    notes: str | None = None
+    priority: int | None = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ShoppingItem(BaseModel):
     id: int
     name: str
-    category: Optional[str] = None
+    category: str | None = None
     quantity: int = 1
-    unit: Optional[str] = None
-    store: Optional[str] = None
-    price: Optional[int] = None
+    unit: str | None = None
+    store: str | None = None
+    store_category: str | None = None
+    price: int | None = None
     is_purchased: bool = False
     is_recurring: bool = False
-    recurrence_days: Optional[int] = None
-    last_purchased_at: Optional[datetime] = None
-    next_purchase_at: Optional[datetime] = None
-    notes: Optional[str] = None
+    recurrence_days: int | None = None
+    last_purchased_at: datetime | None = None
+    next_purchase_at: datetime | None = None
+    notes: str | None = None
     priority: int = 1
-    created_at: Optional[datetime] = None
-    purchased_at: Optional[datetime] = None
+    created_at: datetime | None = None
+    purchased_at: datetime | None = None
     created_by: str = "user"
-    share_token: Optional[str] = None
+    share_token: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PurchaseHistory(BaseModel):
     id: int
     item_name: str
-    category: Optional[str] = None
-    store: Optional[str] = None
-    price: Optional[int] = None
+    category: str | None = None
+    store: str | None = None
+    price: int | None = None
     quantity: int = 1
-    purchased_at: Optional[datetime] = None
+    purchased_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ShoppingStats(BaseModel):
@@ -287,15 +308,16 @@ class ShoppingStats(BaseModel):
 class ShoppingShareResponse(BaseModel):
     share_url: str
     token: str
-    items: List[ShoppingItem] = []
+    items: list[ShoppingItem] = []
 
 
 # --- Chat ---
 
+
 class ChatMessageSend(BaseModel):
     content: str
-    conversation_id: Optional[int] = None
-    tts: Optional[bool] = None  # None=auto (short responses), True=force, False=skip
+    conversation_id: int | None = None
+    tts: bool | None = None  # None=auto (short responses), True=force, False=skip
 
 
 class ChatMessage(BaseModel):
@@ -303,13 +325,12 @@ class ChatMessage(BaseModel):
     conversation_id: int
     role: str
     content: str
-    audio_url: Optional[str] = None
-    tool_calls_json: Optional[str] = None
-    metadata_json: Optional[str] = None
-    created_at: Optional[datetime] = None
+    audio_url: str | None = None
+    tool_calls_json: str | None = None
+    metadata_json: str | None = None
+    created_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatResponse(BaseModel):
@@ -320,23 +341,421 @@ class ChatResponse(BaseModel):
 
 class ConversationSummary(BaseModel):
     id: int
-    title: Optional[str] = None
+    title: str | None = None
     is_active: bool = True
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    last_message: Optional[str] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    last_message: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Device Registry ---
+
+
+class DeviceBase(BaseModel):
+    device_id: str
+    vendor: str
+    vendor_ref: str | None = None
+    kind: str = "actuator"  # sensor|actuator|both
+    device_class: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    channels: list[str] = Field(default_factory=list)
+    units: dict = Field(default_factory=dict)
+    display_name: str | None = None
+    zone: str | None = None
+    location: str | None = None
+    purpose: str | None = None
+    description: str | None = None
+    model_id: str | None = None
+    manufacturer: str | None = None
+    icon: str | None = None
+    battery_pct: int | None = None
+    link_quality: int | None = None
+    is_enabled: bool = True
+    notes: str | None = None
+    metadata_json: str | None = None
+
+
+class DeviceCreate(DeviceBase):
+    pass
+
+
+class DeviceUpdate(BaseModel):
+    # All fields optional for partial update — metadata editing from UI
+    vendor_ref: str | None = None
+    kind: str | None = None
+    device_class: str | None = None
+    capabilities: list[str] | None = None
+    channels: list[str] | None = None
+    units: dict | None = None
+    display_name: str | None = None
+    zone: str | None = None
+    location: str | None = None
+    purpose: str | None = None
+    description: str | None = None
+    model_id: str | None = None
+    manufacturer: str | None = None
+    icon: str | None = None
+    is_enabled: bool | None = None
+    notes: str | None = None
+    metadata_json: str | None = None
+
+
+class Device(DeviceBase):
+    id: int
+    last_state: dict = Field(default_factory=dict)
+    last_value: dict = Field(default_factory=dict)
+    last_seen: datetime | None = None
+    last_seen_reported: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DeviceHeartbeat(BaseModel):
+    """Brain push: create-or-update on sensor/actuator activity."""
+
+    device_id: str
+    vendor: str
+    vendor_ref: str | None = None
+    kind: str | None = None
+    device_class: str | None = None
+    capabilities: list[str] | None = None
+    channels: list[str] | None = None
+    units: dict | None = None
+    zone: str | None = None
+    display_name: str | None = None
+    description: str | None = None
+    model_id: str | None = None
+    manufacturer: str | None = None
+    last_state: dict | None = None
+    last_value: dict | None = None
+    battery_pct: int | None = None
+    link_quality: int | None = None
+    last_seen_reported: float | None = None  # epoch seconds (Z2M last_seen)
+
+
+class DeviceControlRequest(BaseModel):
+    """UI manual control: forwarded via Brain to the physical device."""
+
+    action: str  # on|off|toggle|set_brightness|set_color_temp|set_position|pulse|ir_send
+    params: dict = Field(default_factory=dict)
+
+
+class DeviceControlResponse(BaseModel):
+    success: bool
+    result: str | None = None
+    error: str | None = None
+
+
+class ZigbeePermitJoinRequest(BaseModel):
+    """Open/close the Z2M coordinator for new device pairing."""
+
+    enable: bool
+    duration_s: int = Field(default=60, ge=0, le=3600, description="Auto-close after N seconds (0 = open until closed)")
+
+
+# --- Scene ---
+
+
+class SceneAction(BaseModel):
+    device_id: str
+    action: str
+    params: dict = Field(default_factory=dict)
+    delay_s: int = 0
+
+
+class SceneBase(BaseModel):
+    name: str  # programmatic ID "wake_up"
+    display_name: str
+    description: str | None = None
+    actions: list[SceneAction] = Field(default_factory=list)
+    is_enabled: bool = True
+
+
+class SceneCreate(SceneBase):
+    pass
+
+
+class SceneUpdate(BaseModel):
+    display_name: str | None = None
+    description: str | None = None
+    actions: list[SceneAction] | None = None
+    is_enabled: bool | None = None
+
+
+class Scene(SceneBase):
+    id: int
+    last_executed_at: datetime | None = None
+    execution_count: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SceneExecuteResponse(BaseModel):
+    success: bool
+    executed: int
+    errors: list[str] = Field(default_factory=list)
+
+
+# --- AutomationRule ---
+
+
+class AutomationRuleBase(BaseModel):
+    name: str
+    description: str | None = None
+    enabled: bool = True
+    trigger_type: str  # sensor_threshold|schedule|event|device_state
+    trigger_config: dict = Field(default_factory=dict)
+    actions: list[SceneAction] = Field(default_factory=list)
+    cooldown_s: int = 600
+    mode: str = "direct"  # direct|llm_review
+    require_confirm: bool = False
+
+
+class AutomationRuleCreate(AutomationRuleBase):
+    pass
+
+
+class AutomationRuleUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    enabled: bool | None = None
+    trigger_type: str | None = None
+    trigger_config: dict | None = None
+    actions: list[SceneAction] | None = None
+    cooldown_s: int | None = None
+    mode: str | None = None
+    require_confirm: bool | None = None
+
+
+class AutomationRule(AutomationRuleBase):
+    id: int
+    last_fired_at: datetime | None = None
+    fire_count: int = 0
+    last_evaluation_ts: float | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AutomationRuleFireUpdate(BaseModel):
+    """Brain → backend: record successful firing stats."""
+
+    last_fired_at: datetime
+    fire_count: int
+    last_evaluation_ts: float | None = None
 
 
 class ConversationDetail(BaseModel):
     id: int
-    title: Optional[str] = None
+    title: str | None = None
     is_active: bool = True
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    messages: List[ChatMessage] = []
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    messages: list[ChatMessage] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- FrequentPlace (geofence targets for shopping / location reminders) ---
+
+
+class FrequentPlaceCreate(BaseModel):
+    label: str
+    category: str  # drugstore|supermarket|convenience|home_center|other
+    lat: float
+    lon: float
+    radius_m: int = 200
+    enabled: bool = True
+    cooldown_min: int = 60
+
+
+class FrequentPlaceUpdate(BaseModel):
+    label: str | None = None
+    category: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    radius_m: int | None = None
+    enabled: bool | None = None
+    cooldown_min: int | None = None
+
+
+class FrequentPlace(BaseModel):
+    id: int
+    label: str
+    category: str
+    lat: float
+    lon: float
+    radius_m: int = 200
+    enabled: bool = True
+    cooldown_min: int = 60
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- ClassifierCache (brain-side learned classifications) ---
+
+
+class ClassifierCacheEntry(BaseModel):
+    """Shared read/write shape for `/classifier-cache/` endpoints."""
+
+    kind: str  # "shopping" | "event_lead" | ...
+    key_hash: str  # sha256(kind + ":" + normalized_input), caller-provided
+    value_json: str  # JSON-encoded payload (value semantics owned by brain)
+    source: str = "llm"  # seed | llm | user_override | promoted
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ClassifierCacheRecord(ClassifierCacheEntry):
+    id: int
+    hit_count: int = 1
+    learned_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
+
+
+# --- Mobile device registration & webhook ---
+
+
+class MobileDeviceRegisterRequest(BaseModel):
+    device_label: str
+    platform: str | None = None  # "android" | "ios"
+
+
+class MobileDeviceRegisterResponse(BaseModel):
+    device_id: int
+    device_key: str  # issued; client stores securely
+    hmac_secret: str  # for state webhook signing
+    backend_url: str | None = None
+    character_version: str | None = None
+
+
+class MobileDevice(BaseModel):
+    id: int
+    device_label: str
+    platform: str | None = None
+    registered_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    enabled: bool = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MobileLocationReading(BaseModel):
+    lat: float
+    lon: float
+    accuracy_m: float | None = None
+    speed_mps: float | None = None
+    heading_deg: float | None = None
+    provider: str | None = None  # "fused" | "gps" | "network"
+
+
+class MobileActivityReading(BaseModel):
+    kind: str  # "still" | "walking" | "running" | "in_vehicle" | "on_bicycle" | "unknown"
+    confidence: int | None = None
+
+
+class MobileBiometricReading(BaseModel):
+    heart_rate: int | None = None
+    spo2: int | None = None
+    steps: int | None = None
+    stress_level: int | None = None
+    sleep_duration_minutes: int | None = None
+
+
+class MobileStateWebhookPayload(BaseModel):
+    ts: datetime  # client-provided timestamp
+    location: MobileLocationReading | None = None
+    activity: MobileActivityReading | None = None
+    biometrics: MobileBiometricReading | None = None
+    battery_pct: int | None = None
+    app_foreground: bool | None = None
+
+
+class MobileStateWebhookResponse(BaseModel):
+    received: bool = True
+    published_topics: list[str] = []
+
+
+# --- Voice Capsule manifest (served to mobile) ---
+
+
+class VoiceCapsuleTrigger(BaseModel):
+    kind: str  # "time" | "pre_event" | "geofence" | "biometric_threshold"
+    # time
+    at: str | None = None  # "HH:MM" local or ISO absolute
+    absolute_ts: int | None = None  # unix seconds
+    # pre_event
+    event_id: str | None = None
+    offset_min: int | None = None
+    # geofence
+    zone: str | None = None  # place_{id} | "home"
+    event: str | None = None  # "enter" | "exit" | "dwell"
+    cooldown_min: int | None = None
+    # Geofence payload inlined so the phone doesn't have to re-resolve the
+    # place — brain-side is the only place that knows the authoritative coords.
+    lat: float | None = None
+    lon: float | None = None
+    radius_m: int | None = None
+    # biometric_threshold
+    metric: str | None = None  # heart_rate|stress|fatigue|sedentary_minutes
+    op: str | None = None  # "gt" | "lt"
+    value: float | None = None
+
+
+class VoiceCapsuleClip(BaseModel):
+    id: str
+    trigger: VoiceCapsuleTrigger
+    audio_url: str
+    transcript: str | None = None
+    priority: int = 5
+    tone: str | None = "neutral"
+    expires_at: datetime | None = None
+    tags: list[str] = []
+
+
+class VoiceCapsuleBankClip(BaseModel):
+    id: str
+    tag: str
+    audio_url: str
+    transcript: str | None = None
+
+
+class VoiceCapsuleManifest(BaseModel):
+    capsule_id: str  # "2026-04-17"
+    character_version: str | None = None
+    generated_at: datetime | None = None
+    expires_at: datetime | None = None
+    clips: list[VoiceCapsuleClip] = []
+    generic_bank: list[VoiceCapsuleBankClip] = []
+
+
+class VoiceCapsulePlayAck(BaseModel):
+    capsule_id: str
+    clip_id: str
+    played_at: datetime
+    trigger_drift_sec: int | None = None
+    context_json: str | None = None
+
+
+class VoiceCapsulePlayLogRecord(BaseModel):
+    """Listable shape of one VoiceCapsulePlayLog row (admin-only endpoint)."""
+
+    id: int
+    capsule_id: int  # FK id (integer) of VoiceCapsule row
+    clip_id: str
+    played_at: datetime
+    trigger_drift_sec: int | None = None
+    context_json: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)

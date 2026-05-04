@@ -1,0 +1,12 @@
+# HEMS shared base — common deps preinstalled on hems-base:py3.11.
+# Bumping a version here propagates to every service that FROMs the base
+# on the next rebuild. Service-specific requirements.txt may pin tighter
+# versions and pip will upgrade as needed.
+
+paho-mqtt>=2.1.0
+fastapi>=0.115.5
+uvicorn[standard]>=0.32.0
+aiohttp>=3.13.0
+pydantic>=2.10.0
+python-dotenv>=1.0.1
+loguru>=0.7.3

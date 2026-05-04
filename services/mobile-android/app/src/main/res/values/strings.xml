@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HEMS Companion</string>
+    <string name="setup_title">HEMS ペアリング</string>
+    <string name="setup_description">ダッシュボードの「モバイルデバイス登録」で表示された QR コードをスキャンしてください。</string>
+    <string name="setup_scan_qr">QR コードをスキャン</string>
+    <string name="setup_success">登録完了: %1$s</string>
+    <string name="setup_error">登録失敗: %1$s</string>
+    <string name="setup_already_registered">登録済み (device id: %1$d)</string>
+    <string name="setup_reset">リセット</string>
+</resources>

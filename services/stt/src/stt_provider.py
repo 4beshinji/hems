@@ -2,6 +2,7 @@
 STT Provider abstract base class for HEMS STT Service.
 All STT backends implement this interface.
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -29,9 +30,7 @@ class STTProvider(ABC):
         ...
 
     @abstractmethod
-    async def transcribe(
-        self, audio_data: bytes, language: str = "ja"
-    ) -> TranscriptionResult:
+    async def transcribe(self, audio_data: bytes, language: str = "ja") -> TranscriptionResult:
         """Transcribe audio bytes to text."""
         ...
 

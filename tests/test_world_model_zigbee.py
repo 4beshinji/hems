@@ -2,6 +2,7 @@
 Tests for WorldModel Zigbee binary_sensor/sensor MQTT processing,
 event generation, and LLM context display.
 """
+
 from world_model.data_classes import BinarySensorState, HASensorState
 
 
@@ -182,7 +183,9 @@ class TestHASensorMQTT:
     def test_device_class_preserved(self, world_model):
         """device_class from first message persists."""
         topic = "hems/home/room/sensor/sensor.co2/state"
-        world_model.update_from_mqtt(topic, {"state": "800", "device_class": "carbon_dioxide", "unit_of_measurement": "ppm"})
+        world_model.update_from_mqtt(
+            topic, {"state": "800", "device_class": "carbon_dioxide", "unit_of_measurement": "ppm"}
+        )
         world_model.update_from_mqtt(topic, {"state": "900"})
         s = world_model.physical.home_devices.sensors["sensor.co2"]
         assert s.device_class == "carbon_dioxide"
@@ -195,7 +198,9 @@ class TestLLMContextZigbee:
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.binary_sensors["binary_sensor.leak"] = BinarySensorState(
-            entity_id="binary_sensor.leak", state=False, device_class="moisture",
+            entity_id="binary_sensor.leak",
+            state=False,
+            device_class="moisture",
         )
         context = world_model.get_llm_context()
         assert "水漏れ" in context
@@ -205,7 +210,9 @@ class TestLLMContextZigbee:
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.binary_sensors["binary_sensor.leak"] = BinarySensorState(
-            entity_id="binary_sensor.leak", state=True, device_class="moisture",
+            entity_id="binary_sensor.leak",
+            state=True,
+            device_class="moisture",
         )
         context = world_model.get_llm_context()
         assert "⚠" in context
@@ -216,7 +223,9 @@ class TestLLMContextZigbee:
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.binary_sensors["binary_sensor.door"] = BinarySensorState(
-            entity_id="binary_sensor.door", state=True, device_class="door",
+            entity_id="binary_sensor.door",
+            state=True,
+            device_class="door",
         )
         context = world_model.get_llm_context()
         assert "ドア" in context
@@ -227,7 +236,9 @@ class TestLLMContextZigbee:
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.binary_sensors["binary_sensor.door"] = BinarySensorState(
-            entity_id="binary_sensor.door", state=False, device_class="door",
+            entity_id="binary_sensor.door",
+            state=False,
+            device_class="door",
         )
         context = world_model.get_llm_context()
         assert "ドア" not in context
@@ -237,7 +248,10 @@ class TestLLMContextZigbee:
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.sensors["sensor.washer_power"] = HASensorState(
-            entity_id="sensor.washer_power", value=120, unit="W", device_class="power",
+            entity_id="sensor.washer_power",
+            value=120,
+            unit="W",
+            device_class="power",
         )
         context = world_model.get_llm_context()
         assert "電力" in context
@@ -248,7 +262,10 @@ class TestLLMContextZigbee:
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.sensors["sensor.washer_power"] = HASensorState(
-            entity_id="sensor.washer_power", value=0, unit="W", device_class="power",
+            entity_id="sensor.washer_power",
+            value=0,
+            unit="W",
+            device_class="power",
         )
         context = world_model.get_llm_context()
         assert "電力" not in context
@@ -258,7 +275,10 @@ class TestLLMContextZigbee:
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.sensors["sensor.co2"] = HASensorState(
-            entity_id="sensor.co2", value=800, unit="ppm", device_class="carbon_dioxide",
+            entity_id="sensor.co2",
+            value=800,
+            unit="ppm",
+            device_class="carbon_dioxide",
         )
         context = world_model.get_llm_context()
         assert "CO2" in context
@@ -269,7 +289,10 @@ class TestLLMContextZigbee:
         hd = world_model.physical.home_devices
         hd.bridge_connected = True
         hd.sensors["sensor.pm25"] = HASensorState(
-            entity_id="sensor.pm25", value=25, unit="µg/m³", device_class="pm25",
+            entity_id="sensor.pm25",
+            value=25,
+            unit="µg/m³",
+            device_class="pm25",
         )
         context = world_model.get_llm_context()
         assert "PM2.5" in context

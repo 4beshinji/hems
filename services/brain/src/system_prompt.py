@@ -1,17 +1,22 @@
 """
 System prompt builder for HEMS Brain with character injection.
 """
+
 from dataclasses import fields as dc_fields
 
 
-def build_system_message(character=None, openclaw_enabled: bool = False,
-                         services_enabled: bool = False,
-                         obsidian_enabled: bool = False,
-                         ha_enabled: bool = False,
-                         biometric_enabled: bool = False,
-                         perception_enabled: bool = False,
-                         switchbot_enabled: bool = False,
-                         knowledge_enabled: bool = False) -> dict:
+def build_system_message(
+    character=None,
+    openclaw_enabled: bool = False,
+    services_enabled: bool = False,
+    obsidian_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    switchbot_enabled: bool = False,
+    knowledge_enabled: bool = False,
+    devices: list | None = None,
+) -> dict:
     """Build system message with safety rules + character personality.
 
     Args:
@@ -232,19 +237,157 @@ def build_system_message(character=None, openclaw_enabled: bool = False,
 - SwitchBotセンサー（Meter、Contact、Motion等）のデータはWorldModelに自動統合される
 - SwitchBotとHA両方のデバイスが存在する場合、entity_idのプレフィックスで区別する（switchbot.xxx vs light.xxx）"""
 
-    # Character injection
-    base += _build_character_section(character)
+    # Device Registry context — inject registered devices grouped by zone
+    if devices:
+        base += _build_device_section(devices)
+
+    # Explicit tool-use rules (v1) — ALWAYS inject to discipline small models
+    base += _build_tool_usage_rules()
+
+    # Few-shot tool-call examples (v2) — only when Device Registry tools exist
+    if devices is not None:
+        base += _build_tool_call_examples()
+
+    # Stage 1 (思考) は素モデル — キャラクター注入は行わない。
+    # 出力 (speak / chat response) は PersonaRewriter が事後変換する。
+    # character 引数は互換性のため受け取るが未使用。
 
     return {"role": "system", "content": base}
 
 
-def build_chat_system_message(character=None, world_context: str = "",
-                              obsidian_enabled: bool = False,
-                              knowledge_enabled: bool = False,
-                              ha_enabled: bool = False,
-                              biometric_enabled: bool = False,
-                              perception_enabled: bool = False,
-                              news_enabled: bool = False) -> dict:
+def _build_tool_usage_rules() -> str:
+    """Explicit tool-call discipline rules for small models (v1 hypothesis).
+
+    Addresses observed failure modes where models (e.g. gemma4:e4b) reply
+    "〜を取得します" without actually calling the tool, or ignore tool results.
+    """
+    return """
+
+## ツール使用の原則（最重要）
+1. データを取得する質問・要求（現在値/一覧/状態確認/デバイス制御）には、必ず先にツールを呼び出してから応答すること
+2. 「〜を取得します」「少々お待ちください」のような前置きだけで応答を終えるのは禁止 — 必ずツール呼出を伴うこと
+3. ツール結果を受け取ったら、その内容の数値・固有名詞を引用して自然な日本語で答えること（結果を無視しない）
+4. ツールが不要な質問（概念説明、既知情報、雑談）は直接答えてよい
+5. 不明な device_id / zone が出たら、まず list_devices / get_zone_status で確認してから指定する
+6. ツールを連鎖させる時は、1つ目の結果を踏まえて次のツール引数を組み立てる（盲目的呼出禁止）"""
+
+
+def _build_tool_call_examples() -> str:
+    """Few-shot tool-call examples (v2 hypothesis) — teaches the correct workflow.
+
+    Examples assume Device Registry tools (list_devices, describe_device,
+    control_actuator) are available. Using concrete device_id patterns but
+    instructing models to verify via list_devices first.
+    """
+    return """
+
+## ツール呼出例
+
+例1 (センサー照会 — device_id はプロンプト内デバイス配置から特定):
+User: 寝室の温度は?
+→ describe_device(device_id="mcp.bme680_01")
+→ tool_result: {"last_value":{"temperature":22.5,...}, "zone":"bedroom"}
+Assistant: 寝室の温度は22.5℃です。
+
+例2 (自然言語 → device_id 推定 — プロンプト内の manufacturer/model から直接特定):
+User: IKEAの電球を虹色にして
+→ (プロンプト内に `zigbee.0x781c... [IKEA LED2109G6]` がある → device_id 確定)
+→ control_actuator(device_id="zigbee.0x781c...", action="rainbow", params={"duration_s":10})
+→ tool_result: {"success":true}
+Assistant: 虹色に光らせています。
+
+例3 (用途ベース検索):
+User: 水やりに使うデバイスは?
+→ list_devices(purpose_contains="水")
+→ tool_result: [{"device_id":"tapo.plug_pump","purpose":"観葉植物の自動水やり用ポンプ",...}]
+Assistant: tapo.plug_pump が水やり用に登録されています。
+
+例4 (制御 — プロンプト内で device_id が不明なら list_devices で確認):
+User: 寝室の電気つけて
+→ (プロンプト内の bedroom zone を確認 → 該当 light デバイスの device_id を特定)
+→ control_actuator(device_id="zigbee.0x...", action="on")
+→ tool_result: {"success":true, "result":"..."}
+Assistant: 点灯しました。"""
+
+
+def _build_device_section(devices: list) -> str:
+    """Inject Device Registry metadata so LLM can pick devices by purpose/zone.
+
+    devices is a list of dicts (from backend /devices/). Limit to enabled + recent.
+    Each device line includes manufacturer/model for natural-language matching
+    (e.g. "IKEAの電球") and user-written notes for operational context.
+    """
+    if not devices:
+        return ""
+
+    by_zone: dict[str, list] = {}
+    for d in devices:
+        if not d.get("is_enabled", True):
+            continue
+        zone = d.get("zone") or "未分類"
+        by_zone.setdefault(zone, []).append(d)
+
+    if not by_zone:
+        return ""
+
+    lines = [
+        "",
+        "",
+        "## 登録デバイス配置",
+        "control_actuator / list_devices で下記デバイスを制御可能。",
+        "ユーザーが自然言語で指定した場合（「IKEAの電球」等）は manufacturer/model/purpose から該当を推定し、",
+        "device_id を特定してから control_actuator を呼ぶ。曖昧な場合は list_devices で確認。",
+    ]
+
+    for zone, devs in sorted(by_zone.items()):
+        lines.append(f"- **{zone}**:")
+        for d in devs:
+            parts = [f"`{d['device_id']}`"]
+            if d.get("display_name"):
+                parts.append(d["display_name"])
+            # Manufacturer + model for natural-language matching
+            mfr = d.get("manufacturer") or ""
+            model = d.get("model_id") or ""
+            if mfr or model:
+                parts.append(f"[{' '.join(filter(None, [mfr, model]))}]")
+            meta = []
+            if d.get("device_class"):
+                meta.append(d["device_class"])
+            if meta:
+                parts.append(f"({', '.join(meta)})")
+            tail = []
+            if d.get("location"):
+                tail.append(f"設置: {d['location']}")
+            if d.get("purpose"):
+                tail.append(f"用途: {d['purpose']}")
+            caps = d.get("capabilities") or []
+            if caps:
+                tail.append(f"cap: {','.join(caps)}")
+            chans = d.get("channels") or []
+            if chans:
+                tail.append(f"ch: {','.join(chans)}")
+            # User-written notes — free-form operational context
+            if d.get("notes"):
+                tail.append(f"備考: {d['notes']}")
+            line = "  - " + " ".join(parts)
+            if tail:
+                line += " — " + " / ".join(tail)
+            lines.append(line)
+
+    return "\n".join(lines)
+
+
+def build_chat_system_message(
+    character=None,
+    world_context: str = "",
+    obsidian_enabled: bool = False,
+    knowledge_enabled: bool = False,
+    ha_enabled: bool = False,
+    biometric_enabled: bool = False,
+    perception_enabled: bool = False,
+    news_enabled: bool = False,
+    devices: list | None = None,
+) -> dict:
     """Build system message for conversational chat (separate from automation).
 
     Chat-specific: conversational tone, read-only tools, no autonomous actions.
@@ -256,18 +399,17 @@ def build_chat_system_message(character=None, world_context: str = "",
         if identity:
             char_name = getattr(identity, "name", None) or "HEMS"
 
-    base = f"""あなたは{char_name}です。ユーザーと直接対話しています。
+    base = f"""あなたは{char_name}という家庭内アシスタントの思考エンジンです。ユーザーの質問に応答します。
 
 ## 役割
-- ユーザーの質問に丁寧に答える
-- 自宅の環境データ、ナレッジベース、生体データを参照して回答する
-- 必要に応じてツールで情報を検索してから回答する
+- ユーザーの質問に正確に答える
+- 自宅の環境データ、ナレッジベース、生体データをツール経由で参照して回答する
 
-## 対話ルール
-- 自然な会話口調で答える（キャラクター設定に従う）
-- 事実ベースで回答し、不確かな情報は明示する
+## 回答ルール（素モデル層）
+- 平易で事実ベースの日本語で答える（キャラクター口調は後段で付与されるので、ここでは素のままで良い）
+- 不確かな情報は推測せず、根拠のある情報のみ提示
 - 簡潔に答える（200字以内目安、複雑な質問は長くてもよい）
-- ツールは情報取得のみに使用する（タスク作成・デバイス操作・音声通知は行わない）
+- ツールは情報取得とデバイス制御に使用する（タスク作成・音声通知は行わない）
 - 検索結果を引用する場合、出典（ソース名、パス）を添える"""
 
     if world_context:
@@ -291,8 +433,18 @@ def build_chat_system_message(character=None, world_context: str = "",
     if tool_hints:
         base += "\n\n## 利用可能なツール\n" + "\n".join(f"- {h}" for h in tool_hints)
 
-    # Character injection
-    base += _build_character_section(character)
+    # Explicit tool-use rules (v1) — ensure tool calls actually happen
+    base += _build_tool_usage_rules()
+
+    # Device Registry context — same as cognitive loop prompt
+    if devices:
+        base += _build_device_section(devices)
+
+    # Few-shot examples (v2) — always include in chat for non-trivial queries
+    base += _build_tool_call_examples()
+
+    # Stage 1 (思考) は素モデル。キャラ名のみ identity として残す (自己紹介応答に必要)。
+    # 詳細な personality は注入しない。最終応答は PersonaRewriter.rewrite_long で事後変換する。
 
     return {"role": "system", "content": base}
 

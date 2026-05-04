@@ -10,6 +10,7 @@ AI キャラクターシステムを組み合わせた、個人・家庭向け�
 ```bash
 cp env.example .env
 cd infra
+docker compose --profile bootstrap build base   # build hems-base:py3.11 (one-time)
 docker compose up -d --build
 ```
 
@@ -41,14 +42,14 @@ docker compose up -d --build
 - **Google 連携** (GAS): Calendar・Tasks・Gmail・Sheets・Drive
 - **スマートホーム** (HA): 照明/空調/カバー/スイッチ/センサー/シーン + スケジュール学習
 - **SwitchBot** (直接API): HA不要のデバイス制御 + IR リモート (Hub経由)
-- **天気** (weather-bridge): JMA (気象庁) / OpenWeatherMap — 降雨・猛暑アラート
-- **ニュース** (news-bridge): RSS + ローカル LLM (llama.cpp) 要約 — 日次ブリーフィング + 緊急ニュース検知 + イベント駆動音声通知
+- **天気** (weather-bridge): JMA (気象庁) / OpenWeatherMap — 降雨・猛暑アラート (常時起動、JMA がデフォルトで API key 不要)
+- **ニュース** (news-bridge): RSS + Ollama 要約 — 日次ブリーフィング + 緊急ニュース検知 + イベント駆動音声通知
 
 ### バイオメトリクス・パーセプション
 
 - **バイオメトリクス**: Gadgetbridge webhook — 心拍/SpO2/睡眠/ストレス/疲労スコア/HRV/体温/呼吸数
 - **カメラ知覚**: YOLOv11s-pose — 在室検知・姿勢分類 (立位/座位/臥位/歩行)・活動追跡
-- **VLM シーン理解**: llama.cpp `--mmproj` で MiniCPM-V / Qwen2-VL などを常駐 — 適応的頻度制御 + イベント駆動ブースト + オンデマンド分析
+- **VLM シーン理解**: moondream / minicpm-v — 適応的頻度制御 + イベント駆動ブースト + オンデマンド分析
 
 ### エッジデバイス
 
@@ -71,18 +72,18 @@ docker compose up -d --build
 │  (TTS×4)     │                     │      (dev)          │
 └──────────────┴─────────────────────┴─────────────────────┘
 
-Profiles:  voicevox | llm (llama.cpp+TEI) | vlm | vlm-heavy
-           ollama (legacy) | postgres | localcraw | obsidian
-           gas | ha | biometric | perception | switchbot | news
-           knowledge | stt
+Profiles:  voicevox | ollama | postgres | mock | localcraw | obsidian
+           gas | ha | biometric | perception | switchbot | tapo
+           zigbee | news | knowledge | stt
 ```
 
-### Brain ツール一覧 (35+)
+### Brain ツール一覧 (46)
 
 | カテゴリ | ツール | Profile |
 |---------|--------|---------|
-| 基本 | `create_task`, `speak`*, `get_active_tasks`, `get_zone_status`, `get_device_status`, `send_device_command` | 常時 |
+| 基本 | `create_task`, `speak`*, `get_active_tasks`, `get_zone_status`, `get_device_status`, `send_device_command`, `get_sensor_history` | 常時 |
 | 買い物 | `add_shopping_item`, `get_shopping_list` | 常時 |
+| デバイスレジストリ | `control_actuator`, `list_devices`, `describe_device`, `execute_scene_by_name`, `list_scenes`, `zigbee_permit_join` | 常時 (デフォルト有効) |
 | PC | `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification` | localcraw |
 | サービス | `get_service_status` | localcraw |
 | ナレッジ (Obsidian) | `search_notes`, `write_note`, `get_recent_notes` | obsidian |
@@ -90,7 +91,7 @@ Profiles:  voicevox | llm (llama.cpp+TEI) | vlm | vlm-heavy
 | スマートホーム | `control_light`, `control_climate`, `control_cover`, `control_switch`, `get_home_devices`, `get_sensor_data`, `execute_scene` | ha |
 | システム | `set_guest_mode`, `get_weather` | ha |
 | バイオ | `get_biometrics`, `get_sleep_summary` | biometric |
-| カメラ | `get_perception_status`, `describe_scene` | perception |
+| カメラ / VLM | `get_perception_status`, `describe_scene`, `list_scene_objects`, `get_scene_timeline` | perception |
 | SwitchBot | `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir` | switchbot |
 | ニュース | `get_news_summary` | news |
 
@@ -111,14 +112,13 @@ Profiles:  voicevox | llm (llama.cpp+TEI) | vlm | vlm-heavy
 | Biometric | 8017 | hems-biometric-bridge |
 | Perception | 8018 | hems-perception |
 | SwitchBot | 8019 | hems-switchbot-bridge |
+| Tapo | 8020 | hems-tapo-bridge |
 | News Bridge | 8021 | hems-news-bridge |
 | Knowledge Bridge | 8022 | hems-knowledge-bridge |
+| STT | 8023 | hems-stt |
+| Zigbee2MQTT (UI) | 8090 | hems-zigbee2mqtt |
 | VOICEVOX | 50031 | hems-voicevox |
-| llama.cpp LLM | 8081 | hems-llm |
-| Embed (TEI) | 8090 | hems-embed |
-| VLM light | 8082 | hems-vlm-light |
-| VLM heavy | 8083 | hems-vlm-heavy |
-| Ollama (legacy) | 11444 | hems-ollama |
+| Ollama | 11444 | hems-ollama |
 | PostgreSQL | 5442 | hems-postgres |
 | MQTT | 1893 | hems-mqtt |
 
@@ -148,16 +148,16 @@ Profiles:  voicevox | llm (llama.cpp+TEI) | vlm | vlm-heavy
 KNOWLEDGE_SOURCE_PWS=/path/to/pws
 KNOWLEDGE_SOURCES=[{"name":"pws","path":"/sources/pws","extensions":[".md",".py",".json",".pdf"]}]
 
-# ベクトル検索を有効にする場合 (requires --profile llm で TEI 起動)
-EMBEDDING_URL=http://embed:80
-EMBEDDING_MODEL=nomic-embed-text-v1.5
+# ベクトル検索を有効にする場合 (requires --profile ollama)
+EMBEDDING_URL=http://ollama:11434
+EMBEDDING_MODEL=nomic-embed-text
 
-docker compose --profile llm --profile knowledge up -d --build
+docker compose --profile knowledge up -d --build
 ```
 
 - **8種ローダー**: Markdown, Python (.py AST), JSON, Text, PDF (pdfplumber), DOCX, CSV, HTML
-- **ハイブリッド検索**: BM25 (キーワード) + Vector (OpenAI互換 embedding, 既定は TEI) + Title boost → 3-way RRF
-- **埋め込みサーバ不在時**: BM25 + Title の2-way に自動降格
+- **ハイブリッド検索**: BM25 (キーワード) + Vector (Ollama embedding) + Title boost → 3-way RRF
+- **Ollama 不在時**: BM25 + Title の2-way に自動降格
 - **埋め込みキャッシュ**: ディスク永続化、変更ドキュメントのみ再埋め込み
 
 ## AI Character System
@@ -180,8 +180,8 @@ mosquitto_pub -h localhost -u hems -P hems_dev_mqtt \
 
 | テンプレート | 一人称 | formality | 特徴 |
 |-------------|--------|-----------|------|
-| `ena` | エナ | 0 | ハイテンションデジタル居候 (デフォルト) |
-| `default` | 私 | 2 | フレンドリーアシスタント |
+| `default` | 私 | 2 | フレンドリーアシスタント (デフォルト) |
+| `ena` | エナ | 0 | ハイテンションデジタル居候 |
 | `tsundere` | あたし | 0 | 素直になれない、世話好き |
 | `gentle-senpai` | 私 | 1 | 穏やか、褒め上手 |
 | `butler` | わたくし | 4 | 完璧主義、品格 |
@@ -218,19 +218,14 @@ YAML に追加するだけで MotionRetriever が自動的に選択候補に組�
 docker compose --profile voicevox up -d
 # → .env: TTS_PROVIDER=voicevox
 
-# ローカル LLM (llama.cpp + TEI embeddings — GPU自動検出)
-bash infra/scripts/pull_models.sh    # GGUF / mmproj / embed モデル取得
-python infra/scripts/gpu_setup.py    # docker-compose.gpu.yml 生成
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile llm up -d
-# VLM を使う場合: --profile vlm (light 常駐), --profile vlm-heavy も足すと heavy 併載
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile llm --profile vlm up -d
+# Ollama (ローカル LLM — GPU自動検出)
+python infra/scripts/gpu_setup.py   # docker-compose.gpu.yml 生成
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d
+docker exec hems-ollama ollama pull qwen3.5   # 初回のみ
 
-# ローカル LLM (CPU のみ)
-docker compose --profile llm up -d
-
-# Legacy: Ollama (既存の ollama_models ボリュームを使いたい場合)
+# Ollama (CPU のみ)
 docker compose --profile ollama up -d
-docker exec hems-ollama ollama pull qwen2.5:14b
+docker exec hems-ollama ollama pull qwen3.5
 
 # PostgreSQL (SQLite の代替)
 docker compose --profile postgres up -d
@@ -245,6 +240,8 @@ docker compose --profile obsidian up -d
 docker compose --profile gas up -d
 
 # Home Assistant (スマートホーム制御 + スケジュール学習)
+# ⚠️ セキュリティ注意: privileged + network_mode:host が必要。
+# 同一ホスト運用前に docs/ha-isolation.md を参照すること。
 docker compose --profile ha up -d
 
 # Biometric (スマートバンド心拍/睡眠/疲労スコア)
@@ -256,11 +253,11 @@ docker compose --profile perception up -d
 # SwitchBot (直接API制御 — HA不要)
 docker compose --profile switchbot up -d
 
-# News (RSS + ローカル LLM ニュース要約 — llm もしくは legacy ollama 必須)
-docker compose --profile news --profile llm up -d
+# News (RSS + Ollama ニュース要約 — ollama 必須)
+docker compose --profile news --profile ollama up -d
 
-# Knowledge (外部ドキュメント取込 — ベクトル検索は llm プロファイル推奨)
-docker compose --profile knowledge --profile llm up -d
+# Knowledge (外部ドキュメント取込 — ベクトル検索は ollama 推奨)
+docker compose --profile knowledge up -d
 
 
 # 複数プロファイル組み合わせ
@@ -292,9 +289,9 @@ pnpm build    # tsc -b && vite build
 | Backend | Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion |
 | 3D Avatar | Three.js, React Three Fiber, @pixiv/three-vrm |
-| LLM | OpenAI互換 (既定: llama.cpp `llama-server`) / OpenAI / Anthropic / Ollama |
+| LLM | OpenAI / Anthropic / Ollama (マルチプロバイダー) |
 | TTS | espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk |
-| Search | BM25 (rank_bm25) + Vector (OpenAI互換 embedding, 既定は TEI + numpy) + RRF |
+| Search | BM25 (rank_bm25) + Vector (Ollama embedding + numpy) + RRF |
 | DB | SQLite (default) / PostgreSQL 16 |
 | Infra | Docker Compose, Mosquitto MQTT |
 | Edge | MicroPython (ESP32), SensorSwarm バイナリプロトコル |
@@ -307,6 +304,7 @@ pnpm build    # tsc -b && vite build
 | [shopping-list.md](docs/shopping-list.md) | 買い物リスト — API 操作・定期購入・外出連携 |
 | [event-automation.md](docs/event-automation.md) | イベント自動化 — 起床/帰宅/定時トリガー設定 |
 | [SMART_HOME_SETUP.md](docs/SMART_HOME_SETUP.md) | Home Assistant + HEMS 統合セットアップ |
+| [ha-isolation.md](docs/ha-isolation.md) | HA 運用隔離ガイド — privileged リスクと VLAN/別ホスト推奨構成 |
 | [smart-home-device-guide.md](docs/smart-home-device-guide.md) | マルチプロトコルデバイス総合ガイド |
 | [sensor-purchasing-guide-jp.md](docs/sensor-purchasing-guide-jp.md) | センサー購入ガイド (技適準拠・Amazon.co.jp) |
 | [sensor-purchasing-guide-aliexpress.md](docs/sensor-purchasing-guide-aliexpress.md) | センサー購入ガイド (AliExpress・コスト最優先) |
@@ -319,11 +317,19 @@ pnpm build    # tsc -b && vite build
 - **Phase 2** (完了): 外部連携 — localcraw, Obsidian, GAS, Home Assistant, Biometric
 - **Phase 3** (完了): Perception — カメラ検知・姿勢分類・活動追跡 (YOLOv11s-pose)
 - **Phase 4** (完了): IoT拡張 — SwitchBot直接統合, Weather Bridge, 買い物リスト, Edge Swarm
-- **Phase 5** (完了): 知覚・情報統合 — VLM シーン理解, ニュースブリーフィング, イベント自動化, OpenAI互換ローカル LLM スタック (llama.cpp + TEI)
+- **Phase 5** (完了): 知覚・情報統合 — VLM シーン理解, ニュースブリーフィング, イベント自動化, Ollama ネイティブ API
 - **Phase 6** (完了): Advanced TTS — VoiSona Talk
 - **Phase 7** (完了): ナレッジ・対話 — knowledge-bridge (ハイブリッド検索), パーソナライズドチャット, STT
 - **Phase 8** (計画中): SSEストリーミング応答, コマンドモード (チャットからデバイス操作), 会話サマリ圧縮, ユーザープロファイル学習
 
 ## License
 
-Private project.
+HEMS is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+Personal, hobbyist, research, educational, and other **noncommercial** use on your own hardware is permitted. See the LICENSE file or <https://polyformproject.org/licenses/noncommercial/1.0.0/> for the full terms.
+
+### Commercial use
+
+**Commercial use** — including bundling HEMS with hardware for sale, redistribution as part of a product, or offering HEMS as a service — is **not permitted under the public license**. Commercial use requires a separate, written commercial license agreement with the author. Contact the author via this repository to inquire about commercial licensing terms.
+
+The software is provided **as is, without warranty or support obligation**.

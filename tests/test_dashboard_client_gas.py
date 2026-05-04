@@ -1,25 +1,30 @@
 """
 Tests for DashboardClient.push_gas_snapshot.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
+
 from world_model.data_classes import (
-    CalendarEvent, GoogleTask, GmailLabel, FreeSlot,
+    CalendarEvent,
+    FreeSlot,
+    GmailLabel,
+    GoogleTask,
 )
 
 
 class TestPushGASSnapshot:
-
     def _make_client(self, mock_session):
         from dashboard_client import DashboardClient
+
         client = DashboardClient(session=mock_session)
         return client
 
     @pytest.mark.asyncio
     async def test_skips_when_not_connected(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        world_model.digital.gas_state.bridge_connected = False
+        world_model.gas_state.bridge_connected = False
         await client.push_gas_snapshot(world_model)
         for call in mock_session.post.call_args_list:
             assert "/gas/snapshot" not in str(call)
@@ -27,10 +32,9 @@ class TestPushGASSnapshot:
     @pytest.mark.asyncio
     async def test_pushes_when_connected(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.calendar_events = [
-            CalendarEvent(id="e1", title="Meeting", start="2026-02-19T10:00:00Z",
-                          end="2026-02-19T11:00:00Z"),
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.calendar_events = [
+            CalendarEvent(id="e1", title="Meeting", start="2026-02-19T10:00:00Z", end="2026-02-19T11:00:00Z"),
         ]
 
         resp = mock_session._make_response(200, {"updated": True})
@@ -44,17 +48,25 @@ class TestPushGASSnapshot:
     @pytest.mark.asyncio
     async def test_payload_contains_all_sections(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        gs = world_model.digital.gas_state
+        gs = world_model.gas_state
         gs.bridge_connected = True
         gs.calendar_events = [
-            CalendarEvent(id="e1", title="Standup", start="2026-02-19T10:00:00Z",
-                          end="2026-02-19T10:30:00Z", is_all_day=False, calendar_name="Work"),
+            CalendarEvent(
+                id="e1",
+                title="Standup",
+                start="2026-02-19T10:00:00Z",
+                end="2026-02-19T10:30:00Z",
+                is_all_day=False,
+                calendar_name="Work",
+            ),
         ]
         gs.tasks = [
-            GoogleTask(id="t1", title="Buy milk", due="2026-02-19", status="needsAction",
-                       list_name="Tasks", is_overdue=True),
-            GoogleTask(id="t2", title="Read paper", due="2026-02-20", status="needsAction",
-                       list_name="Tasks", is_overdue=False),
+            GoogleTask(
+                id="t1", title="Buy milk", due="2026-02-19", status="needsAction", list_name="Tasks", is_overdue=True
+            ),
+            GoogleTask(
+                id="t2", title="Read paper", due="2026-02-20", status="needsAction", list_name="Tasks", is_overdue=False
+            ),
         ]
         gs.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=8)}
         gs.free_slots = [
@@ -83,7 +95,7 @@ class TestPushGASSnapshot:
     @pytest.mark.asyncio
     async def test_completed_tasks_excluded(self, world_model, mock_session):
         client = self._make_client(mock_session)
-        gs = world_model.digital.gas_state
+        gs = world_model.gas_state
         gs.bridge_connected = True
         gs.tasks = [
             GoogleTask(id="t1", title="Done", status="completed", list_name="Tasks"),

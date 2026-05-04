@@ -1,11 +1,13 @@
 import { useLocation } from 'react-router'
-import { Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff } from 'lucide-react'
+import { type ComponentType } from 'react'
+import { Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut, Thermometer, Droplets, Wind } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { DarkModePreference } from '@/hooks/use-dark-mode'
 import type { CharacterThemeConfig } from '@/lib/character-themes'
 import type { AvatarMode } from '@/hooks/use-avatar-mode'
 import type { STTMode } from '@/hooks/use-server-stt'
+import type { PowerMode, EnvironmentData } from '@/lib/types'
 
 const ROUTE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -20,6 +22,12 @@ const STT_MODE_LABELS: Record<STTMode, string> = {
   off: 'OFF',
 }
 
+const POWER_MODE_ICONS: Record<PowerMode, ComponentType<{ className?: string }>> = {
+  normal: Zap,
+  sleep: Moon,
+  away: LogOut,
+}
+
 interface Props {
   audioEnabled: boolean
   onToggleAudio: () => void
@@ -31,6 +39,10 @@ interface Props {
   onCycleAvatarMode: () => void
   sttMode: STTMode
   onCycleSTTMode: () => void
+  powerMode: PowerMode
+  onCyclePowerMode: () => void
+  powerModePending: boolean
+  environment?: EnvironmentData | null
 }
 
 export default function Header({
@@ -44,6 +56,10 @@ export default function Header({
   onCycleAvatarMode,
   sttMode,
   onCycleSTTMode,
+  powerMode,
+  onCyclePowerMode,
+  powerModePending,
+  environment,
 }: Props) {
   const location = useLocation()
   const title = ROUTE_TITLES[location.pathname] || 'HEMS'
@@ -52,6 +68,7 @@ export default function Header({
     darkModePreference === 'light' ? Sun : Gauge
 
   const sttOff = sttMode === 'off'
+  const PowerIcon = POWER_MODE_ICONS[powerMode]
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-14 border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 px-4 lg:px-6">
@@ -62,6 +79,30 @@ export default function Header({
         {title}
       </h1>
       <div className="flex items-center gap-2">
+        {/* Environment indicators */}
+        {environment && (
+          <div className="hidden sm:flex items-center gap-3 text-xs text-muted-foreground mr-2">
+            {environment.temperature != null && (
+              <span className="flex items-center gap-1">
+                <Thermometer className="h-3.5 w-3.5 text-chart-red" />
+                <span className="font-medium text-foreground">{environment.temperature.toFixed(1)}°</span>
+              </span>
+            )}
+            {environment.humidity != null && (
+              <span className="flex items-center gap-1">
+                <Droplets className="h-3.5 w-3.5 text-chart-blue" />
+                <span className="font-medium text-foreground">{environment.humidity.toFixed(0)}%</span>
+              </span>
+            )}
+            {environment.co2 != null && (
+              <span className="flex items-center gap-1">
+                <Wind className={cn('h-3.5 w-3.5', environment.co2 < 800 ? 'text-chart-green' : environment.co2 < 1500 ? 'text-warning' : 'text-destructive')} />
+                <span className="font-medium text-foreground">{Math.round(environment.co2)}</span>
+                <span className="text-[10px]">ppm</span>
+              </span>
+            )}
+          </div>
+        )}
         <div className="lg:hidden flex gap-1">
           <Button variant="ghost" size="icon" onClick={onToggleAudio} aria-label="オーディオ切替" className="h-9 w-9">
             {audioEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
@@ -91,6 +132,16 @@ export default function Header({
             className={cn('h-9 w-9', avatarMode !== 'hidden' && 'text-primary')}
           >
             <User className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onCyclePowerMode}
+            disabled={powerModePending}
+            aria-label={`電力モード: ${powerMode}`}
+            className={cn('h-9 w-9', powerMode !== 'normal' && 'text-amber-500')}
+          >
+            <PowerIcon className="h-4 w-4" />
           </Button>
         </div>
       </div>

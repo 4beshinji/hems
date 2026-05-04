@@ -15,9 +15,13 @@ class TestSanitizerPCToolGating:
         assert result["allowed"] is True
 
     def test_send_pc_notification_allowed(self, sanitizer):
-        result = sanitizer.validate_tool_call("send_pc_notification", {
-            "title": "Test", "body": "Hello",
-        })
+        result = sanitizer.validate_tool_call(
+            "send_pc_notification",
+            {
+                "title": "Test",
+                "body": "Hello",
+            },
+        )
         assert result["allowed"] is True
 
     def test_unknown_tool_blocked(self, sanitizer):
@@ -29,22 +33,31 @@ class TestSanitizerPCCommandValidation:
     """Test dangerous command blocklist for run_pc_command."""
 
     def test_safe_command_allowed(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "ls -la /home",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "ls -la /home",
+            },
+        )
         assert result["allowed"] is True
 
     def test_uname_allowed(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "uname -a",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "uname -a",
+            },
+        )
         assert result["allowed"] is True
 
     def test_python_blocked(self, sanitizer):
         """python3 is an arbitrary code execution vector and must be blocked."""
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "python3 -c 'print(1+1)'",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "python3 -c 'print(1+1)'",
+            },
+        )
         assert result["allowed"] is False
 
     def test_empty_command_blocked(self, sanitizer):
@@ -52,93 +65,138 @@ class TestSanitizerPCCommandValidation:
         assert result["allowed"] is False
 
     def test_rm_rf_root_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "rm -rf /",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "rm -rf /",
+            },
+        )
         assert result["allowed"] is False
 
     def test_rm_rf_home_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "rm -rf /home/user",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "rm -rf /home/user",
+            },
+        )
         assert result["allowed"] is False
 
     def test_rm_f_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "rm -f /etc/passwd",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "rm -f /etc/passwd",
+            },
+        )
         assert result["allowed"] is False
 
     def test_rm_r_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "rm -r /var/log",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "rm -r /var/log",
+            },
+        )
         assert result["allowed"] is False
 
     def test_mkfs_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "mkfs.ext4 /dev/sda1",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "mkfs.ext4 /dev/sda1",
+            },
+        )
         assert result["allowed"] is False
 
     def test_shutdown_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "shutdown -h now",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "shutdown -h now",
+            },
+        )
         assert result["allowed"] is False
 
     def test_reboot_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "reboot",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "reboot",
+            },
+        )
         assert result["allowed"] is False
 
     def test_poweroff_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "poweroff",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "poweroff",
+            },
+        )
         assert result["allowed"] is False
 
     def test_dd_to_device_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "dd if=/dev/zero of=/dev/sda bs=1M",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "dd if=/dev/zero of=/dev/sda bs=1M",
+            },
+        )
         assert result["allowed"] is False
 
     def test_systemctl_halt_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "systemctl poweroff",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "systemctl poweroff",
+            },
+        )
         assert result["allowed"] is False
 
     def test_systemctl_reboot_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "systemctl reboot",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "systemctl reboot",
+            },
+        )
         assert result["allowed"] is False
 
     def test_chmod_777_root_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "chmod -R 777 /",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "chmod -R 777 /",
+            },
+        )
         assert result["allowed"] is False
 
     def test_rm_in_subdirectory_blocked(self, sanitizer):
         """rm is a destructive command and must be blocked even in /tmp."""
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "rm /tmp/test.txt",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "rm /tmp/test.txt",
+            },
+        )
         assert result["allowed"] is False
 
     def test_safe_systemctl_status_allowed(self, sanitizer):
         """systemctl status should be allowed (not halt/poweroff/reboot)."""
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "systemctl status nginx",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "systemctl status nginx",
+            },
+        )
         assert result["allowed"] is True
 
     def test_init_0_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call("run_pc_command", {
-            "command": "init 0",
-        })
+        result = sanitizer.validate_tool_call(
+            "run_pc_command",
+            {
+                "command": "init 0",
+            },
+        )
         assert result["allowed"] is False

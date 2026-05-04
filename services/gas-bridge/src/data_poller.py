@@ -1,13 +1,15 @@
 """
 Data poller — fetches each data type from GAS on configured intervals and publishes to MQTT.
 """
+
 import asyncio
 import time
-from loguru import logger
 
 from gas_client import GASClient
-from mqtt_publisher import MQTTPublisher
+from loguru import logger
+
 import config
+from mqtt_publisher import MQTTPublisher
 
 
 class DataPoller:
@@ -38,12 +40,14 @@ class DataPoller:
         for entry in config.SHEETS_CONFIG.split(","):
             parts = entry.strip().split(":")
             if len(parts) >= 2:
-                sheets.append({
-                    "name": parts[0],
-                    "id": parts[1],
-                    "sheet": parts[2] if len(parts) >= 3 else "",
-                    "range": parts[3] if len(parts) >= 4 else "",
-                })
+                sheets.append(
+                    {
+                        "name": parts[0],
+                        "id": parts[1],
+                        "sheet": parts[2] if len(parts) >= 3 else "",
+                        "range": parts[3] if len(parts) >= 4 else "",
+                    }
+                )
         return sheets
 
     async def poll_calendar(self):
@@ -157,11 +161,14 @@ class DataPoller:
     def _update_bridge_status(self):
         """Publish bridge connection status."""
         self._connected = True
-        self.mqtt.publish("hems/gas/bridge/status", {
-            "connected": True,
-            "last_updates": self._last_update,
-            "timestamp": time.time(),
-        })
+        self.mqtt.publish(
+            "hems/gas/bridge/status",
+            {
+                "connected": True,
+                "last_updates": self._last_update,
+                "timestamp": time.time(),
+            },
+        )
 
     def get_status(self) -> dict:
         """Get current status for REST API."""
@@ -169,10 +176,7 @@ class DataPoller:
             "connected": self._connected,
             "last_updates": self._last_update,
             "calendar_events": len((self.calendar_data or {}).get("events", [])),
-            "tasks_due_today": sum(
-                len(tl.get("tasks", []))
-                for tl in (self.tasks_due_data or {}).get("taskLists", [])
-            ),
+            "tasks_due_today": sum(len(tl.get("tasks", [])) for tl in (self.tasks_due_data or {}).get("taskLists", [])),
             "gmail_inbox_unread": (self.gmail_data or {}).get("labels", {}).get("INBOX", {}).get("unread", 0),
             "sheets_monitored": len(self.sheets_data),
             "drive_recent_files": len((self.drive_data or {}).get("files", [])),

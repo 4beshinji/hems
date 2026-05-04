@@ -1,6 +1,7 @@
 """
 SwitchBot API v1.1 client with HMAC-SHA256 authentication.
 """
+
 import base64
 import hashlib
 import hmac
@@ -12,7 +13,6 @@ import aiohttp
 from loguru import logger
 
 import config
-
 
 # SwitchBot device type → HEMS domain mapping
 DEVICE_TYPE_DOMAIN: dict[str, str] = {
@@ -47,7 +47,6 @@ DEVICE_TYPE_DOMAIN: dict[str, str] = {
     "Water Detector": "binary_sensor",
     # Hub (IR remote capable)
     "Hub Mini": "hub",
-    "Hub 2": "sensor",  # Hub 2 has temp/humidity sensor
     "Hub 3": "hub",
     # Other
     "Lock": "lock",
@@ -86,7 +85,7 @@ class SwitchBotClient:
 
     def _make_headers(self) -> dict[str, str]:
         """Generate SwitchBot API v1.1 HMAC-SHA256 authentication headers."""
-        t = str(int(round(time.time() * 1000)))
+        t = str(round(time.time() * 1000))
         nonce = str(uuid.uuid4())
         string_to_sign = f"{self.token}{t}{nonce}"
         sign = base64.b64encode(
@@ -157,9 +156,9 @@ class SwitchBotClient:
         """Fetch status of a single physical device."""
         return await self._api_get(f"/devices/{device_id}/status")
 
-    async def send_command(self, device_id: str, command: str,
-                           parameter: str = "default",
-                           command_type: str = "command") -> dict | None:
+    async def send_command(
+        self, device_id: str, command: str, parameter: str = "default", command_type: str = "command"
+    ) -> dict | None:
         """Send command to a device."""
         payload = {
             "command": command,

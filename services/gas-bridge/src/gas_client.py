@@ -1,6 +1,7 @@
 """
 HTTP client for GAS Web App — fetches data from Google Apps Script.
 """
+
 import aiohttp
 from loguru import logger
 
@@ -38,7 +39,9 @@ class GASClient:
 
         try:
             async with self._session.get(
-                self.webapp_url, params=query, timeout=aiohttp.ClientTimeout(total=30),
+                self.webapp_url,
+                params=query,
+                timeout=aiohttp.ClientTimeout(total=30),
                 allow_redirects=True,
             ) as resp:
                 if resp.status != 200:

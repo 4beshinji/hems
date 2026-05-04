@@ -2,25 +2,33 @@
 Tests for ToolExecutor get_service_status handler, get_pc_status handler,
 and Sanitizer pc_command validation.
 """
+
 import json
 import time
 
 import pytest
-from world_model.data_classes import ServiceStatusData, ProcessInfo
+
+from world_model.data_classes import ProcessInfo, ServiceStatusData
 
 
 class TestGetServiceStatus:
-    """Test _handle_get_service_status — reads from world_model.digital.services_state."""
+    """Test _handle_get_service_status — reads from world_model.services_state."""
 
     @pytest.mark.asyncio
     async def test_get_all_services(self, tool_executor, world_model):
-        world_model.digital.services_state.services["gmail"] = ServiceStatusData(
-            name="gmail", available=True, unread_count=3,
-            summary="未読メール: 3通", last_check=time.time(),
+        world_model.services_state.services["gmail"] = ServiceStatusData(
+            name="gmail",
+            available=True,
+            unread_count=3,
+            summary="未読メール: 3通",
+            last_check=time.time(),
         )
-        world_model.digital.services_state.services["github"] = ServiceStatusData(
-            name="github", available=True, unread_count=5,
-            summary="GitHub通知: 5件", last_check=time.time(),
+        world_model.services_state.services["github"] = ServiceStatusData(
+            name="github",
+            available=True,
+            unread_count=5,
+            summary="GitHub通知: 5件",
+            last_check=time.time(),
         )
 
         result = await tool_executor.execute("get_service_status", {})
@@ -33,9 +41,12 @@ class TestGetServiceStatus:
 
     @pytest.mark.asyncio
     async def test_get_specific_service(self, tool_executor, world_model):
-        world_model.digital.services_state.services["gmail"] = ServiceStatusData(
-            name="gmail", available=True, unread_count=2,
-            summary="未読メール: 2通", last_check=time.time(),
+        world_model.services_state.services["gmail"] = ServiceStatusData(
+            name="gmail",
+            available=True,
+            unread_count=2,
+            summary="未読メール: 2通",
+            last_check=time.time(),
         )
 
         result = await tool_executor.execute("get_service_status", {"service_name": "gmail"})
@@ -59,9 +70,12 @@ class TestGetServiceStatus:
 
     @pytest.mark.asyncio
     async def test_service_with_error(self, tool_executor, world_model):
-        world_model.digital.services_state.services["gmail"] = ServiceStatusData(
-            name="gmail", available=False, unread_count=0,
-            summary="Gmail接続エラー", error="IMAP timeout",
+        world_model.services_state.services["gmail"] = ServiceStatusData(
+            name="gmail",
+            available=False,
+            unread_count=0,
+            summary="Gmail接続エラー",
+            error="IMAP timeout",
             last_check=time.time(),
         )
 
@@ -79,16 +93,16 @@ class TestGetServiceStatus:
 
 
 class TestGetPCStatus:
-    """Test _handle_get_pc_status — reads from world_model.digital.pc_state."""
+    """Test _handle_get_pc_status — reads from world_model.pc_state."""
 
     @pytest.mark.asyncio
     async def test_get_pc_status_default(self, tool_executor, world_model):
-        world_model.digital.pc_state.cpu.usage_percent = 55.0
-        world_model.digital.pc_state.cpu.core_count = 8
-        world_model.digital.pc_state.memory.percent = 40.0
-        world_model.digital.pc_state.memory.used_gb = 12.0
-        world_model.digital.pc_state.memory.total_gb = 32.0
-        world_model.digital.pc_state.bridge_connected = True
+        world_model.pc_state.cpu.usage_percent = 55.0
+        world_model.pc_state.cpu.core_count = 8
+        world_model.pc_state.memory.percent = 40.0
+        world_model.pc_state.memory.used_gb = 12.0
+        world_model.pc_state.memory.total_gb = 32.0
+        world_model.pc_state.bridge_connected = True
 
         result = await tool_executor.execute("get_pc_status", {})
         assert result["success"] is True
@@ -100,7 +114,7 @@ class TestGetPCStatus:
 
     @pytest.mark.asyncio
     async def test_get_pc_status_with_processes(self, tool_executor, world_model):
-        world_model.digital.pc_state.top_processes = [
+        world_model.pc_state.top_processes = [
             ProcessInfo(pid=1234, name="python", cpu_percent=20.0, mem_mb=256.0),
             ProcessInfo(pid=5678, name="chrome", cpu_percent=5.0, mem_mb=512.0),
         ]
@@ -114,7 +128,7 @@ class TestGetPCStatus:
 
     @pytest.mark.asyncio
     async def test_get_pc_status_without_processes_flag(self, tool_executor, world_model):
-        world_model.digital.pc_state.top_processes = [
+        world_model.pc_state.top_processes = [
             ProcessInfo(pid=1, name="python", cpu_percent=10.0, mem_mb=100.0),
         ]
 
@@ -126,7 +140,8 @@ class TestGetPCStatus:
     @pytest.mark.asyncio
     async def test_get_pc_status_with_disk(self, tool_executor, world_model):
         from world_model.data_classes import DiskData, DiskPartition
-        world_model.digital.pc_state.disk = DiskData(
+
+        world_model.pc_state.disk = DiskData(
             partitions=[DiskPartition(mount="/", used_gb=100.0, total_gb=500.0, percent=20.0)],
             last_update=time.time(),
         )
@@ -148,58 +163,40 @@ class TestSanitizerPCCommand:
     """Test sanitizer validation for run_pc_command."""
 
     def test_dangerous_rm_rf_blocked(self, tool_executor):
-        validation = tool_executor.sanitizer.validate_tool_call(
-            "run_pc_command", {"command": "rm -rf /home/user"}
-        )
+        validation = tool_executor.sanitizer.validate_tool_call("run_pc_command", {"command": "rm -rf /home/user"})
         assert validation["allowed"] is False
         assert "not in allowlist" in validation["reason"]
 
     def test_dangerous_rm_rf_space_blocked(self, tool_executor):
-        validation = tool_executor.sanitizer.validate_tool_call(
-            "run_pc_command", {"command": "rm -rf /"}
-        )
+        validation = tool_executor.sanitizer.validate_tool_call("run_pc_command", {"command": "rm -rf /"})
         assert validation["allowed"] is False
 
     def test_shutdown_blocked(self, tool_executor):
-        validation = tool_executor.sanitizer.validate_tool_call(
-            "run_pc_command", {"command": "shutdown -h now"}
-        )
+        validation = tool_executor.sanitizer.validate_tool_call("run_pc_command", {"command": "shutdown -h now"})
         assert validation["allowed"] is False
 
     def test_reboot_blocked(self, tool_executor):
-        validation = tool_executor.sanitizer.validate_tool_call(
-            "run_pc_command", {"command": "sudo reboot"}
-        )
+        validation = tool_executor.sanitizer.validate_tool_call("run_pc_command", {"command": "sudo reboot"})
         assert validation["allowed"] is False
 
     def test_mkfs_blocked(self, tool_executor):
-        validation = tool_executor.sanitizer.validate_tool_call(
-            "run_pc_command", {"command": "mkfs.ext4 /dev/sdb1"}
-        )
+        validation = tool_executor.sanitizer.validate_tool_call("run_pc_command", {"command": "mkfs.ext4 /dev/sdb1"})
         assert validation["allowed"] is False
 
     def test_fork_bomb_blocked(self, tool_executor):
-        validation = tool_executor.sanitizer.validate_tool_call(
-            "run_pc_command", {"command": ":() { :|:& };:"}
-        )
+        validation = tool_executor.sanitizer.validate_tool_call("run_pc_command", {"command": ":() { :|:& };:"})
         assert validation["allowed"] is False
 
     def test_safe_ls_command_allowed(self, tool_executor):
-        validation = tool_executor.sanitizer.validate_tool_call(
-            "run_pc_command", {"command": "ls -la /home"}
-        )
+        validation = tool_executor.sanitizer.validate_tool_call("run_pc_command", {"command": "ls -la /home"})
         assert validation["allowed"] is True
 
     def test_safe_echo_command_allowed(self, tool_executor):
-        validation = tool_executor.sanitizer.validate_tool_call(
-            "run_pc_command", {"command": "echo hello world"}
-        )
+        validation = tool_executor.sanitizer.validate_tool_call("run_pc_command", {"command": "echo hello world"})
         assert validation["allowed"] is True
 
     def test_empty_command_blocked(self, tool_executor):
-        validation = tool_executor.sanitizer.validate_tool_call(
-            "run_pc_command", {"command": ""}
-        )
+        validation = tool_executor.sanitizer.validate_tool_call("run_pc_command", {"command": ""})
         assert validation["allowed"] is False
 
     @pytest.mark.asyncio
@@ -222,9 +219,7 @@ class TestSanitizerPCCommand:
     async def test_send_pc_notification_no_openclaw_url(self, tool_executor):
         """When OPENCLAW_BRIDGE_URL is not set, send_pc_notification returns error."""
         tool_executor.openclaw_url = ""
-        result = await tool_executor.execute(
-            "send_pc_notification", {"title": "Test", "body": "Message"}
-        )
+        result = await tool_executor.execute("send_pc_notification", {"title": "Test", "body": "Message"})
         assert result["success"] is False
         assert "not configured" in result["error"]
 

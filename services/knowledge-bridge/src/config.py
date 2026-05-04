@@ -1,8 +1,10 @@
 """
 Configuration for Knowledge Bridge — environment variables.
 """
-import os
+
 import json
+import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,8 +18,22 @@ except json.JSONDecodeError:
     KNOWLEDGE_SOURCES = []
 
 # Default extensions applied when source doesn't specify
-DEFAULT_EXTENSIONS = [".md", ".py", ".json", ".txt", ".pdf", ".docx", ".csv", ".html", ".htm",
-                      ".yaml", ".yml", ".toml", ".rst", ".cfg"]
+DEFAULT_EXTENSIONS = [
+    ".md",
+    ".py",
+    ".json",
+    ".txt",
+    ".pdf",
+    ".docx",
+    ".csv",
+    ".html",
+    ".htm",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".rst",
+    ".cfg",
+]
 DEFAULT_EXCLUDE_PATTERNS = [".*", "__pycache__", "node_modules", ".git", ".venv"]
 
 # MQTT

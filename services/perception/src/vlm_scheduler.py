@@ -7,15 +7,18 @@ Modes:
   - Quiet:    extended interval after consecutive uninteresting results
   - On-demand: immediate analysis from brain tool calls
 """
+
 import time
 import uuid
 from dataclasses import dataclass, field
+
 from loguru import logger
 
 
 @dataclass
 class OnDemandRequest:
     """Queued on-demand VLM analysis request."""
+
     request_id: str
     zone: str = ""
     prompt: str = ""
@@ -25,9 +28,9 @@ class OnDemandRequest:
 # Event boost configuration: (interval_factor, duration_seconds, tier)
 _EVENT_BOOST: dict[str, tuple[float, int, str]] = {
     "person_count_changed": (0.05, 300, "heavy"),
-    "posture_changed":      (0.2,  120, "light"),
-    "activity_spike":       (0.3,  120, "light"),
-    "sensor_alert":         (0.2,  180, "heavy"),
+    "posture_changed": (0.2, 120, "light"),
+    "activity_spike": (0.3, 120, "light"),
+    "sensor_alert": (0.2, 180, "heavy"),
 }
 
 
@@ -123,10 +126,7 @@ class VLMScheduler:
         self._boost_tier = tier
         self._quiet_count = 0  # Reset quiet decay on any event
 
-        logger.debug(
-            f"VLM boost: event={event_type}, factor={factor}, "
-            f"duration={duration}s, tier={tier}"
-        )
+        logger.debug(f"VLM boost: event={event_type}, factor={factor}, duration={duration}s, tier={tier}")
 
     def should_run_now(self) -> bool:
         """Check if VLM analysis should run now.
@@ -166,18 +166,14 @@ class VLMScheduler:
         else:
             self._quiet_count += 1
 
-    def request_on_demand(
-        self, zone: str = "", prompt: str = ""
-    ) -> str:
+    def request_on_demand(self, zone: str = "", prompt: str = "") -> str:
         """Queue an immediate on-demand VLM analysis.
 
         Returns:
             request_id for tracking.
         """
         request_id = str(uuid.uuid4())[:8]
-        self._on_demand_queue.append(
-            OnDemandRequest(request_id=request_id, zone=zone, prompt=prompt)
-        )
+        self._on_demand_queue.append(OnDemandRequest(request_id=request_id, zone=zone, prompt=prompt))
         logger.info(f"VLM on-demand queued: id={request_id}, zone={zone}")
         return request_id
 

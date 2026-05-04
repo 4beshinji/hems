@@ -1,11 +1,13 @@
 """
 Vault indexer — scans Obsidian vault, builds TF-IDF keyword search index.
 """
-import re
+
 import math
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
 from loguru import logger
 
 # Frontmatter parsing
@@ -19,14 +21,70 @@ RECENT_WINDOW = 86400
 RECENT_BOOST = 1.5
 
 # Stop words (minimal, Japanese + English common)
-_STOP_WORDS = frozenset({
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "have", "has",
-    "do", "does", "did", "will", "would", "could", "should", "may", "might",
-    "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
-    "this", "that", "it", "not", "no", "from", "as", "if", "so",
-    "の", "は", "が", "を", "に", "で", "と", "も", "や", "から", "まで",
-    "する", "いる", "ある", "なる", "れる", "られる", "こと", "もの", "ため",
-})
+_STOP_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "have",
+        "has",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "this",
+        "that",
+        "it",
+        "not",
+        "no",
+        "from",
+        "as",
+        "if",
+        "so",
+        "の",
+        "は",
+        "が",
+        "を",
+        "に",
+        "で",
+        "と",
+        "も",
+        "や",
+        "から",
+        "まで",
+        "する",
+        "いる",
+        "ある",
+        "なる",
+        "れる",
+        "られる",
+        "こと",
+        "もの",
+        "ため",
+    }
+)
 
 
 @dataclass
@@ -112,7 +170,7 @@ class VaultIndex:
         body = content
         if fm:
             fm_text = fm.group(1)
-            body = content[fm.end():]
+            body = content[fm.end() :]
             for line in fm_text.split("\n"):
                 line = line.strip().lstrip("- ")
                 if line.startswith("tags:"):
@@ -143,8 +201,12 @@ class VaultIndex:
         word_count = len(words)
 
         entry = NoteEntry(
-            path=rel_path, title=title, tags=tags, links=links,
-            word_count=word_count, modified_at=stat.st_mtime,
+            path=rel_path,
+            title=title,
+            tags=tags,
+            links=links,
+            word_count=word_count,
+            modified_at=stat.st_mtime,
             content=content,
         )
         self.notes[rel_path] = entry
@@ -175,8 +237,9 @@ class VaultIndex:
             for term in tf_map:
                 self._df[term] = self._df.get(term, 0) + 1
 
-    def search(self, query: str, tags: list[str] | None = None,
-               path_prefix: str | None = None, max_results: int = 5) -> list[dict]:
+    def search(
+        self, query: str, tags: list[str] | None = None, path_prefix: str | None = None, max_results: int = 5
+    ) -> list[dict]:
         """TF-IDF keyword search with optional tag/path filters."""
         query_terms = self._tokenize(query)
         if not query_terms and not tags and not path_prefix:
@@ -216,18 +279,20 @@ class VaultIndex:
             body = entry.content
             fm = _FRONTMATTER_RE.match(body)
             if fm:
-                body = body[fm.end():]
+                body = body[fm.end() :]
             snippet = body.strip()[:200]
 
-            results.append({
-                "path": path,
-                "title": entry.title,
-                "tags": entry.tags,
-                "score": round(score, 4),
-                "snippet": snippet,
-                "modified_at": entry.modified_at,
-                "word_count": entry.word_count,
-            })
+            results.append(
+                {
+                    "path": path,
+                    "title": entry.title,
+                    "tags": entry.tags,
+                    "score": round(score, 4),
+                    "snippet": snippet,
+                    "modified_at": entry.modified_at,
+                    "word_count": entry.word_count,
+                }
+            )
 
         results.sort(key=lambda r: r["score"], reverse=True)
         return results[:max_results]

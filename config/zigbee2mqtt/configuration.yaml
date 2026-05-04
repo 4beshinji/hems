@@ -1,0 +1,57 @@
+mqtt:
+  server: mqtt://mosquitto:1883
+  user: hems-zigbee
+  password: CHANGE_ME_BEFORE_USE
+serial:
+  port: /dev/ttyUSB0
+  adapter: zstack
+  disable_led: false
+advanced:
+  network_key:
+    - 161
+    - 225
+    - 66
+    - 240
+    - 240
+    - 207
+    - 49
+    - 93
+    - 202
+    - 228
+    - 127
+    - 142
+    - 244
+    - 77
+    - 8
+    - 88
+  transmit_power: 20
+  log_level: info
+  cache_state: true
+  cache_state_persistent: true
+  last_seen: ISO_8601
+frontend:
+  enabled: true
+  port: 8080
+homeassistant:
+  enabled: false
+version: 5
+devices:
+  '0x781c9dfffee1557e':
+    friendly_name: '0x781c9dfffee1557e'
+  '0xa4c13821dd1c6e60':
+    friendly_name: '0xa4c13821dd1c6e60'
+  '0xa4c138cdb4a972c2':
+    friendly_name: '0xa4c138cdb4a972c2'
+  '0xa4c138fbeb32da9c':
+    friendly_name: '0xa4c138fbeb32da9c'
+  '0xa4c138e17e7ba03a':
+    friendly_name: '0xa4c138e17e7ba03a'
+  '0xa4c13811d0a93ed4':
+    friendly_name: '0xa4c13811d0a93ed4'
+  '0x3ccfb46881f1ac2a':
+    friendly_name: '0x3ccfb46881f1ac2a'
+    description: スマートコンセント
+  '0xa4c138b65ad26965':
+    friendly_name: '0xa4c138b65ad26965'
+  '0xa4c1388f90e1f7ce':
+    friendly_name: '0xa4c1388f90e1f7ce'

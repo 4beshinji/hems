@@ -3,6 +3,7 @@
 PoC V2: Prompt Injection via MQTT
 MQTT センサートピックに LLM 命令を埋め込んで Brain に注入できるか確認
 """
+
 import json
 import os
 import sys
@@ -72,6 +73,7 @@ def test_injection():
     client.username_pw_set(MQTT_USER, MQTT_PASS)
 
     connected = False
+
     def on_connect(c, ud, flags, rc, props=None):
         nonlocal connected
         if rc == 0:

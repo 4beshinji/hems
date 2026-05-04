@@ -6,9 +6,11 @@ server (llama.cpp `llama-server`, LocalAI, mock-llm, OpenAI Cloud, or Ollama's
 `/v1` endpoint). The native Ollama `/api/chat` path is kept for compatibility
 but is not the default in this project anymore.
 """
-import os
+
 import json
+import os
 from dataclasses import dataclass, field
+
 from loguru import logger
 
 
@@ -23,30 +25,36 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # openai | anthropic | ollam
 
 
 class LLMClient:
-    def __init__(self, api_url: str = None, session=None):
+    def __init__(self, api_url: str = None, session=None, model: str = None, provider: str = None):
         self.api_url = api_url or os.getenv("LLM_API_URL", "http://mock-llm:8000/v1")
-        self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        self.model = model or os.getenv("LLM_MODEL", "gpt-4o-mini")
         self.session = session
-        self.provider = LLM_PROVIDER
+        self.provider = provider or LLM_PROVIDER
 
-    async def chat(self, messages: list, tools: list = None, *,
-                   temperature: float | None = None,
-                   max_tokens: int | None = None) -> LLMResponse:
+    async def chat(
+        self,
+        messages: list,
+        tools: list = None,
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        think: bool = False,
+    ) -> LLMResponse:
         if self.provider == "anthropic":
-            return await self._chat_anthropic(messages, tools,
-                                              temperature=temperature,
-                                              max_tokens=max_tokens)
+            return await self._chat_anthropic(messages, tools, temperature=temperature, max_tokens=max_tokens)
         if self.provider == "ollama":
-            return await self._chat_ollama(messages, tools,
-                                           temperature=temperature,
-                                           max_tokens=max_tokens)
-        return await self._chat_openai(messages, tools,
-                                       temperature=temperature,
-                                       max_tokens=max_tokens)
+            return await self._chat_ollama(messages, tools, temperature=temperature, max_tokens=max_tokens, think=think)
+        return await self._chat_openai(messages, tools, temperature=temperature, max_tokens=max_tokens)
 
-    async def _chat_ollama(self, messages: list, tools: list = None, *,
-                           temperature: float | None = None,
-                           max_tokens: int | None = None) -> LLMResponse:
+    async def _chat_ollama(
+        self,
+        messages: list,
+        tools: list = None,
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        think: bool = False,
+    ) -> LLMResponse:
         """Ollama native API — supports think, num_ctx, and tool calling."""
         # Strip /v1 suffix to get base URL for native API
         base_url = self.api_url.rstrip("/")
@@ -63,7 +71,7 @@ class LLMClient:
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "think": False,  # Disable thinking mode to avoid wasted tokens
+            "think": think,
         }
         if ollama_tools:
             payload["tools"] = ollama_tools
@@ -92,10 +100,12 @@ class LLMClient:
                             args = json.loads(args)
                         except json.JSONDecodeError:
                             args = {}
-                    tool_calls.append({
-                        "id": tc.get("id", f"call_{len(tool_calls)}"),
-                        "function": {"name": func.get("name", ""), "arguments": args},
-                    })
+                    tool_calls.append(
+                        {
+                            "id": tc.get("id", f"call_{len(tool_calls)}"),
+                            "function": {"name": func.get("name", ""), "arguments": args},
+                        }
+                    )
 
                 return LLMResponse(
                     content=msg.get("content", "") or "",
@@ -105,9 +115,9 @@ class LLMClient:
             logger.error(f"Ollama API error: {e}")
             return LLMResponse(error=str(e))
 
-    async def _chat_openai(self, messages: list, tools: list = None, *,
-                           temperature: float | None = None,
-                           max_tokens: int | None = None) -> LLMResponse:
+    async def _chat_openai(
+        self, messages: list, tools: list = None, *, temperature: float | None = None, max_tokens: int | None = None
+    ) -> LLMResponse:
         """OpenAI-compatible API (works with mock-llm, OpenAI)."""
         url = f"{self.api_url}/chat/completions"
         payload = {
@@ -140,10 +150,12 @@ class LLMClient:
                             args = json.loads(args)
                         except json.JSONDecodeError:
                             args = {}
-                    tool_calls.append({
-                        "id": tc.get("id", ""),
-                        "function": {"name": func.get("name", ""), "arguments": args},
-                    })
+                    tool_calls.append(
+                        {
+                            "id": tc.get("id", ""),
+                            "function": {"name": func.get("name", ""), "arguments": args},
+                        }
+                    )
 
                 return LLMResponse(
                     content=msg.get("content", "") or "",
@@ -153,9 +165,9 @@ class LLMClient:
             logger.error(f"OpenAI API error: {e}")
             return LLMResponse(error=str(e))
 
-    async def _chat_anthropic(self, messages: list, tools: list = None, *,
-                              temperature: float | None = None,
-                              max_tokens: int | None = None) -> LLMResponse:
+    async def _chat_anthropic(
+        self, messages: list, tools: list = None, *, temperature: float | None = None, max_tokens: int | None = None
+    ) -> LLMResponse:
         """Anthropic Messages API."""
         api_key = os.getenv("ANTHROPIC_API_KEY", "")
         url = "https://api.anthropic.com/v1/messages"
@@ -169,21 +181,31 @@ class LLMClient:
             elif msg["role"] in ("user", "assistant"):
                 anthropic_messages.append({"role": msg["role"], "content": msg["content"]})
             elif msg["role"] == "tool":
-                anthropic_messages.append({
-                    "role": "user",
-                    "content": [{"type": "tool_result", "tool_use_id": msg.get("tool_call_id", ""), "content": msg["content"]}],
-                })
+                anthropic_messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": msg.get("tool_call_id", ""),
+                                "content": msg["content"],
+                            }
+                        ],
+                    }
+                )
 
         # Convert OpenAI tools to Anthropic format
         anthropic_tools = []
         if tools:
             for t in tools:
                 func = t.get("function", {})
-                anthropic_tools.append({
-                    "name": func["name"],
-                    "description": func.get("description", ""),
-                    "input_schema": func.get("parameters", {}),
-                })
+                anthropic_tools.append(
+                    {
+                        "name": func["name"],
+                        "description": func.get("description", ""),
+                        "input_schema": func.get("parameters", {}),
+                    }
+                )
 
         payload = {
             "model": self.model,
@@ -217,10 +239,12 @@ class LLMClient:
                     if block["type"] == "text":
                         content_text += block["text"]
                     elif block["type"] == "tool_use":
-                        tool_calls.append({
-                            "id": block["id"],
-                            "function": {"name": block["name"], "arguments": block.get("input", {})},
-                        })
+                        tool_calls.append(
+                            {
+                                "id": block["id"],
+                                "function": {"name": block["name"], "arguments": block.get("input", {})},
+                            }
+                        )
 
                 return LLMResponse(content=content_text, tool_calls=tool_calls)
         except Exception as e:

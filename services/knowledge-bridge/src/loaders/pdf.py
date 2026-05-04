@@ -1,13 +1,16 @@
 """
 PDF loader — .pdf files via pdfplumber text extraction.
 """
+
 from pathlib import Path
+
 from loguru import logger
 
 from .base import BaseLoader, DocumentEntry
 
 try:
     import pdfplumber
+
     _HAS_PDFPLUMBER = True
 except ImportError:
     _HAS_PDFPLUMBER = False
@@ -52,9 +55,14 @@ class PdfLoader(BaseLoader):
             return None
 
         return DocumentEntry(
-            path=rel_path, source_name=source_name, title=title,
-            doc_type=self.doc_type, tags=tags, metadata=metadata,
-            word_count=len(body.split()), modified_at=stat.st_mtime,
+            path=rel_path,
+            source_name=source_name,
+            title=title,
+            doc_type=self.doc_type,
+            tags=tags,
+            metadata=metadata,
+            word_count=len(body.split()),
+            modified_at=stat.st_mtime,
             content=f"[PDF: {metadata.get('pages', '?')} pages]\n{body[:500]}...",
             body=body,
         )
