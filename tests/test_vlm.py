@@ -510,12 +510,18 @@ class TestRuleEngineVLM:
 
 class TestSummarizeAction:
     def _get_summarize_action(self):
-        """Import _summarize_action from brain main.py (not backend)."""
+        """Import _summarize_action from brain main.py (not backend).
+
+        Heavy brain dependencies are mocked so we don't need a full runtime;
+        any sys.modules entries we add are cleaned up after the import so
+        downstream tests can still resolve the real packages (notably
+        ``event_store``, which is a real package the wiring-gap-06 test imports).
+        """
         spec = _ilu.spec_from_file_location("brain_main", _BRAIN_SRC / "main.py")
-        # We only need the function, mock heavy deps to avoid full import
         import unittest.mock as _um
 
-        _mocks = {}
+        _injected: list[str] = []
+        _replaced: dict[str, object] = {}
         for dep in (
             "mcp_bridge",
             "llm_client",
@@ -534,19 +540,26 @@ class TestSummarizeAction:
             "dotenv",
         ):
             if dep not in sys.modules:
-                _mocks[dep] = _um.MagicMock()
-                sys.modules[dep] = _mocks[dep]
-        # mock dotenv.load_dotenv
-        if hasattr(sys.modules.get("dotenv"), "load_dotenv"):
-            pass
-        else:
+                sys.modules[dep] = _um.MagicMock()
+                _injected.append(dep)
+        if "dotenv" not in sys.modules:
             sys.modules["dotenv"] = _um.MagicMock()
-        mod = _ilu.module_from_spec(spec)
+            _injected.append("dotenv")
         try:
-            spec.loader.exec_module(mod)
-        except Exception:
-            pass
-        return getattr(mod, "_summarize_action", None)
+            mod = _ilu.module_from_spec(spec)
+            try:
+                spec.loader.exec_module(mod)
+            except Exception:
+                pass
+            return getattr(mod, "_summarize_action", None)
+        finally:
+            # Remove the mock entries we added so downstream tests can import
+            # the real packages. Restore any pre-existing entry we may have
+            # transiently overwritten.
+            for dep in _injected:
+                sys.modules.pop(dep, None)
+            for dep, original in _replaced.items():
+                sys.modules[dep] = original
 
     def test_describe_scene_summary(self):
         fn = self._get_summarize_action()

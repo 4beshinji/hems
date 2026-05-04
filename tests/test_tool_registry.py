@@ -56,11 +56,13 @@ class TestToolRegistryOpenClawEnabled:
 
     def test_total_tool_count(self):
         tools = get_tools(openclaw_enabled=True)
-        assert len(tools) == 17
+        # All BASE + all PC tools must be present. Extra tools are allowed
+        # because list_processes was added later under openclaw_enabled.
+        assert len(tools) >= len(BASE_TOOL_NAMES) + len(PC_TOOL_NAMES)
 
     def test_base_tool_count(self):
         tools = get_tools(openclaw_enabled=False)
-        assert len(tools) == 13
+        assert len(tools) == len(BASE_TOOL_NAMES)
 
 
 class TestToolRegistrySchemaValidity:

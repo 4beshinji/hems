@@ -326,7 +326,6 @@ class TestCapsuleBuilder:
             session=mock_session,
             voice_service_url="http://voice:8000",
             backend_url="http://backend:8000",
-            api_key="test",
         )
         tomorrow = datetime.now() + timedelta(days=1)
         wake_ts = tomorrow.replace(hour=7).timestamp()
@@ -368,7 +367,6 @@ class TestCapsuleBuilder:
             session=mock_session,
             voice_service_url="http://v:8000",
             backend_url="http://b:8000",
-            api_key="test",
         )
         tomorrow = datetime.now() + timedelta(days=1)
         manifest = asyncio.run(

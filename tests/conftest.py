@@ -1,5 +1,5 @@
 """
-Shared fixtures for HEMS OpenClaw integration tests.
+Shared fixtures for HEMS integration tests.
 """
 
 import sys
@@ -11,10 +11,9 @@ import pytest
 # Add service source directories to path so tests can import them
 _root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_root / "services" / "brain" / "src"))
-sys.path.insert(0, str(_root / "services" / "openclaw-bridge" / "src"))
 sys.path.insert(0, str(_root / "services" / "backend"))
 # NOTE: gas-bridge/src is NOT added here because its config.py would shadow
-# openclaw-bridge/src/config.py.  gas-bridge tests manage their own path.
+# other services' config.py modules.  gas-bridge tests manage their own path.
 
 
 @pytest.fixture

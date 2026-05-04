@@ -81,10 +81,20 @@ class TestEmptyRoomDetection:
         world_model.zones["living_room"] = zone
 
         world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights["light.living_room"] = LightState(on=True, brightness=200)
+        engine._device_cache = [{
+            "device_id": "light.living_room",
+            "device_class": "light",
+            "is_enabled": True,
+            "capabilities": ["brightness"],
+            "last_state": {"on": True, "brightness": 200},
+            "zone": "living_room",
+        }]
 
         actions = engine.evaluate(world_model)
-        light_off = [a for a in actions if a.get("tool") == "control_light" and a.get("args", {}).get("on") is False]
+        light_off = [
+            a for a in actions
+            if a.get("tool") == "control_actuator" and a.get("args", {}).get("action") == "off"
+        ]
         assert len(light_off) >= 1
 
     def test_occupied_room_no_light_off(self, world_model, engine):
@@ -94,7 +104,14 @@ class TestEmptyRoomDetection:
         world_model.zones["living_room"] = zone
 
         world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights["light.living_room"] = LightState(on=True, brightness=200)
+        engine._device_cache = [{
+            "device_id": "light.living_room",
+            "device_class": "light",
+            "is_enabled": True,
+            "capabilities": ["brightness"],
+            "last_state": {"on": True, "brightness": 200},
+            "zone": "living_room",
+        }]
 
         actions = engine.evaluate(world_model)
         # Perception empty-room rule should not fire when room is occupied

@@ -122,7 +122,39 @@ class TestScheduleLearnerPrediction:
 
     def test_get_wake_time_insufficient_data(self):
         sl = ScheduleLearner()
-        assert sl.get_wake_time() is None
+        # Disable the FALLBACK_WAKE_TIME safety net so the absence of
+        # history/calendar data really yields None.
+        with patch("schedule_learner.FALLBACK_WAKE_TIME", ""):
+            assert sl.get_wake_time() is None
+
+    def test_get_wake_time_uses_fallback_when_empty(self):
+        sl = ScheduleLearner()
+        with patch("schedule_learner.FALLBACK_WAKE_TIME", "07:00"):
+            wake_time = sl.get_wake_time()
+        assert wake_time is not None
+        assert datetime.fromtimestamp(wake_time).hour == 7
+
+    def test_get_wake_time_returns_today_if_in_future(self):
+        """get_wake_time should prefer today's wake over tomorrow's when
+        today's predicted wake is still ahead of `now`."""
+        sl = ScheduleLearner()
+        # Pretend "now" is 03:00 today so today 07:00 is still in the future.
+        fake_now = datetime.now().replace(hour=3, minute=0, second=0, microsecond=0)
+        # Set today's weekday history so the prediction picks today's date.
+        sl._wake_history[fake_now.weekday()] = [7.0, 7.0, 7.0]
+        with (
+            patch("schedule_learner.datetime") as mock_dt,
+            patch("schedule_learner.FALLBACK_WAKE_TIME", ""),
+        ):
+            mock_dt.now.return_value = fake_now
+            mock_dt.fromtimestamp.side_effect = datetime.fromtimestamp
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            wake_time = sl.get_wake_time()
+        assert wake_time is not None
+        wake_dt = datetime.fromtimestamp(wake_time)
+        # Should be today at 07:00, not tomorrow.
+        assert wake_dt.date() == fake_now.date()
+        assert wake_dt.hour == 7
 
     def test_get_wake_time_from_history(self):
         sl = ScheduleLearner()
@@ -134,6 +166,32 @@ class TestScheduleLearnerPrediction:
         assert wake_time is not None
         wake_dt = datetime.fromtimestamp(wake_time)
         assert wake_dt.hour == 7
+
+
+class TestScheduleLearnerConfidence:
+    def test_no_history_is_low(self):
+        sl = ScheduleLearner()
+        assert sl.get_wake_confidence() == "low"
+
+    def test_short_history_is_medium(self):
+        sl = ScheduleLearner()
+        weekday = datetime.now().weekday()
+        sl._wake_history[weekday] = [7.0, 7.2]  # exactly MIN_WEEKS
+        assert sl.get_wake_confidence() == "medium"
+
+    def test_long_tight_history_is_high(self):
+        sl = ScheduleLearner()
+        weekday = datetime.now().weekday()
+        # 4 weeks, stdev ~0.1h = 6 min
+        sl._wake_history[weekday] = [7.0, 7.1, 7.0, 7.1]
+        assert sl.get_wake_confidence() == "high"
+
+    def test_long_noisy_history_is_low(self):
+        sl = ScheduleLearner()
+        weekday = datetime.now().weekday()
+        # 4 weeks, stdev ~1h = 60 min → low
+        sl._wake_history[weekday] = [6.0, 7.0, 8.0, 9.0]
+        assert sl.get_wake_confidence() == "low"
 
 
 class TestScheduleLearnerStats:

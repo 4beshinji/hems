@@ -29,7 +29,7 @@ def _gas_import(name: str):
     finally:
         if added:
             sys.path.remove(_gas_src)
-        # Restore previous config module so openclaw-bridge tests aren't affected
+        # Restore previous config module so other services' tests aren't affected
         sys.modules.pop("config", None)
         if old_config is not None:
             sys.modules["config"] = old_config

@@ -18,14 +18,14 @@ np = pytest.importorskip("numpy", reason="numpy not installed")
 
 # Mock heavy optional dependencies that are NOT installed in the test env.
 # Only mock what's truly missing — paho-mqtt IS installed and must not be mocked
-# (mocking it breaks other tests like test_openclaw_bridge).
+# (mocking it breaks other tests that import the real client).
 for _mod_name in ("cv2", "ultralytics"):
     if _mod_name not in sys.modules:
         sys.modules[_mod_name] = types.ModuleType(_mod_name)
 
 # Import perception modules using importlib to avoid polluting sys.modules.
 # Multiple services share module names (e.g., mqtt_publisher, config) so we
-# must not let perception's versions shadow openclaw-bridge's.
+# must not let perception's versions shadow other services' modules.
 import importlib.util as _ilu
 
 _PERCEP_SRC = Path(__file__).resolve().parent.parent / "services" / "perception" / "src"
@@ -59,7 +59,7 @@ CameraSource = _mod_camera.CameraSource
 MQTTPublisher = _mod_mqtt.MQTTPublisher
 
 # Clean up: remove perception modules from sys.modules so they don't shadow
-# identically-named modules from other services (openclaw-bridge, etc.)
+# identically-named modules from other services.
 for _name in ("config", "mqtt_publisher", "detector", "activity_tracker", "camera_manager"):
     sys.modules.pop(_name, None)
 

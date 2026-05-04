@@ -76,18 +76,25 @@ class TestDoorArrivalDepartureRule:
             previous_state=True,
             last_changed=now,
         )
-        world_model.home_devices.lights["light.living"] = LightState(
-            entity_id="light.living",
-            on=False,
-        )
+        engine._device_cache = [{
+            "device_id": "light.living",
+            "device_class": "light",
+            "is_enabled": True,
+            "capabilities": ["brightness"],
+            "last_state": {"on": False},
+            "zone": "living_room",
+        }]
         zone = world_model._get_zone("living_room")
         zone.occupancy = OccupancyData(count=1)
 
         actions = engine.evaluate(world_model)
         speak_actions = [a for a in actions if a["tool"] == "speak" and "おかえり" in a["args"]["message"]]
-        light_actions = [a for a in actions if a["tool"] == "control_light" and a["args"]["on"] is True]
+        light_ons = [
+            a for a in actions
+            if a["tool"] == "control_actuator" and a["args"]["action"] == "on"
+        ]
         assert len(speak_actions) >= 1
-        assert len(light_actions) >= 1
+        assert len(light_ons) >= 1
 
     def test_door_departure_lights_off(self, engine, world_model):
         world_model.home_devices.bridge_connected = True
@@ -99,17 +106,24 @@ class TestDoorArrivalDepartureRule:
             previous_state=True,
             last_changed=now,
         )
-        world_model.home_devices.lights["light.living"] = LightState(
-            entity_id="light.living",
-            on=True,
-        )
+        engine._device_cache = [{
+            "device_id": "light.living",
+            "device_class": "light",
+            "is_enabled": True,
+            "capabilities": ["brightness"],
+            "last_state": {"on": True},
+            "zone": "living_room",
+        }]
         # No occupants
         zone = world_model._get_zone("living_room")
         zone.occupancy = OccupancyData(count=0)
 
         actions = engine.evaluate(world_model)
         speak_actions = [a for a in actions if a["tool"] == "speak" and "いってらっしゃい" in a["args"]["message"]]
-        light_off = [a for a in actions if a["tool"] == "control_light" and a["args"]["on"] is False]
+        light_off = [
+            a for a in actions
+            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
+        ]
         assert len(speak_actions) >= 1
         assert len(light_off) >= 1
 
@@ -248,15 +262,25 @@ class TestPM25Rule:
             value=50,
             device_class="pm25",
         )
-        world_model.home_devices.switches["switch.air_purifier"] = False
+        engine._device_cache = [{
+            "device_id": "switch.air_purifier",
+            "device_class": "switch",
+            "is_enabled": True,
+            "capabilities": [],
+            "last_state": {"on": False},
+            "zone": "home",
+            "purpose": "空気清浄機",
+        }]
         actions = engine.evaluate(world_model)
         speak_actions = [a for a in actions if a["tool"] == "speak" and "PM2.5" in a["args"]["message"]]
         switch_actions = [
-            a for a in actions if a["tool"] == "control_switch" and a["args"]["entity_id"] == "switch.air_purifier"
+            a for a in actions
+            if a["tool"] == "control_actuator"
+            and a["args"]["device_id"] == "switch.air_purifier"
+            and a["args"]["action"] == "on"
         ]
         assert len(speak_actions) >= 1
         assert len(switch_actions) >= 1
-        assert switch_actions[0]["args"]["on"] is True
 
     def test_pm25_normal_no_action(self, engine, world_model):
         world_model.home_devices.bridge_connected = True

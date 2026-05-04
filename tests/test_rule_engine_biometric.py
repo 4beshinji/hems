@@ -327,6 +327,25 @@ class TestRuleEngineBiometricRules:
 
     # --- Rule 6: Sleep stage + HA lights off ---
 
+    @staticmethod
+    def _populate_device_cache(engine, lights):
+        """Populate engine._device_cache with light entries (vendor-agnostic).
+
+        Rules now read from the unified Device Registry cache and emit
+        control_actuator actions, not the legacy control_light/home_devices.lights path.
+        """
+        engine._device_cache = [
+            {
+                "device_id": entity_id,
+                "device_class": "light",
+                "is_enabled": True,
+                "capabilities": ["brightness", "color_temp"],
+                "last_state": {"on": on, "brightness": brightness},
+                "zone": "home",
+            }
+            for entity_id, (on, brightness) in lights.items()
+        ]
+
     def test_sleep_stage_ha_lights_off(self, world_model):
         """Sleep stage detection with HA connected turns off lights."""
         engine = self._make_engine()
@@ -335,13 +354,16 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.last_update = time.time()
 
         world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights = {
-            "light.bedroom": LightState(entity_id="light.bedroom", on=True, brightness=200),
-            "light.living": LightState(entity_id="light.living", on=True, brightness=150),
-        }
+        self._populate_device_cache(engine, {
+            "light.bedroom": (True, 200),
+            "light.living": (True, 150),
+        })
 
         actions = engine.evaluate(world_model)
-        light_offs = [a for a in actions if a["tool"] == "control_light" and a["args"]["on"] is False]
+        light_offs = [
+            a for a in actions
+            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
+        ]
         speaks = [a for a in actions if a["tool"] == "speak" and "おやすみ" in a["args"]["message"]]
         assert len(light_offs) == 2
         assert len(speaks) == 1
@@ -355,12 +377,13 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.last_update = time.time()
 
         world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights = {
-            "light.bedroom": LightState(entity_id="light.bedroom", on=True, brightness=100),
-        }
+        self._populate_device_cache(engine, {"light.bedroom": (True, 100)})
 
         actions = engine.evaluate(world_model)
-        light_offs = [a for a in actions if a["tool"] == "control_light" and a["args"]["on"] is False]
+        light_offs = [
+            a for a in actions
+            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
+        ]
         assert len(light_offs) == 1
 
     def test_sleep_stage_rem_turns_off_lights(self, world_model):
@@ -371,12 +394,13 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.last_update = time.time()
 
         world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights = {
-            "light.bedroom": LightState(entity_id="light.bedroom", on=True, brightness=100),
-        }
+        self._populate_device_cache(engine, {"light.bedroom": (True, 100)})
 
         actions = engine.evaluate(world_model)
-        light_offs = [a for a in actions if a["tool"] == "control_light" and a["args"].get("on") is False]
+        light_offs = [
+            a for a in actions
+            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
+        ]
         assert len(light_offs) == 1
 
     def test_sleep_stage_awake_no_lights_off(self, world_model):
@@ -437,15 +461,19 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.last_update = time.time()
 
         world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights = {
-            "light.bedroom": LightState(entity_id="light.bedroom", on=True, brightness=200),
-        }
+        self._populate_device_cache(engine, {"light.bedroom": (True, 200)})
 
         actions1 = engine.evaluate(world_model)
         actions2 = engine.evaluate(world_model)
 
-        light_offs1 = [a for a in actions1 if a["tool"] == "control_light"]
-        light_offs2 = [a for a in actions2 if a["tool"] == "control_light"]
+        light_offs1 = [
+            a for a in actions1
+            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
+        ]
+        light_offs2 = [
+            a for a in actions2
+            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
+        ]
         assert len(light_offs1) >= 1
         assert len(light_offs2) == 0
 
@@ -459,9 +487,7 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.fatigue.last_update = time.time()
 
         world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights = {
-            "light.living": LightState(entity_id="light.living", on=True, brightness=200),
-        }
+        self._populate_device_cache(engine, {"light.living": (True, 200)})
 
         mock_dt = datetime(2026, 2, 20, 22, 0, 0)
         with patch("rule_engine.datetime") as mock_datetime:
@@ -469,11 +495,20 @@ class TestRuleEngineBiometricRules:
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
 
-        dims = [a for a in actions if a["tool"] == "control_light" and a["args"].get("brightness") == 80]
+        dims = [
+            a for a in actions
+            if a["tool"] == "control_actuator"
+            and a["args"]["action"] == "set_brightness"
+            and (a["args"].get("params") or {}).get("value") == 80
+        ]
+        color_temps = [
+            a for a in actions
+            if a["tool"] == "control_actuator"
+            and a["args"]["action"] == "set_color_temp"
+        ]
         assert len(dims) == 1
-        assert dims[0]["args"]["entity_id"] == "light.living"
-        assert dims[0]["args"]["on"] is True
-        assert dims[0]["args"]["color_temp"] == 400
+        assert dims[0]["args"]["device_id"] == "light.living"
+        assert any(c["args"]["device_id"] == "light.living" for c in color_temps)
 
     def test_fatigue_dimming_multiple_lights(self, world_model):
         """Multiple bright lights should all be dimmed."""
@@ -483,11 +518,11 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.fatigue.last_update = time.time()
 
         world_model.home_devices.bridge_connected = True
-        world_model.home_devices.lights = {
-            "light.living": LightState(entity_id="light.living", on=True, brightness=200),
-            "light.kitchen": LightState(entity_id="light.kitchen", on=True, brightness=150),
-            "light.dim_one": LightState(entity_id="light.dim_one", on=True, brightness=50),
-        }
+        self._populate_device_cache(engine, {
+            "light.living": (True, 200),
+            "light.kitchen": (True, 150),
+            "light.dim_one": (True, 50),  # brightness <= 100 — not dimmed
+        })
 
         mock_dt = datetime(2026, 2, 20, 21, 30, 0)
         with patch("rule_engine.datetime") as mock_datetime:
@@ -495,10 +530,15 @@ class TestRuleEngineBiometricRules:
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
 
-        dims = [a for a in actions if a["tool"] == "control_light" and a["args"].get("brightness") == 80]
+        dims = [
+            a for a in actions
+            if a["tool"] == "control_actuator"
+            and a["args"]["action"] == "set_brightness"
+            and (a["args"].get("params") or {}).get("value") == 80
+        ]
         # Only lights with brightness > 100 should be dimmed
         assert len(dims) == 2
-        dimmed_ids = {a["args"]["entity_id"] for a in dims}
+        dimmed_ids = {a["args"]["device_id"] for a in dims}
         assert "light.living" in dimmed_ids
         assert "light.kitchen" in dimmed_ids
         assert "light.dim_one" not in dimmed_ids
