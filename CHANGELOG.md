@@ -1,0 +1,122 @@
+# HEMS Changelog
+
+ユーザー向けの **運用上の注意・破壊的変更・必須マイグレーション** をここに記録する。
+細かい機能追加は git log を参照。
+
+ステータス凡例: ⚠️ = 既存環境で手作業が必要 / 🆕 = 純粋な新機能 / 🔧 = リファクタ・内部改善
+
+---
+
+## 2026-05-01
+
+### ⚠️ Mosquitto ACL / passwords 変更時は `docker compose restart mosquitto` 必須
+
+`infra/mosquitto/acl.txt` または `infra/mosquitto/entrypoint.sh` (passwords.txt 生成スクリプト) を編集した場合、**mosquitto コンテナを再起動するまで変更が反映されない**。
+
+```bash
+docker compose restart mosquitto
+```
+
+理由: mosquitto は起動時に ACL とパスワードファイルを読み込み、以後はメモリ上のテーブルを参照する。ホスト側ファイルを書き換えても再読込しない。今回の weather-bridge 追加 (`hems-weather` user) では、ACL 編集後に mosquitto を再起動するまで `not authorised` になっていた。
+
+該当する変更例:
+- 新しい bridge service を追加して新しい MQTT user を割り当てるとき
+- 既存 user の topic 権限を変えるとき
+- パスワードを更新するとき
+
+### 🆕 weather-bridge を常時起動として compose に追加
+
+- `services/weather-bridge` を `infra/docker-compose.yml` に登録 (profile 無しで常時起動)
+- mosquitto に `hems-weather` user 追加 (上記 ACL 注意点参照)
+- env: `WEATHER_PROVIDER` (`jma` デフォルト) / `JMA_AREA_CODE` / `JMA_DETAIL_CODE` / OWM 系
+- これにより `world_model.weather` が常に充填され、`get_weather` ツールおよび EventAutomation の `weather_report` action が実データで動作
+
+詳細は `docs/wiring-gap-05-orphan-cleanup-and-underused-data.md` を参照。
+
+### ⚠️ backend Device テーブルに `link_quality` / `last_seen_reported` 追加 — 既存 DB 要再生成
+
+`services/backend/models.py:Device` に下記カラムを追加:
+
+| カラム | 型 | 用途 |
+|--------|-----|------|
+| `link_quality` | INTEGER | Z2M LQI (0-255) / SwitchBot RSSI |
+| `last_seen_reported` | TIMESTAMP TZ | デバイス自身が報告した最終アクセス時刻 (Z2M `last_seen`) |
+
+backend は alembic 未導入 (`Base.metadata.create_all` のみ) のため、**既存 DB は新カラムを自動追加しない**。dev 環境では DB を削除して再生成:
+
+```bash
+docker compose stop backend brain
+docker compose rm -f backend brain
+docker volume rm hems_hems_backend_data
+docker compose up -d --build backend brain
+```
+
+prod 想定なら手動マイグレーション:
+```sql
+ALTER TABLE device ADD COLUMN link_quality INTEGER;
+ALTER TABLE device ADD COLUMN last_seen_reported TIMESTAMP WITH TIME ZONE;
+```
+
+### ⚠️ 古いコンテナボリュームの所有者問題 (brain / backend)
+
+過去のイメージで作られた `hems_hems_brain_data` / `hems_hems_backend_data` は **root 所有のまま残ることがある**。Dockerfile の chown は **新規 (空) ボリュームの初期化時にのみ反映**され、既存ボリュームには影響しない。
+
+症状: `event_store init failed: unable to open database file` が brain ログに出る、または backend が SQLite に書込めない。
+
+復旧:
+
+```bash
+# ホットフィックス (再起動不要)
+docker exec -u root hems-brain chown -R appuser:appgroup /app/data
+docker compose restart brain
+
+# 根治 (volume を捨てて Dockerfile の所有権で再生成)
+docker compose stop brain
+docker compose rm -f brain
+docker volume rm hems_hems_brain_data
+docker compose up -d brain
+```
+
+Dockerfile (`services/brain/Dockerfile` / `services/backend/Dockerfile`) には `RUN mkdir -p /app/data && chown appuser:appgroup /app/data` を含めてあるため、新規環境では問題は発生しない。
+
+### 🆕 Brain ツール 4 件追加
+
+| Tool | profile | 用途 |
+|------|---------|------|
+| `get_power_consumption` | tapo | Tapo P110/P115 の瞬時電力 (W) — `device_id` 省略時は `asyncio.gather` で全プラグ並列取得 |
+| `get_entity_status` | ha | HA 単一エンティティの即時 state |
+| `list_processes` | localcraw | PC プロセス一覧 (CPU/メモリソート、name フィルタ) |
+| `get_recent_emails` | gas | Gmail スレッドを sender/subject/unread でフィルタ |
+
+`get_tools()` / `get_chat_tools()` のシグネチャに `gas_enabled` / `tapo_enabled` 引数を追加。chat allowlist にも 4 ツールを反映済み。
+
+### 🆕 RuleEngine に閾値追加
+
+| 環境変数 | デフォルト | 用途 |
+|----------|-----------|------|
+| `HEMS_PROC_CPU_HIGH` | 90 | プロセス単体の CPU 高負荷判定 (%) |
+| `HEMS_PROC_CPU_SUSTAIN_S` | 300 | 上記の継続時間 (秒) |
+| `HEMS_PROC_MEM_HIGH_GB` | 4.0 | プロセス単体のメモリ高使用判定 (GB) |
+| `HEMS_PROC_COOLDOWN_S` | 1800 | 同一プロセス再アラートまで (秒) |
+| `HEMS_DEVICE_BATTERY_LOW` | 10 | デバイス低バッテリー警告閾値 (%) |
+| `HEMS_DEVICE_LQI_LOW` | 50 | Z2M リンク品質低下閾値 (LQI 0-255) |
+| `HEMS_DEVICE_STALE_HOURS` | 24 | デバイス無応答警告までの時間 (h) |
+| `HEMS_GMAIL_VIP_SENDERS` | (空) | カンマ区切り、含まれる送信者の Gmail event を severity=2 に昇格 |
+| `HEMS_GITHUB_VIP_REPOS` | (空) | カンマ区切り、含まれる repo の GitHub event を severity=2 に昇格 |
+
+### 🔧 内部リファクタ
+
+- `_parse_iso_ts` を `services/brain/src/brain_utils.py:parse_iso_ts` に集約 (device_dispatcher / rule_engine の重複を解消)
+- `_handle_get_power_consumption` の全プラグ列挙を `asyncio.gather` 化 (直列 N×5s → 並列 1×5s)
+- `_run_rule_actions` で low-power mode と VLM swap 中は persona rewrite を skip (応答性優先)
+
+### 🗑️ Cleanup
+
+- `services/sentinel/` 削除 (中身が `__pycache__` のみのデッドコード)
+- `services/data-bridge/` に README.md 追加 (Phase 2 placeholder の意図明示)
+
+---
+
+## 履歴 (2026-04 以前)
+
+git log 参照。

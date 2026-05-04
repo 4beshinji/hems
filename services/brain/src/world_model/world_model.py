@@ -56,6 +56,38 @@ from .sensor_fusion import (
 
 logger = logging.getLogger(__name__)
 
+# B-2: VIP sender / repo identification for service edge events.
+# Comma-separated list. A service event is treated as VIP if its payload's
+# `vip` field is true, OR if any configured VIP token is found in the event
+# summary / details / data.
+_VIP_GMAIL_SENDERS = [
+    s.strip().lower()
+    for s in os.getenv("HEMS_GMAIL_VIP_SENDERS", "").split(",")
+    if s.strip()
+]
+_VIP_GITHUB_REPOS = [
+    s.strip().lower()
+    for s in os.getenv("HEMS_GITHUB_VIP_REPOS", "").split(",")
+    if s.strip()
+]
+
+
+def _detect_service_vip(service_name: str, payload: dict) -> bool:
+    """Return True if the service event is from a VIP sender or repo."""
+    if payload.get("vip"):
+        return True
+    haystack = " ".join(
+        str(payload.get(k, ""))
+        for k in ("summary", "details", "subject", "from", "sender", "repo")
+    ).lower()
+    if not haystack:
+        return False
+    if service_name == "gmail":
+        return any(s and s in haystack for s in _VIP_GMAIL_SENDERS)
+    if service_name == "github":
+        return any(s and s in haystack for s in _VIP_GITHUB_REPOS)
+    return False
+
 # Prompt injection patterns to strip from MQTT-sourced text before LLM context
 _INJECTION_RE = re.compile(
     r"\[SYSTEM|<\|system\|>|###\s*(System|Instruction|Override)|"
@@ -140,6 +172,15 @@ class WorldModel:
 
         # VLM model swap coordination flag — brain skips LLM calls when True
         self.vlm_model_swap_active: bool = False
+        # B-3: VLM swap stats — outage detection
+        self.vlm_swap_stats: dict = {
+            "last_swap_start_ts": 0.0,
+            "last_swap_end_ts": 0.0,
+            "last_swap_duration_sec": 0.0,
+            "success_count": 0,
+            "failure_count": 0,
+            "longest_swap_sec": 0.0,
+        }
 
         # Guest mode: suppresses personal rules (biometric, etc.) for privacy
         self._guest_mode_expiry: float = 0
@@ -871,12 +912,21 @@ class WorldModel:
                 )
 
         elif msg_type == "event":
+            is_vip = _detect_service_vip(service_name, payload)
+            event_type = (
+                "service_vip_event"
+                if is_vip
+                else f"service_{payload.get('type', 'unknown')}"
+            )
+            data_with_vip = dict(payload)
+            data_with_vip["service"] = service_name
+            data_with_vip["vip"] = is_vip
             ss.add_event(
                 Event(
-                    event_type=f"service_{payload.get('type', 'unknown')}",
+                    event_type=event_type,
                     description=_sanitize_text(payload.get("summary", f"{service_name} event")),
-                    severity=0,
-                    data=payload,
+                    severity=2 if is_vip else 0,
+                    data=data_with_vip,
                 )
             )
 
@@ -1096,12 +1146,27 @@ class WorldModel:
         # hems/perception/vlm/model_swap — VRAM coordination
         elif len(path_parts) >= 2 and path_parts[0] == "vlm" and path_parts[1] == "model_swap":
             status = payload.get("status", "")
+            stats = self.vlm_swap_stats
+            now_ts = time.time()
             if status == "heavy_loading":
                 self.vlm_model_swap_active = True
+                stats["last_swap_start_ts"] = now_ts
                 logger.info("VLM model swap: heavy model loading — brain entering rule-only mode")
             elif status == "ready":
                 self.vlm_model_swap_active = False
+                start = stats.get("last_swap_start_ts", 0)
+                if start > 0:
+                    duration = now_ts - start
+                    stats["last_swap_end_ts"] = now_ts
+                    stats["last_swap_duration_sec"] = duration
+                    if duration > stats.get("longest_swap_sec", 0):
+                        stats["longest_swap_sec"] = duration
+                stats["success_count"] = stats.get("success_count", 0) + 1
                 logger.info("VLM model swap: ready — brain resuming LLM mode")
+            elif status in ("failed", "error"):
+                self.vlm_model_swap_active = False
+                stats["failure_count"] = stats.get("failure_count", 0) + 1
+                logger.warning(f"VLM model swap failed: {payload.get('error', '')}")
 
     def _update_tapo_state(self, vendor_ref: str, payload: dict):
         """Tapo plug state → feed power metering into zone sensors if provided.
@@ -1303,6 +1368,7 @@ class WorldModel:
                 if "resting_bpm" in payload:
                     bio.heart_rate.resting_bpm = int(payload["resting_bpm"])
                 bio.bridge_connected = True
+                bio.record_history("heart_rate", float(bpm), now)
                 self._check_biometric_thresholds("heart_rate", float(bpm), float(prev_bpm) if prev_bpm else None)
 
         elif metric == "spo2":
@@ -1312,12 +1378,14 @@ class WorldModel:
                 bio.spo2.percent = int(pct)
                 bio.spo2.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("spo2", float(pct), now)
                 self._check_biometric_thresholds("spo2", float(pct), float(prev_pct) if prev_pct else None)
 
         elif metric == "sleep":
             bio.sleep.stage = payload.get("stage", bio.sleep.stage)
             if "duration_minutes" in payload:
                 bio.sleep.duration_minutes = int(payload["duration_minutes"])
+                bio.record_history("sleep_duration", float(payload["duration_minutes"]), now)
             if "deep_minutes" in payload:
                 bio.sleep.deep_minutes = int(payload["deep_minutes"])
             if "rem_minutes" in payload:
@@ -1326,6 +1394,7 @@ class WorldModel:
                 bio.sleep.light_minutes = int(payload["light_minutes"])
             if "quality_score" in payload:
                 bio.sleep.quality_score = int(payload["quality_score"])
+                bio.record_history("sleep_quality", float(payload["quality_score"]), now)
             if "sleep_start_ts" in payload:
                 bio.sleep.sleep_start_ts = float(payload["sleep_start_ts"])
             if "sleep_end_ts" in payload:
@@ -1336,6 +1405,7 @@ class WorldModel:
         elif metric == "activity":
             if "steps" in payload:
                 bio.activity.steps = int(payload["steps"])
+                bio.record_history("steps", float(payload["steps"]), now)
             if "steps_goal" in payload:
                 bio.activity.steps_goal = int(payload["steps_goal"])
             if "calories" in payload:
@@ -1355,11 +1425,13 @@ class WorldModel:
                 bio.stress.category = StressData.classify_category(int(level))
                 bio.stress.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("stress", float(level), now)
                 self._check_biometric_thresholds("stress", float(level), float(prev_level) if prev_level else None)
 
         elif metric == "fatigue":
             if "score" in payload:
                 bio.fatigue.score = int(payload["score"])
+                bio.record_history("fatigue", float(payload["score"]), now)
             if "factors" in payload:
                 bio.fatigue.factors = payload["factors"]
             bio.fatigue.last_update = now
@@ -1372,6 +1444,7 @@ class WorldModel:
                 bio.hrv.rmssd_ms = int(rmssd)
                 bio.hrv.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("hrv", float(rmssd), now)
                 if int(rmssd) < HRV_LOW and (prev_rmssd is None or prev_rmssd >= HRV_LOW):
                     bio.add_event(
                         Event(
@@ -1389,6 +1462,7 @@ class WorldModel:
                 bio.body_temperature.celsius = float(celsius)
                 bio.body_temperature.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("body_temperature", float(celsius), now)
                 if float(celsius) > BODY_TEMP_HIGH and (prev_temp is None or prev_temp <= BODY_TEMP_HIGH):
                     bio.add_event(
                         Event(
@@ -1406,6 +1480,7 @@ class WorldModel:
                 bio.respiratory_rate.breaths_per_minute = int(rate)
                 bio.respiratory_rate.last_update = now
                 bio.bridge_connected = True
+                bio.record_history("respiratory_rate", float(rate), now)
                 if int(rate) > RESPIRATORY_RATE_HIGH and (prev_rate is None or prev_rate <= RESPIRATORY_RATE_HIGH):
                     bio.add_event(
                         Event(
@@ -1811,6 +1886,23 @@ class WorldModel:
                     )
                     parts.append(f"  VLM最終観測: {age_min}分前{obj_hint}")
 
+            # VLM history one-line summary: union of objects across last 3 snapshots
+            # so the LLM has temporal context (e.g., dish appearing then disappearing).
+            history = list(zone.occupancy.vlm_history)[-3:] if hasattr(zone.occupancy, "vlm_history") else []
+            if len(history) >= 2:
+                obj_union: list[str] = []
+                for snap in history:
+                    for o in (snap.objects or [])[:6]:
+                        if o not in obj_union:
+                            obj_union.append(o)
+                latest = history[-1]
+                hist_age_min = int((time.time() - history[0].timestamp) / 60)
+                obj_str = f"[{', '.join(obj_union[:8])}]" if obj_union else ""
+                parts.append(
+                    f"  VLM履歴 (過去{hist_age_min}分, {len(history)}観測): "
+                    f"{obj_str} 最新「{(latest.description or '')[:60]}」"
+                )
+
             lines.append("\n".join(parts))
 
         # Home devices (HA integration)
@@ -1935,10 +2027,22 @@ class WorldModel:
                 pc_parts.append(f"  CPU: {pc.cpu.usage_percent:.0f}% ({pc.cpu.core_count}コア)")
                 if pc.cpu.temp_c > 0:
                     pc_parts.append(f"  CPU温度: {pc.cpu.temp_c:.0f}°C")
+                if pc.cpu.usage_percent >= 80 and pc.top_processes:
+                    top_cpu = sorted(pc.top_processes, key=lambda p: p.cpu_percent, reverse=True)[:3]
+                    pc_parts.append(
+                        "  上位プロセス(CPU): "
+                        + ", ".join(f"{p.name}({p.cpu_percent:.0f}%)" for p in top_cpu)
+                    )
             if pc.memory.last_update > 0:
                 pc_parts.append(
                     f"  メモリ: {pc.memory.used_gb:.1f}/{pc.memory.total_gb:.1f}GB ({pc.memory.percent:.0f}%)"
                 )
+                if pc.memory.percent >= 85 and pc.top_processes:
+                    top_mem = sorted(pc.top_processes, key=lambda p: p.mem_mb, reverse=True)[:3]
+                    pc_parts.append(
+                        "  上位プロセス(メモリ): "
+                        + ", ".join(f"{p.name}({p.mem_mb / 1024:.1f}GB)" for p in top_mem)
+                    )
             if pc.gpu.last_update > 0:
                 pc_parts.append(
                     f"  GPU: {pc.gpu.usage_percent:.0f}%, VRAM {pc.gpu.vram_used_gb:.1f}/{pc.gpu.vram_total_gb:.1f}GB"
@@ -1987,9 +2091,42 @@ class WorldModel:
             if inbox and inbox.unread > 0:
                 gas_parts.append(f"  Gmail未読: {inbox.unread}通")
 
-            long_slots = [s for s in gs.free_slots if s.duration_minutes >= 120]
+            # Recent gmail subject/sender (VIP first, max 5, subject 60-char truncate)
+            if gs.gmail_recent:
+                def _is_vip(thread):
+                    sender = str(thread.get("from", "") or thread.get("sender", "")).lower()
+                    return any(v and v in sender for v in _VIP_GMAIL_SENDERS)
+
+                vip = [t for t in gs.gmail_recent if _is_vip(t)]
+                rest = [t for t in gs.gmail_recent if not _is_vip(t)]
+                ordered = (vip + rest)[:5]
+                if ordered:
+                    gas_parts.append("  最近のGmail:")
+                    for t in ordered:
+                        subj = _sanitize_text(str(t.get("subject", "") or "(件名なし)"), 60)
+                        sender = _sanitize_text(str(t.get("from", "") or t.get("sender", "")), 40)
+                        vip_tag = "★ " if _is_vip(t) else ""
+                        gas_parts.append(f"    - {vip_tag}{sender}: {subj}")
+
+            # Free slots: show top 3 as HH:MM-HH:MM ranges (≥60 min); fall back to count for short slots
+            long_slots = [s for s in gs.free_slots if s.duration_minutes >= 60]
             if long_slots:
-                gas_parts.append(f"  空き時間(2h+): {len(long_slots)}スロット")
+                from datetime import datetime as _dt
+
+                def _fmt_slot(s):
+                    try:
+                        start_t = _dt.fromisoformat(s.start.replace("Z", "+00:00")).strftime("%H:%M")
+                        end_t = _dt.fromisoformat(s.end.replace("Z", "+00:00")).strftime("%H:%M")
+                        return f"{start_t}-{end_t}"
+                    except (ValueError, AttributeError):
+                        return None
+
+                slot_strs = [r for r in (_fmt_slot(s) for s in long_slots[:3]) if r]
+                if slot_strs:
+                    extra = f" (+{len(long_slots) - len(slot_strs)})" if len(long_slots) > len(slot_strs) else ""
+                    gas_parts.append(f"  空き時間: {', '.join(slot_strs)}{extra}")
+                else:
+                    gas_parts.append(f"  空き時間(1h+): {len(long_slots)}スロット")
 
             lines.append("\n".join(gas_parts))
 
@@ -1999,8 +2136,11 @@ class WorldModel:
             kb_parts = ["### ナレッジベース"]
             kb_parts.append(f"  ノート数: {ks.total_notes}")
             if ks.recent_changes:
-                last = ks.recent_changes[-1]
-                kb_parts.append(f"  最終変更: {last['title']}")
+                # Show up to 3 most recent changes so LLM can mention/build on what user was just working on
+                latest = ks.recent_changes[-3:]
+                titles = ", ".join(c.get("title", "") for c in latest if c.get("title"))
+                if titles:
+                    kb_parts.append(f"  直近の変更: {titles}")
             lines.append("\n".join(kb_parts))
 
         # External knowledge sources
@@ -2009,6 +2149,14 @@ class WorldModel:
             ek_parts.append(f"  総ドキュメント数: {ks.external_total_docs}")
             for src in ks.external_sources:
                 ek_parts.append(f"  ソース({src.name}): {src.doc_count}件")
+            # Include up to 2 most recent knowledge_changed events with timing.
+            recent_kn_events = [e for e in ks.events if e.event_type == "knowledge_changed"][-2:]
+            if recent_kn_events:
+                from datetime import datetime as _dt
+
+                for e in recent_kn_events:
+                    ts_str = _dt.fromtimestamp(e.timestamp).strftime("%H:%M") if e.timestamp else ""
+                    ek_parts.append(f"  最近の更新 ({ts_str}): {e.description}")
             lines.append("\n".join(ek_parts))
 
         # News state
@@ -2094,34 +2242,64 @@ class WorldModel:
         # Biometrics
         bio = self.biometric_state
         if bio.last_update > 0:
+            now_ts = time.time()
+
+            def _stale_tag(last: float) -> str:
+                """Stage label for biometric data freshness.
+
+                <10min: live / <60min: N分前 / >=60min: stale
+                LLM uses this to weigh whether the value should drive a decision.
+                """
+                if not last or last <= 0:
+                    return ""
+                age = now_ts - last
+                if age < 600:
+                    return " (live)"
+                if age < 3600:
+                    return f" ({int(age / 60)}分前)"
+                if age < 86400:
+                    return f" (stale: {int(age / 3600)}時間前)"
+                return f" (stale: {int(age / 86400)}日前)"
+
             bio_parts = ["### バイオメトリクス"]
             if bio.heart_rate.bpm is not None:
-                hr_str = f"  心拍: {bio.heart_rate.bpm}bpm ({bio.heart_rate.zone})"
+                hr_str = f"  心拍: {bio.heart_rate.bpm}bpm ({bio.heart_rate.zone}){_stale_tag(bio.heart_rate.last_update)}"
                 if bio.heart_rate.resting_bpm is not None:
                     hr_str += f", 安静時{bio.heart_rate.resting_bpm}bpm"
                 bio_parts.append(hr_str)
             if bio.spo2.percent is not None:
-                bio_parts.append(f"  SpO2: {bio.spo2.percent}%")
+                bio_parts.append(f"  SpO2: {bio.spo2.percent}%{_stale_tag(bio.spo2.last_update)}")
             if bio.stress.last_update > 0:
-                bio_parts.append(f"  ストレス: {bio.stress.category} ({bio.stress.level})")
+                bio_parts.append(
+                    f"  ストレス: {bio.stress.category} ({bio.stress.level}){_stale_tag(bio.stress.last_update)}"
+                )
             if bio.fatigue.last_update > 0:
-                bio_parts.append(f"  疲労度: {bio.fatigue.score}/100")
+                bio_parts.append(f"  疲労度: {bio.fatigue.score}/100{_stale_tag(bio.fatigue.last_update)}")
             if bio.sleep.last_update > 0:
                 sleep_str = f"  睡眠: {bio.sleep.duration_minutes}分"
                 if bio.sleep.quality_score > 0:
                     sleep_str += f" (品質{bio.sleep.quality_score}/100)"
                 if bio.sleep.stage != "unknown":
                     sleep_str += f", ステージ={bio.sleep.stage}"
+                sleep_str += _stale_tag(bio.sleep.last_update)
                 bio_parts.append(sleep_str)
             if bio.hrv.rmssd_ms is not None:
-                bio_parts.append(f"  HRV(RMSSD): {bio.hrv.rmssd_ms}ms")
+                bio_parts.append(f"  HRV(RMSSD): {bio.hrv.rmssd_ms}ms{_stale_tag(bio.hrv.last_update)}")
             if bio.body_temperature.celsius is not None:
-                bio_parts.append(f"  体温: {bio.body_temperature.celsius:.1f}°C")
+                bio_parts.append(
+                    f"  体温: {bio.body_temperature.celsius:.1f}°C{_stale_tag(bio.body_temperature.last_update)}"
+                )
             if bio.respiratory_rate.breaths_per_minute is not None:
-                bio_parts.append(f"  呼吸数: {bio.respiratory_rate.breaths_per_minute}回/分")
+                bio_parts.append(
+                    f"  呼吸数: {bio.respiratory_rate.breaths_per_minute}回/分"
+                    f"{_stale_tag(bio.respiratory_rate.last_update)}"
+                )
             if bio.activity.last_update > 0:
                 pct = int(bio.activity.goal_progress * 100)
-                bio_parts.append(f"  歩数: {bio.activity.steps}/{bio.activity.steps_goal} ({pct}%)")
+                bio_parts.append(
+                    f"  歩数: {bio.activity.steps}/{bio.activity.steps_goal} ({pct}%)"
+                    f"{_stale_tag(bio.activity.last_update)}"
+                )
             if not bio.bridge_connected:
                 bio_parts.append("  ⚠ バイオメトリクスブリッジ: 切断中")
             lines.append("\n".join(bio_parts))

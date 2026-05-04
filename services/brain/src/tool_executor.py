@@ -4,8 +4,10 @@ Forked from SOMS: extended with PC tools (OpenClaw), Obsidian tools, and
 adaptive device timeout + queued response handling.
 """
 
+import asyncio
 import json
 import os
+import time
 from typing import Any
 
 import aiohttp
@@ -19,6 +21,7 @@ PERCEPTION_BRIDGE_URL = os.getenv("PERCEPTION_BRIDGE_URL", "")
 SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 KNOWLEDGE_BRIDGE_URL = os.getenv("KNOWLEDGE_BRIDGE_URL", "")
+TAPO_BRIDGE_URL = os.getenv("TAPO_BRIDGE_URL", "")
 
 
 def _internal_headers() -> dict:
@@ -39,6 +42,7 @@ class ToolExecutor:
         device_dispatcher=None,
         scene_executor=None,
         persona_rewriter=None,
+        power_mode_manager=None,
     ):
         self.sanitizer = sanitizer
         self.mcp = mcp_bridge
@@ -52,6 +56,10 @@ class ToolExecutor:
         # Stage 2 (output) rewriter — applied to speak messages before TTS.
         # Kept optional (None) so this module works in test contexts without a live LLM.
         self.persona_rewriter = persona_rewriter
+        # Power mode manager — used to gate persona rewrite under low-power mode
+        # (skipped together with VLM model swap; matches the legacy gate that
+        # used to live in main.Brain._run_rule_actions).
+        self.power_mode_manager = power_mode_manager
         self.openclaw_url = LOCALCRAW_BRIDGE_URL
         self.obsidian_url = OBSIDIAN_BRIDGE_URL
         self.ha_url = HA_BRIDGE_URL
@@ -60,6 +68,7 @@ class ToolExecutor:
         self.switchbot_url = SWITCHBOT_BRIDGE_URL
         self.news_url = NEWS_BRIDGE_URL
         self.knowledge_url = KNOWLEDGE_BRIDGE_URL
+        self.tapo_url = TAPO_BRIDGE_URL
         self.voice_url = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
         self.dashboard_api_url = os.getenv("DASHBOARD_API_URL", "http://backend:8000")
 
@@ -115,6 +124,8 @@ class ToolExecutor:
                 return await self._handle_write_note(arguments)
             elif tool_name == "get_recent_notes":
                 return await self._handle_get_recent_notes(arguments)
+            elif tool_name == "list_note_tags":
+                return await self._handle_list_note_tags(arguments)
             elif tool_name == "control_light":
                 return await self._handle_control_light(arguments)
             elif tool_name == "control_climate":
@@ -137,10 +148,20 @@ class ToolExecutor:
                 return await self._handle_get_biometrics(arguments)
             elif tool_name == "get_sleep_summary":
                 return await self._handle_get_sleep_summary(arguments)
+            elif tool_name == "get_biometric_trend":
+                return await self._handle_get_biometric_trend(arguments)
+            elif tool_name == "get_sleep_history":
+                return await self._handle_get_sleep_history(arguments)
             elif tool_name == "get_perception_status":
                 return await self._handle_get_perception_status(arguments)
             elif tool_name == "describe_scene":
                 return await self._handle_describe_scene(arguments)
+            elif tool_name == "list_cameras":
+                return await self._handle_list_cameras(arguments)
+            elif tool_name == "get_vlm_status":
+                return await self._handle_get_vlm_status(arguments)
+            elif tool_name == "get_activity_history":
+                return await self._handle_get_activity_history(arguments)
             elif tool_name == "list_scene_objects":
                 return await self._handle_list_scene_objects(arguments)
             elif tool_name == "get_scene_timeline":
@@ -157,12 +178,26 @@ class ToolExecutor:
                 return await self._handle_send_switchbot_ir(arguments)
             elif tool_name == "get_news_summary":
                 return await self._handle_get_news_summary(arguments)
+            elif tool_name == "get_recent_emails":
+                return await self._handle_get_recent_emails(arguments)
+            elif tool_name == "gas_query_free_slots":
+                return await self._handle_gas_query_free_slots(arguments)
+            elif tool_name == "gas_query_sheet":
+                return await self._handle_gas_query_sheet(arguments)
+            elif tool_name == "get_entity_status":
+                return await self._handle_get_entity_status(arguments)
+            elif tool_name == "get_power_consumption":
+                return await self._handle_get_power_consumption(arguments)
+            elif tool_name == "list_processes":
+                return await self._handle_list_processes(arguments)
             elif tool_name == "search_knowledge":
                 return await self._handle_search_knowledge(arguments)
             elif tool_name == "get_knowledge_sources":
                 return await self._handle_get_knowledge_sources(arguments)
             elif tool_name == "read_knowledge_document":
                 return await self._handle_read_knowledge_document(arguments)
+            elif tool_name == "get_recent_knowledge_changes":
+                return await self._handle_get_recent_knowledge_changes(arguments)
             elif tool_name == "control_actuator":
                 return await self._handle_control_actuator(arguments)
             elif tool_name == "list_devices":
@@ -267,7 +302,12 @@ class ToolExecutor:
         return {"success": True, "result": json.dumps(status, ensure_ascii=False)}
 
     async def _handle_get_sensor_history(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Return a recent sensor history window from the event store (raw_events)."""
+        """Return a sensor history window from the event store.
+
+        For windows ≤ 24h: query raw_events directly (high resolution).
+        For windows > 24h: query hourly_aggregates (lower resolution, longer reach).
+        Setting `aggregate=true` forces aggregate path even at small windows.
+        """
         from datetime import UTC, datetime, timedelta
 
         from sqlalchemy import text as _sql
@@ -278,8 +318,9 @@ class ToolExecutor:
         channel = str(args.get("channel", "")).strip()
         hours = int(args.get("hours", 6) or 6)
         max_points = int(args.get("max_points", 200) or 200)
-        hours = max(1, min(hours, 168))
-        max_points = max(1, min(max_points, 500))
+        force_aggregate = bool(args.get("aggregate", False))
+        hours = max(1, min(hours, 720))  # up to 30 days now
+        max_points = max(1, min(max_points, 1000))
 
         if not zone or not channel:
             return {"success": False, "error": "zone and channel are required"}
@@ -297,9 +338,75 @@ class ToolExecutor:
         is_postgres = "postgresql" in os.getenv("DATABASE_URL", "")
         schema = "events." if is_postgres else ""
         since = datetime.now(UTC) - timedelta(hours=hours)
+        use_aggregate = force_aggregate or hours > 24
 
         try:
             async with engine.begin() as conn:
+                if use_aggregate:
+                    # hourly_aggregates.zones is JSON: { zone_id: { channel: {min,max,avg,...} } }
+                    rows = (
+                        await conn.execute(
+                            _sql(
+                                f"""
+                                SELECT period_start, zones FROM {schema}hourly_aggregates
+                                WHERE period_start >= :since
+                                ORDER BY period_start ASC
+                                LIMIT :lim
+                                """
+                            ),
+                            {"since": since, "lim": max_points},
+                        )
+                    ).fetchall()
+
+                    points: list[dict] = []
+                    for ts, raw in rows:
+                        try:
+                            zones_data = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                        except Exception:
+                            continue
+                        zone_data = zones_data.get(zone, {})
+                        ch_data = zone_data.get(channel) if isinstance(zone_data, dict) else None
+                        if ch_data is None:
+                            continue
+                        ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                        if isinstance(ch_data, dict):
+                            points.append(
+                                {
+                                    "t": ts_str,
+                                    "min": ch_data.get("min"),
+                                    "max": ch_data.get("max"),
+                                    "avg": ch_data.get("avg"),
+                                    "v": ch_data.get("avg"),
+                                }
+                            )
+                        else:
+                            points.append({"t": ts_str, "v": ch_data})
+
+                    values = [p["v"] for p in points if isinstance(p.get("v"), (int, float))]
+                    summary = None
+                    if values:
+                        summary = {
+                            "count": len(values),
+                            "min": min(values),
+                            "max": max(values),
+                            "avg": sum(values) / len(values),
+                            "last": values[-1],
+                        }
+                    return {
+                        "success": True,
+                        "result": json.dumps(
+                            {
+                                "zone": zone,
+                                "channel": channel,
+                                "hours": hours,
+                                "resolution": "hourly_aggregate",
+                                "points": points,
+                                "summary": summary,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+
                 rows = (
                     await conn.execute(
                         _sql(
@@ -349,6 +456,7 @@ class ToolExecutor:
             "zone": zone,
             "channel": channel,
             "hours": hours,
+            "resolution": "raw",
             "points": points,
             "summary": summary,
         }
@@ -361,14 +469,30 @@ class ToolExecutor:
         Stage-1 message into the configured character voice before synthesis.
         Fact-bearing tokens (numbers, device_ids, names) are preserved by the
         rewriter's system prompt.
+
+        Rewrite is skipped when:
+          - caller passes ``_skip_persona_rewrite=True`` (internal callers that
+            already produced character-styled text, or rule actions explicitly
+            requesting raw output)
+          - PowerModeManager reports low-power mode (latency > character voice)
+          - VLM heavy model swap is active (LLM path is contended)
         """
         raw_message = args.get("message", "")
         zone = args.get("zone", "")
         tone = args.get("tone", "neutral")
+        skip_rewrite = bool(args.get("_skip_persona_rewrite", False))
 
-        # Stage 2 rewrite (empty message is a no-op)
+        # Stage 2 rewrite (empty message / opt-out / gated → bypass)
         message = raw_message
-        if self.persona_rewriter is not None and raw_message:
+        low_power = bool(self.power_mode_manager and self.power_mode_manager.is_low_power)
+        vlm_swap = bool(getattr(self.world_model, "vlm_model_swap_active", False))
+        if (
+            not skip_rewrite
+            and self.persona_rewriter is not None
+            and raw_message
+            and not low_power
+            and not vlm_swap
+        ):
             try:
                 message = await self.persona_rewriter.rewrite(raw_message, tone=tone)
             except Exception as e:
@@ -470,16 +594,18 @@ class ToolExecutor:
         status = {
             "cpu_percent": pc.cpu.usage_percent,
             "cpu_cores": pc.cpu.core_count,
-            "cpu_temp_c": pc.cpu.temp_c,
             "memory_percent": pc.memory.percent,
             "memory_used_gb": pc.memory.used_gb,
             "memory_total_gb": pc.memory.total_gb,
             "gpu_percent": pc.gpu.usage_percent,
-            "gpu_temp_c": pc.gpu.temp_c,
             "gpu_vram_used_gb": pc.gpu.vram_used_gb,
             "gpu_vram_total_gb": pc.gpu.vram_total_gb,
             "bridge_connected": pc.bridge_connected,
         }
+        if pc.cpu.temp_c > 0:
+            status["cpu_temp_c"] = pc.cpu.temp_c
+        if pc.gpu.temp_c > 0:
+            status["gpu_temp_c"] = pc.gpu.temp_c
         if pc.disk.partitions:
             status["disk"] = [
                 {"mount": p.mount, "percent": p.percent, "used_gb": p.used_gb, "total_gb": p.total_gb}
@@ -639,6 +765,21 @@ class ToolExecutor:
             async with self._session.get(
                 f"{self.obsidian_url}/api/notes/recent",
                 params={"limit": args.get("limit", 5)},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_list_note_tags(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not self.obsidian_url:
+            return {"success": False, "error": "Obsidian bridge not configured"}
+        try:
+            async with self._session.get(
+                f"{self.obsidian_url}/api/notes/tags",
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json()
@@ -847,6 +988,100 @@ class ToolExecutor:
 
         return {"success": True, "result": "睡眠データがまだありません"}
 
+    async def _handle_get_biometric_trend(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return time-series for a biometric metric from BiometricState.history."""
+        metric = (args.get("metric") or "").strip()
+        if not metric:
+            return {"success": False, "error": "metric is required"}
+        window_hours = max(1, min(float(args.get("window_hours", 24)), 168))
+        max_samples = max(10, min(int(args.get("max_samples", 100)), 500))
+
+        bio = self.world_model.biometric_state
+        history = bio.history.get(metric) if bio.history else None
+        if not history:
+            return {
+                "success": True,
+                "result": json.dumps(
+                    {"metric": metric, "samples": [], "count": 0, "reason": "no history"},
+                    ensure_ascii=False,
+                ),
+            }
+
+        cutoff = time.time() - window_hours * 3600
+        samples = [(ts, v) for ts, v in history if ts >= cutoff]
+        if len(samples) > max_samples:
+            step = len(samples) // max_samples
+            samples = samples[::step][:max_samples]
+
+        if samples:
+            values = [v for _, v in samples]
+            stats = {
+                "min": min(values),
+                "max": max(values),
+                "avg": round(sum(values) / len(values), 2),
+                "first_ts": samples[0][0],
+                "last_ts": samples[-1][0],
+            }
+        else:
+            stats = {}
+
+        return {
+            "success": True,
+            "result": json.dumps(
+                {
+                    "metric": metric,
+                    "window_hours": window_hours,
+                    "count": len(samples),
+                    "samples": [{"ts": ts, "value": v} for ts, v in samples],
+                    "stats": stats,
+                },
+                ensure_ascii=False,
+            ),
+        }
+
+    async def _handle_get_sleep_history(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return last N days of sleep quality + duration history."""
+        days = max(1, min(int(args.get("days", 7)), 14))
+
+        bio = self.world_model.biometric_state
+        quality_hist = bio.history.get("sleep_quality") if bio.history else None
+        duration_hist = bio.history.get("sleep_duration") if bio.history else None
+
+        cutoff = time.time() - days * 86400
+        quality = [(ts, v) for ts, v in (quality_hist or []) if ts >= cutoff]
+        duration = [(ts, v) for ts, v in (duration_hist or []) if ts >= cutoff]
+
+        sessions = []
+        # Pair quality and duration by index (insertion order ≈ same nights)
+        for idx in range(max(len(quality), len(duration))):
+            entry = {}
+            if idx < len(quality):
+                ts, q = quality[idx]
+                entry["timestamp"] = ts
+                entry["quality_score"] = q
+            if idx < len(duration):
+                ts, d = duration[idx]
+                entry.setdefault("timestamp", ts)
+                entry["duration_minutes"] = d
+            sessions.append(entry)
+
+        avg_quality = round(sum(v for _, v in quality) / len(quality), 1) if quality else None
+        avg_duration = round(sum(v for _, v in duration) / len(duration), 1) if duration else None
+
+        return {
+            "success": True,
+            "result": json.dumps(
+                {
+                    "days": days,
+                    "sessions": sessions,
+                    "avg_quality": avg_quality,
+                    "avg_duration_minutes": avg_duration,
+                    "session_count": len(sessions),
+                },
+                ensure_ascii=False,
+            ),
+        }
+
     # --- Perception tools ---
 
     async def _handle_get_perception_status(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -981,6 +1216,72 @@ class ToolExecutor:
             "result": json.dumps({"zone": zone_id, "timeline": timeline}, ensure_ascii=False),
         }
 
+    async def _handle_list_cameras(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not self.perception_url:
+            return {"success": False, "error": "Perception bridge not configured"}
+        try:
+            async with self._session.get(
+                f"{self.perception_url}/api/perception/cameras",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_get_vlm_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not self.perception_url:
+            return {"success": False, "error": "Perception bridge not configured"}
+        try:
+            async with self._session.get(
+                f"{self.perception_url}/api/perception/vlm/status",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_get_activity_history(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return per-zone activity/scene snapshots from world_model in chronological order."""
+        zone_id = args.get("zone_id", "")
+        if not zone_id:
+            return {"success": False, "error": "zone_id required"}
+        limit = max(1, min(int(args.get("limit", 10)), 30))
+
+        zone = self.world_model.zones.get(zone_id)
+        if not zone:
+            return {"success": True, "result": json.dumps({"zone": zone_id, "snapshots": []}, ensure_ascii=False)}
+
+        now = time.time()
+        snapshots = [
+            {
+                "age_sec": int(now - s.timestamp),
+                "scene_type": s.scene_type,
+                "anomalies": s.anomalies[:3],
+                "object_count": len(s.objects),
+                "description": s.description[:120],
+                "tier": s.tier,
+            }
+            for s in list(zone.occupancy.vlm_history)[-limit:]
+        ]
+        return {
+            "success": True,
+            "result": json.dumps(
+                {
+                    "zone": zone_id,
+                    "current_activity_level": zone.occupancy.activity_level,
+                    "current_posture": zone.occupancy.posture,
+                    "snapshots": snapshots,
+                },
+                ensure_ascii=False,
+            ),
+        }
+
     # --- Shopping tools ---
 
     async def _handle_add_shopping_item(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -1090,6 +1391,234 @@ class ToolExecutor:
                 return {"success": False, "error": str(e)}
 
         return {"success": True, "result": "ニュースデータがまだありません"}
+
+    async def _handle_get_entity_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get a single HA entity's current state via ha-bridge."""
+        if not self.ha_url:
+            return {"success": False, "error": "HA bridge not configured"}
+        entity_id = args.get("entity_id", "").strip()
+        if not entity_id:
+            return {"success": False, "error": "entity_id required"}
+        try:
+            async with self._session.get(
+                f"{self.ha_url}/api/device/{entity_id}",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                if resp.status == 404:
+                    return {"success": False, "error": f"Entity not found: {entity_id}"}
+                return {"success": False, "error": f"HTTP {resp.status}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_get_power_consumption(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get instant power (W) for a Tapo plug, or all plugs if device_id omitted."""
+        if not self.tapo_url:
+            return {"success": False, "error": "Tapo bridge not configured"}
+        device_id = (args.get("device_id") or "").strip()
+        try:
+            if device_id:
+                # Strip "tapo." prefix to get vendor_ref
+                vendor_ref = device_id.removeprefix("tapo.")
+                async with self._session.get(
+                    f"{self.tapo_url}/api/devices/{vendor_ref}/status",
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status == 200:
+                        return {"success": True, "result": json.dumps(await resp.json(), ensure_ascii=False)}
+                    return {"success": False, "error": f"HTTP {resp.status}"}
+            # All plugs — list, then fan-out status reads in parallel
+            async with self._session.get(
+                f"{self.tapo_url}/api/devices",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    return {"success": False, "error": f"HTTP {resp.status}"}
+                data = await resp.json()
+
+            devices = [d for d in data.get("devices", []) if d.get("vendor_ref")]
+
+            async def _fetch(d: dict) -> dict | None:
+                vref = d["vendor_ref"]
+                try:
+                    async with self._session.get(
+                        f"{self.tapo_url}/api/devices/{vref}/status",
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as r2:
+                        if r2.status != 200:
+                            return None
+                        s = await r2.json()
+                except Exception:
+                    return None
+                return {
+                    "device_id": f"tapo.{vref}",
+                    "name": d.get("name"),
+                    "zone": d.get("zone"),
+                    "power_watts": s.get("power_watts"),
+                    "voltage": s.get("voltage"),
+                    "current": s.get("current"),
+                    "energy_kwh": s.get("energy_kwh"),
+                    "on": s.get("state") == "on" or s.get("on") is True,
+                }
+
+            gathered = await asyncio.gather(*(_fetch(d) for d in devices), return_exceptions=False)
+            results = [r for r in gathered if r is not None]
+            return {"success": True, "result": json.dumps({"devices": results}, ensure_ascii=False)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_list_processes(self, args: dict[str, Any]) -> dict[str, Any]:
+        """List PC processes from world_model.pc_state.top_processes with filtering/sorting."""
+        pc = self.world_model.pc_state
+        procs = pc.top_processes or []
+        if not procs:
+            return {"success": True, "result": "プロセス情報がありません"}
+
+        sort_by = args.get("sort_by", "cpu")
+        name_filter = (args.get("name_contains") or "").lower()
+        limit = max(1, min(int(args.get("limit", 10)), 50))
+
+        filtered = [p for p in procs if not name_filter or name_filter in p.name.lower()]
+        if sort_by == "memory":
+            filtered.sort(key=lambda p: p.mem_mb, reverse=True)
+        else:
+            filtered.sort(key=lambda p: p.cpu_percent, reverse=True)
+
+        result = [
+            {
+                "pid": p.pid,
+                "name": p.name,
+                "cpu_percent": round(p.cpu_percent, 1),
+                "mem_mb": round(p.mem_mb, 1),
+            }
+            for p in filtered[:limit]
+        ]
+        return {"success": True, "result": json.dumps({"processes": result, "total": len(filtered)}, ensure_ascii=False)}
+
+    async def _handle_get_recent_emails(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get recent Gmail threads from world_model.gas_state.gmail_recent."""
+        gs = self.world_model.gas_state
+        threads = gs.gmail_recent or []
+        if not threads:
+            return {"success": True, "result": "Gmailスレッド情報がありません"}
+
+        limit = max(1, min(int(args.get("limit", 10)), 50))
+        sender_q = (args.get("sender_contains") or "").lower()
+        subject_q = (args.get("subject_contains") or "").lower()
+        unread_only = bool(args.get("unread_only", False))
+
+        results = []
+        for t in threads:
+            if not isinstance(t, dict):
+                continue
+            sender = str(t.get("from") or t.get("sender") or "")
+            subject = str(t.get("subject") or "")
+            snippet = str(t.get("snippet") or "")
+            unread = bool(t.get("unread", False))
+            if unread_only and not unread:
+                continue
+            if sender_q and sender_q not in sender.lower():
+                continue
+            if subject_q and subject_q not in subject.lower():
+                continue
+            results.append(
+                {
+                    "from": sender[:80],
+                    "subject": subject[:100],
+                    "snippet": snippet[:50],
+                    "unread": unread,
+                    "thread_id": t.get("thread_id") or t.get("id"),
+                }
+            )
+            if len(results) >= limit:
+                break
+
+        return {
+            "success": True,
+            "result": json.dumps({"threads": results, "total": len(results)}, ensure_ascii=False),
+        }
+
+    async def _handle_gas_query_free_slots(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return calendar free slots with HH:MM-HH:MM ranges from gas_state.free_slots."""
+        from datetime import datetime as _dt
+
+        gs = self.world_model.gas_state
+        if not gs.free_slots:
+            return {"success": True, "result": "空きスロット情報がありません"}
+
+        date_range_hours = max(1, min(int(args.get("date_range_hours", 24)), 168))
+        min_minutes = max(15, min(int(args.get("min_duration_minutes", 60)), 480))
+        limit = max(1, min(int(args.get("limit", 5)), 20))
+
+        cutoff_ts = time.time() + date_range_hours * 3600
+        results = []
+        for slot in gs.free_slots:
+            if slot.duration_minutes < min_minutes:
+                continue
+            try:
+                start_dt = _dt.fromisoformat(slot.start.replace("Z", "+00:00"))
+                end_dt = _dt.fromisoformat(slot.end.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                continue
+            if start_dt.timestamp() > cutoff_ts:
+                continue
+            results.append(
+                {
+                    "start": start_dt.strftime("%Y-%m-%d %H:%M"),
+                    "end": end_dt.strftime("%Y-%m-%d %H:%M"),
+                    "range": f"{start_dt.strftime('%H:%M')}-{end_dt.strftime('%H:%M')}",
+                    "duration_minutes": slot.duration_minutes,
+                }
+            )
+            if len(results) >= limit:
+                break
+
+        return {
+            "success": True,
+            "result": json.dumps({"slots": results, "total": len(results)}, ensure_ascii=False),
+        }
+
+    async def _handle_gas_query_sheet(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return cached sheet data from gas_state.sheets[name]."""
+        gs = self.world_model.gas_state
+        name = (args.get("name") or "").strip()
+        if not name:
+            return {"success": False, "error": "name is required"}
+
+        sheet = gs.sheets.get(name)
+        if not sheet:
+            available = list(gs.sheets.keys())
+            return {
+                "success": True,
+                "result": json.dumps(
+                    {
+                        "found": False,
+                        "name": name,
+                        "available_sheets": available[:20],
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+
+        max_rows = max(1, min(int(args.get("max_rows", 50)), 200))
+        rows = sheet.values[:max_rows] if isinstance(sheet.values, list) else []
+        return {
+            "success": True,
+            "result": json.dumps(
+                {
+                    "found": True,
+                    "name": name,
+                    "headers": sheet.headers,
+                    "rows": rows,
+                    "row_count": len(rows),
+                    "total_rows": len(sheet.values) if isinstance(sheet.values, list) else 0,
+                    "last_update": sheet.last_update,
+                },
+                ensure_ascii=False,
+            ),
+        }
 
     # --- SwitchBot tools ---
 
@@ -1228,6 +1757,26 @@ class ToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    async def _handle_get_recent_knowledge_changes(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not self.knowledge_url:
+            return {"success": False, "error": "Knowledge bridge not configured"}
+        try:
+            params: dict[str, Any] = {"limit": int(args.get("limit", 10))}
+            source = args.get("source")
+            if source:
+                params["source"] = source
+            async with self._session.get(
+                f"{self.knowledge_url}/api/knowledge/recent",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return {"success": True, "result": json.dumps(data, ensure_ascii=False)}
+                return {"success": False, "error": data.get("detail", f"HTTP {resp.status}")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     async def _ha_service_call(self, entity_id: str, service: str, data: dict = None) -> dict[str, Any]:
         """Call HA bridge REST API to execute a service call."""
         try:
@@ -1257,7 +1806,21 @@ class ToolExecutor:
         params = args.get("params") or {}
         if not device_id or not action:
             return {"success": False, "error": "device_id and action are required"}
-        return await self.device_dispatcher.dispatch(device_id, action, params)
+        result = await self.device_dispatcher.dispatch(device_id, action, params)
+        # Push action to backend log (fire-and-forget; never block control flow)
+        try:
+            asyncio.create_task(
+                self.dashboard.push_device_action(
+                    device_id=device_id,
+                    action=action,
+                    params=params,
+                    source=args.get("_source", "llm"),
+                    success=bool(result.get("success", False)),
+                )
+            )
+        except Exception:
+            pass
+        return result
 
     async def _handle_list_devices(self, args: dict[str, Any]) -> dict[str, Any]:
         if self.device_dispatcher is None:

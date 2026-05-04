@@ -155,3 +155,85 @@ class ShoppingClassifier:
         except Exception as exc:
             logger.error("Shopping PATCH error: id={} err={}", item_id, exc)
         return False
+
+    # ---- Purchase cycle learning ---------------------------------------- #
+
+    async def handle_purchased_event(self, payload: dict) -> bool:
+        """Learn purchase cycles from /purchased events.
+
+        Gates on at least 3 historical purchases of the same item before flagging
+        as recurring (avoid one-off purchases being misclassified as periodic).
+        Inferred cycle median (in days) is patched back to backend.
+        """
+        item_name = payload.get("name") or ""
+        if not item_name:
+            return False
+
+        try:
+            url = f"{self.backend_url}/shopping/purchase-history"
+            params = {"name": item_name, "limit": 10}
+            async with self.session.get(url, params=params, timeout=10) as resp:
+                if resp.status != 200:
+                    return False
+                history = await resp.json()
+        except Exception as exc:
+            logger.warning("purchase-history fetch error for {!r}: {}", item_name, exc)
+            return False
+
+        # Need ≥3 purchases (current + 2 prior) to detect a cycle
+        purchases = history if isinstance(history, list) else history.get("items", [])
+        if len(purchases) < 3:
+            logger.debug(
+                "Shopping purchase: only {} entries for {!r} — need ≥3 to learn cycle",
+                len(purchases),
+                item_name,
+            )
+            return False
+
+        # Median day-gap between consecutive purchases
+        from datetime import datetime as _dt
+
+        timestamps: list[float] = []
+        for p in purchases:
+            ts_str = p.get("purchased_at") or p.get("created_at")
+            if not ts_str:
+                continue
+            try:
+                timestamps.append(_dt.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp())
+            except (ValueError, AttributeError):
+                continue
+        if len(timestamps) < 3:
+            return False
+        timestamps.sort()
+        gaps_days = [
+            (timestamps[i + 1] - timestamps[i]) / 86400
+            for i in range(len(timestamps) - 1)
+        ]
+        gaps_days.sort()
+        median_days = gaps_days[len(gaps_days) // 2]
+        if median_days < 1:
+            return False
+
+        # Patch shopping item with inferred recurrence (only if currently 0)
+        item_id = payload.get("id")
+        if not item_id:
+            return False
+
+        try:
+            patch_url = f"{self.backend_url}/shopping/{int(item_id)}"
+            async with self.session.patch(
+                patch_url,
+                json={"is_recurring": True, "recurrence_days": int(round(median_days))},
+                timeout=10,
+            ) as resp:
+                if resp.status == 200:
+                    logger.info(
+                        "Shopping cycle learned: {!r} → every ~{} days (n={})",
+                        item_name,
+                        int(round(median_days)),
+                        len(purchases),
+                    )
+                    return True
+        except Exception as exc:
+            logger.warning("Shopping recurrence PATCH error: {}", exc)
+        return False

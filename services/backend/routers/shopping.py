@@ -309,6 +309,24 @@ async def get_history(
     return result.scalars().all()
 
 
+@router.get("/purchase-history", response_model=list[schemas.PurchaseHistory])
+async def get_purchase_history_by_name(
+    name: str = Query(..., description="Item name to search history for"),
+    limit: int = Query(default=10, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return purchase history filtered by item name — used by ShoppingClassifier
+    cycle-learning logic to detect periodic purchases."""
+    query = (
+        select(models.PurchaseHistory)
+        .filter(models.PurchaseHistory.item_name == name)
+        .order_by(models.PurchaseHistory.purchased_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
 @router.post("/{item_id}/share", response_model=schemas.ShoppingShareResponse)
 async def create_share_link(item_id: int = 0, db: AsyncSession = Depends(get_db)):
     """Generate a share token for the current shopping list.

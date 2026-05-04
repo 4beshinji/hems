@@ -67,6 +67,8 @@ async def lifespan(app: FastAPI):
         device_cols = [
             ("model_id", "VARCHAR"),
             ("manufacturer", "VARCHAR"),
+            ("link_quality", "INTEGER"),
+            ("last_seen_reported", "DATETIME"),
         ]
         for col, col_type in device_cols:
             try:
@@ -100,15 +102,18 @@ from routers import (
     automations,
     biometric,
     brain,
+    bridge_status,
     character,
     chat,
     classifier_cache,
+    device_actions,
     devices,
     frequent_places,
     gas,
     home,
     knowledge,
     mobile,
+    news,
     pc,
     perception,
     scenes,
@@ -119,6 +124,7 @@ from routers import (
     timeseries,
     users,
     voice_events,
+    weather,
     zones,
 )
 
@@ -129,6 +135,10 @@ app.include_router(tasks.router, dependencies=_auth)
 app.include_router(voice_events.router, dependencies=_auth)
 app.include_router(users.router, dependencies=_auth)
 app.include_router(zones.router, dependencies=_auth)
+app.include_router(weather.router, dependencies=_auth)
+app.include_router(news.router, dependencies=_auth)
+app.include_router(bridge_status.router, dependencies=_auth)
+app.include_router(device_actions.router, dependencies=_auth)
 app.include_router(pc.router, dependencies=_auth)
 app.include_router(services.router, dependencies=_auth)
 app.include_router(knowledge.router, dependencies=_auth)

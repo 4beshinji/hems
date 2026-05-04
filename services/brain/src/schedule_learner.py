@@ -151,64 +151,120 @@ class ScheduleLearner:
         )
         return predicted_dt.timestamp()
 
-    def get_wake_time(self, calendar_events: list = None) -> float | None:
-        """Predict tomorrow's wake time as UNIX timestamp.
+    def get_wake_time(
+        self,
+        calendar_events: list = None,
+        fatigue_score: int | None = None,
+    ) -> float | None:
+        """Predict the next upcoming wake time as a UNIX timestamp.
+
+        Returns today's predicted wake if it has not yet passed; otherwise
+        tomorrow's predicted wake. BootLoad and SunriseAlarm rely on this
+        being "the next wake event" rather than literally tomorrow.
 
         Priority:
-        1. Calendar: tomorrow's first event minus 1 hour prep time
-        2. Historical wake pattern median
+        1. Calendar: next first-of-day event minus 1 hour prep time
+        2. Historical wake pattern median for that weekday
+        3. FALLBACK_WAKE_TIME env var
+
+        fatigue_score (0-100, optional): if ≥70 the predicted wake time is
+        delayed up to 30 minutes (only applies to the historical pattern path,
+        not the calendar path — calendar events still take precedence).
 
         Returns None if insufficient data.
         """
         now = datetime.now()
-        tomorrow = now + timedelta(days=1)
-        tomorrow_weekday = tomorrow.weekday()
-        tomorrow_start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
-        tomorrow_end = tomorrow_start + timedelta(days=1)
+        now_ts = now.timestamp()
 
-        # Check calendar for tomorrow's first event
-        if calendar_events:
-            tomorrow_events = []
-            for ev in calendar_events:
-                start_ts = getattr(ev, "start_ts", 0) or 0
-                is_all_day = getattr(ev, "is_all_day", False)
-                if is_all_day or start_ts <= 0:
-                    continue
-                if tomorrow_start.timestamp() <= start_ts < tomorrow_end.timestamp():
-                    tomorrow_events.append(start_ts)
+        # Convert fatigue (0-100) to delay seconds (0 → 0 / 100 → 1800).
+        # Apply only above a 60 floor so mild tiredness doesn't shift wake.
+        fatigue_offset_sec = 0
+        if fatigue_score is not None and fatigue_score >= 60:
+            fatigue_offset_sec = int(min(fatigue_score - 60, 40) * 45)  # 60→0s, 100→1800s
 
-            if tomorrow_events:
-                first_event_ts = min(tomorrow_events)
-                # Wake up 1 hour before first event
-                wake_ts = first_event_ts - 3600
-                # Clamp to reasonable range (5:00 - 10:00)
-                wake_dt = datetime.fromtimestamp(wake_ts)
-                if wake_dt.hour < 5:
-                    wake_dt = wake_dt.replace(hour=5, minute=0)
-                return wake_dt.timestamp()
-
-        # Historical pattern
-        history = self._wake_history.get(tomorrow_weekday, [])
-        if len(history) >= MIN_WEEKS_FOR_PREDICTION:
-            median_hour = statistics.median(history)
-            wake_dt = tomorrow.replace(
-                hour=int(median_hour),
-                minute=int((median_hour % 1) * 60),
+        # Helper: build a wake datetime for a given target date + hour_float
+        def _build(target_date: datetime, hour_float: float) -> datetime:
+            return target_date.replace(
+                hour=int(hour_float),
+                minute=int((hour_float % 1) * 60),
                 second=0,
                 microsecond=0,
             )
-            return wake_dt.timestamp()
 
-        # Fallback: fixed time from env var
-        if FALLBACK_WAKE_TIME:
-            try:
-                h, m = (int(x) for x in FALLBACK_WAKE_TIME.split(":"))
-                wake_dt = tomorrow.replace(hour=h, minute=m, second=0, microsecond=0)
-                return wake_dt.timestamp()
-            except (ValueError, TypeError):
-                pass
+        # Try today first, then tomorrow — return the first prediction in the future
+        for day_offset in (0, 1):
+            target = now + timedelta(days=day_offset)
+            target_weekday = target.weekday()
+            day_start = target.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+
+            # 1. Calendar: first event of the day minus 1h prep
+            if calendar_events:
+                day_events = []
+                for ev in calendar_events:
+                    start_ts = getattr(ev, "start_ts", 0) or 0
+                    is_all_day = getattr(ev, "is_all_day", False)
+                    if is_all_day or start_ts <= 0:
+                        continue
+                    if day_start.timestamp() <= start_ts < day_end.timestamp():
+                        day_events.append(start_ts)
+                if day_events:
+                    first_event_ts = min(day_events)
+                    wake_dt = datetime.fromtimestamp(first_event_ts - 3600)
+                    if wake_dt.hour < 5:
+                        wake_dt = wake_dt.replace(hour=5, minute=0)
+                    if wake_dt.timestamp() > now_ts:
+                        return wake_dt.timestamp()
+
+            # 2. Historical wake pattern median (with optional fatigue delay)
+            history = self._wake_history.get(target_weekday, [])
+            if len(history) >= MIN_WEEKS_FOR_PREDICTION:
+                wake_dt = _build(target, statistics.median(history))
+                if fatigue_offset_sec:
+                    wake_dt = wake_dt + timedelta(seconds=fatigue_offset_sec)
+                if wake_dt.timestamp() > now_ts:
+                    return wake_dt.timestamp()
+
+            # 3. Fallback: fixed time from env var
+            if FALLBACK_WAKE_TIME:
+                try:
+                    h, m = (int(x) for x in FALLBACK_WAKE_TIME.split(":"))
+                    wake_dt = target.replace(hour=h, minute=m, second=0, microsecond=0)
+                    if wake_dt.timestamp() > now_ts:
+                        return wake_dt.timestamp()
+                except (ValueError, TypeError):
+                    pass
 
         return None
+
+    def get_wake_confidence(self) -> str:
+        """Return ``high`` / ``medium`` / ``low`` for the next wake prediction.
+
+        BootLoadManager uses this to widen its pre-wake window when the
+        prediction is uncertain (sparse history or large stdev), so we don't
+        miss the wake event by a few minutes early in the learner's life.
+
+        - high:   >= 4 weeks of data AND stdev <= 20min
+        - medium: >= 2 weeks of data AND stdev <= 40min (or simply >= 2 weeks)
+        - low:    < 2 weeks of data (FALLBACK_WAKE_TIME or single sample)
+        """
+        now = datetime.now()
+        # Prefer today's weekday history; fall back to tomorrow's (the
+        # weekday `get_wake_time` would actually consult if today is past).
+        history = self._wake_history.get(now.weekday(), [])
+        if not history:
+            history = self._wake_history.get((now + timedelta(days=1)).weekday(), [])
+
+        if len(history) >= 4:
+            stdev_min = statistics.stdev(history) * 60 if len(history) > 1 else 0
+            if stdev_min <= 20:
+                return "high"
+            if stdev_min <= 40:
+                return "medium"
+            return "low"
+        if len(history) >= MIN_WEEKS_FOR_PREDICTION:
+            return "medium"
+        return "low"
 
     def get_arrival_stats(self) -> dict:
         """Return summary statistics for LLM context."""

@@ -1,5 +1,7 @@
 # Wiring Gap 02 — Perception / VLM Enhancement
 
+> **CLOSED 2026-05-03**: 全項目が [`wiring-gap-06-data-flow-consolidation.md`](wiring-gap-06-data-flow-consolidation.md) に統合・解消済み (Wave 2 で vlm_history context 露出、anomaly 3 段階 escalation、新 perception tool 群を実装)。
+
 Perception service は YOLO 検出 + VLM 解説 を publish しているが、VLM のシーン情報は "最終更新から 300 秒以内" の時だけ LLM に届く。Routine scan は 30min 間隔、event-boosted でも 1-5min → **大半の時間 LLM は VLM を見られない**。scene objects は格納されるが anomaly 以外は context から除外される。
 
 対象: `services/perception/src/`, `services/brain/src/world_model/`, `services/brain/src/rule_engine.py`, `services/brain/src/tool_registry.py`

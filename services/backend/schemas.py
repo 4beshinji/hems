@@ -62,8 +62,7 @@ class Task(BaseModel):
     dismiss_reason: str | None = None
     locked_start: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskComplete(BaseModel):
@@ -100,8 +99,7 @@ class ScheduledBlock(BaseModel):
     travel_buffer_minutes: int = 0
     generated_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ScheduledBlockIn(BaseModel):
@@ -158,8 +156,7 @@ class VoiceEvent(BaseModel):
     motion_id: str | None = None
     created_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- User ---
@@ -182,8 +179,7 @@ class User(BaseModel):
     is_active: bool = True
     created_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Zone / Sensor ---
@@ -286,8 +282,7 @@ class ShoppingItem(BaseModel):
     created_by: str = "user"
     share_token: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PurchaseHistory(BaseModel):
@@ -299,8 +294,7 @@ class PurchaseHistory(BaseModel):
     quantity: int = 1
     purchased_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ShoppingStats(BaseModel):
@@ -336,8 +330,7 @@ class ChatMessage(BaseModel):
     metadata_json: str | None = None
     created_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatResponse(BaseModel):
@@ -354,8 +347,7 @@ class ConversationSummary(BaseModel):
     updated_at: datetime | None = None
     last_message: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Device Registry ---
@@ -379,6 +371,7 @@ class DeviceBase(BaseModel):
     manufacturer: str | None = None
     icon: str | None = None
     battery_pct: int | None = None
+    link_quality: int | None = None
     is_enabled: bool = True
     notes: str | None = None
     metadata_json: str | None = None
@@ -414,11 +407,11 @@ class Device(DeviceBase):
     last_state: dict = Field(default_factory=dict)
     last_value: dict = Field(default_factory=dict)
     last_seen: datetime | None = None
+    last_seen_reported: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DeviceHeartbeat(BaseModel):
@@ -440,6 +433,8 @@ class DeviceHeartbeat(BaseModel):
     last_state: dict | None = None
     last_value: dict | None = None
     battery_pct: int | None = None
+    link_quality: int | None = None
+    last_seen_reported: float | None = None  # epoch seconds (Z2M last_seen)
 
 
 class DeviceControlRequest(BaseModel):
@@ -498,8 +493,7 @@ class Scene(SceneBase):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SceneExecuteResponse(BaseModel):
@@ -547,8 +541,7 @@ class AutomationRule(AutomationRuleBase):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AutomationRuleFireUpdate(BaseModel):
@@ -567,8 +560,7 @@ class ConversationDetail(BaseModel):
     updated_at: datetime | None = None
     messages: list[ChatMessage] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- FrequentPlace (geofence targets for shopping / location reminders) ---
@@ -606,8 +598,7 @@ class FrequentPlace(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- ClassifierCache (brain-side learned classifications) ---
@@ -657,8 +648,7 @@ class MobileDevice(BaseModel):
     last_seen_at: datetime | None = None
     enabled: bool = True
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MobileLocationReading(BaseModel):

@@ -10,6 +10,7 @@ AI キャラクターシステムを組み合わせた、個人・家庭向け�
 ```bash
 cp env.example .env
 cd infra
+docker compose --profile bootstrap build base   # build hems-base:py3.11 (one-time)
 docker compose up -d --build
 ```
 
@@ -41,7 +42,7 @@ docker compose up -d --build
 - **Google 連携** (GAS): Calendar・Tasks・Gmail・Sheets・Drive
 - **スマートホーム** (HA): 照明/空調/カバー/スイッチ/センサー/シーン + スケジュール学習
 - **SwitchBot** (直接API): HA不要のデバイス制御 + IR リモート (Hub経由)
-- **天気** (weather-bridge): JMA (気象庁) / OpenWeatherMap — 降雨・猛暑アラート
+- **天気** (weather-bridge): JMA (気象庁) / OpenWeatherMap — 降雨・猛暑アラート (常時起動、JMA がデフォルトで API key 不要)
 - **ニュース** (news-bridge): RSS + Ollama 要約 — 日次ブリーフィング + 緊急ニュース検知 + イベント駆動音声通知
 
 ### バイオメトリクス・パーセプション
@@ -71,17 +72,18 @@ docker compose up -d --build
 │  (TTS×4)     │                     │      (dev)          │
 └──────────────┴─────────────────────┴─────────────────────┘
 
-Profiles:  voicevox | ollama | postgres | localcraw | obsidian
-           gas | ha | biometric | perception | switchbot | news
-           knowledge
+Profiles:  voicevox | ollama | postgres | mock | localcraw | obsidian
+           gas | ha | biometric | perception | switchbot | tapo
+           zigbee | news | knowledge | stt
 ```
 
-### Brain ツール一覧 (35+)
+### Brain ツール一覧 (46)
 
 | カテゴリ | ツール | Profile |
 |---------|--------|---------|
-| 基本 | `create_task`, `speak`*, `get_active_tasks`, `get_zone_status`, `get_device_status`, `send_device_command` | 常時 |
+| 基本 | `create_task`, `speak`*, `get_active_tasks`, `get_zone_status`, `get_device_status`, `send_device_command`, `get_sensor_history` | 常時 |
 | 買い物 | `add_shopping_item`, `get_shopping_list` | 常時 |
+| デバイスレジストリ | `control_actuator`, `list_devices`, `describe_device`, `execute_scene_by_name`, `list_scenes`, `zigbee_permit_join` | 常時 (デフォルト有効) |
 | PC | `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification` | localcraw |
 | サービス | `get_service_status` | localcraw |
 | ナレッジ (Obsidian) | `search_notes`, `write_note`, `get_recent_notes` | obsidian |
@@ -89,7 +91,7 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 | スマートホーム | `control_light`, `control_climate`, `control_cover`, `control_switch`, `get_home_devices`, `get_sensor_data`, `execute_scene` | ha |
 | システム | `set_guest_mode`, `get_weather` | ha |
 | バイオ | `get_biometrics`, `get_sleep_summary` | biometric |
-| カメラ | `get_perception_status`, `describe_scene` | perception |
+| カメラ / VLM | `get_perception_status`, `describe_scene`, `list_scene_objects`, `get_scene_timeline` | perception |
 | SwitchBot | `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir` | switchbot |
 | ニュース | `get_news_summary` | news |
 
@@ -110,8 +112,11 @@ Profiles:  voicevox | ollama | postgres | localcraw | obsidian
 | Biometric | 8017 | hems-biometric-bridge |
 | Perception | 8018 | hems-perception |
 | SwitchBot | 8019 | hems-switchbot-bridge |
+| Tapo | 8020 | hems-tapo-bridge |
 | News Bridge | 8021 | hems-news-bridge |
 | Knowledge Bridge | 8022 | hems-knowledge-bridge |
+| STT | 8023 | hems-stt |
+| Zigbee2MQTT (UI) | 8090 | hems-zigbee2mqtt |
 | VOICEVOX | 50031 | hems-voicevox |
 | Ollama | 11444 | hems-ollama |
 | PostgreSQL | 5442 | hems-postgres |

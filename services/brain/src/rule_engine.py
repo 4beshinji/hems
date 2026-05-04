@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 from loguru import logger
 
+from brain_utils import parse_iso_ts
 from world_model.world_model import (
     BODY_TEMP_HIGH,
     CO2_CRITICAL,
@@ -39,6 +40,24 @@ from schedule_learner import ScheduleLearner
 
 # Biometric stale data detection (minutes without update before alerting)
 BIOMETRIC_STALE_MINUTES = int(os.getenv("HEMS_BIOMETRIC_STALE_MINUTES", "30"))
+
+# Heavy process thresholds (B-1)
+PC_PROC_CPU_HIGH = float(os.getenv("HEMS_PROC_CPU_HIGH", "90"))
+PC_PROC_CPU_SUSTAIN_S = int(os.getenv("HEMS_PROC_CPU_SUSTAIN_S", "300"))  # 5 min
+PC_PROC_MEM_HIGH_GB = float(os.getenv("HEMS_PROC_MEM_HIGH_GB", "4.0"))
+PC_PROC_COOLDOWN_S = int(os.getenv("HEMS_PROC_COOLDOWN_S", "1800"))  # 30 min per process
+# Comma-separated process name substrings to exclude (case-insensitive). Useful in dev where
+# Chrome / Slack / VS Code routinely sit at high CPU and would generate false positives.
+PC_PROC_HEAVY_EXCLUDE = [
+    s.strip().lower()
+    for s in os.getenv("HEMS_PROC_HEAVY_EXCLUDE", "").split(",")
+    if s.strip()
+]
+
+# Device health thresholds (B-5)
+DEVICE_BATTERY_LOW = int(os.getenv("HEMS_DEVICE_BATTERY_LOW", "10"))  # %
+DEVICE_LQI_LOW = int(os.getenv("HEMS_DEVICE_LQI_LOW", "50"))  # Z2M LQI 0-255
+DEVICE_STALE_HOURS = int(os.getenv("HEMS_DEVICE_STALE_HOURS", "24"))  # hours since last_seen
 
 GPU_TYPE = os.getenv("GPU_TYPE", "none")  # amd | nvidia | none
 GPU_HIGH_LOAD_THRESHOLD = int(os.getenv("GPU_HIGH_LOAD_THRESHOLD", "80"))
@@ -130,6 +149,8 @@ class RuleEngine:
         self._low_pressure_since: dict[str, float] = {}
         self._low_light_since: dict[str, float] = {}
         self._high_light_since: dict[str, float] = {}
+        # Heavy process tracker: process_name → first observation timestamp (CPU > 90%)
+        self._heavy_proc_since: dict[str, float] = {}
 
     async def refresh_devices(self):
         if self.device_dispatcher is None:
@@ -556,6 +577,82 @@ class RuleEngine:
                         }
                     )
 
+        # --- Device battery / link quality / last_seen rules (B-5) ---
+        actions.extend(self._evaluate_device_health_rules(now))
+
+        # --- Service VIP event rules (B-2) ---
+        actions.extend(self._evaluate_service_vip_rules(world_model, now))
+
+        # --- VLM swap stuck rule (B-3) ---
+        if getattr(world_model, "vlm_model_swap_active", False):
+            stats = getattr(world_model, "vlm_swap_stats", {})
+            start = stats.get("last_swap_start_ts", 0)
+            if start > 0 and (now - start) > 60 and self._check_cooldown_custom(
+                "vlm_swap_stuck", now, 1800
+            ):
+                duration = int(now - start)
+                actions.append(
+                    {
+                        "tool": "create_task",
+                        "args": {
+                            "title": "VLM切替が長時間スタック",
+                            "description": f"VLMモデル切替が{duration}秒継続しています。perception コンテナのログを確認してください。",
+                            "urgency": 2,
+                            "zone": "system",
+                            "task_type": ["maintenance"],
+                        },
+                    }
+                )
+
+        # --- Heavy process rules (B-1) ---
+        # CPU sustained > 90% for 5min, or single process > 4GB memory
+        if pc.top_processes:
+            seen_names: set[str] = set()
+            for proc in pc.top_processes:
+                if not proc.name:
+                    continue
+                seen_names.add(proc.name)
+                # Skip dev-environment noise (Chrome, Slack, VS Code, etc.)
+                pname_lower = proc.name.lower()
+                if any(ex in pname_lower for ex in PC_PROC_HEAVY_EXCLUDE):
+                    continue
+                # CPU sustained
+                if proc.cpu_percent >= PC_PROC_CPU_HIGH:
+                    start = self._heavy_proc_since.setdefault(proc.name, now)
+                    if now - start >= PC_PROC_CPU_SUSTAIN_S and self._check_cooldown_custom(
+                        f"pc_proc_cpu_{proc.name}", now, PC_PROC_COOLDOWN_S
+                    ):
+                        actions.append(
+                            {
+                                "tool": "speak",
+                                "args": {
+                                    "message": f"{proc.name} がCPUを{proc.cpu_percent:.0f}%占有しています。閉じても大丈夫ですか？",
+                                    "zone": "pc",
+                                    "tone": "alert",
+                                },
+                            }
+                        )
+                else:
+                    self._heavy_proc_since.pop(proc.name, None)
+                # Memory single-process
+                mem_gb = proc.mem_mb / 1024.0
+                if mem_gb >= PC_PROC_MEM_HIGH_GB and self._check_cooldown_custom(
+                    f"pc_proc_mem_{proc.name}", now, PC_PROC_COOLDOWN_S
+                ):
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"{proc.name} が{mem_gb:.1f}GBメモリを使っています。再起動を検討してください。",
+                                "zone": "pc",
+                                "tone": "caring",
+                            },
+                        }
+                    )
+            # GC: process names that disappeared from the top list
+            for stale in [n for n in self._heavy_proc_since if n not in seen_names]:
+                self._heavy_proc_since.pop(stale, None)
+
         # --- GAS rules ---
         gas = world_model.gas_state
         if gas.bridge_connected:
@@ -633,6 +730,47 @@ class RuleEngine:
                             "args": {"message": msg[:70], "zone": "home", "tone": "alert"},
                         }
                     )
+
+        # 1b. Meeting prep — 30 min before event (speak + dim lights + 静音推奨)
+        for ev in gas.calendar_events:
+            if ev.is_all_day or ev.start_ts <= 0:
+                continue
+            minutes_until = (ev.start_ts - now) / 60
+            # 25-30 min window so the rule fires reliably even with 30s cycle
+            if 25 < minutes_until <= 30:
+                key = f"gas_meeting_prep_{ev.id}"
+                if self._check_cooldown_custom(key, now, 3600):
+                    msg = f"30分後に「{ev.title}」があります。準備をお勧めします。"
+                    if ev.location:
+                        msg += f"（{ev.location}）"
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {"message": msg[:70], "zone": "home", "tone": "caring"},
+                        }
+                    )
+                    # Dim lights to 70% in any zone with active light to encourage focus.
+                    # Cap at first 2 lights to avoid wholesale changes.
+                    dimmed = 0
+                    for d in self._device_cache:
+                        if dimmed >= 2:
+                            break
+                        caps = d.get("capabilities") or []
+                        if "set_brightness" not in caps:
+                            continue
+                        if not d.get("is_enabled", True):
+                            continue
+                        last_state = d.get("last_state") or {}
+                        if not last_state.get("on"):
+                            continue
+                        actions.append(
+                            self._make_action(
+                                d["device_id"],
+                                "set_brightness",
+                                {"brightness": 178},  # 70% of 255
+                            )
+                        )
+                        dimmed += 1
 
         # 2. Overlapping events detection
         timed_events = [e for e in gas.calendar_events if not e.is_all_day and e.start_ts > 0]
@@ -736,20 +874,73 @@ class RuleEngine:
 
         # --- Task rules ---
 
-        # 7. Overdue task alert
+        # 7. Overdue task alert — staged escalation
         overdue_tasks = [t for t in gas.tasks if t.is_overdue]
-        if overdue_tasks and self._check_cooldown("gas_overdue_alert", now):
-            names = ", ".join(t.title[:15] for t in overdue_tasks[:3])
-            actions.append(
-                {
-                    "tool": "speak",
-                    "args": {
-                        "message": f"期限切れのタスクが{len(overdue_tasks)}件あります: {names}",
-                        "zone": "home",
-                        "tone": "alert",
-                    },
-                }
-            )
+        if overdue_tasks:
+            # Stage A — initial info speak (1 per day, summary)
+            if self._check_cooldown_daily("gas_overdue_alert", now):
+                names = ", ".join(t.title[:15] for t in overdue_tasks[:3])
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": f"期限切れのタスクが{len(overdue_tasks)}件あります: {names}",
+                            "zone": "home",
+                            "tone": "alert",
+                        },
+                    }
+                )
+
+            # Stage B/C — per-task escalation based on hours overdue
+            from datetime import datetime as _dt
+
+            for task in overdue_tasks:
+                if not task.due or not task.id:
+                    continue
+                try:
+                    due_dt = _dt.fromisoformat(task.due.replace("Z", "+00:00"))
+                    hours_overdue = (now - due_dt.timestamp()) / 3600
+                except (ValueError, AttributeError):
+                    continue
+
+                # Stage B (≥24h overdue): bump priority, alert
+                if hours_overdue >= 24:
+                    key_b = f"gas_overdue_24h_{task.id}"
+                    if self._check_cooldown_custom(key_b, now, 86400):
+                        actions.append(
+                            {
+                                "tool": "create_task",
+                                "args": {
+                                    "title": f"【優先】期限超過 {int(hours_overdue / 24)}日: {task.title[:40]}",
+                                    "description": (
+                                        f"Googleタスク「{task.title}」が{int(hours_overdue)}時間超過しています。"
+                                        f"対応または再スケジュールを検討してください。"
+                                    ),
+                                    "urgency": 4,
+                                    "zone": "home",
+                                    "task_type": ["overdue_escalation"],
+                                },
+                            }
+                        )
+
+                # Stage C (≥72h overdue): suggest deletion
+                if hours_overdue >= 72:
+                    key_c = f"gas_overdue_72h_{task.id}"
+                    if self._check_cooldown_custom(key_c, now, 7 * 86400):
+                        actions.append(
+                            {
+                                "tool": "create_task",
+                                "args": {
+                                    "title": f"【削除候補】3日超過: {task.title[:40]}",
+                                    "description": (
+                                        f"「{task.title}」が72時間以上超過。実施意志がない場合は削除を検討。"
+                                    ),
+                                    "urgency": 2,
+                                    "zone": "home",
+                                    "task_type": ["delete_candidate"],
+                                },
+                            }
+                        )
 
         # 8. Daily task sync — 8:00-10:00, sync Google Tasks to HEMS tasks
         if 8 <= hour < 10 and self._check_cooldown_daily("gas_task_sync", now):
@@ -1065,6 +1256,19 @@ class RuleEngine:
                     },
                 }
             )
+            # Stress spike → request VLM scan (Wave 4.7) so we can confirm the
+            # user is actually OK (e.g., not just sitting still elevated).
+            # Only when MQTT publisher available; cooldown 30min via ad-hoc key.
+            if self.mqtt_publisher is not None and self._check_cooldown_custom(
+                "bio_stress_vlm_request", now, 1800
+            ):
+                try:
+                    self.mqtt_publisher(
+                        "hems/perception/vlm/request",
+                        {"reason": "stress_spike", "stress_level": bio.stress.level},
+                    )
+                except Exception:
+                    pass
 
         # 3. High fatigue alert
         if bio.fatigue.score > 70 and bio.fatigue.last_update > 0 and self._check_cooldown("bio_fatigue_high", now):
@@ -1204,6 +1408,144 @@ class RuleEngine:
                     if "color_temp" in (d.get("capabilities") or []):
                         actions.append(self._make_action(d["device_id"], "set_color_temp", {"value": 400}))
 
+        # --- Trend rules (Wave 3.2) ---
+        # Fatigue streak: 3 consecutive days fatigue >= 70 (sample at distinct days)
+        actions.extend(self._evaluate_fatigue_streak(bio, now))
+        # Sleep decline: 7-day quality drop -15% vs prior 7-day baseline
+        actions.extend(self._evaluate_sleep_decline(bio, now))
+        # Stress + HR coupling: 15min stress > 70 AND HR baseline +20%
+        actions.extend(self._evaluate_stress_hr_coupling(bio, now))
+
+        return actions
+
+    def _evaluate_fatigue_streak(self, bio, now: float) -> list[dict]:
+        """3 consecutive days with peak fatigue ≥ 70."""
+        actions = []
+        history = bio.history.get("fatigue") if bio.history else None
+        if not history or len(history) < 3:
+            return actions
+
+        from datetime import datetime as _dt
+
+        # Group samples by date (local), keep peak per day
+        peaks_by_day: dict[str, float] = {}
+        for ts, value in history:
+            day = _dt.fromtimestamp(ts).strftime("%Y-%m-%d")
+            peaks_by_day[day] = max(peaks_by_day.get(day, 0), value)
+
+        # Need 3 most recent calendar days
+        sorted_days = sorted(peaks_by_day.keys(), reverse=True)
+        if len(sorted_days) < 3:
+            return actions
+
+        recent_3 = [peaks_by_day[d] for d in sorted_days[:3]]
+        if all(v >= 70 for v in recent_3):
+            if self._check_cooldown_daily("bio_fatigue_streak", now):
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": "3日連続で疲労度が高い状態が続いています。今日は早めに休んでください。",
+                            "zone": "home",
+                            "tone": "caring",
+                        },
+                    }
+                )
+                actions.append(
+                    {
+                        "tool": "create_task",
+                        "args": {
+                            "title": "疲労蓄積アラート: 3日連続で疲労度70以上",
+                            "description": (
+                                f"直近3日の疲労度ピーク: {recent_3[0]:.0f}, {recent_3[1]:.0f}, {recent_3[2]:.0f}。"
+                                f"休息計画の見直しを検討してください。"
+                            ),
+                            "urgency": 3,
+                            "zone": "home",
+                            "task_type": ["fatigue_streak"],
+                        },
+                    }
+                )
+        return actions
+
+    def _evaluate_sleep_decline(self, bio, now: float) -> list[dict]:
+        """7-day rolling sleep quality average vs prior 7-day baseline. Trigger if drop ≥ 15%."""
+        actions = []
+        history = bio.history.get("sleep_quality") if bio.history else None
+        if not history or len(history) < 14:
+            return actions
+
+        recent = [v for _, v in list(history)[-7:]]
+        prior = [v for _, v in list(history)[-14:-7]]
+        if not recent or not prior:
+            return actions
+
+        avg_recent = sum(recent) / len(recent)
+        avg_prior = sum(prior) / len(prior)
+        if avg_prior < 30:  # baseline too noisy
+            return actions
+
+        decline_pct = (avg_prior - avg_recent) / avg_prior
+        if decline_pct >= 0.15 and self._check_cooldown_custom("bio_sleep_decline", now, 3 * 86400):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": (
+                            f"睡眠の質が直近7日で{int(decline_pct * 100)}%低下しています。"
+                            f"就寝時刻や環境を見直しましょう。"
+                        ),
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                }
+            )
+        return actions
+
+    def _evaluate_stress_hr_coupling(self, bio, now: float) -> list[dict]:
+        """15min sustained stress > 70 AND HR > resting baseline + 20%."""
+        actions = []
+        stress_hist = bio.history.get("stress") if bio.history else None
+        hr_hist = bio.history.get("heart_rate") if bio.history else None
+        if not stress_hist or not hr_hist:
+            return actions
+
+        cutoff_15min = now - 15 * 60
+        recent_stress = [v for ts, v in stress_hist if ts >= cutoff_15min]
+        recent_hr = [v for ts, v in hr_hist if ts >= cutoff_15min]
+
+        if len(recent_stress) < 3 or len(recent_hr) < 3:
+            return actions
+
+        sustained_stress = sum(recent_stress) / len(recent_stress) > 70
+        if not sustained_stress:
+            return actions
+
+        baseline_hr = bio.heart_rate.resting_bpm
+        if not baseline_hr or baseline_hr <= 0:
+            # Estimate baseline from HR history (lowest 10% over the window we have)
+            all_hr = sorted(v for _, v in hr_hist)
+            if len(all_hr) >= 10:
+                baseline_hr = all_hr[len(all_hr) // 10]
+            else:
+                return actions
+
+        avg_recent_hr = sum(recent_hr) / len(recent_hr)
+        if avg_recent_hr >= baseline_hr * 1.2 and self._check_cooldown("bio_stress_hr_coupling", now):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": (
+                            f"ストレスと心拍が連動して上昇しています。"
+                            f"(平均ストレス{int(sum(recent_stress) / len(recent_stress))}, "
+                            f"平均心拍{int(avg_recent_hr)}bpm)。深呼吸や休憩をどうぞ。"
+                        ),
+                        "zone": "home",
+                        "tone": "caring",
+                    },
+                }
+            )
         return actions
 
     def _evaluate_perception_rules(self, world_model, now: float) -> list[dict]:
@@ -1357,6 +1699,117 @@ class RuleEngine:
                         occ.anomaly_rescan_requested = now
                     except Exception:
                         pass
+
+        return actions
+
+    def _evaluate_service_vip_rules(self, world_model, now: float) -> list[dict]:
+        """B-2: Speak immediately on VIP service events (Gmail VIP sender, etc).
+
+        Cooldown: 5 min per service to suppress storms.
+        """
+        actions: list[dict] = []
+        ss = getattr(world_model, "services_state", None)
+        if ss is None or not ss.events:
+            return actions
+        for ev in ss.events[-20:]:
+            if ev.event_type != "service_vip_event":
+                continue
+            # Only fire for events less than 60s old (avoid speaking on replay)
+            if ev.timestamp and now - ev.timestamp > 60:
+                continue
+            service = (ev.data or {}).get("service", "サービス")
+            key = f"service_vip_{service}"
+            if not self._check_cooldown_custom(key, now, 300):
+                continue
+            summary = ev.description or f"{service} で更新あり"
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"重要な通知です。{summary}",
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                }
+            )
+        return actions
+
+    def _evaluate_device_health_rules(self, now: float) -> list[dict]:
+        """B-5: Battery / LQI / staleness alerts for registered devices.
+
+        Reads `self._device_cache` (populated by `refresh_devices`). Cooldowns:
+        - battery_low: 7 days per device
+        - link_quality_low: 24h per device
+        - stale: 24h per device
+        """
+        actions: list[dict] = []
+        if not self._device_cache:
+            return actions
+
+        WEEK_S = 7 * 86400
+        DAY_S = 86400
+        stale_threshold_s = DEVICE_STALE_HOURS * 3600
+
+        for d in self._device_cache:
+            if not d.get("is_enabled", True):
+                continue
+            device_id = d.get("device_id") or ""
+            if not device_id:
+                continue
+            display = d.get("display_name") or device_id
+
+            # Battery (≤10% by default)
+            battery = d.get("battery_pct")
+            if isinstance(battery, (int, float)) and battery <= DEVICE_BATTERY_LOW:
+                if self._check_cooldown_custom(f"dev_battery_{device_id}", now, WEEK_S):
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"電池切れ間近: {display}",
+                                "description": f"{display} の電池残量が{int(battery)}%です。早めの交換を。",
+                                "urgency": 2,
+                                "zone": d.get("zone") or "home",
+                                "task_type": ["maintenance"],
+                            },
+                        }
+                    )
+
+            # Link quality (Z2M LQI < 50 means weak mesh signal)
+            lqi = d.get("link_quality")
+            if isinstance(lqi, (int, float)) and lqi < DEVICE_LQI_LOW and (d.get("vendor") == "zigbee"):
+                if self._check_cooldown_custom(f"dev_lqi_{device_id}", now, DAY_S):
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"信号弱: {display}",
+                                "description": f"{display} のZigbeeリンク品質が低下 (LQI={int(lqi)}). 中継器の追加か配置の見直しを検討してください。",
+                                "urgency": 1,
+                                "zone": d.get("zone") or "home",
+                                "task_type": ["maintenance"],
+                            },
+                        }
+                    )
+
+            # Staleness (no updates for >24h)
+            last_seen_iso = d.get("last_seen")
+            last_seen_ts = parse_iso_ts(last_seen_iso)
+            if last_seen_ts is not None and (now - last_seen_ts) > stale_threshold_s:
+                if self._check_cooldown_custom(f"dev_stale_{device_id}", now, DAY_S):
+                    hours_ago = int((now - last_seen_ts) / 3600)
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"反応なし: {display}",
+                                "description": f"{display} は{hours_ago}時間応答していません。確認/再ペアリングしてください。",
+                                "urgency": 2,
+                                "zone": d.get("zone") or "home",
+                                "task_type": ["maintenance"],
+                            },
+                        }
+                    )
 
         return actions
 
@@ -1666,11 +2119,45 @@ class RuleEngine:
     def _evaluate_weather_rules(self, world_model, now: float) -> list[dict]:
         """Weather-based automation rules."""
         w = world_model.weather
-        if w.last_update == 0:
+        if w.last_update == 0 and w.last_alerts_update == 0:
             return []
 
         actions = []
         hd = world_model.home_devices
+
+        # Severe weather alerts → speak + create_task (24h cooldown per alert title)
+        severe_levels = {"warning", "severe", "extreme", "critical"}
+        for alert in w.alerts:
+            sev = (alert.severity or "").lower()
+            if sev not in severe_levels or not alert.title:
+                continue
+            key = f"weather_alert_{alert.title}"
+            if not self._check_cooldown_daily(key, now):
+                continue
+            area_part = f"（{alert.area}）" if alert.area else ""
+            tone = "alert" if sev in ("extreme", "critical") else "caring"
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": f"気象警報: {alert.title}{area_part}。注意してください。",
+                        "zone": "home",
+                        "tone": tone,
+                    },
+                }
+            )
+            actions.append(
+                {
+                    "tool": "create_task",
+                    "args": {
+                        "title": f"気象警報: {alert.title}",
+                        "description": (alert.description or alert.title)[:300],
+                        "urgency": 4 if sev in ("extreme", "critical") else 3,
+                        "zone": "home",
+                        "task_type": ["weather_alert"],
+                    },
+                }
+            )
 
         # Rain forecast + windows open → alert
         rain_soon = any(

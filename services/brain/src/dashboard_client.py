@@ -379,7 +379,13 @@ class DashboardClient:
         zones_data = {}
         for zone_id, zone in world_model.zones.items():
             occ = zone.occupancy
-            if occ.last_update > 0:
+            has_signal = (
+                occ.last_update > 0
+                or occ.inferred_occupied
+                or occ.presence_state is not None
+                or occ.last_motion_ts > 0
+            )
+            if has_signal:
                 zones_data[zone_id] = {
                     "person_count": occ.count,
                     "activity_level": occ.activity_level,
@@ -388,6 +394,30 @@ class DashboardClient:
                     "posture_status": occ.posture_status,
                     "posture_duration_sec": occ.posture_duration_sec,
                     "last_update": occ.last_update,
+                    # Multi-source presence inference (reconcile_presence)
+                    "inferred_occupied": occ.inferred_occupied,
+                    "inference_source": occ.inference_source,
+                    "inference_sources": list(occ.inference_sources),
+                    "presence_state": occ.presence_state,
+                    "last_motion_ts": occ.last_motion_ts,
+                    "motion_event_count_5min": occ.motion_event_count_5min,
+                    # VLM scene data
+                    "scene_description": occ.scene_description,
+                    "scene_objects": list(occ.scene_objects),
+                    "scene_type": occ.scene_type,
+                    "scene_anomalies": list(occ.scene_anomalies),
+                    "vlm_last_update": occ.vlm_last_update,
+                    "vlm_history": [
+                        {
+                            "timestamp": s.timestamp,
+                            "description": s.description[:200],
+                            "objects": s.objects[:8],
+                            "scene_type": s.scene_type,
+                            "anomalies": s.anomalies[:3],
+                            "tier": s.tier,
+                        }
+                        for s in list(occ.vlm_history)[-5:]
+                    ],
                 }
         if not zones_data:
             return
@@ -456,6 +486,120 @@ class DashboardClient:
         except Exception as e:
             logger.debug(f"Home snapshot push error: {e}")
 
+    async def push_device_action(
+        self,
+        device_id: str,
+        action: str,
+        params: dict | None = None,
+        source: str = "llm",
+        success: bool = True,
+    ) -> None:
+        """Push a device control action to backend log for 24h timeline view."""
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/device-actions/",
+                json={
+                    "device_id": device_id,
+                    "action": action,
+                    "params": params or {},
+                    "source": source,
+                    "success": success,
+                },
+                timeout=5,
+            ) as resp:
+                if resp.status not in (200, 201):
+                    logger.debug(f"Device action push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Device action push error: {e}")
+
+    async def push_bridge_status_event(self, service: str, connected: bool, detail: str = "") -> None:
+        """Push a bridge state transition to backend SLA log."""
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/bridge-status/event",
+                json={
+                    "service": service,
+                    "state": "connected" if connected else "disconnected",
+                    "detail": detail or None,
+                },
+                timeout=5,
+            ) as resp:
+                if resp.status not in (200, 201):
+                    logger.debug(f"Bridge status event push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Bridge status event push error: {e}")
+
+    async def push_news_snapshot(self, world_model) -> None:
+        """Push current news state to backend for frontend consumption."""
+        ns = world_model.news_state
+        if ns.daily_timestamp == 0 and not ns.urgent_articles and not ns.bridge_connected:
+            return
+        payload = {
+            "daily_summary": ns.daily_summary,
+            "daily_chunks": ns.daily_chunks,
+            "daily_timestamp": ns.daily_timestamp,
+            "urgent_articles": ns.urgent_articles[-10:],
+            "bridge_connected": ns.bridge_connected,
+        }
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/news/snapshot",
+                json=payload,
+                timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"News snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"News snapshot push error: {e}")
+
+    async def push_weather_snapshot(self, world_model) -> None:
+        """Push current weather state (current/forecast/alerts) to backend."""
+        w = world_model.weather
+        if w.last_update == 0 and w.last_alerts_update == 0:
+            return
+
+        payload = {
+            "current": {
+                "condition": w.condition,
+                "temperature": w.temperature,
+                "humidity": w.humidity,
+                "wind_speed": w.wind_speed,
+                "last_update": w.last_update,
+            },
+            "forecast": [
+                {
+                    "datetime": f.datetime,
+                    "condition": f.condition,
+                    "temperature": f.temperature,
+                    "precipitation_probability": f.precipitation_probability,
+                    "wind_speed": f.wind_speed,
+                }
+                for f in w.forecast[:24]
+            ],
+            "alerts": [
+                {
+                    "title": a.title,
+                    "severity": a.severity,
+                    "description": a.description,
+                    "area": a.area,
+                    "issued_at": a.issued_at,
+                    "expires_at": a.expires_at,
+                }
+                for a in w.alerts
+            ],
+            "last_alerts_update": w.last_alerts_update,
+        }
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/weather/snapshot",
+                json=payload,
+                timeout=5,
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Weather snapshot push failed: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Weather snapshot push error: {e}")
+
     async def push_zone_snapshot(self, world_model) -> None:
         """Push current zone sensor data to backend for frontend consumption."""
         zones = []
@@ -471,6 +615,8 @@ class DashboardClient:
                         "pressure": env.pressure,
                         "light": env.light,
                         "voc": env.voc,
+                        "pm25": env.pm25,
+                        "soil_moisture": env.soil_moisture,
                         "last_update": env.last_update,
                     },
                     "occupancy": {
@@ -544,6 +690,8 @@ class DashboardClient:
             "last_state": observation.last_state or {},
             "last_value": observation.last_value or {},
             "battery_pct": observation.battery_pct,
+            "link_quality": observation.link_quality,
+            "last_seen_reported": observation.last_seen_ts,
         }
         try:
             async with self.session.post(
@@ -573,12 +721,15 @@ class DashboardClient:
             logger.debug(f"Device list fetch error: {e}")
         return []
 
-    async def push_brain_snapshot(self, power_mode_status: dict) -> None:
-        """Push brain power mode status to backend for frontend consumption."""
+    async def push_brain_snapshot(self, power_mode_status: dict, last_cycle: dict | None = None) -> None:
+        """Push brain power mode status + last ReAct cycle summary to backend."""
+        payload = dict(power_mode_status)
+        if last_cycle is not None:
+            payload["last_cycle"] = last_cycle
         try:
             async with self.session.post(
                 f"{self.backend_url}/brain/snapshot",
-                json=power_mode_status,
+                json=payload,
                 timeout=5,
             ) as resp:
                 if resp.status not in (200, 204):

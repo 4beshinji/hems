@@ -15,11 +15,13 @@ VoiceEvent injection, bypassing LLM and TTS entirely.
 """
 
 import asyncio
+import json
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 
 import aiohttp
 from loguru import logger
@@ -29,6 +31,9 @@ from brain_utils import split_for_speak as _split_for_speak
 BOOT_LOAD_WINDOW_SEC = int(os.getenv("BOOT_LOAD_WINDOW_SEC", "2700"))  # 45 min
 BOOT_LOAD_NEWS_STALE_HOURS = int(os.getenv("BOOT_LOAD_NEWS_STALE_HOURS", "20"))
 BOOT_LOAD_MAX_TOKENS = int(os.getenv("BOOT_LOAD_MAX_TOKENS", "1600"))  # thinking uses ~1200, response ~400
+# Cache persistence — survives brain restarts within the same day so a crash
+# right before wake doesn't wipe a freshly synthesized briefing.
+BOOT_LOAD_CACHE_DIR = Path(os.getenv("BOOT_LOAD_CACHE_DIR", "/app/data/boot_load_cache"))
 
 
 def _internal_headers() -> dict:
@@ -66,6 +71,10 @@ class BootLoadManager:
         self._capsule_character_version: str | None = None
         self._capsule_schedule_learner = None
         self._capsule_event_classifier = None
+
+        # Restore today's cache from disk if a previous brain run wrote it
+        # (e.g. brain restarted after pre-synthesis but before wake_up).
+        self._restore_from_disk()
 
     def configure_capsule(
         self,
@@ -107,13 +116,18 @@ class BootLoadManager:
     def state(self) -> BootLoadState:
         return self._state
 
+    # Confidence → window multiplier. Low-confidence predictions widen the
+    # window so a noisy wake-time estimate doesn't slip past us by a few
+    # minutes (which would skip pre-synth and force at-wake TTS).
+    _CONFIDENCE_MULTIPLIER = {"high": 1.0, "medium": 1.5, "low": 2.0}
+
     def should_start(self, schedule_learner, now: float = None) -> bool:
         """Return True if boot load should start now.
 
         Conditions:
           - Not already running or ready
           - Has not run today
-          - Predicted wake time is within BOOT_LOAD_WINDOW_SEC
+          - Predicted wake time is within the (confidence-adjusted) window
         """
         if self._state != BootLoadState.IDLE:
             return False
@@ -128,8 +142,18 @@ class BootLoadManager:
         if wake_ts is None:
             return False
 
+        # Adjust the look-ahead window based on prediction confidence so a
+        # noisy ScheduleLearner (early in its life) doesn't miss the window.
+        confidence = "high"
+        try:
+            confidence = schedule_learner.get_wake_confidence()
+        except AttributeError:
+            pass  # Older learner without confidence API
+        multiplier = self._CONFIDENCE_MULTIPLIER.get(confidence, 1.0)
+        window = int(BOOT_LOAD_WINDOW_SEC * multiplier)
+
         remaining = wake_ts - (now or time.time())
-        return 0 < remaining < BOOT_LOAD_WINDOW_SEC
+        return 0 < remaining < window
 
     def start(
         self,
@@ -154,6 +178,75 @@ class BootLoadManager:
             self._task.cancel()
         self._state = BootLoadState.IDLE
         self._cache = None
+        self._delete_cache_file()
+
+    # ------------------------------------------------------------------ #
+    #  Persistence (survives brain restarts within the same day)           #
+    # ------------------------------------------------------------------ #
+
+    def _cache_path(self, date_str: str | None = None) -> Path:
+        date_str = date_str or datetime.now().strftime("%Y-%m-%d")
+        return BOOT_LOAD_CACHE_DIR / f"{date_str}.json"
+
+    def _persist_cache(self) -> None:
+        if not self._cache:
+            return
+        try:
+            BOOT_LOAD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            payload = asdict(self._cache)
+            payload["_last_run_date"] = self._last_run_date
+            self._cache_path().write_text(json.dumps(payload, ensure_ascii=False))
+        except Exception as e:
+            logger.warning(f"[BootLoad] cache persist failed: {e}")
+
+    def _restore_from_disk(self) -> None:
+        """Reload today's cache file (if any) into memory at startup."""
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            path = self._cache_path(today)
+            if not path.exists():
+                # Garbage-collect stale files from prior days
+                self._gc_old_cache_files(today)
+                return
+            data = json.loads(path.read_text())
+            cache = BootLoadCache(
+                briefing_chunks=list(data.get("briefing_chunks", [])),
+                audio_urls=list(data.get("audio_urls", [])),
+                news_chunks=list(data.get("news_chunks", [])),
+                generated_at=float(data.get("generated_at", 0.0)),
+                is_complete=bool(data.get("is_complete", False)),
+            )
+            if cache.is_complete and cache.briefing_chunks:
+                self._cache = cache
+                self._last_run_date = data.get("_last_run_date") or today
+                self._state = BootLoadState.READY
+                logger.info(
+                    "[BootLoad] disk cache 復元: {} チャンク (audio={})",
+                    len(cache.briefing_chunks),
+                    len(cache.audio_urls),
+                )
+            else:
+                # Incomplete file from a crashed run — discard
+                path.unlink(missing_ok=True)
+            self._gc_old_cache_files(today)
+        except Exception as e:
+            logger.warning(f"[BootLoad] cache restore failed: {e}")
+
+    def _delete_cache_file(self) -> None:
+        try:
+            self._cache_path().unlink(missing_ok=True)
+        except Exception as e:
+            logger.debug(f"[BootLoad] cache delete failed: {e}")
+
+    def _gc_old_cache_files(self, today: str) -> None:
+        try:
+            if not BOOT_LOAD_CACHE_DIR.exists():
+                return
+            for p in BOOT_LOAD_CACHE_DIR.glob("*.json"):
+                if p.stem != today:
+                    p.unlink(missing_ok=True)
+        except Exception as e:
+            logger.debug(f"[BootLoad] cache GC failed: {e}")
 
     # ------------------------------------------------------------------ #
     #  Internal pipeline                                                   #
@@ -171,36 +264,60 @@ class BootLoadManager:
         try:
             logger.info("[BootLoad] 起動: 起床前ブリーフィング事前生成開始")
 
-            # Step 1: Ensure news cache is fresh
-            news_chunks = await self._fetch_news(news_url, world_model, session)
-            self._cache.news_chunks = news_chunks
+            # Step 1: Ensure news cache is fresh (best-effort, briefing tolerates absence)
+            try:
+                news_chunks = await self._fetch_news(news_url, world_model, session)
+                self._cache.news_chunks = news_chunks
+            except Exception as e:
+                logger.warning(f"[BootLoad] ニュース取得段階で例外 (briefing継続): {e}")
+                news_chunks = []
 
             # Step 2: Collect today's schedule from world model
             schedule_text = _build_schedule_summary(world_model)
 
-            # Step 3: Generate integrated morning briefing via heavy LLM
+            # Step 3: Generate integrated morning briefing via heavy LLM (required for cache).
+            # If this fails entirely we abort — the at-wake-time TTS fallback path will run instead.
             briefing_text = await self._generate_briefing(llm_router, world_model, news_chunks, schedule_text)
+            if not briefing_text:
+                logger.warning("[BootLoad] ブリーフィング生成失敗 → IDLE復帰、wake時に通常パス")
+                self._state = BootLoadState.IDLE
+                return
             self._cache.briefing_chunks = _split_for_speak(briefing_text)
             logger.info(
                 "[BootLoad] ブリーフィング生成完了: %d チャンク",
                 len(self._cache.briefing_chunks),
             )
 
-            # Step 4: Pre-synthesize audio (best-effort; silently skips on failure)
+            # Briefing is the minimum bar for "ready" — mark cache complete now.
+            # Pre-synth and capsule below are best-effort enhancements; if they
+            # fail or partially complete, EventAutomation falls back to at-wake
+            # TTS for the missing chunks.
+            self._cache.generated_at = time.time()
+            self._cache.is_complete = True
+            self._persist_cache()
+
+            # Step 4: Pre-synthesize audio (best-effort; partial result is acceptable).
             if voice_url and self._cache.briefing_chunks:
-                self._cache.audio_urls = await self._presynthesize(voice_url, self._cache.briefing_chunks, session)
-                logger.info(
-                    "[BootLoad] TTS事前合成完了: %d / %d ファイル",
-                    len(self._cache.audio_urls),
-                    len(self._cache.briefing_chunks),
-                )
+                try:
+                    self._cache.audio_urls = await self._presynthesize(
+                        voice_url, self._cache.briefing_chunks, session
+                    )
+                    logger.info(
+                        "[BootLoad] TTS事前合成完了: %d / %d ファイル",
+                        len(self._cache.audio_urls),
+                        len(self._cache.briefing_chunks),
+                    )
+                    self._persist_cache()
+                except Exception as e:
+                    logger.warning(f"[BootLoad] TTS事前合成段階で例外 (キャッシュは部分採用): {e}")
 
             # Step 5: Build the mobile voice capsule (best-effort).
             if voice_url and backend_url:
-                await self._build_capsule(voice_url, backend_url, session, world_model)
+                try:
+                    await self._build_capsule(voice_url, backend_url, session, world_model)
+                except Exception as e:
+                    logger.warning(f"[BootLoad] capsule build 例外: {e}")
 
-            self._cache.generated_at = time.time()
-            self._cache.is_complete = True
             self._state = BootLoadState.READY
             logger.info("[BootLoad] 完了 → Boot Ready 状態に移行")
 

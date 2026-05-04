@@ -37,13 +37,18 @@ class AckLearner:
         *,
         session: aiohttp.ClientSession,
         backend_url: str,
+        motion_retriever=None,
     ):
         self.session = session
         self.backend_url = backend_url.rstrip("/")
+        # MotionRetriever is optional — when provided, we feed back rejection
+        # signals so its scoring can down-weight motions the user disliked.
+        self.motion_retriever = motion_retriever
 
     async def run(self, *, since_days: int = 30) -> int:
         """Consume recent play-log and update cached event_lead entries.
 
+        Also feeds motion-rejection signals to MotionRetriever (Wave 4.9).
         Returns the number of cache rows that were actually adjusted.
         """
         logs = await self._fetch_play_logs(since_days=since_days)
@@ -59,6 +64,25 @@ class AckLearner:
             drift = row.get("trigger_drift_sec")
             if drift is not None:
                 drifts[row["clip_id"]].append(int(drift))
+
+        # Wave 4.9: aggregate motion rejection signals from play-log
+        # A clip is treated as "rejected" if its trigger_drift_sec is excessive
+        # (>10 minutes — phone delivered very late, likely user wasn't engaged)
+        # OR if context_json explicitly carries reject:true.
+        if self.motion_retriever is not None:
+            motion_rejections: dict[str, int] = defaultdict(int)
+            for row in logs:
+                motion_id = (row.get("context_json") or {}).get("motion_id") if isinstance(row.get("context_json"), dict) else None
+                if not motion_id:
+                    continue
+                drift = row.get("trigger_drift_sec")
+                ctx = row.get("context_json") or {}
+                rejected = bool(ctx.get("reject")) or (drift is not None and abs(int(drift)) > 600)
+                if rejected:
+                    motion_rejections[motion_id] += 1
+            for motion_id, count in motion_rejections.items():
+                if count >= 2:  # require ≥2 rejections to act (avoid one-off noise)
+                    self.motion_retriever.record_rejection(motion_id)
 
         # Pre-fetch all event_lead cache entries once for prefix matching.
         all_event_leads = await self._list_event_lead_entries()

@@ -136,8 +136,14 @@ class EventWriter:
         trigger_events: list | None = None,
         tool_calls: list | None = None,
         world_state_snapshot: dict | None = None,
+        cause_event_id: int | None = None,
     ):
-        """Buffer an LLM cognitive cycle decision."""
+        """Buffer an LLM cognitive cycle decision.
+
+        cause_event_id: optional FK back to world_events.id — the originating
+        event that triggered this cognitive cycle (e.g. a GAS event change,
+        biometric threshold crossing). Enables causal traceability.
+        """
         self._decisions.append(
             {
                 "timestamp": datetime.now(UTC).isoformat(),
@@ -147,6 +153,7 @@ class EventWriter:
                 "trigger_events": json.dumps(trigger_events or []),
                 "tool_calls": json.dumps(tool_calls or []),
                 "world_state_snapshot": json.dumps(world_state_snapshot or {}),
+                "cause_event_id": cause_event_id,
             }
         )
 
@@ -213,18 +220,22 @@ class EventWriter:
                     logger.debug("Flushed {} raw events", len(events))
 
                 if decisions:
+                    # Ensure cause_event_id is present (default None) for backward compatibility
+                    for d in decisions:
+                        d.setdefault("cause_event_id", None)
                     if IS_POSTGRES:
                         await conn.execute(
                             text(f"""
                                 INSERT INTO {tp}llm_decisions
                                     (timestamp, cycle_duration_sec, iterations,
                                      total_tool_calls, trigger_events, tool_calls,
-                                     world_state_snapshot)
+                                     world_state_snapshot, cause_event_id)
                                 VALUES
                                     (:timestamp, :cycle_duration_sec, :iterations,
                                      :total_tool_calls, CAST(:trigger_events AS jsonb),
                                      CAST(:tool_calls AS jsonb),
-                                     CAST(:world_state_snapshot AS jsonb))
+                                     CAST(:world_state_snapshot AS jsonb),
+                                     :cause_event_id)
                             """),
                             decisions,
                         )
@@ -235,11 +246,11 @@ class EventWriter:
                                     INSERT INTO {tp}llm_decisions
                                         (timestamp, cycle_duration_sec, iterations,
                                          total_tool_calls, trigger_events, tool_calls,
-                                         world_state_snapshot)
+                                         world_state_snapshot, cause_event_id)
                                     VALUES
                                         (:timestamp, :cycle_duration_sec, :iterations,
                                          :total_tool_calls, :trigger_events, :tool_calls,
-                                         :world_state_snapshot)
+                                         :world_state_snapshot, :cause_event_id)
                                 """),
                                 d,
                             )

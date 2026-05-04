@@ -8,6 +8,7 @@ Control requests are proxied to Brain which dispatches to the vendor bridge.
 
 import logging
 import os
+import re
 from datetime import UTC, datetime
 
 import aiohttp
@@ -24,6 +25,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/devices", tags=["devices"])
 
 BRAIN_URL = os.getenv("BRAIN_CHAT_URL", "http://brain:8080")
+
+_IEEE_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{16}$")
+
+
+def _is_placeholder_name(name: str | None, device_id: str | None = None) -> bool:
+    """A display_name is 'placeholder' if it's empty, a raw Zigbee IEEE address,
+    or identical to the device_id — i.e. nothing the user would have typed."""
+    if not name:
+        return True
+    if _IEEE_ADDR_RE.match(name):
+        return True
+    if device_id and name == device_id:
+        return True
+    return False
 
 
 def _apply_update(device: models.Device, updates: dict) -> None:
@@ -147,6 +162,13 @@ async def device_heartbeat(
     device = result.scalars().first()
     now = datetime.now(UTC)
 
+    last_seen_reported = None
+    if body.last_seen_reported is not None:
+        try:
+            last_seen_reported = datetime.fromtimestamp(body.last_seen_reported, tz=UTC)
+        except (TypeError, ValueError, OSError):
+            last_seen_reported = None
+
     if device is None:
         device = models.Device(
             device_id=body.device_id,
@@ -165,7 +187,9 @@ async def device_heartbeat(
             last_state=body.last_state or {},
             last_value=body.last_value or {},
             last_seen=now,
+            last_seen_reported=last_seen_reported,
             battery_pct=body.battery_pct,
+            link_quality=body.link_quality,
             is_enabled=True,
         )
         db.add(device)
@@ -178,6 +202,10 @@ async def device_heartbeat(
             device.last_value = body.last_value
         if body.battery_pct is not None:
             device.battery_pct = body.battery_pct
+        if body.link_quality is not None:
+            device.link_quality = body.link_quality
+        if last_seen_reported is not None:
+            device.last_seen_reported = last_seen_reported
         device.last_seen = now
         # Allow brain to refine type info if metadata was not user-set
         # Generic fallback values (vendor name as device_class) are overridable
@@ -199,7 +227,7 @@ async def device_heartbeat(
             device.channels = body.channels
         if body.units and not device.units:
             device.units = body.units
-        if body.display_name and not device.display_name:
+        if body.display_name and _is_placeholder_name(device.display_name, device.device_id):
             device.display_name = body.display_name
         if body.description and not device.description:
             device.description = body.description

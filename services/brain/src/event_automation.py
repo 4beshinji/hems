@@ -6,6 +6,7 @@ Maps events (wake_up, arrival, departure, scheduled) to actions
 
 import json
 import os
+import time
 from datetime import datetime
 
 import aiohttp
@@ -16,10 +17,18 @@ from brain_utils import split_for_speak as _split_for_speak
 
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
+# news cache age beyond which we'll trigger a fresh /api/news/refresh before
+# speaking the briefing. BootLoad's own pre-synth refresh keeps the cache
+# fresh on most days; this catches the BootLoad-not-fired case (no
+# schedule_learner data, fallback wake_up trigger, etc.).
+NEWS_REFRESH_STALE_HOURS = float(os.getenv("NEWS_REFRESH_STALE_HOURS", "2"))
 
 # Default automations when EVENT_AUTOMATIONS env is not set
 DEFAULT_AUTOMATIONS = [
-    {"event": "wake_up", "actions": ["morning_greeting", "news_briefing", "weather_report"]},
+    {
+        "event": "wake_up",
+        "actions": ["weather_alert_announce", "morning_greeting", "news_briefing", "weather_report"],
+    },
 ]
 
 
@@ -27,7 +36,14 @@ class EventAutomation:
     """イベント駆動の自動アクション実行."""
 
     EVENTS = {"wake_up", "arrival", "departure", "scheduled"}
-    ACTIONS = {"news_briefing", "morning_greeting", "weather_report", "speak_custom", "task_planning"}
+    ACTIONS = {
+        "news_briefing",
+        "morning_greeting",
+        "weather_report",
+        "weather_alert_announce",
+        "speak_custom",
+        "task_planning",
+    }
 
     def __init__(self, tool_executor, world_model, llm_client=None, character=None, boot_load_manager=None):
         self.tool_executor = tool_executor
@@ -161,6 +177,8 @@ class EventAutomation:
             await self._action_morning_greeting()
         elif action_name == "weather_report":
             await self._action_weather_report()
+        elif action_name == "weather_alert_announce":
+            await self._action_weather_alert_announce()
         elif action_name == "task_planning":
             await self._action_task_planning()
         elif action_name == "speak_custom":
@@ -178,12 +196,39 @@ class EventAutomation:
             logger.warning(f"Unknown action: {action_name}")
 
     async def _action_news_briefing(self):
-        """Fetch news summary from news-bridge and speak chunks."""
+        """Fetch news summary from news-bridge and speak chunks.
+
+        Triggers a fresh /api/news/refresh first if the cached daily summary
+        is older than NEWS_REFRESH_STALE_HOURS. BootLoad pre-synth normally
+        keeps it fresh; this branch covers wake_up paths where BootLoad
+        did not fire (no schedule_learner data, fallback trigger, restart).
+        """
         if not NEWS_BRIDGE_URL:
             logger.debug("NEWS_BRIDGE_URL not set, skipping news_briefing")
             return
 
-        # Try REST API first
+        # Check cache freshness; trigger refresh if stale (BootLoad-friendly
+        # because BootLoad already refreshed sets daily_timestamp recently,
+        # so this branch is skipped naturally).
+        if self._session and hasattr(self.world_model, "news_state"):
+            ns = self.world_model.news_state
+            age_hours = (time.time() - ns.daily_timestamp) / 3600 if ns.daily_timestamp else 9999
+            if age_hours > NEWS_REFRESH_STALE_HOURS:
+                logger.info(
+                    f"[news_briefing] cache stale ({age_hours:.1f}h > {NEWS_REFRESH_STALE_HOURS}h) "
+                    f"→ trigger refresh"
+                )
+                try:
+                    async with self._session.post(
+                        f"{NEWS_BRIDGE_URL}/api/news/refresh",
+                        timeout=aiohttp.ClientTimeout(total=90),
+                    ) as resp:
+                        if resp.status != 200:
+                            logger.warning(f"News refresh returned {resp.status}")
+                except Exception as e:
+                    logger.warning(f"News refresh failed: {e}")
+
+        # Try REST API for the latest summary
         chunks = []
         if self._session:
             try:
@@ -296,20 +341,24 @@ class EventAutomation:
     async def _execute_boot_load_briefing(self):
         """Play pre-generated boot load briefing cache.
 
-        Preferred path: inject pre-synthesized audio_urls as VoiceEvents directly
-        into the backend DB → frontend picks them up within 3 s polling interval.
-
-        Fallback (no audio_urls): speak each text chunk via tool_executor,
-        which triggers TTS at wake time but still skips LLM generation.
+        Mixed mode: pre-synthesized chunks are injected as VoiceEvents
+        directly into the backend (instant playback via the 3s polling).
+        Chunks without audio_url fall back to speak() for at-wake TTS.
+        Order is preserved across both paths.
         """
         cache = self.boot_load_manager.cache
         if not cache or not cache.briefing_chunks:
             logger.warning("[BootLoad] キャッシュが空")
             return
 
-        if cache.audio_urls and self._session:
-            # Inject pre-synthesized audio as VoiceEvents
-            for url, chunk in zip(cache.audio_urls, cache.briefing_chunks):
+        chunks = cache.briefing_chunks
+        audio_urls = list(cache.audio_urls or [])
+
+        injected = 0
+        spoken = 0
+        for idx, chunk in enumerate(chunks):
+            url = audio_urls[idx] if idx < len(audio_urls) else None
+            if url and self._session:
                 try:
                     async with self._session.post(
                         f"{BACKEND_URL}/voice-events/",
@@ -321,25 +370,30 @@ class EventAutomation:
                         },
                         timeout=aiohttp.ClientTimeout(total=10),
                     ) as resp:
-                        if resp.status not in (200, 201):
-                            logger.warning("[BootLoad] VoiceEvent inject HTTP %d", resp.status)
+                        if resp.status in (200, 201):
+                            injected += 1
+                            continue
+                        logger.warning("[BootLoad] VoiceEvent inject HTTP %d", resp.status)
                 except Exception as e:
                     logger.warning(f"[BootLoad] VoiceEvent inject エラー: {e}")
-        else:
-            # Fallback: TTS at wake time (LLM still skipped)
-            logger.debug("[BootLoad] audio_urls なし — テキストチャンクでTTS再生")
-            for chunk in cache.briefing_chunks:
-                try:
-                    await self.tool_executor.execute(
-                        "speak",
-                        {
-                            "message": chunk,
-                            "zone": "home",
-                            "tone": "caring",
-                        },
-                    )
-                except Exception as e:
-                    logger.warning(f"[BootLoad] speak エラー: {e}")
+                # fall through to speak() if injection failed
+
+            # No audio_url (or injection failed) → at-wake TTS
+            try:
+                await self.tool_executor.execute(
+                    "speak",
+                    {"message": chunk, "zone": "home", "tone": "caring"},
+                )
+                spoken += 1
+            except Exception as e:
+                logger.warning(f"[BootLoad] speak エラー: {e}")
+
+        logger.info(
+            "[BootLoad] 再生完了: injected=%d spoken=%d total=%d",
+            injected,
+            spoken,
+            len(chunks),
+        )
 
     async def _action_task_planning(self):
         """アクティブタスクの詳細プランを LLM で生成し、結果を発話する。"""
@@ -391,11 +445,44 @@ class EventAutomation:
         except Exception as e:
             logger.error("[task_planning] エラー: %s", e)
 
+    async def _action_weather_alert_announce(self):
+        """Announce active weather alerts (warning+ severity)."""
+        w = self.world_model.physical.weather
+        severe_levels = {"warning", "severe", "extreme", "critical"}
+        active = [
+            a for a in w.alerts
+            if (a.severity or "").lower() in severe_levels and a.title
+        ]
+        if not active:
+            logger.debug("[weather_alert_announce] no active severe alerts")
+            return
+
+        for alert in active[:3]:
+            area_part = f"（{alert.area}）" if alert.area else ""
+            message = f"気象警報: {alert.title}{area_part}。注意してください。"
+            for chunk in _split_for_speak(message, SPEAK_CHUNK_LIMIT):
+                await self.tool_executor.execute(
+                    "speak",
+                    {
+                        "message": chunk,
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                )
+
     async def _action_weather_report(self):
         """Speak weather summary from world model."""
         w = self.world_model.physical.weather
         if w.last_update == 0:
-            logger.debug("No weather data, skipping weather_report")
+            logger.warning("weather_report: weather-bridge data not yet received")
+            await self.tool_executor.execute(
+                "speak",
+                {
+                    "message": "天気情報はまだ取得できていません。",
+                    "zone": "home",
+                    "tone": "neutral",
+                },
+            )
             return
 
         parts = []
@@ -417,6 +504,7 @@ class EventAutomation:
             parts.append(f"この後、{rain_forecast.datetime}頃に雨の可能性があります")
 
         if not parts:
+            logger.info("weather_report: data present but all fields empty, skipping")
             return
 
         message = "、".join(parts) + "です。"

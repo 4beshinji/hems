@@ -166,7 +166,7 @@ def _publish_reading(reading: BiometricReading):
         _mqtt_publish(f"{prefix}/sleep", sleep_data)
         processor.update_sleep_summary(reading)
 
-    if reading.activity_level is not None or reading.calories is not None:
+    if reading.activity_level is not None or reading.calories is not None or reading.active_minutes is not None:
         activity_data = {}
         if reading.activity_level is not None:
             activity_data["level"] = reading.activity_level
@@ -174,9 +174,10 @@ def _publish_reading(reading: BiometricReading):
             activity_data["calories"] = reading.calories
         if reading.active_minutes is not None:
             activity_data["active_minutes"] = reading.active_minutes
-        if reading.steps is not None:
-            activity_data["steps"] = reading.steps
-        _mqtt_publish(f"{prefix}/activity", activity_data)
+        # NOTE: steps is published only on /steps to avoid double publishing.
+        # world_model already merges /steps and /activity into the same ActivityData.
+        if activity_data:
+            _mqtt_publish(f"{prefix}/activity", activity_data)
 
     if reading.hrv_ms is not None:
         _mqtt_publish(f"{prefix}/hrv", {"rmssd_ms": reading.hrv_ms})

@@ -13,7 +13,9 @@ All services run via Docker Compose from the `infra/` directory.
 ```bash
 # Initial setup
 cp env.example .env
-cd infra && docker compose up -d --build
+cd infra
+docker compose --profile bootstrap build base   # build hems-base:py3.11 (one time, all Python services FROM it)
+docker compose up -d --build
 
 # With VOICEVOX TTS
 docker compose --profile voicevox up -d --build
@@ -175,10 +177,17 @@ hems/perception/vlm/status
 hems/perception/vlm/model_swap
 hems/perception/vlm/request
 
-# Personal data (future: data-bridge)
+# Personal data (future: data-bridge — service is a stub, no compose entry yet)
 hems/personal/calendar/{id}/events
 hems/personal/training/fitness
 hems/system/gpu/utilization
+
+# Tapo (direct LAN bridge)
+hems/tapo/{vendor_ref}/state
+
+# Zigbee2MQTT (direct, retained)
+zigbee2mqtt/{device}              # device state
+zigbee2mqtt/bridge/devices        # device listing
 
 # Shopping list
 hems/shopping/{added,updated,purchased}
@@ -196,7 +205,7 @@ hems/news/bridge/status
 hems/personal/knowledge/changed
 hems/personal/knowledge/stats
 
-# Weather (weather-bridge)
+# Weather (weather-bridge, always-on)
 hems/weather/{current,forecast,alerts}
 hems/weather/bridge/status
 
@@ -208,28 +217,45 @@ hems/brain/guest-mode
 ### Brain Service
 
 - ReAct cognitive loop (30s cycle, max 5 iterations)
-- Dual mode: LLM + rule-based fallback (GPU load > threshold)
-- Character personality injection into system prompt
-- Event store data mart (SOMS-compatible schema)
+- Dual mode: LLM + rule-based fallback (GPU load > threshold, low-power mode, VLM heavy-model swap)
+- Character personality 2-stage separation: Stage 1 thinking on raw model, Stage 2 output via PersonaRewriter
+- Event store data mart (SOMS-compatible schema, 730d retention)
 - Alert suppression: prevents duplicate tasks while environment slowly responds
   (e.g., AC cooling after task created — 30min for temp, 10min for CO2)
 - Ambient Speaker: generates natural one-line speech every 5 minutes based on sensor data
-- Tri-domain world model: Physical Space (zones, smart home, weather), Digital Space (PC, services, GAS, knowledge, shopping), User State (biometrics, screen time)
-- MotionRetriever: selects avatar motion via BM25 + tone affinity + usage decay + novelty (serendipity scoring), loaded from `config/motions.yaml`
-- 6 core tools: `create_task`, `send_device_command`, `get_zone_status`, `speak`, `get_active_tasks`, `get_device_status`
-- localcraw tools (profile `localcraw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`
-- Service monitor tool (when data available): `get_service_status`
+- Tri-domain world model: Physical Space (zones, smart home, weather), Digital Space (PC, services, GAS, knowledge, shopping, news), User State (biometrics, screen time, schedule)
+- Subsystems wired in `main.py`:
+  - **PowerModeManager** (`low_power_mode.py`): normal/sleep/away mode + LLM rate limiting
+  - **LLMRouter** (`llm_router.py`): light/heavy model routing
+  - **BootLoadManager** (`boot_load_manager.py`, `BOOT_LOAD_ENABLED=true` default): pre-wake heavy model briefing pre-synth
+  - **SunriseAlarm** (`sunrise_alarm.py`, `SUNRISE_ALARM_DEVICE` set): Zigbee bedside light gradual ramp
+  - **ScheduleLearner** (HA / biometric / switchbot enabled): arrival/departure/wake pattern learning + biometric sleep
+  - **TimelineGenerator** (`timeline/`, GAS enabled): EDF + free-window daily timeline
+  - **EventAutomation** (`event_automation.py`, news/gas enabled): event→action wiring
+  - **AutomationEngine** (`automation_engine.py`): sensor_threshold / schedule / device_state / event rules
+  - **SceneExecutor** (`scene_executor.py`): named multi-device scenes
+  - **DeviceDispatcher** (`device_dispatcher.py`): vendor-agnostic dispatch (ha/switchbot/tapo/zigbee/mcp)
+  - **TaskQueueManager / TaskReminder** (`task_scheduling/`, `task_reminder.py`): batched task queue + due reminders
+  - **PersonaRewriter** (`persona_rewriter.py`, `PERSONA_REWRITE_ENABLED=true`): rule-engine speak → character voice
+  - **Annotators** (`annotator/`): EventClassifier / RulePromoter / ShoppingClassifier / ClassifierCache
+  - **AckLearner** (`voice_capsule/ack_learner.py`): mobile companion ack pattern learning
+  - **MotionRetriever** (`motion_retriever.py`): VRM motion via BM25 + tone affinity + usage decay + novelty, loaded from `config/motions.yaml`
+- Always-on tools: `create_task`, `speak`, `get_zone_status`, `get_active_tasks`, `get_device_status`, `send_device_command` (legacy MCP), `get_sensor_history`, `add_shopping_item`, `get_shopping_list`
+- Device Registry tools (default-on): `control_actuator`, `list_devices`, `describe_device`, `execute_scene_by_name`, `list_scenes`, `zigbee_permit_join`
+- localcraw tools (profile `localcraw`): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`, `get_service_status`, `list_processes`
 - Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
-- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`
-- System tools (with `ha`): `set_guest_mode`, `get_weather`
+- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`, `get_entity_status`, `set_guest_mode`, `get_weather`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
-- Perception tools (profile `perception`): `get_perception_status`, `describe_scene` (VLM on-demand scene analysis)
+- Perception tools (profile `perception`): `get_perception_status`, `describe_scene`, `list_scene_objects`, `get_scene_timeline`
 - News tools (profile `news`): `get_news_summary`
 - Knowledge tools (profile `knowledge`): `search_knowledge`, `get_knowledge_sources`, `read_knowledge_document`
-- Shopping tools (always enabled): `add_shopping_item`, `get_shopping_list`
 - SwitchBot tools (profile `switchbot`): `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir`
-- Schedule learner (with `ha` profile): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
-- Event automation (with `news` profile): event→action mapping (wake_up/arrival/departure/scheduled → news_briefing/morning_greeting/weather_report)
+- Tapo tools (profile `tapo`): `get_power_consumption`
+- GAS tools (profile `gas`): `get_recent_emails`
+- Chat-only allowlist: `get_chat_tools()` filters to read-only subset (no speak / write_note / control_*)
+- Tool count source-of-truth: `tool_registry.py` JSON Schemas vs `tool_executor.py` dispatch (cross-reference must match)
+- Schedule learner (with `ha` / `biometric` / `switchbot`): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
+- Event automation (with `news` or `gas`): event→action mapping (wake_up/arrival/departure/scheduled → morning_greeting/news_briefing/weather_report/task_planning/scene)
 
 ### localcraw Bridge (profile: `localcraw`)
 
@@ -518,13 +544,13 @@ Built-in shopping list with brain integration.
 
 ### Weather Integration (weather-bridge)
 
-Weather data from JMA (気象庁) or OpenWeatherMap.
+Weather data from JMA (気象庁, default, no API key) or OpenWeatherMap. Always-on (no profile).
 
 - **weather-bridge**: Service polling weather APIs → MQTT publish
   - Providers: JMA (free, default), OpenWeatherMap
   - Publishes to `hems/weather/{current,forecast,alerts}` MQTT topics
-- **Brain rules**: rain window detection, hot forecast notification
-- **World model**: `WeatherState` in Physical Space
+- **Brain consumer**: `_update_weather_state` in world_model + `get_weather` tool
+- **Configure**: `WEATHER_PROVIDER=jma`, `JMA_AREA_CODE=130000`, `JMA_DETAIL_CODE=130010` (defaults: 東京都/東京地方). For OpenWeatherMap set `WEATHER_PROVIDER=openweathermap` + `OWM_API_KEY` + `OWM_LAT`/`OWM_LON`.
 
 ### News Integration (news-bridge)
 
@@ -650,6 +676,20 @@ NEWS_BRIDGE_URL=http://news-bridge:8000
 EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_briefing","weather_report"]},{"event":"scheduled","time":"12:00","actions":["news_briefing"]}]'
 ```
 
+## Implementation Status & Source-of-Truth Map
+
+For exact mapping between code, docker-compose, MQTT topics, world model fields, brain tools, and env vars, see **[`docs/IMPLEMENTATION_MAP.md`](docs/IMPLEMENTATION_MAP.md)**. That doc is the authoritative cross-reference and includes verification commands. When adding a new service / tool / topic, update IMPLEMENTATION_MAP first, then CLAUDE.md / README.md / env.example.
+
+詳細な配線ギャップ分析と Wave 計画は [`docs/wiring-gap-05-orphan-cleanup-and-underused-data.md`](docs/wiring-gap-05-orphan-cleanup-and-underused-data.md) を参照。
+
+### Known orphans / wiring gaps (2026-04-30, partial)
+
+- ~~**`services/weather-bridge/`**~~ — wired up, always-on (no profile).
+- **`services/data-bridge/`** — Phase-2 scaffold (placeholder for future Strava/Fitbit/Garmin/Intervals.icu intake). `src/bridges/` empty, no compose entry. Topics under `hems/personal/calendar`, `hems/personal/training/fitness`, `hems/system/gpu/utilization` are documented but never published. Currently substituted by biometric-bridge + gas-bridge.
+- **`hems/services/{name}/event`** — edge events arrive but only the next 30s cycle picks them up; no immediate-trigger path.
+- **`hems/gas/sheets/{name}` / `hems/gas/drive/recent`** — flow into world_model but no rules / event-automation actions consume them yet.
+- **`*/bridge/status`** — only `bridge_connected` flag is updated; outage history is not retained.
+
 ## Tech Stack
 
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy (async), paho-mqtt, Pydantic 2.x
@@ -672,10 +712,10 @@ EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_brief
 |------|------|
 | PostgreSQL required | SQLite default |
 | Wallet (double-entry ledger) | No points system |
-| VOICEVOX only | Plugin TTS (4 backends) |
-| Hardcoded personality | YAML character system |
-| Ollama only | OpenAI / Anthropic / Ollama |
-| 11 services | 7 core + optional profiles |
+| VOICEVOX only | Plugin TTS (5 backends: voisona / voicevox / espeak / edge-tts / style-bert-vits2) |
+| Hardcoded personality | YAML character system (2-stage thinking/output separation) |
+| Ollama only | OpenAI / Anthropic / Ollama (multi-provider via LLMRouter) |
+| 11 services | 5 core (mosquitto/brain/backend/frontend/voice-service) + 16 optional profiles |
 | Office/multi-user | Home/single occupant |
 | No alert suppression | Alert suppression (30min/10min) |
 | npm | pnpm |

@@ -4,6 +4,7 @@ Hybrid search: BM25 + Vector (Ollama embedding) + Title boost via RRF.
 """
 
 import asyncio
+import sys
 import time
 from contextlib import asynccontextmanager
 
@@ -31,7 +32,7 @@ from config import (
 )
 from mqtt_publisher import MQTTPublisher
 
-logger.configure(handlers=[{"sink": "ext://sys.stderr", "level": LOG_LEVEL}])
+logger.configure(handlers=[{"sink": sys.stderr, "level": LOG_LEVEL}])
 
 # Shared state
 embedder = EmbeddingClient(

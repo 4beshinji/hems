@@ -565,6 +565,29 @@ class SchedulePredictions:
     last_update: float = 0
 
 
+_BIOMETRIC_HISTORY_MAXLEN: dict[str, int] = {
+    "heart_rate": 1440,        # 24h @ 1min cadence
+    "hrv": 1440,
+    "stress": 4032,            # 14d @ 5min
+    "fatigue": 4032,
+    "sleep_quality": 14,       # one entry per night, 14 nights
+    "sleep_duration": 14,
+    "spo2": 1440,
+    "body_temperature": 1440,
+    "respiratory_rate": 1440,
+    "steps": 30,               # 30 daily totals
+}
+
+
+def _make_history_dict() -> dict[str, "deque"]:
+    from collections import deque
+
+    return {
+        metric: deque(maxlen=maxlen)
+        for metric, maxlen in _BIOMETRIC_HISTORY_MAXLEN.items()
+    }
+
+
 @dataclass
 class BiometricState:
     heart_rate: HeartRateData = field(default_factory=HeartRateData)
@@ -580,11 +603,24 @@ class BiometricState:
     bridge_connected: bool = False
     events: list[Event] = field(default_factory=list)
     max_events: int = 30
+    # Per-metric rolling history of (timestamp, value) tuples for trend rules / tools.
+    # In-memory only; not persisted across brain restarts (acceptable: trend rules gate
+    # on minimum sample counts so a fresh deque just pauses trend evaluation).
+    history: dict[str, "deque"] = field(default_factory=_make_history_dict)
 
     def add_event(self, event: Event):
         self.events.append(event)
         if len(self.events) > self.max_events:
             self.events = self.events[-self.max_events :]
+
+    def record_history(self, metric: str, value: float, ts: float | None = None) -> None:
+        """Append a (timestamp, value) sample to the named metric history."""
+        import time as _time
+
+        d = self.history.get(metric)
+        if d is None:
+            return
+        d.append((ts if ts is not None else _time.time(), value))
 
     @property
     def last_update(self) -> float:

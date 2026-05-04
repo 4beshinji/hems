@@ -120,6 +120,8 @@ export interface EnvironmentData {
   pressure?: number | null
   light?: number | null
   voc?: number | null
+  pm25?: number | null
+  soil_moisture?: number | null
   /** Unix timestamp or ISO string */
   last_update?: number | string | null
 }
@@ -264,6 +266,7 @@ export interface SleepData {
   deep_minutes: number
   rem_minutes: number
   light_minutes: number
+  stage?: string
 }
 
 export interface ActivityData {
@@ -319,12 +322,116 @@ export interface BiometricData {
   last_update?: number | null
 }
 
+// ─── Weather ──────────────────────────────────────────────────────────────────
+export interface WeatherCurrent {
+  condition: string
+  temperature: number
+  humidity: number
+  wind_speed: number
+  last_update?: number | null
+}
+
+export interface WeatherForecast {
+  datetime: string
+  condition: string
+  temperature: number
+  precipitation_probability: number
+  wind_speed: number
+}
+
+export type WeatherAlertSeverity =
+  | 'minor'
+  | 'moderate'
+  | 'severe'
+  | 'extreme'
+  | 'warning'
+  | 'advisory'
+  | 'watch'
+  | 'critical'
+  | 'unknown'
+
+export interface WeatherAlert {
+  title: string
+  severity: WeatherAlertSeverity | string
+  description: string
+  area: string
+  issued_at: string
+  expires_at: string
+}
+
+export interface WeatherData {
+  status?: string | null
+  current?: WeatherCurrent | null
+  forecast?: WeatherForecast[] | null
+  alerts?: WeatherAlert[] | null
+  last_alerts_update?: number | null
+}
+
+// ─── Device action log ───────────────────────────────────────────────────────
+export interface DeviceActionEvent {
+  id: number
+  device_id: string
+  action: string
+  params: Record<string, unknown>
+  source?: string | null
+  success: boolean
+  timestamp: string
+}
+
+// ─── News ─────────────────────────────────────────────────────────────────────
+export interface NewsArticle {
+  title?: string
+  url?: string
+  source?: string
+  summary?: string
+  category?: string
+  urgency?: number
+  timestamp?: number
+}
+
+export interface NewsData {
+  status?: string | null
+  daily_summary?: string
+  daily_chunks?: string[]
+  daily_timestamp?: number
+  urgent_articles?: NewsArticle[]
+  bridge_connected?: boolean
+}
+
 // ─── Perception ───────────────────────────────────────────────────────────────
+export type InferenceSource = 'camera' | 'presence_sensor' | 'motion' | 'pc_activity' | 'biometric' | 'none'
+
+export interface SceneSnapshot {
+  timestamp: number
+  description: string
+  objects: string[]
+  scene_type: string
+  anomalies: string[]
+  tier?: string
+}
+
 export interface PerceptionZone {
   person_count: number
   activity_level: number | null
+  activity_class?: string
+  posture?: string
   posture_status: string
   posture_duration_sec: number
+  last_update?: number
+  // Multi-source presence inference
+  inferred_occupied?: boolean
+  inference_source?: InferenceSource
+  inference_sources?: InferenceSource[]
+  presence_state?: boolean | null
+  last_motion_ts?: number
+  motion_event_count_5min?: number
+  // VLM scene data
+  scene_description?: string
+  scene_objects?: string[]
+  scene_type?: string
+  scene_anomalies?: string[]
+  vlm_last_update?: number
+  vlm_history?: SceneSnapshot[]
 }
 
 export interface PerceptionData {
@@ -454,6 +561,29 @@ export interface BrainStatus {
   cycle_interval_sec: number
   llm_cooldown_remaining_sec: number
   manual_override_remaining_sec: number
+  last_cycle?: BrainCycleSummary
+}
+
+export interface BrainTriggerEvent {
+  zone: string
+  event: string
+  severity: number
+}
+
+export interface BrainCycleToolCall {
+  tool: string
+  summary: string
+  success: boolean
+}
+
+export interface BrainCycleSummary {
+  timestamp: number
+  elapsed: number
+  iterations: number
+  total_tool_calls: number
+  mode: string  // "llm" | "rule_low_power_throttled" | "rule_low_power_idle" | "rule_vlm_swap" | "rule_gpu_busy"
+  trigger_events: BrainTriggerEvent[]
+  tool_calls: BrainCycleToolCall[]
 }
 
 export interface OllamaModel {

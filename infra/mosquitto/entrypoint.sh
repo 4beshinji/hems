@@ -20,6 +20,7 @@ add hems-localcraw
 add hems-obsidian
 add hems-gas
 add hems-ha
+add hems-weather
 add hems-biometric
 add hems-perception
 add hems-switchbot

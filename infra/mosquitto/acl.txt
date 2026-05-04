@@ -35,6 +35,9 @@ topic write hems/gas/#
 user hems-ha
 topic read #
 topic write hems/home/#
+
+user hems-weather
+topic read #
 topic write hems/weather/#
 
 user hems-biometric

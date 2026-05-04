@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
-from config import DEDUP_WINDOW, FATIGUE_HR_WEIGHT, FATIGUE_SLEEP_WEIGHT, FATIGUE_STRESS_WEIGHT
+from config import DEDUP_WINDOW, FATIGUE_HR_WEIGHT, FATIGUE_HRV_WEIGHT, FATIGUE_SLEEP_WEIGHT, FATIGUE_STRESS_WEIGHT
 
 
 @dataclass
@@ -159,19 +159,30 @@ class DataProcessor:
             if self._latest.stress_level > 70:
                 factors.append("high_stress")
 
+        # HRV component: low RMSSD → autonomic nervous system fatigue
+        # Map HRV (ms) to fatigue score 0-100 inversely:
+        #   <20 ms  → 100 (very_low_hrv)
+        #   20-40   → linearly 100→50  (low_hrv)
+        #   40-80   → linearly 50→0
+        #   >=80    → 0
+        if self._latest and self._latest.hrv_ms is not None:
+            hrv = self._latest.hrv_ms
+            if hrv < 20:
+                hrv_fatigue = 100.0
+                factors.append("very_low_hrv")
+            elif hrv < 40:
+                hrv_fatigue = 100.0 - (hrv - 20) * 2.5  # 100 → 50
+                factors.append("low_hrv")
+            elif hrv < 80:
+                hrv_fatigue = 50.0 - (hrv - 40) * 1.25  # 50 → 0
+            else:
+                hrv_fatigue = 0.0
+            score += hrv_fatigue * FATIGUE_HRV_WEIGHT
+            weight_total += FATIGUE_HRV_WEIGHT
+
         if weight_total > 0:
             fatigue_score = int(score / weight_total)
         else:
             fatigue_score = 0
 
-        # HRV modifier: low HRV indicates autonomic nervous system fatigue
-        if self._latest and self._latest.hrv_ms is not None:
-            hrv = self._latest.hrv_ms
-            if hrv < 20:
-                fatigue_score += 15
-                factors.append("very_low_hrv")
-            elif hrv < 40:
-                fatigue_score += 8
-                factors.append("low_hrv")
-
-        return {"score": min(fatigue_score, 100), "factors": factors}
+        return {"score": min(max(fatigue_score, 0), 100), "factors": factors}

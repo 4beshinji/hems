@@ -12,6 +12,9 @@ import type {
   BiometricData,
   PerceptionData,
   HomeData,
+  WeatherData,
+  NewsData,
+  DeviceActionEvent,
   TimeSeriesPoint,
   ShoppingItem,
   ShoppingStats,
@@ -129,6 +132,10 @@ export function fetchVoiceEvents(): Promise<VoiceEvent[]> {
   return get('/voice-events/recent')
 }
 
+export function fetchAlertHistory(hours = 168): Promise<VoiceEvent[]> {
+  return get(`/voice-events/alerts?hours=${hours}`)
+}
+
 // ─── PC Metrics ───────────────────────────────────────────────────────────────
 export function fetchPC(): Promise<PCMetrics> {
   return get('/pc/')
@@ -157,6 +164,30 @@ export function fetchBiometric(): Promise<BiometricData> {
 // ─── Perception ───────────────────────────────────────────────────────────────
 export function fetchPerception(): Promise<PerceptionData> {
   return get('/perception/')
+}
+
+// ─── Weather ──────────────────────────────────────────────────────────────────
+export function fetchWeather(): Promise<WeatherData> {
+  return get('/weather/')
+}
+
+// ─── News ─────────────────────────────────────────────────────────────────────
+export function fetchNews(): Promise<NewsData> {
+  return get('/news/')
+}
+
+// ─── Device actions log ──────────────────────────────────────────────────────
+export function fetchDeviceActions(params?: {
+  hours?: number
+  device_id?: string
+  limit?: number
+}): Promise<{ actions: DeviceActionEvent[] }> {
+  const qs = new URLSearchParams()
+  if (params?.hours) qs.set('hours', String(params.hours))
+  if (params?.device_id) qs.set('device_id', params.device_id)
+  if (params?.limit) qs.set('limit', String(params.limit))
+  const q = qs.toString()
+  return get(`/device-actions/${q ? `?${q}` : ''}`)
 }
 
 // ─── Home Assistant ───────────────────────────────────────────────────────────

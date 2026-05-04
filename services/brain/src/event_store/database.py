@@ -35,10 +35,12 @@ CREATE TABLE IF NOT EXISTS llm_decisions (
     total_tool_calls INTEGER,
     trigger_events TEXT DEFAULT '[]',
     tool_calls TEXT DEFAULT '[]',
-    world_state_snapshot TEXT DEFAULT '{}'
+    world_state_snapshot TEXT DEFAULT '{}',
+    cause_event_id INTEGER REFERENCES world_events(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_decisions_ts ON llm_decisions(timestamp);
+CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON llm_decisions(cause_event_id);
 
 CREATE TABLE IF NOT EXISTS hourly_aggregates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,10 +100,12 @@ CREATE TABLE IF NOT EXISTS events.llm_decisions (
     total_tool_calls INTEGER NOT NULL,
     trigger_events JSONB NOT NULL DEFAULT '[]',
     tool_calls JSONB NOT NULL DEFAULT '[]',
-    world_state_snapshot JSONB NOT NULL DEFAULT '{}'
+    world_state_snapshot JSONB NOT NULL DEFAULT '{}',
+    cause_event_id BIGINT REFERENCES events.world_events(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_decisions_ts ON events.llm_decisions USING BRIN(timestamp);
+CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON events.llm_decisions(cause_event_id);
 
 CREATE TABLE IF NOT EXISTS events.hourly_aggregates (
     id SERIAL PRIMARY KEY,
@@ -172,7 +176,7 @@ async def init_db() -> AsyncEngine | None:
             if stmt:
                 await conn.execute(text(stmt))
 
-        # Migrate old schema: cycle_duration → cycle_duration_sec, add world_state_snapshot
+        # Migrate old schema: cycle_duration → cycle_duration_sec, add world_state_snapshot, cause_event_id
         if not is_postgres:
             cols = [r[1] for r in await conn.execute(text("PRAGMA table_info(llm_decisions)"))]
             if "cycle_duration" in cols and "cycle_duration_sec" not in cols:
@@ -181,6 +185,17 @@ async def init_db() -> AsyncEngine | None:
             if "world_state_snapshot" not in cols:
                 await conn.execute(text("ALTER TABLE llm_decisions ADD COLUMN world_state_snapshot TEXT DEFAULT '{}'"))
                 logger.info("Migrated llm_decisions: added world_state_snapshot")
+            if "cause_event_id" not in cols:
+                await conn.execute(text("ALTER TABLE llm_decisions ADD COLUMN cause_event_id INTEGER"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON llm_decisions(cause_event_id)"))
+                logger.info("Migrated llm_decisions: added cause_event_id")
+        else:
+            # PostgreSQL: same idempotent ALTER for older deployments
+            try:
+                await conn.execute(text("ALTER TABLE events.llm_decisions ADD COLUMN IF NOT EXISTS cause_event_id BIGINT"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON events.llm_decisions(cause_event_id)"))
+            except Exception:
+                pass
 
     logger.info(f"Event store initialized ({'PostgreSQL' if is_postgres else 'SQLite'})")
     return _engine

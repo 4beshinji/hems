@@ -122,26 +122,58 @@ class Sanitizer:
         elif tool_name == "zigbee_permit_join":
             return self._validate_zigbee_permit_join(arguments)
         elif tool_name in (
+            # Core read-only
             "get_zone_status",
             "get_active_tasks",
             "get_device_status",
             "get_sensor_history",
+            # PC / services
             "get_pc_status",
             "send_pc_notification",
             "get_service_status",
+            "list_processes",
+            # Notes / knowledge
             "search_notes",
             "get_recent_notes",
+            "list_note_tags",
+            "search_knowledge",
+            "get_knowledge_sources",
+            "read_knowledge_document",
+            "get_recent_knowledge_changes",
+            # Home / devices
             "get_home_devices",
-            "get_biometrics",
-            "get_sleep_summary",
             "get_sensor_data",
-            "get_perception_status",
+            "get_entity_status",
             "set_guest_mode",
             "get_weather",
             "list_devices",
             "describe_device",
             "execute_scene_by_name",
             "list_scenes",
+            "get_power_consumption",
+            "get_switchbot_devices",
+            # Biometrics
+            "get_biometrics",
+            "get_sleep_summary",
+            "get_biometric_trend",
+            "get_sleep_history",
+            # Perception / VLM
+            "get_perception_status",
+            "describe_scene",
+            "list_scene_objects",
+            "get_scene_timeline",
+            "list_cameras",
+            "get_vlm_status",
+            "get_activity_history",
+            # Shopping (read-only — add_shopping_item is a write but light surface)
+            "get_shopping_list",
+            "add_shopping_item",
+            # GAS
+            "get_recent_emails",
+            "gas_query_free_slots",
+            "gas_query_sheet",
+            # News
+            "get_news_summary",
         ):
             return {"allowed": True, "reason": ""}
         else:

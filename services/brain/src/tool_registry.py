@@ -18,6 +18,8 @@ def get_tools(
     switchbot_enabled: bool = False,
     news_enabled: bool = False,
     knowledge_enabled: bool = False,
+    gas_enabled: bool = False,
+    tapo_enabled: bool = False,
     device_registry_enabled: bool = True,
 ) -> list:
     tools = [
@@ -201,6 +203,12 @@ def get_tools(
     if knowledge_enabled:
         tools.extend(_get_knowledge_tools())
 
+    if gas_enabled:
+        tools.extend(_get_gas_tools())
+
+    if tapo_enabled:
+        tools.extend(_get_tapo_tools())
+
     if device_registry_enabled:
         tools.extend(_get_device_registry_tools())
         tools.extend(_get_scene_tools())
@@ -218,6 +226,8 @@ def get_chat_tools(
     switchbot_enabled: bool = False,
     news_enabled: bool = False,
     knowledge_enabled: bool = False,
+    gas_enabled: bool = False,
+    tapo_enabled: bool = False,
     device_registry_enabled: bool = True,
 ) -> list:
     """Return read-only tool subset for conversational chat.
@@ -235,12 +245,18 @@ def get_chat_tools(
         "get_service_status",
         "search_notes",
         "get_recent_notes",
+        "list_note_tags",
         "get_home_devices",
         "get_sensor_data",
         "get_weather",
         "get_biometrics",
         "get_sleep_summary",
+        "get_biometric_trend",
+        "get_sleep_history",
         "get_perception_status",
+        "list_cameras",
+        "get_vlm_status",
+        "get_activity_history",
         "list_scene_objects",
         "get_scene_timeline",
         "get_shopping_list",
@@ -249,6 +265,13 @@ def get_chat_tools(
         "search_knowledge",
         "get_knowledge_sources",
         "read_knowledge_document",
+        "get_recent_knowledge_changes",
+        "get_recent_emails",
+        "gas_query_free_slots",
+        "gas_query_sheet",
+        "get_entity_status",
+        "get_power_consumption",
+        "list_processes",
         "list_devices",
         "describe_device",
         "control_actuator",
@@ -267,6 +290,8 @@ def get_chat_tools(
         switchbot_enabled=switchbot_enabled,
         news_enabled=news_enabled,
         knowledge_enabled=knowledge_enabled,
+        gas_enabled=gas_enabled,
+        tapo_enabled=tapo_enabled,
     )
     return [t for t in all_tools if t["function"]["name"] in _CHAT_ALLOWED]
 
@@ -384,6 +409,20 @@ def _get_obsidian_tools() -> list:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_note_tags",
+                "description": (
+                    "Obsidian Vault に存在するタグ一覧と各タグの使用回数を取得する。"
+                    "テーマや関心領域の俯瞰、関連ノートの検索キーワード選びに使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
     ]
 
 
@@ -440,6 +479,38 @@ def _get_pc_tools() -> list:
                         "javascript": {"type": "string", "description": "実行するJS（eval時）"},
                     },
                     "required": ["action"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_processes",
+                "description": (
+                    "PCで実行中のプロセスを取得する (read-only)。"
+                    "CPU/メモリを多く使うプロセスを特定する用途に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "返すプロセス数",
+                            "minimum": 1,
+                            "maximum": 50,
+                            "default": 10,
+                        },
+                        "sort_by": {
+                            "type": "string",
+                            "enum": ["cpu", "memory"],
+                            "description": "ソート基準",
+                            "default": "cpu",
+                        },
+                        "name_contains": {
+                            "type": "string",
+                            "description": "プロセス名フィルタ (省略可)",
+                        },
+                    },
                 },
             },
         },
@@ -609,6 +680,51 @@ def _get_ha_tools() -> list:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_entity_status",
+                "description": (
+                    "HAの単一エンティティ状態を即時取得する (read-only)。"
+                    "バッテリ・接続状態・直近state変化の確認に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {
+                            "type": "string",
+                            "description": "HA entity_id (例: light.living_room, sensor.battery_level)",
+                        },
+                    },
+                    "required": ["entity_id"],
+                },
+            },
+        },
+    ]
+
+
+def _get_tapo_tools() -> list:
+    """Tapo bridge tools — only included when tapo-bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_power_consumption",
+                "description": (
+                    "Tapo P110/P115 スマートプラグの瞬時電力 (W) と直近の電圧/電流/累計消費電力を取得する。"
+                    "「いま冷蔵庫いくら使ってる?」「ヒーター付けたら何W?」のような問いに使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "デバイスID (例: tapo.plug_desklight)。省略で全Tapoプラグの電力一覧を返す",
+                        },
+                    },
+                },
+            },
+        },
     ]
 
 
@@ -711,6 +827,58 @@ def _get_perception_tools() -> list:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_cameras",
+                "description": (
+                    "登録されているカメラの一覧と接続状態を取得する。"
+                    "カメラ毎の zone / type / connected を返す。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_vlm_status",
+                "description": (
+                    "VLM scheduler の現在状態 (light/heavy model 名、最後の処理時刻、保留中リクエスト数) を取得する。"
+                    "VLM が応答しない / 遅い時に状態確認に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_activity_history",
+                "description": (
+                    "指定ゾーンの活動レベル/姿勢履歴を時系列で取得する。"
+                    "最近のVLMスナップショット (timestamp, scene_type, anomalies) を最新N件返す。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "zone_id": {"type": "string", "description": "ゾーンID"},
+                        "limit": {
+                            "type": "integer",
+                            "description": "返すスナップショットの最大件数 (デフォルト10)",
+                            "minimum": 1,
+                            "maximum": 30,
+                            "default": 10,
+                        },
+                    },
+                    "required": ["zone_id"],
+                },
+            },
+        },
     ]
 
 
@@ -736,6 +904,72 @@ def _get_biometric_tools() -> list:
                 "parameters": {
                     "type": "object",
                     "properties": {},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_biometric_trend",
+                "description": (
+                    "生体メトリックの履歴 (時系列) を取得する。"
+                    "傾向 (上昇/下降/平均/標準偏差) を判断したい場合に使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "metric": {
+                            "type": "string",
+                            "enum": [
+                                "heart_rate",
+                                "hrv",
+                                "stress",
+                                "fatigue",
+                                "spo2",
+                                "body_temperature",
+                                "respiratory_rate",
+                                "steps",
+                            ],
+                            "description": "対象メトリック",
+                        },
+                        "window_hours": {
+                            "type": "number",
+                            "description": "今から何時間遡るか",
+                            "minimum": 1,
+                            "maximum": 168,
+                            "default": 24,
+                        },
+                        "max_samples": {
+                            "type": "integer",
+                            "description": "返す最大サンプル数 (オーバーする時は等間隔ダウンサンプル)",
+                            "minimum": 10,
+                            "maximum": 500,
+                            "default": 100,
+                        },
+                    },
+                    "required": ["metric"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_sleep_history",
+                "description": (
+                    "直近 N 日分の睡眠品質スコア / 睡眠時間履歴を取得する。"
+                    "睡眠傾向の評価や、品質変化に基づいた助言の根拠に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "days": {
+                            "type": "integer",
+                            "description": "遡る日数",
+                            "minimum": 1,
+                            "maximum": 14,
+                            "default": 7,
+                        },
+                    },
                 },
             },
         },
@@ -786,6 +1020,110 @@ def _get_shopping_tools() -> list:
                         "category": {"type": "string", "description": "カテゴリでフィルタ"},
                         "store": {"type": "string", "description": "店舗でフィルタ"},
                     },
+                },
+            },
+        },
+    ]
+
+
+def _get_gas_tools() -> list:
+    """GAS bridge tools (read-only) — only included when gas-bridge is configured."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_recent_emails",
+                "description": (
+                    "最近のGmailスレッド一覧を取得する (read-only)。"
+                    "サマリ件数だけでは不足な場合や、特定の送信者・件名を確認する際に使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "返すスレッドの最大件数",
+                            "minimum": 1,
+                            "maximum": 50,
+                            "default": 10,
+                        },
+                        "sender_contains": {
+                            "type": "string",
+                            "description": "送信者(from)に含まれる文字列でフィルタ (省略可)",
+                        },
+                        "subject_contains": {
+                            "type": "string",
+                            "description": "件名に含まれる文字列でフィルタ (省略可)",
+                        },
+                        "unread_only": {
+                            "type": "boolean",
+                            "description": "未読のみ返す",
+                            "default": False,
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "gas_query_free_slots",
+                "description": (
+                    "カレンダーの空き時間スロット (HH:MM-HH:MM) を時刻つきで取得する (read-only)。"
+                    "予定の合間に作業時間が必要な時、新規予定を提案する時に使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "date_range_hours": {
+                            "type": "integer",
+                            "description": "今から何時間先まで探索するか",
+                            "minimum": 1,
+                            "maximum": 168,
+                            "default": 24,
+                        },
+                        "min_duration_minutes": {
+                            "type": "integer",
+                            "description": "返すスロットの最小長 (分)",
+                            "minimum": 15,
+                            "maximum": 480,
+                            "default": 60,
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "返すスロットの最大件数",
+                            "minimum": 1,
+                            "maximum": 20,
+                            "default": 5,
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "gas_query_sheet",
+                "description": (
+                    "Google Sheets の指定タブを取得する (read-only)。"
+                    "world_model.gas_state.sheets にキャッシュされたシートデータを返す。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "シート名 (タブ名)",
+                        },
+                        "max_rows": {
+                            "type": "integer",
+                            "description": "返す最大行数",
+                            "minimum": 1,
+                            "maximum": 200,
+                            "default": 50,
+                        },
+                    },
+                    "required": ["name"],
                 },
             },
         },
@@ -927,6 +1265,23 @@ def _get_knowledge_tools() -> list:
                         "path": {"type": "string", "description": "ドキュメントパス"},
                     },
                     "required": ["source", "path"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_recent_knowledge_changes",
+                "description": (
+                    "ナレッジソースで最近変更されたドキュメント一覧を取得する。"
+                    "ユーザーが直近に追加・編集した資料を察知して、それを起点にした提案や引用に使う。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "取得件数", "default": 10, "maximum": 50},
+                        "source": {"type": "string", "description": "ソース名でフィルタ (省略可)"},
+                    },
                 },
             },
         },

@@ -4,6 +4,7 @@ Indexes vault notes, watches for changes, provides search API.
 """
 
 import asyncio
+import sys
 import time
 from contextlib import asynccontextmanager
 
@@ -26,7 +27,7 @@ from config import (
 )
 from mqtt_publisher import MQTTPublisher
 
-logger.configure(handlers=[{"sink": "ext://sys.stderr", "level": LOG_LEVEL}])
+logger.configure(handlers=[{"sink": sys.stderr, "level": LOG_LEVEL}])
 
 # Shared state
 vault_index = VaultIndex(VAULT_PATH)

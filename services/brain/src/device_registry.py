@@ -37,6 +37,8 @@ class DeviceInfo:
         "device_type",
         "hops_to_mqtt",
         "last_seen",
+        "last_seen_reported",
+        "link_quality",
         "next_wake_epoch",
         "parent_id",
         "power_mode",
@@ -54,6 +56,8 @@ class DeviceInfo:
         self.children: dict[str, DeviceInfo] = {}
         self.hops_to_mqtt: int = 0
         self.battery_pct: int | None = None
+        self.link_quality: int | None = None  # Z2M LQI (0-255), Switchbot RSSI
+        self.last_seen_reported: float | None = None  # device-reported timestamp (vs self.last_seen = wall-clock receipt)
         self.last_seen: float = time.time()
         self.next_wake_epoch: float | None = None
         self.capabilities: list[str] = []
@@ -233,6 +237,10 @@ class DeviceRegistry:
             device.power_mode = payload["power_mode"]
         if "battery_pct" in payload:
             device.battery_pct = payload["battery_pct"]
+        if "link_quality" in payload:
+            device.link_quality = payload["link_quality"]
+        if "last_seen_reported" in payload:
+            device.last_seen_reported = payload["last_seen_reported"]
         if "hops_to_mqtt" in payload:
             device.hops_to_mqtt = payload["hops_to_mqtt"]
         if "capabilities" in payload:

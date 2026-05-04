@@ -15,11 +15,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
 from loguru import logger
+
+from brain_utils import parse_iso_ts as _parse_iso_ts
 
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
@@ -48,6 +51,8 @@ class DeviceObservation:
     last_state: dict[str, Any] = field(default_factory=dict)
     last_value: dict[str, Any] = field(default_factory=dict)
     battery_pct: int | None = None
+    link_quality: int | None = None
+    last_seen_ts: float | None = None
 
 
 # ── MQTT topic → DeviceObservation ─────────────────────────────────
@@ -108,6 +113,7 @@ def parse_mqtt(topic: str, payload: dict) -> DeviceObservation | None:
             last_state=_extract_state(payload),
             last_value=_extract_sensor_values(payload),
             battery_pct=payload.get("battery"),
+            link_quality=payload.get("rssi") if isinstance(payload.get("rssi"), (int, float)) else None,
         )
 
     # hems/tapo/{device_id}/state
@@ -172,6 +178,8 @@ def parse_mqtt(topic: str, payload: dict) -> DeviceObservation | None:
             last_state=last_state,
             last_value=last_value,
             battery_pct=payload.get("battery"),
+            link_quality=payload.get("linkquality"),
+            last_seen_ts=_parse_iso_ts(payload.get("last_seen")),
         )
 
     # hems/home/{zone}/{domain}/{entity_id}/state (HA bridge)
@@ -377,6 +385,67 @@ _FEATURE_TO_CAPABILITY = {
 }
 
 
+_IEEE_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{16}$")
+
+
+def is_raw_ieee_addr(name: str | None) -> bool:
+    """True if `name` looks like an unfriendly Zigbee IEEE address (e.g. 0xa4c138...)."""
+    return bool(name and _IEEE_ADDR_RE.match(name))
+
+
+def _clean_label(s: str | None) -> str:
+    """Strip NUL bytes and control chars Z2M sometimes leaves in vendor strings."""
+    if not s:
+        return ""
+    return "".join(c for c in s if c.isprintable() and c != "\x00").strip()
+
+
+def _short_desc(desc: str, max_len: int = 50) -> str:
+    """Trim long descriptions at the first comma (Z2M descriptions are spec-style:
+    'TRADFRI bulb E26/E27, color/white spectrum, globe, opal, 800/806/810 lm')."""
+    if not desc:
+        return ""
+    head = desc.split(",", 1)[0].strip()
+    if len(head) <= max_len:
+        return head
+    return head[: max_len - 1].rstrip() + "…"
+
+
+def _z2m_friendly_display(
+    friendly: str,
+    vendor: str | None,
+    model: str | None,
+    desc: str | None,
+) -> str:
+    """Build a human-readable display name from Z2M definition fields.
+
+    If the Zigbee `friendly_name` was renamed by the user, keep it.
+    Otherwise prefer the human-readable description ("HOBEIAN Vibration sensor")
+    over the model code ("ZG-102ZM"), and append the IEEE short-id so that
+    multiple identical sensors stay distinguishable.
+    """
+    if friendly and not is_raw_ieee_addr(friendly):
+        return friendly
+    vendor = _clean_label(vendor)
+    desc = _short_desc(_clean_label(desc))
+    model = _clean_label(model)
+    # Z2M occasionally returns a placeholder description for unknown devices —
+    # fall through to model_id in that case.
+    if desc and "automatically generated" in desc.lower():
+        desc = ""
+    if desc:
+        label = f"{vendor} {desc}".strip() if vendor and not desc.lower().startswith(vendor.lower()) else desc
+    elif model:
+        label = f"{vendor} {model}".strip() if vendor else model
+    elif vendor:
+        label = vendor
+    else:
+        label = "Zigbee device"
+    if is_raw_ieee_addr(friendly):
+        return f"{label} ({friendly[-6:]})"
+    return label
+
+
 def parse_z2m_bridge_devices(payload: list[dict]) -> list[DeviceObservation]:
     """Parse zigbee2mqtt/bridge/devices retained message into DeviceObservations."""
     observations: list[DeviceObservation] = []
@@ -427,6 +496,7 @@ def parse_z2m_bridge_devices(payload: list[dict]) -> list[DeviceObservation]:
 
         is_battery = dev.get("power_source") == "Battery"
         description_text = f"{vendor} {desc}" if vendor and desc else (desc or model or "")
+        display_name = _z2m_friendly_display(friendly, vendor, model, desc)
 
         obs = DeviceObservation(
             device_id=device_id,
@@ -436,7 +506,7 @@ def parse_z2m_bridge_devices(payload: list[dict]) -> list[DeviceObservation]:
             device_class=device_class,
             capabilities=capabilities,
             channels=channels,
-            display_name=friendly,
+            display_name=display_name,
             description=description_text,
             model_id=model,
             manufacturer=vendor,

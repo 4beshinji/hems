@@ -119,6 +119,26 @@ class AmbientSpeaker:
             if zone.occupancy.count > 0:
                 parts.append(f"在室: {zone_id}")
 
+        # Recent knowledge / notes activity (last hour) — gives ambient speech
+        # something to riff on when the user has been writing/editing
+        ks = self.world_model.knowledge_state
+        recent_window = time.time() - 3600
+        if ks.recent_changes:
+            recent_titles = [
+                c.get("title", "")
+                for c in ks.recent_changes[-3:]
+                if c.get("title")
+            ]
+            if recent_titles:
+                parts.append(f"直近の編集ノート: {', '.join(recent_titles[-2:])}")
+        if ks.events:
+            recent_kn_evs = [
+                e for e in ks.events
+                if e.event_type == "knowledge_changed" and e.timestamp >= recent_window
+            ][-2:]
+            if recent_kn_evs:
+                parts.append(f"外部ナレッジ更新: {recent_kn_evs[-1].description}")
+
         return "\n".join(parts)
 
     async def generate(self) -> dict | None:

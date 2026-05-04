@@ -1,6 +1,18 @@
 name: hems
 
 services:
+  # --- Shared Python base image (bootstrap) ---
+  # Build first via:  docker compose --profile bootstrap build base
+  # (or: make docker-base)
+  # Every Python service Dockerfile FROMs hems-base:py3.11.
+  base:
+    image: hems-base:py3.11
+    build:
+      context: ./base
+    profiles: ["bootstrap"]
+    command: ["true"]
+    restart: "no"
+
   # --- Central Bus ---
   mosquitto:
     image: eclipse-mosquitto:2
@@ -65,6 +77,7 @@ services:
       - SWITCHBOT_BRIDGE_URL=${SWITCHBOT_BRIDGE_URL:-}
       - NEWS_BRIDGE_URL=${NEWS_BRIDGE_URL:-}
       - KNOWLEDGE_BRIDGE_URL=${KNOWLEDGE_BRIDGE_URL:-}
+      - TAPO_BRIDGE_URL=${TAPO_BRIDGE_URL:-}
       - AMBIENT_SPEAK_ENABLED=${AMBIENT_SPEAK_ENABLED:-true}
       - AMBIENT_SPEAK_INTERVAL=${AMBIENT_SPEAK_INTERVAL:-300}
       - EVENT_AUTOMATIONS=${EVENT_AUTOMATIONS:-}
@@ -78,6 +91,8 @@ services:
       - SUNRISE_ALARM_DEVICE=${SUNRISE_ALARM_DEVICE:-}
       - SUNRISE_ALARM_START_SEC=${SUNRISE_ALARM_START_SEC:-7200}
       - SUNRISE_ALARM_END_SEC=${SUNRISE_ALARM_END_SEC:-1800}
+      - HEMS_GMAIL_VIP_SENDERS=${HEMS_GMAIL_VIP_SENDERS:-}
+      - HEMS_GITHUB_VIP_REPOS=${HEMS_GITHUB_VIP_REPOS:-}
       - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
     volumes:
       - ../services/brain/src:/app
@@ -400,10 +415,12 @@ services:
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - BIOMETRIC_WEBHOOK_SECRET=${BIOMETRIC_WEBHOOK_SECRET:-}
       - BIOMETRIC_PROVIDER=${BIOMETRIC_PROVIDER:-gadgetbridge}
+      - BIOMETRIC_DB_PATH=/data/send_queue.db
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
       - ../services/biometric-bridge/src:/app
+      - hems_biometric_data:/data
     networks:
       - hems-net
     healthcheck:
@@ -624,15 +641,55 @@ services:
       - "127.0.0.1:${HEMS_PORT_Z2M_UI:-8090}:8080"
     volumes:
       - ../config/zigbee2mqtt:/app/data
+      - ./zigbee2mqtt/entrypoint.sh:/usr/local/bin/hems-z2m-entrypoint.sh:ro
       - /run/udev:/run/udev:ro
     devices:
       - ${HEMS_Z2M_USB_DEVICE:-/dev/ttyUSB0}:/dev/ttyUSB0
+    # Custom entrypoint applies a tiny patch to herdsman to bypass the strict
+    # preconfigured-key consistency check (see ./zigbee2mqtt/entrypoint.sh).
+    entrypoint: ["/usr/local/bin/hems-z2m-entrypoint.sh"]
     environment:
       - TZ=${TZ:-Asia/Tokyo}
       - ZIGBEE2MQTT_CONFIG_MQTT_USER=hems-zigbee
       - ZIGBEE2MQTT_CONFIG_MQTT_PASSWORD=${MQTT_PASS:?Set MQTT_PASS in .env}
     networks:
       - hems-net
+
+  # --- Weather Bridge (JMA / OpenWeatherMap → MQTT, always-on) ---
+  weather-bridge:
+    build: ../services/weather-bridge
+    container_name: hems-weather-bridge
+    restart: always
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_USER=hems-weather
+      - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - WEATHER_PROVIDER=${WEATHER_PROVIDER:-jma}
+      - JMA_AREA_CODE=${JMA_AREA_CODE:-130000}
+      - JMA_DETAIL_CODE=${JMA_DETAIL_CODE:-130010}
+      - OWM_API_KEY=${OWM_API_KEY:-}
+      - OWM_LAT=${OWM_LAT:-35.6762}
+      - OWM_LON=${OWM_LON:-139.6503}
+      - OWM_UNITS=${OWM_UNITS:-metric}
+      - OWM_LANG=${OWM_LANG:-ja}
+      - HEMS_WEATHER_CURRENT_INTERVAL=${HEMS_WEATHER_CURRENT_INTERVAL:-600}
+      - HEMS_WEATHER_FORECAST_INTERVAL=${HEMS_WEATHER_FORECAST_INTERVAL:-1800}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-Asia/Tokyo}
+    volumes:
+      - ../services/weather-bridge/src:/app
+    networks:
+      - hems-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # --- News Bridge (RSS + Ollama summarizer) ---
   news-bridge:
@@ -753,6 +810,7 @@ volumes:
   hems_audio_data:
   hems_pg_data:
   hems_knowledge_data:
+  hems_biometric_data:
   ollama_models:
   hems_perception_models:
   hems_stt_models:

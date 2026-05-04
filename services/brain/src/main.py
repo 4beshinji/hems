@@ -67,10 +67,16 @@ NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 NEWS_ENABLED = bool(NEWS_BRIDGE_URL)
 KNOWLEDGE_BRIDGE_URL = os.getenv("KNOWLEDGE_BRIDGE_URL", "")
 KNOWLEDGE_ENABLED = bool(KNOWLEDGE_BRIDGE_URL)
+TAPO_BRIDGE_URL = os.getenv("TAPO_BRIDGE_URL", "")
+TAPO_ENABLED = bool(TAPO_BRIDGE_URL)
 
 VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
 BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
 BOOT_LOAD_ENABLED = os.getenv("BOOT_LOAD_ENABLED", "true").lower() in ("true", "1", "yes")
+
+# Camera-based wake_up detection time window (24h clock). Defaults 5–11 inclusive of 10am.
+WAKE_DETECT_HOUR_START = int(os.getenv("WAKE_DETECT_HOUR_START", "5"))
+WAKE_DETECT_HOUR_END = int(os.getenv("WAKE_DETECT_HOUR_END", "11"))
 
 CHAT_SERVER_PORT = int(os.getenv("BRAIN_CHAT_PORT", "8080"))
 CHAT_MAX_ITERATIONS = 3
@@ -181,6 +187,8 @@ class Brain:
         self.ambient_speaker: AmbientSpeaker | None = None
         self.event_automation: EventAutomation | None = None
         self.timeline_generator: TimelineGenerator | None = None
+        # Daily-once guard for the scheduled wake_up fallback in cognitive_cycle.
+        self._scheduled_wake_fired_date: str | None = None
         self.device_dispatcher: DeviceDispatcher | None = None
         self.scene_executor: SceneExecutor | None = None
         self.automation_engine: AutomationEngine | None = None
@@ -198,6 +206,7 @@ class Brain:
         self._last_event_count: dict[str, int] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._action_history: list[dict] = []
+        self._last_cycle_summary: dict | None = None
         self._schedule_save_counter: int = 0
         self._timeline_regen_task: asyncio.Task | None = None
 
@@ -304,6 +313,8 @@ class Brain:
 
         if topic == "hems/shopping/added" and self.shopping_classifier and self._loop:
             asyncio.run_coroutine_threadsafe(self.shopping_classifier.handle_added_event(payload), self._loop)
+        elif topic == "hems/shopping/purchased" and self.shopping_classifier and self._loop:
+            asyncio.run_coroutine_threadsafe(self.shopping_classifier.handle_purchased_event(payload), self._loop)
 
         if self.timeline_generator and self._loop:
             if topic == "hems/gas/calendar/upcoming":
@@ -378,10 +389,15 @@ class Brain:
                                 self.automation_engine.trigger_event("wake_up"), self._loop
                             )
 
-            # Camera: person detected in morning hours (5:00-10:00)
+            # Camera: person detected in morning hours (env-configurable)
             parts = topic.split("/")
             hour = datetime.now().hour
-            if 5 <= hour < 10 and len(parts) >= 5 and parts[0] == "office" and parts[2] == "camera":
+            if (
+                WAKE_DETECT_HOUR_START <= hour < WAKE_DETECT_HOUR_END
+                and len(parts) >= 5
+                and parts[0] == "office"
+                and parts[2] == "camera"
+            ):
                 count = payload.get("person_count", payload.get("count", 0))
                 if int(count) > 0:
                     _wake_up_fired = True
@@ -516,14 +532,14 @@ class Brain:
             logger.warning(f"MQTT publish failed ({topic}): {e}")
 
     async def _run_rule_actions(self, actions: list, *, rewrite: bool = True) -> int:
-        """Execute rule actions with optional persona rewriting. Returns action count."""
+        """Execute rule actions. Persona rewrite + low-power/VLM gating now lives
+        in tool_executor._handle_speak; pass `_skip_persona_rewrite=True` to opt
+        out (e.g. for diagnostic / system messages that should stay literal).
+        """
         count = 0
         for action in actions:
-            if rewrite and action["tool"] == "speak" and self.persona_rewriter:
-                action["args"]["message"] = await self.persona_rewriter.rewrite(
-                    action["args"].get("message", ""),
-                    tone=action["args"].get("tone", "neutral"),
-                )
+            if not rewrite and action["tool"] == "speak":
+                action["args"]["_skip_persona_rewrite"] = True
             result = await self.tool_executor.execute(action["tool"], action["args"])
             count += 1
             if action["tool"] == "speak" and result.get("success") and self.ambient_speaker:
@@ -557,7 +573,12 @@ class Brain:
         except Exception:
             sched.next_arrival_ts = 0
         try:
-            sched.next_wake_ts = self.schedule_learner.get_wake_time(calendar_events) or 0
+            # Pass current fatigue score so high-fatigue days get a slightly
+            # later wake prediction (max +30min, only via historical-pattern path)
+            fatigue = self.world_model.biometric_state.fatigue.score or None
+            sched.next_wake_ts = self.schedule_learner.get_wake_time(
+                calendar_events, fatigue_score=fatigue
+            ) or 0
         except Exception:
             sched.next_wake_ts = 0
         stats = self.schedule_learner.get_arrival_stats() or {}
@@ -589,7 +610,32 @@ class Brain:
             wake_ts = self.schedule_learner.get_wake_time()
             if wake_ts:
                 logger.info("[SunriseAlarm] 起床前ウィンドウ検出 → ランプ開始")
-                self.sunrise_alarm.start(self.client, wake_ts)
+                self.sunrise_alarm.start(self.client, wake_ts, dispatcher=self.device_dispatcher)
+
+        # Scheduled wake_up fallback: if neither biometric nor camera fired wake_up
+        # within the predicted window, fire it once per day from the schedule learner.
+        # Catches configurations without biometric / camera (e.g., HA-only).
+        if self.event_automation and self.schedule_learner:
+            try:
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                if self._scheduled_wake_fired_date != today_str:
+                    wake_ts = self.schedule_learner.get_wake_time()
+                    if wake_ts is not None:
+                        now_ts = time.time()
+                        # Fire when we've just passed predicted wake (within 4h window),
+                        # so a stale prediction never keeps firing.
+                        if 0 <= now_ts - wake_ts < 4 * 3600:
+                            self._scheduled_wake_fired_date = today_str
+                            logger.info("[Schedule] 予測起床時刻通過 → wake_up 発火 (fallback)")
+                            asyncio.create_task(self.event_automation.trigger("wake_up"))
+                            if self.automation_engine:
+                                asyncio.create_task(
+                                    self.automation_engine.trigger_event("wake_up")
+                                )
+                            if self.sunrise_alarm and self.sunrise_alarm.is_active:
+                                self.sunrise_alarm.stop(self.client)
+            except Exception as e:
+                logger.debug(f"Scheduled wake_up check error: {e}")
 
         # Boot load: start pre-wake heavy processing if within wake window (45min)
         if (
@@ -652,13 +698,14 @@ class Brain:
                     wait_sec,
                 )
                 total_tool_calls += await self._run_rule_actions(rule_actions)
+                self._record_rule_cycle_summary(cycle_start, total_tool_calls, mode="rule_low_power_throttled")
                 await self._push_all_snapshots()
                 return
 
             else:
                 # Nothing detected — skip LLM entirely
                 logger.debug("[低消費電力] %sモード: ルール未発火 — LLMスキップ", pm["mode"])
-
+                self._record_rule_cycle_summary(cycle_start, total_tool_calls, mode="rule_low_power_idle")
                 await self._push_all_snapshots()
                 return
 
@@ -666,6 +713,7 @@ class Brain:
         if self.world_model.vlm_model_swap_active:
             logger.info("VLM heavy model active — using rule-based mode")
             total_tool_calls += await self._run_rule_actions(self.rule_engine.evaluate(self.world_model))
+            self._record_rule_cycle_summary(cycle_start, total_tool_calls, mode="rule_vlm_swap")
             await self._push_all_snapshots()
             return
 
@@ -673,6 +721,7 @@ class Brain:
         if self.rule_engine.should_use_rules():
             logger.info("GPU load high — rule-based mode")
             total_tool_calls += await self._run_rule_actions(self.rule_engine.evaluate(self.world_model))
+            self._record_rule_cycle_summary(cycle_start, total_tool_calls, mode="rule_gpu_busy")
             await self._push_all_snapshots()
             return
 
@@ -804,6 +853,8 @@ class Brain:
             switchbot_enabled=SWITCHBOT_ENABLED,
             news_enabled=NEWS_ENABLED,
             knowledge_enabled=KNOWLEDGE_ENABLED,
+            gas_enabled=GAS_ENABLED,
+            tapo_enabled=TAPO_ENABLED,
         )
 
         tool_call_history = []
@@ -926,24 +977,34 @@ class Brain:
 
         # Record to event store
         elapsed = time.time() - cycle_start
+        # Snapshot recent events that triggered this cycle
+        trigger = [
+            {"zone": zid, "event": e.event_type, "severity": e.severity}
+            for zid, z in self.world_model.zones.items()
+            for e in z.events
+            if cycle_start - e.timestamp < 60  # events in the last minute
+        ][:20]
+        cycle_tool_calls = [
+            {"tool": a["tool"], "summary": a.get("summary", ""), "success": a.get("success", True)}
+            for a in self._action_history
+            if a["time"] >= cycle_start
+        ]
+        self._last_cycle_summary = {
+            "timestamp": cycle_start,
+            "elapsed": elapsed,
+            "iterations": iteration,
+            "total_tool_calls": total_tool_calls,
+            "mode": "llm",
+            "trigger_events": trigger,
+            "tool_calls": cycle_tool_calls,
+        }
         if self.event_writer and total_tool_calls > 0:
-            # Snapshot recent events that triggered this cycle
-            trigger = [
-                {"zone": zid, "event": e.event_type, "severity": e.severity}
-                for zid, z in self.world_model.zones.items()
-                for e in z.events
-                if cycle_start - e.timestamp < 60  # events in the last minute
-            ][:20]
             self.event_writer.record_decision(
                 cycle_duration=elapsed,
                 iterations=iteration,
                 total_tool_calls=total_tool_calls,
                 trigger_events=trigger,
-                tool_calls=[
-                    {"tool": a["tool"], "summary": a.get("summary", ""), "success": a.get("success", True)}
-                    for a in self._action_history
-                    if a["time"] >= cycle_start
-                ],
+                tool_calls=cycle_tool_calls,
             )
 
         # Prune old history
@@ -1118,6 +1179,8 @@ class Brain:
             switchbot_enabled=SWITCHBOT_ENABLED,
             news_enabled=NEWS_ENABLED,
             knowledge_enabled=KNOWLEDGE_ENABLED,
+            gas_enabled=GAS_ENABLED,
+            tapo_enabled=TAPO_ENABLED,
         )
 
         # ReAct loop (max 3 iterations for chat)
@@ -1243,6 +1306,30 @@ class Brain:
         self._device_zone_map = zone_map
         return devices
 
+    def _record_rule_cycle_summary(self, cycle_start: float, total_tool_calls: int, mode: str) -> None:
+        """Record a cycle summary for rule-only paths (low-power, VLM swap, GPU busy)."""
+        elapsed = time.time() - cycle_start
+        trigger = [
+            {"zone": zid, "event": e.event_type, "severity": e.severity}
+            for zid, z in self.world_model.zones.items()
+            for e in z.events
+            if cycle_start - e.timestamp < 60
+        ][:20]
+        cycle_tool_calls = [
+            {"tool": a["tool"], "summary": a.get("summary", ""), "success": a.get("success", True)}
+            for a in self._action_history
+            if a["time"] >= cycle_start
+        ]
+        self._last_cycle_summary = {
+            "timestamp": cycle_start,
+            "elapsed": elapsed,
+            "iterations": 0,
+            "total_tool_calls": total_tool_calls,
+            "mode": mode,
+            "trigger_events": trigger,
+            "tool_calls": cycle_tool_calls,
+        }
+
     async def _push_all_snapshots(self):
         """Push all domain snapshots to backend for frontend consumption."""
         await self.dashboard.push_zone_snapshot(self.world_model)
@@ -1256,11 +1343,85 @@ class Brain:
             await self.dashboard.push_gas_snapshot(self.world_model)
         if BIOMETRIC_ENABLED:
             await self.dashboard.push_biometric_snapshot(self.world_model)
-        if PERCEPTION_ENABLED:
-            await self.dashboard.push_perception_snapshot(self.world_model)
+        # Always push: also carries multi-source presence inference (camera+PIR+PC+biometric)
+        await self.dashboard.push_perception_snapshot(self.world_model)
         if HA_ENABLED:
             await self.dashboard.push_home_snapshot(self.world_model)
-        await self.dashboard.push_brain_snapshot(self.power_mode_manager.get_status())
+        # Always push weather (weather-bridge is always-on, no profile)
+        await self.dashboard.push_weather_snapshot(self.world_model)
+        if NEWS_ENABLED:
+            await self.dashboard.push_news_snapshot(self.world_model)
+        await self.dashboard.push_brain_snapshot(
+            self.power_mode_manager.get_status(),
+            last_cycle=self._last_cycle_summary,
+        )
+        # Track bridge_connected transitions for SLA log
+        await self._track_bridge_transitions()
+
+    async def _track_bridge_transitions(self):
+        """Detect and log per-bridge state transitions for SLA history.
+
+        Maintains a 24h rolling disconnect count per service; when ≥5 disconnects
+        in 24h fires a once-per-day speak alert (instability warning).
+        """
+        if not hasattr(self, "_bridge_state_cache"):
+            self._bridge_state_cache: dict[str, bool] = {}
+            self._bridge_disconnect_history: dict[str, list[float]] = {}
+            self._bridge_outage_alert_sent: dict[str, float] = {}
+
+        wm = self.world_model
+        now_ts = time.time()
+        current = {
+            "biometric": wm.biometric_state.bridge_connected,
+            "perception": wm.perception_state.bridge_connected if hasattr(wm, "perception_state") else None,
+            "ha": wm.home_devices.bridge_connected,
+            "gas": wm.gas_state.bridge_connected,
+            "news": wm.news_state.bridge_connected,
+            "knowledge": wm.knowledge_state.bridge_connected,
+            "external_knowledge": wm.knowledge_state.external_bridge_connected,
+            "services": wm.services_state.bridge_connected if hasattr(wm.services_state, "bridge_connected") else None,
+        }
+        for service, connected in current.items():
+            if connected is None:
+                continue
+            prev = self._bridge_state_cache.get(service)
+            if prev is None:
+                self._bridge_state_cache[service] = connected
+                continue
+            if prev != connected:
+                self._bridge_state_cache[service] = connected
+                try:
+                    await self.dashboard.push_bridge_status_event(service, connected)
+                except Exception as e:
+                    logger.debug(f"Bridge status track error for {service}: {e}")
+
+                if not connected:
+                    # Add disconnect timestamp; trim old entries beyond 24h
+                    history = self._bridge_disconnect_history.setdefault(service, [])
+                    history.append(now_ts)
+                    cutoff = now_ts - 86400
+                    self._bridge_disconnect_history[service] = [t for t in history if t >= cutoff]
+
+                    if (
+                        len(self._bridge_disconnect_history[service]) >= 5
+                        and now_ts - self._bridge_outage_alert_sent.get(service, 0) >= 86400
+                    ):
+                        self._bridge_outage_alert_sent[service] = now_ts
+                        try:
+                            await self.tool_executor.execute(
+                                "speak",
+                                {
+                                    "message": (
+                                        f"{service} ブリッジが過去24時間で"
+                                        f"{len(self._bridge_disconnect_history[service])}回切断されています。"
+                                        f"ネットワーク状態を確認してください。"
+                                    ),
+                                    "zone": "home",
+                                    "tone": "alert",
+                                },
+                            )
+                        except Exception as e:
+                            logger.debug(f"Bridge outage alert speak error: {e}")
 
     # Mapping: task text keywords → alert types to suppress
     _TASK_ALERT_KEYWORDS: dict[str, list[str]] = {
@@ -1471,6 +1632,7 @@ class Brain:
                 device_dispatcher=self.device_dispatcher,
                 scene_executor=self.scene_executor,
                 persona_rewriter=self.persona_rewriter,
+                power_mode_manager=self.power_mode_manager,
             )
             # Wire LLM now that it's initialized
             self.automation_engine.llm_client = self.llm
@@ -1480,18 +1642,20 @@ class Brain:
                 character=self.character,
                 persona_rewriter=self.persona_rewriter,
             )
+            # EventAutomation drives wake_up / arrival / departure / scheduled actions.
+            # Always initialize; news_briefing action self-gates on NEWS_BRIDGE_URL.
+            self.event_automation = EventAutomation(
+                tool_executor=self.tool_executor,
+                world_model=self.world_model,
+                llm_client=self.llm,
+                character=self.character,
+                boot_load_manager=self.boot_load_manager,
+            )
+            self.event_automation.set_session(session)
             if NEWS_ENABLED:
-                self.event_automation = EventAutomation(
-                    tool_executor=self.tool_executor,
-                    world_model=self.world_model,
-                    llm_client=self.llm,
-                    character=self.character,
-                    boot_load_manager=self.boot_load_manager,
-                )
-                self.event_automation.set_session(session)
                 logger.info(f"News integration enabled (bridge={NEWS_BRIDGE_URL})")
             else:
-                logger.info("News integration disabled (NEWS_BRIDGE_URL not set)")
+                logger.info("News integration disabled (NEWS_BRIDGE_URL not set); event automation still active")
 
             self.timeline_generator = TimelineGenerator(
                 world_model=self.world_model,

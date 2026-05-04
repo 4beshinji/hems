@@ -206,8 +206,10 @@ class Device(Base):
     icon = Column(String, nullable=True)  # lucide icon name
     last_state = Column(JSON, default=dict)  # {"on":true,"brightness":200}
     last_value = Column(JSON, default=dict)  # {"temperature":22.5,"humidity":55}
-    last_seen = Column(TZDateTime(timezone=True), nullable=True)
+    last_seen = Column(TZDateTime(timezone=True), nullable=True)  # wall-clock receipt time
+    last_seen_reported = Column(TZDateTime(timezone=True), nullable=True)  # device-reported timestamp (Z2M last_seen)
     battery_pct = Column(Integer, nullable=True)
+    link_quality = Column(Integer, nullable=True)  # Z2M LQI (0-255), Switchbot RSSI
     is_enabled = Column(Boolean, default=True)
     notes = Column(String, nullable=True)
     metadata_json = Column(String, nullable=True)  # vendor固有設定JSON
@@ -328,3 +330,27 @@ class VoiceCapsulePlayLog(Base):
     played_at = Column(TZDateTime(timezone=True), server_default=func.now())
     trigger_drift_sec = Column(Integer, nullable=True)
     context_json = Column(Text, nullable=True)
+
+
+class BridgeStatusLog(Base):
+    """Per-bridge connection state transitions for SLA / uptime tracking."""
+
+    __tablename__ = "bridge_status_log"
+    id = Column(Integer, primary_key=True, index=True)
+    service = Column(String, nullable=False, index=True)  # weather, news, biometric, ...
+    state = Column(String, nullable=False)  # connected | disconnected
+    timestamp = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+    detail = Column(String, nullable=True)  # optional reason / error
+
+
+class DeviceActionLog(Base):
+    """Device state transitions / control actions for 24h timeline view."""
+
+    __tablename__ = "device_action_log"
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(String, nullable=False, index=True)
+    action = Column(String, nullable=False)  # on | off | toggle | set_brightness | ...
+    params = Column(JSON, nullable=True, default=dict)
+    source = Column(String, nullable=True)  # llm | rule | scene | api | ...
+    success = Column(Boolean, default=True)
+    timestamp = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)

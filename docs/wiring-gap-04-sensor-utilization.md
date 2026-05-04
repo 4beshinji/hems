@@ -1,5 +1,7 @@
 # Wiring Gap 04 — Sensor Utilization
 
+> **CLOSED 2026-05-03**: 全項目が [`wiring-gap-06-data-flow-consolidation.md`](wiring-gap-06-data-flow-consolidation.md) に統合・解消済み (Wave 1 で weather alerts rule + EventAutomation action + frontend banner、Wave 4 で long-term sensor history)。
+
 環境センサーの多くは `sensor_fusion.py` で受信・融合まで出来ているが、LLM context にも rule にも現れない「死蔵 channel」になっている。特に soil_moisture / VOC / native PM2.5 / pressure 絶対値 / illuminance は rule ゼロ。weather alerts は subscriber 不在。shopping MQTT は event_store に残らない。
 
 対象: `services/brain/src/world_model/`, `services/brain/src/rule_engine.py`, `services/brain/src/event_store/writer.py`, `services/brain/src/main.py`, `services/weather-bridge/` (subscriber側は brain)
