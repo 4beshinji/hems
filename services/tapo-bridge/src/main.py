@@ -11,11 +11,11 @@ from contextlib import asynccontextmanager
 from device_mapper import DeviceMapper
 from fastapi import FastAPI, HTTPException
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 from tapo_client import TapoClient
 
 import config
-from mqtt_publisher import MQTTPublisher
 
 cfg: config.Config | None = None
 device_mapper: DeviceMapper | None = None

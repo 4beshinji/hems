@@ -7,10 +7,9 @@ Tracks all devices (Namaeda/Kareda/Ha/Remote) and provides:
 - Automatic state transitions (online → stale → offline)
 """
 
-import logging
 import time
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 # State thresholds (seconds since last_seen)
 ONLINE_THRESHOLD = 120  # 2 minutes
@@ -57,7 +56,9 @@ class DeviceInfo:
         self.hops_to_mqtt: int = 0
         self.battery_pct: int | None = None
         self.link_quality: int | None = None  # Z2M LQI (0-255), Switchbot RSSI
-        self.last_seen_reported: float | None = None  # device-reported timestamp (vs self.last_seen = wall-clock receipt)
+        self.last_seen_reported: float | None = (
+            None  # device-reported timestamp (vs self.last_seen = wall-clock receipt)
+        )
         self.last_seen: float = time.time()
         self.next_wake_epoch: float | None = None
         self.capabilities: list[str] = []
@@ -274,13 +275,7 @@ class DeviceRegistry:
                 d._last_used = now
                 affected += 1
         if affected:
-            logger.debug(
-                "Utility boost: zone=%s, type=%s, boost=+%.1f, devices=%d",
-                zone_id,
-                action_type,
-                boost,
-                affected,
-            )
+            logger.debug(f"Utility boost: zone={zone_id}, type={action_type}, boost={boost:+.1f}, devices={affected}")
 
     def decay_utility_scores(self):
         """Decay utility_score for idle devices.

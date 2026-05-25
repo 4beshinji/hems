@@ -462,7 +462,7 @@ class TestWorldModelIntegration:
         payload = {"person_count": 2}
         wm.update_from_mqtt(topic, payload)
 
-        zone = wm.physical.zones.get("living_room")
+        zone = wm.zones.get("living_room")
         assert zone is not None
         assert zone.occupancy.count == 2
 
@@ -480,7 +480,7 @@ class TestWorldModelIntegration:
         }
         wm.update_from_mqtt(topic, payload)
 
-        zone = wm.physical.zones.get("living_room")
+        zone = wm.zones.get("living_room")
         assert zone is not None
         assert zone.occupancy.activity_level == 0.15
         assert zone.occupancy.activity_class == "low"
@@ -496,7 +496,7 @@ class TestWorldModelIntegration:
         payload = {"count": 3}  # legacy field
         wm.update_from_mqtt(topic, payload)
 
-        zone = wm.physical.zones.get("living_room")
+        zone = wm.zones.get("living_room")
         assert zone is not None
         assert zone.occupancy.count == 3
 
@@ -519,7 +519,7 @@ class TestWorldModelIntegration:
             },
         )
 
-        zone = wm.physical.zones["living_room"]
+        zone = wm.zones["living_room"]
         assert zone.occupancy.count == 1
         assert zone.occupancy.posture_status == "static"
         assert zone.occupancy.posture_duration_sec > 3600

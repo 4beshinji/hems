@@ -1,6 +1,6 @@
 .PHONY: lint format test test-quick build-frontend docker-build security ci clean help
 
-export PYTHONPATH := services/brain/src:services/backend:services/openclaw-bridge/src
+export PYTHONPATH := services/brain/src:services/backend
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \

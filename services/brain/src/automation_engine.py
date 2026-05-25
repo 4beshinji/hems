@@ -27,6 +27,8 @@ from datetime import UTC, datetime
 import aiohttp
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 EVAL_INTERVAL_SEC = float(os.getenv("AUTOMATION_EVAL_INTERVAL", "15"))
 EVAL_REFRESH_SEC = float(os.getenv("AUTOMATION_REFRESH_INTERVAL", "60"))
 LLM_REVIEW_TIMEOUT = float(os.getenv("AUTOMATION_LLM_REVIEW_TIMEOUT", "30"))
@@ -97,6 +99,7 @@ class AutomationEngine:
         try:
             async with self.dashboard.session.get(
                 f"{BACKEND_URL}/automations/",
+                headers=backend_auth_headers(),
                 params={"enabled_only": "true"},
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
@@ -290,7 +293,11 @@ class AutomationEngine:
                 self.llm_client.chat([{"role": "user", "content": prompt}]),
                 timeout=LLM_REVIEW_TIMEOUT,
             )
-            text = (response or "").strip()
+            # chat() returns an LLMResponse, not a str — use .content / .error.
+            if response.error:
+                logger.warning(f"llm_review error: {response.error}")
+                return False, f"llm error: {response.error}"
+            text = (response.content or "").strip()
             first_line = text.splitlines()[0].strip().lower() if text else ""
             reason = text[:300]
             if first_line.startswith("fire"):
@@ -320,6 +327,7 @@ class AutomationEngine:
         try:
             async with self.dashboard.session.put(
                 f"{BACKEND_URL}/automations/{rule_id}/fire",
+                headers=backend_auth_headers(),
                 json={
                     "last_fired_at": rule["last_fired_at"],
                     "fire_count": new_count,

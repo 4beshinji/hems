@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
 
@@ -62,6 +64,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/tasks/",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=10,
             ) as resp:
@@ -123,6 +126,7 @@ class DashboardClient:
             # Record voice event
             await self.session.post(
                 f"{self.backend_url}/voice-events/",
+                headers=backend_auth_headers(),
                 json={
                     "message": message,
                     "audio_url": voice_data.get("audio_url", ""),
@@ -141,6 +145,7 @@ class DashboardClient:
         try:
             async with self.session.get(
                 f"{self.backend_url}/tasks/",
+                headers=backend_auth_headers(),
                 timeout=5,
             ) as resp:
                 if resp.status == 200:
@@ -154,6 +159,7 @@ class DashboardClient:
         try:
             async with self.session.get(
                 f"{self.backend_url}/tasks/stats",
+                headers=backend_auth_headers(),
                 timeout=5,
             ) as resp:
                 if resp.status == 200:
@@ -166,7 +172,7 @@ class DashboardClient:
 
     async def push_pc_snapshot(self, world_model) -> None:
         """Push current PC metrics to backend for frontend consumption."""
-        pc = world_model.digital.pc_state
+        pc = world_model.pc_state
         if pc.cpu.last_update == 0 and pc.memory.last_update == 0:
             return  # No PC data yet
 
@@ -200,6 +206,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/pc/snapshot",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:
@@ -210,7 +217,7 @@ class DashboardClient:
 
     async def push_services_snapshot(self, world_model) -> None:
         """Push current service statuses to backend for frontend consumption."""
-        ss = world_model.digital.services_state
+        ss = world_model.services_state
         if not ss.services:
             return
 
@@ -227,6 +234,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/services/snapshot",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:
@@ -237,7 +245,7 @@ class DashboardClient:
 
     async def push_knowledge_snapshot(self, world_model) -> None:
         """Push current knowledge base status to backend for frontend consumption."""
-        ks = world_model.digital.knowledge_state
+        ks = world_model.knowledge_state
         if not ks.bridge_connected:
             return
 
@@ -250,6 +258,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/knowledge/snapshot",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:
@@ -260,7 +269,7 @@ class DashboardClient:
 
     async def push_gas_snapshot(self, world_model) -> None:
         """Push current GAS state to backend for frontend consumption."""
-        gs = world_model.digital.gas_state
+        gs = world_model.gas_state
         if not gs.bridge_connected:
             return
 
@@ -310,6 +319,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/gas/snapshot",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:
@@ -320,7 +330,7 @@ class DashboardClient:
 
     async def push_biometric_snapshot(self, world_model) -> None:
         """Push current biometric state to backend for frontend consumption."""
-        bio = world_model.user.biometrics
+        bio = world_model.biometric_state
         if not bio.bridge_connected and bio.last_update == 0:
             return
 
@@ -366,6 +376,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/biometric/snapshot",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:
@@ -377,13 +388,10 @@ class DashboardClient:
     async def push_perception_snapshot(self, world_model) -> None:
         """Push current perception (camera) state to backend for frontend consumption."""
         zones_data = {}
-        for zone_id, zone in world_model.physical.zones.items():
+        for zone_id, zone in world_model.zones.items():
             occ = zone.occupancy
             has_signal = (
-                occ.last_update > 0
-                or occ.inferred_occupied
-                or occ.presence_state is not None
-                or occ.last_motion_ts > 0
+                occ.last_update > 0 or occ.inferred_occupied or occ.presence_state is not None or occ.last_motion_ts > 0
             )
             if has_signal:
                 zones_data[zone_id] = {
@@ -424,6 +432,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/perception/snapshot",
+                headers=backend_auth_headers(),
                 json={"zones": zones_data},
                 timeout=5,
             ) as resp:
@@ -434,7 +443,7 @@ class DashboardClient:
 
     async def push_home_snapshot(self, world_model) -> None:
         """Push current home device state to backend for frontend consumption."""
-        hd = world_model.physical.home_devices
+        hd = world_model.home_devices
         if not hd.bridge_connected:
             return
         # Collect power/energy sensors for dashboard
@@ -468,9 +477,10 @@ class DashboardClient:
             try:
                 async with self.session.post(
                     f"{self.backend_url}/timeseries/ingest",
+                    headers=backend_auth_headers(),
                     json={"points": ts_points},
                     timeout=5,
-                    ) as resp:
+                ) as resp:
                     if resp.status != 200:
                         logger.debug(f"Energy timeseries push failed: {resp.status}")
             except Exception as e:
@@ -478,6 +488,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/home/snapshot",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:
@@ -498,6 +509,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/device-actions/",
+                headers=backend_auth_headers(),
                 json={
                     "device_id": device_id,
                     "action": action,
@@ -517,6 +529,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/bridge-status/event",
+                headers=backend_auth_headers(),
                 json={
                     "service": service,
                     "state": "connected" if connected else "disconnected",
@@ -544,6 +557,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/news/snapshot",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:
@@ -592,6 +606,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/weather/snapshot",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:
@@ -603,7 +618,7 @@ class DashboardClient:
     async def push_zone_snapshot(self, world_model) -> None:
         """Push current zone sensor data to backend for frontend consumption."""
         zones = []
-        for zone_id, zone in world_model.physical.zones.items():
+        for zone_id, zone in world_model.zones.items():
             env = zone.environment
             zones.append(
                 {
@@ -639,6 +654,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/zones/snapshot",
+                headers=backend_auth_headers(),
                 json={"zones": zones},
                 timeout=5,
             ) as resp:
@@ -660,6 +676,7 @@ class DashboardClient:
             try:
                 async with self.session.post(
                     f"{self.backend_url}/timeseries/ingest",
+                    headers=backend_auth_headers(),
                     json={"points": ts_points},
                     timeout=5,
                 ) as resp:
@@ -696,6 +713,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/devices/heartbeat",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:
@@ -712,6 +730,7 @@ class DashboardClient:
         try:
             async with self.session.get(
                 f"{self.backend_url}/devices/",
+                headers=backend_auth_headers(),
                 params={"enabled_only": "true"},
                 timeout=5,
             ) as resp:
@@ -729,6 +748,7 @@ class DashboardClient:
         try:
             async with self.session.post(
                 f"{self.backend_url}/brain/snapshot",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=5,
             ) as resp:

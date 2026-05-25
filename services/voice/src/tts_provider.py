@@ -16,6 +16,12 @@ class AudioResult:
 
 
 class TTSProvider(ABC):
+    # Passive health monitoring opt-in. A provider that benefits from background
+    # health polling sets health_poll_interval (seconds) and overrides
+    # passive_health_snapshot(); the voice service runs a generic loop that polls
+    # it, so no provider-specific code lives in main.py.
+    health_poll_interval: float | None = None
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -31,3 +37,17 @@ class TTSProvider(ABC):
     async def is_available(self) -> bool:
         """Check if the TTS backend is reachable."""
         ...
+
+    @property
+    def healthy(self) -> bool:
+        """Whether the backend is currently considered healthy."""
+        return True
+
+    async def passive_health_snapshot(self) -> dict | None:
+        """Return a passive health status dict, or None when unsupported.
+
+        Called periodically by the voice service when health_poll_interval is
+        set. "Passive" = relies on normal synthesis traffic as an implicit
+        probe rather than sending dedicated test requests.
+        """
+        return None

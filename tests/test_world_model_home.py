@@ -10,7 +10,7 @@ class TestWorldModelHomeDevices:
             "hems/home/living_room/light/light.living_room/state",
             {"state": "on", "on": True, "brightness": 200, "color_temp": 300},
         )
-        hd = world_model.physical.home_devices
+        hd = world_model.home_devices
         assert hd.bridge_connected is True
         assert "light.living_room" in hd.lights
         light = hd.lights["light.living_room"]
@@ -24,7 +24,7 @@ class TestWorldModelHomeDevices:
             "hems/home/living_room/climate/climate.living_room/state",
             {"state": "cool", "hvac_mode": "cool", "temperature": 26, "current_temperature": 28.5, "fan_mode": "auto"},
         )
-        hd = world_model.physical.home_devices
+        hd = world_model.home_devices
         assert "climate.living_room" in hd.climates
         climate = hd.climates["climate.living_room"]
         assert climate.mode == "cool"
@@ -37,7 +37,7 @@ class TestWorldModelHomeDevices:
             "hems/home/bedroom/cover/cover.bedroom/state",
             {"state": "open", "is_open": True, "current_position": 100},
         )
-        hd = world_model.physical.home_devices
+        hd = world_model.home_devices
         assert "cover.bedroom" in hd.covers
         cover = hd.covers["cover.bedroom"]
         assert cover.is_open is True
@@ -49,7 +49,7 @@ class TestWorldModelHomeDevices:
             "hems/home/living_room/switch/switch.plug/state",
             {"state": "on", "on": True},
         )
-        hd = world_model.physical.home_devices
+        hd = world_model.home_devices
         assert hd.switches.get("switch.plug") is True
 
     def test_bridge_status(self, world_model):
@@ -58,13 +58,13 @@ class TestWorldModelHomeDevices:
             "hems/home/bridge/status",
             {"connected": True, "mode": "websocket"},
         )
-        assert world_model.physical.home_devices.bridge_connected is True
+        assert world_model.home_devices.bridge_connected is True
 
         world_model.update_from_mqtt(
             "hems/home/bridge/status",
             {"connected": False, "mode": "disconnected"},
         )
-        assert world_model.physical.home_devices.bridge_connected is False
+        assert world_model.home_devices.bridge_connected is False
 
     def test_light_off_state(self, world_model):
         """Light turning off updates correctly."""
@@ -72,7 +72,7 @@ class TestWorldModelHomeDevices:
             "hems/home/bedroom/light/light.bedroom/state",
             {"state": "off", "on": False, "brightness": 0},
         )
-        light = world_model.physical.home_devices.lights["light.bedroom"]
+        light = world_model.home_devices.lights["light.bedroom"]
         assert light.on is False
         assert light.brightness == 0
 
@@ -90,7 +90,7 @@ class TestWorldModelHomeDevices:
             "hems/home/living/climate/climate.living/state",
             {"hvac_mode": "cool", "temperature": 26, "current_temperature": 28},
         )
-        hd = world_model.physical.home_devices
+        hd = world_model.home_devices
         assert len(hd.lights) == 2
         assert len(hd.climates) == 1
 
@@ -103,7 +103,7 @@ class TestWorldModelHomeLLMContext:
 
     def test_context_with_devices(self, world_model):
         """Smart home section appears when bridge is connected with devices."""
-        hd = world_model.physical.home_devices
+        hd = world_model.home_devices
         hd.bridge_connected = True
         from world_model.data_classes import ClimateState, CoverState, LightState
 
@@ -132,7 +132,7 @@ class TestWorldModelHomeLLMContext:
 
     def test_context_light_percentage(self, world_model):
         """Light brightness shown as percentage."""
-        hd = world_model.physical.home_devices
+        hd = world_model.home_devices
         hd.bridge_connected = True
         from world_model.data_classes import LightState
 

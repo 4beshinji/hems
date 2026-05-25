@@ -26,7 +26,7 @@ from pathlib import Path
 import aiohttp
 from loguru import logger
 
-from brain_utils import split_for_speak as _split_for_speak
+from brain_utils import split_for_speak
 
 BOOT_LOAD_WINDOW_SEC = int(os.getenv("BOOT_LOAD_WINDOW_SEC", "2700"))  # 45 min
 BOOT_LOAD_NEWS_STALE_HOURS = int(os.getenv("BOOT_LOAD_NEWS_STALE_HOURS", "20"))
@@ -121,7 +121,7 @@ class BootLoadManager:
     # minutes (which would skip pre-synth and force at-wake TTS).
     _CONFIDENCE_MULTIPLIER = {"high": 1.0, "medium": 1.5, "low": 2.0}
 
-    def should_start(self, schedule_learner, now: float = None) -> bool:
+    def should_start(self, schedule_learner, now: float | None = None) -> bool:
         """Return True if boot load should start now.
 
         Conditions:
@@ -282,7 +282,7 @@ class BootLoadManager:
                 logger.warning("[BootLoad] ブリーフィング生成失敗 → IDLE復帰、wake時に通常パス")
                 self._state = BootLoadState.IDLE
                 return
-            self._cache.briefing_chunks = _split_for_speak(briefing_text)
+            self._cache.briefing_chunks = split_for_speak(briefing_text)
             logger.info(
                 "[BootLoad] ブリーフィング生成完了: %d チャンク",
                 len(self._cache.briefing_chunks),
@@ -299,9 +299,7 @@ class BootLoadManager:
             # Step 4: Pre-synthesize audio (best-effort; partial result is acceptable).
             if voice_url and self._cache.briefing_chunks:
                 try:
-                    self._cache.audio_urls = await self._presynthesize(
-                        voice_url, self._cache.briefing_chunks, session
-                    )
+                    self._cache.audio_urls = await self._presynthesize(voice_url, self._cache.briefing_chunks, session)
                     logger.info(
                         "[BootLoad] TTS事前合成完了: %d / %d ファイル",
                         len(self._cache.audio_urls),

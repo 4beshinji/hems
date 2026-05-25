@@ -491,8 +491,12 @@ def main() -> None:
     total = (
         len(EXPRESSIONS) * 2
         + len(extracted_eyes)
-        + len(extracted_arms_l) + len(extracted_arms_r)
-        + len(extracted_mouth) + len(extracted_fx) + len(extracted_acc) + len(extracted_sym)
+        + len(extracted_arms_l)
+        + len(extracted_arms_r)
+        + len(extracted_mouth)
+        + len(extracted_fx)
+        + len(extracted_acc)
+        + len(extracted_sym)
     )
     print(f"\n✓ Done! {total} PNGs + manifest.json → {out}")
 

@@ -10,7 +10,6 @@ from abc import ABC, abstractmethod
 import cv2
 import numpy as np
 from loguru import logger
-
 from mqtt_publisher import MQTTPublisher
 
 

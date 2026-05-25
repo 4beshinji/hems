@@ -72,69 +72,28 @@ async def _save_audio(result: AudioResult, filepath: Path):
         filepath.write_bytes(result.audio_data)
 
 
-def _get_voisona_provider(provider):
-    """Extract VoisonaProvider from a provider (possibly wrapped in FallbackProvider)."""
-    from providers.voisona import VoisonaProvider
+async def _health_loop():
+    """Generic passive health monitor — polls the provider's own snapshot hook.
 
-    if isinstance(provider, VoisonaProvider):
-        return provider
-    if hasattr(provider, "primary") and isinstance(provider.primary, VoisonaProvider):
-        return provider.primary
-    return None
-
-
-async def _voisona_health_loop():
-    """Passive health monitor for VoiSona TTS provider.
-
-    Instead of sending probe synthesis requests ("テスト"), this loop monitors
-    the time since last successful synthesis. The brain's AmbientSpeaker sends
-    periodic contextual speech that doubles as an implicit health check.
-    If no synthesis has succeeded within the threshold, VoiSona is flagged as
-    potentially degraded.
+    Provider-specific logic lives in the TTSProvider subclass
+    (passive_health_snapshot / health_poll_interval); this loop is vendor-agnostic.
     """
     global _last_health
-    from providers.voisona import HEALTH_CHECK_INTERVAL, HEALTH_SLOW_THRESHOLD
-
-    _stale_threshold = HEALTH_CHECK_INTERVAL * 3  # no synthesis for 15min → degraded
+    interval = tts_provider.health_poll_interval
+    if not interval:
+        return
     await asyncio.sleep(60)  # initial grace period
     while True:
         try:
-            voisona = _get_voisona_provider(tts_provider)
-            if voisona and hasattr(voisona, "_last_synth_duration"):
-                # Check API reachability
-                reachable = await voisona.is_available()
-                if not reachable:
-                    voisona._healthy = False
-                    _last_health = {
-                        "healthy": False,
-                        "wall_seconds": 0,
-                        "state": "unreachable",
-                        "detail": "VoiSona API unreachable",
-                    }
-                    logger.warning("VoiSona health: API unreachable")
-                elif voisona._last_synth_duration > HEALTH_SLOW_THRESHOLD:
-                    _last_health = {
-                        "healthy": True,
-                        "wall_seconds": voisona._last_synth_duration,
-                        "state": "slow",
-                        "detail": f"Last synthesis took {voisona._last_synth_duration:.1f}s",
-                    }
-                    logger.info(f"VoiSona health: slow ({voisona._last_synth_duration:.1f}s)")
-                else:
-                    _last_health = {
-                        "healthy": voisona._healthy,
-                        "wall_seconds": voisona._last_synth_duration,
-                        "state": "ok" if voisona._healthy else "degraded",
-                        "detail": "",
-                    }
-                    if voisona._healthy:
-                        logger.debug(f"VoiSona health OK (last synth {voisona._last_synth_duration:.1f}s)")
-                    else:
-                        logger.warning("VoiSona health: degraded (last synthesis failed)")
+            snap = await tts_provider.passive_health_snapshot()
+            if snap is not None:
+                _last_health = snap
+                if not snap.get("healthy", True):
+                    logger.warning(f"TTS health: {snap.get('state')} — {snap.get('detail', '')}")
         except Exception as e:
-            logger.error(f"VoiSona health check error: {e}")
+            logger.error(f"TTS health check error: {e}")
             _last_health = {"healthy": False, "state": "error", "detail": str(e)}
-        await asyncio.sleep(HEALTH_CHECK_INTERVAL)
+        await asyncio.sleep(interval)
 
 
 @asynccontextmanager
@@ -144,14 +103,15 @@ async def lifespan(app: FastAPI):
     tts_provider = create_provider(character_config=character_config)
     speech_gen = SpeechGenerator(character_config=character_config)
     logger.info(f"TTS provider: {tts_provider.name}")
-    # Start VoiSona health loop if primary provider is voisona (including fallback wrapper)
-    _voisona = _get_voisona_provider(tts_provider)
-    if _voisona:
-        _health_task = asyncio.create_task(_voisona_health_loop())
-        logger.info("VoiSona health check started (every 5min)")
+    # Start the generic health loop if the provider opts into passive monitoring.
+    if tts_provider.health_poll_interval:
+        _health_task = asyncio.create_task(_health_loop())
+        logger.info(f"TTS health check started (every {tts_provider.health_poll_interval:.0f}s)")
     yield
     if _health_task:
         _health_task.cancel()
+    if speech_gen:
+        await speech_gen.aclose()
 
 
 app = FastAPI(title="HEMS Voice Service", lifespan=lifespan)
@@ -172,11 +132,10 @@ async def root():
 
 @app.get("/api/voice/health")
 async def health():
-    """Detailed health status including VoiSona probe results."""
+    """Detailed health status, including passive provider health when supported."""
     base = {"service": "HEMS Voice", "tts": tts_provider.name if tts_provider else "none"}
-    voisona = _get_voisona_provider(tts_provider) if tts_provider else None
-    if voisona:
-        base["tts_healthy"] = voisona.healthy
+    if tts_provider and tts_provider.health_poll_interval:
+        base["tts_healthy"] = tts_provider.healthy
         base["last_health_check"] = _last_health
     if tts_provider and hasattr(tts_provider, "_using_fallback"):
         base["using_fallback"] = tts_provider._using_fallback

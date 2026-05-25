@@ -19,6 +19,11 @@ topic write hems/brain/#
 user hems-voice
 topic read hems/#
 
+user hems-openclaw
+topic read #
+topic write hems/pc/#
+topic write hems/services/#
+
 user hems-localcraw
 topic read #
 topic write hems/pc/#

@@ -9,9 +9,9 @@ from data_poller import DataPoller
 from fastapi import FastAPI, HTTPException
 from gas_client import GASClient
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 
 import config
-from mqtt_publisher import MQTTPublisher
 
 # Module-level state
 gas_client: GASClient | None = None

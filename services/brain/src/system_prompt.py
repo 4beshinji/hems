@@ -2,11 +2,8 @@
 System prompt builder for HEMS Brain with character injection.
 """
 
-from dataclasses import fields as dc_fields
-
 
 def build_system_message(
-    character=None,
     openclaw_enabled: bool = False,
     services_enabled: bool = False,
     obsidian_enabled: bool = False,
@@ -17,10 +14,12 @@ def build_system_message(
     knowledge_enabled: bool = False,
     devices: list | None = None,
 ) -> dict:
-    """Build system message with safety rules + character personality.
+    """Build system message with safety rules.
+
+    Stage 1 (thinking) runs on the raw model with no character injection; the
+    character overlay is applied later by PersonaRewriter / ToolExecutor.
 
     Args:
-        character: CharacterConfig dataclass or None.
         openclaw_enabled: Whether OpenClaw PC tools are available.
         services_enabled: Whether service monitor tools are available.
         obsidian_enabled: Whether Obsidian knowledge tools are available.
@@ -38,8 +37,8 @@ def build_system_message(
 ## 行動原則
 1. **安全第一**: 人の健康・安全に関わる問題は最優先で対応する
 2. **重複回避**: タスク作成前にget_active_tasksで既存タスクを確認し、類似タスクがあれば作成しない
-4. **段階的対応**: まず状況を確認し、必要な場合のみアクションを取る
-5. **プライバシー**: 個人を特定する情報は扱わない
+3. **段階的対応**: まず状況を確認し、必要な場合のみアクションを取る
+4. **プライバシー**: 個人を特定する情報は扱わない
 
 ## 判断基準
 - 正常範囲内なら何もしない（過剰な介入を避ける）
@@ -101,7 +100,13 @@ def build_system_message(
 ## 制約
 - 1サイクルで作成するタスクは最大2件まで
 - 正常範囲内のデータに対してはアクションを起こさない
-- タスクのタイトルと説明は日本語で記述する"""
+- タスクのタイトルと説明は日本語で記述する
+
+## データ鮮度（縮退運転）
+- ゾーンや測定値に「データ更新なし」「N分前・古い」と付いている場合、その情報は古く信頼できない。
+- **古い/欠落したゾーンに対して create_task やデバイス制御を使わない**。古いセンサー値を根拠に環境対応タスクを作らないこと。
+- 全ゾーンが古い（システムが「盲目」）状態では副作用ツールは自動的に抑止される。観察と必要最小限の声かけのみ行う。
+- 鮮度が不明な場合は行動を控え、新しいデータを待つ。"""
 
     if openclaw_enabled:
         base += """
@@ -250,7 +255,6 @@ def build_system_message(
 
     # Stage 1 (思考) は素モデル — キャラクター注入は行わない。
     # 出力 (speak / chat response) は PersonaRewriter が事後変換する。
-    # character 引数は互換性のため受け取るが未使用。
 
     return {"role": "system", "content": base}
 
@@ -447,77 +451,3 @@ def build_chat_system_message(
     # 詳細な personality は注入しない。最終応答は PersonaRewriter.rewrite_long で事後変換する。
 
     return {"role": "system", "content": base}
-
-
-def _build_character_section(character) -> str:
-    """Build character personality section for system prompt injection."""
-    if not character:
-        return ""
-
-    # Check for full override first (advanced users only)
-    templates = getattr(character, "prompt_templates", None)
-    if templates:
-        override = getattr(templates, "system_prompt_override", None)
-        if override:
-            return ""  # Override handled at caller level
-
-    identity = getattr(character, "identity", None)
-    personality = getattr(character, "personality", None)
-    speaking = getattr(character, "speaking_style", None)
-
-    char_section = "\n\n## キャラクター設定"
-
-    if identity:
-        name = getattr(identity, "name", None)
-        if name:
-            char_section += f"\n- 名前: {name}"
-            reading = getattr(identity, "name_reading", None)
-            if reading:
-                char_section += f"（{reading}）"
-
-        first_person = getattr(identity, "first_person", None)
-        if first_person:
-            char_section += f"\n- 一人称: {first_person}"
-
-        second_person = getattr(identity, "second_person", None)
-        if second_person:
-            char_section += f"\n- 二人称: {second_person}"
-
-    if personality:
-        archetype = getattr(personality, "archetype", None)
-        if archetype:
-            char_section += f"\n- 性格: {archetype}"
-
-        traits = getattr(personality, "traits", [])
-        if traits:
-            char_section += f"\n- 特徴: {', '.join(traits)}"
-
-        notes = getattr(personality, "behavioral_notes", None)
-        if notes:
-            char_section += f"\n- 行動指針:\n{notes}"
-
-        formality = getattr(personality, "formality", None)
-        if formality is not None:
-            levels = {0: "ため口", 1: "カジュアル敬語", 2: "標準敬語", 3: "丁寧語", 4: "最敬語"}
-            char_section += f"\n- 敬語レベル: {levels.get(formality, '標準')}"
-
-    if speaking:
-        endings = getattr(speaking, "endings", None)
-        if endings:
-            char_section += "\n- 文末パターン:"
-            for f in dc_fields(endings):
-                patterns = getattr(endings, f.name, [])
-                if patterns:
-                    char_section += f"\n  - {f.name}: {', '.join(patterns[:3])}"
-
-        vocab = getattr(speaking, "vocabulary", None)
-        if vocab:
-            avoid = getattr(vocab, "avoid", [])
-            if avoid:
-                char_section += f"\n- 禁止語彙: {', '.join(avoid)}"
-
-            catchphrase = getattr(vocab, "catchphrase", None)
-            if catchphrase:
-                char_section += f"\n- 決め台詞: {catchphrase}"
-
-    return char_section

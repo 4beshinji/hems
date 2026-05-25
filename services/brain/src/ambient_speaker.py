@@ -93,7 +93,7 @@ class AmbientSpeaker:
             parts.append("時間帯: 深夜")
 
         # SwitchBot / HA sensor data
-        hd = self.world_model.physical.home_devices
+        hd = self.world_model.home_devices
         for entity_id, sensor in hd.sensors.items():
             if sensor.device_class == "temperature":
                 parts.append(f"室温: {sensor.value}°C")
@@ -108,14 +108,14 @@ class AmbientSpeaker:
                 parts.append(f"外気温: {w.temperature}°C")
 
         # Biometrics (if available)
-        bio = self.world_model.user.biometrics
+        bio = self.world_model.biometric_state
         if bio.heart_rate.bpm is not None and bio.heart_rate.bpm > 0:
             parts.append(f"心拍: {bio.heart_rate.bpm}bpm")
         if bio.fatigue.score > 0:
             parts.append(f"疲労度: {bio.fatigue.score}")
 
         # Occupancy
-        for zone_id, zone in self.world_model.physical.zones.items():
+        for zone_id, zone in self.world_model.zones.items():
             if zone.occupancy.count > 0:
                 parts.append(f"在室: {zone_id}")
 
@@ -124,17 +124,12 @@ class AmbientSpeaker:
         ks = self.world_model.knowledge_state
         recent_window = time.time() - 3600
         if ks.recent_changes:
-            recent_titles = [
-                c.get("title", "")
-                for c in ks.recent_changes[-3:]
-                if c.get("title")
-            ]
+            recent_titles = [c.get("title", "") for c in ks.recent_changes[-3:] if c.get("title")]
             if recent_titles:
                 parts.append(f"直近の編集ノート: {', '.join(recent_titles[-2:])}")
         if ks.events:
             recent_kn_evs = [
-                e for e in ks.events
-                if e.event_type == "knowledge_changed" and e.timestamp >= recent_window
+                e for e in ks.events if e.event_type == "knowledge_changed" and e.timestamp >= recent_window
             ][-2:]
             if recent_kn_evs:
                 parts.append(f"外部ナレッジ更新: {recent_kn_evs[-1].description}")

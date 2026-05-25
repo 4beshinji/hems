@@ -34,7 +34,7 @@ Background ─────┬─ idle_generation_loop → リジェクション�
 - **VOICEVOX Engine**: CPU版（LLMとのリソース競合を避けるため）
 - **Voice Character**: ナースロボ＿タイプＴ (Speaker ID: 47)
 - **FastAPI**: Voice Service API
-- **LLM**: 自然な日本語文章生成 (mock-llm / llama.cpp / OpenAI / Anthropic のいずれか)
+- **LLM**: 自然な日本語文章生成 (mock-llm or Ollama)
 - **Audio Format**: MP3
 
 ## ディレクトリ構成
@@ -210,7 +210,7 @@ Frontend の nginx がリバースプロキシとして動作:
 |------|-----------|------|
 | `VOICEVOX_URL` | `http://voicevox:50021` | VOICEVOX Engine URL |
 | `LLM_API_URL` | `http://mock-llm:8000/v1` | LLM API URL |
-| `LLM_MODEL` | (env) | LLM モデル識別子 (llama.cpp / Ollama / OpenAI) |
+| `LLM_MODEL` | (env) | Ollama モデル名 |
 
 ### Dashboard Client (Brain 側)
 

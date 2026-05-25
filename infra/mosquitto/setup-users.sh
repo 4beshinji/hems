@@ -31,6 +31,7 @@ SERVICES=(
     hems-biometric
     hems-gas
     hems-obsidian
+    hems-openclaw
     hems-localcraw
     hems-perception
     hems-switchbot

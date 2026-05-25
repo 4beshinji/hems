@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 if TYPE_CHECKING:
     import aiohttp
 
@@ -24,7 +26,7 @@ async def push_manifest(
     """
     url = f"{backend_url.rstrip('/')}/mobile/voice-capsule"
     try:
-        async with session.post(url, json=manifest, timeout=15) as resp:
+        async with session.post(url, json=manifest, headers=backend_auth_headers(), timeout=15) as resp:
             if resp.status == 201:
                 return True
             text = await resp.text()

@@ -36,11 +36,17 @@ CREATE TABLE IF NOT EXISTS llm_decisions (
     trigger_events TEXT DEFAULT '[]',
     tool_calls TEXT DEFAULT '[]',
     world_state_snapshot TEXT DEFAULT '{}',
-    cause_event_id INTEGER REFERENCES world_events(id)
+    cause_event_id INTEGER REFERENCES world_events(id),
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    gpu_util_pct REAL,
+    gpu_power_w REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_decisions_ts ON llm_decisions(timestamp);
-CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON llm_decisions(cause_event_id);
+-- idx_llm_decisions_cause is created in the migration block below, after the
+-- cause_event_id column is guaranteed to exist (pre-cause_event_id DBs would
+-- otherwise fail "no such column" here, aborting event-store init).
 
 CREATE TABLE IF NOT EXISTS hourly_aggregates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,6 +80,25 @@ CREATE TABLE IF NOT EXISTS world_events (
 CREATE INDEX IF NOT EXISTS idx_world_events_ts ON world_events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_world_events_source ON world_events(source_type, timestamp);
 CREATE INDEX IF NOT EXISTS idx_world_events_digest ON world_events(payload_digest, timestamp);
+
+-- Self-contained intervention efficacy loop (Group D). Each row tracks one
+-- environment task: baseline metric at creation, post-completion metric, verdict.
+CREATE TABLE IF NOT EXISTS intervention_efficacy (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    zone TEXT NOT NULL,
+    trigger_metric TEXT NOT NULL,
+    baseline_value REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    post_value REAL,
+    window_sec INTEGER NOT NULL DEFAULT 1800,
+    verdict TEXT,
+    evaluated_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_pending ON intervention_efficacy(completed_at);
+CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_zone ON intervention_efficacy(zone);
 """
 
 DDL_POSTGRES = """
@@ -101,11 +126,17 @@ CREATE TABLE IF NOT EXISTS events.llm_decisions (
     trigger_events JSONB NOT NULL DEFAULT '[]',
     tool_calls JSONB NOT NULL DEFAULT '[]',
     world_state_snapshot JSONB NOT NULL DEFAULT '{}',
-    cause_event_id BIGINT REFERENCES events.world_events(id)
+    cause_event_id BIGINT REFERENCES events.world_events(id),
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    gpu_util_pct REAL,
+    gpu_power_w REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_decisions_ts ON events.llm_decisions USING BRIN(timestamp);
-CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON events.llm_decisions(cause_event_id);
+-- idx_llm_decisions_cause is created in the migration block below, after the
+-- cause_event_id column is ensured (pre-cause_event_id tables would otherwise
+-- fail "column does not exist" here, aborting event-store init).
 
 CREATE TABLE IF NOT EXISTS events.hourly_aggregates (
     id SERIAL PRIMARY KEY,
@@ -139,6 +170,25 @@ CREATE TABLE IF NOT EXISTS events.world_events (
 CREATE INDEX IF NOT EXISTS idx_world_events_ts ON events.world_events USING BRIN(timestamp);
 CREATE INDEX IF NOT EXISTS idx_world_events_source ON events.world_events(source_type, timestamp);
 CREATE INDEX IF NOT EXISTS idx_world_events_digest ON events.world_events(payload_digest, timestamp);
+
+CREATE TABLE IF NOT EXISTS events.intervention_efficacy (
+    id              BIGSERIAL PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    zone            TEXT NOT NULL,
+    trigger_metric  TEXT NOT NULL,
+    baseline_value  REAL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at    TIMESTAMPTZ,
+    post_value      REAL,
+    window_sec      INTEGER NOT NULL DEFAULT 1800,
+    verdict         TEXT,
+    evaluated_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_pending
+    ON events.intervention_efficacy (completed_at) WHERE verdict IS NULL;
+CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_zone
+    ON events.intervention_efficacy (zone);
 """
 
 
@@ -187,13 +237,40 @@ async def init_db() -> AsyncEngine | None:
                 logger.info("Migrated llm_decisions: added world_state_snapshot")
             if "cause_event_id" not in cols:
                 await conn.execute(text("ALTER TABLE llm_decisions ADD COLUMN cause_event_id INTEGER"))
-                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON llm_decisions(cause_event_id)"))
                 logger.info("Migrated llm_decisions: added cause_event_id")
+            # Create the cause index unconditionally now that the column is
+            # guaranteed present (covers both fresh and migrated DBs).
+            await conn.execute(
+                text("CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON llm_decisions(cause_event_id)")
+            )
+            # Cost/energy metering columns (Group E) — all nullable
+            for _col, _type in (
+                ("prompt_tokens", "INTEGER"),
+                ("completion_tokens", "INTEGER"),
+                ("gpu_util_pct", "REAL"),
+                ("gpu_power_w", "REAL"),
+            ):
+                if _col not in cols:
+                    await conn.execute(text(f"ALTER TABLE llm_decisions ADD COLUMN {_col} {_type}"))
+                    logger.info(f"Migrated llm_decisions: added {_col}")
         else:
             # PostgreSQL: same idempotent ALTER for older deployments
             try:
-                await conn.execute(text("ALTER TABLE events.llm_decisions ADD COLUMN IF NOT EXISTS cause_event_id BIGINT"))
-                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON events.llm_decisions(cause_event_id)"))
+                await conn.execute(
+                    text("ALTER TABLE events.llm_decisions ADD COLUMN IF NOT EXISTS cause_event_id BIGINT")
+                )
+                await conn.execute(
+                    text("CREATE INDEX IF NOT EXISTS idx_llm_decisions_cause ON events.llm_decisions(cause_event_id)")
+                )
+                for _col, _type in (
+                    ("prompt_tokens", "INTEGER"),
+                    ("completion_tokens", "INTEGER"),
+                    ("gpu_util_pct", "REAL"),
+                    ("gpu_power_w", "REAL"),
+                ):
+                    await conn.execute(
+                        text(f"ALTER TABLE events.llm_decisions ADD COLUMN IF NOT EXISTS {_col} {_type}")
+                    )
             except Exception:
                 pass
 

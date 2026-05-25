@@ -14,15 +14,13 @@ Resolution order (first match wins):
 from __future__ import annotations
 
 import copy
-import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -254,7 +252,7 @@ def _resolve_inheritance(data: dict[str, Any], seen: set[str] | None = None) -> 
 
     base_path = _find_template_path(extends)
     if base_path is None:
-        logger.warning("Character template '%s' not found, ignoring extends directive", extends)
+        logger.warning(f"Character template '{extends}' not found, ignoring extends directive")
         return data
 
     base_data = _load_yaml_file(base_path)
@@ -417,15 +415,12 @@ def load_character(
         config = _dict_to_config(data)
         _current_character = config
         logger.info(
-            "Character loaded: %s (archetype=%s, formality=%d)",
-            config.identity.name,
-            config.personality.archetype,
-            config.personality.formality,
+            f"Character loaded: {config.identity.name} (archetype={config.personality.archetype}, formality={config.personality.formality})"
         )
         return config
 
     except Exception as e:
-        logger.warning("Failed to load character config: %s. Falling back to default.", e)
+        logger.warning(f"Failed to load character config: {e}. Falling back to default.")
         return _load_default_fallback(characters_dir)
 
 
@@ -437,7 +432,7 @@ def _resolve_character_source(cfg_dir: Path, characters_dir: Path) -> dict[str, 
     if char_file:
         path = Path(char_file)
         if path.is_file():
-            logger.info("Loading character from CHARACTER_FILE: %s", path)
+            logger.info(f"Loading character from CHARACTER_FILE: {path}")
             return _load_yaml_file(path)
         else:
             raise FileNotFoundError(f"CHARACTER_FILE not found: {char_file}")
@@ -450,7 +445,7 @@ def _resolve_character_source(cfg_dir: Path, characters_dir: Path) -> dict[str, 
             # Try hyphenated variant
             tmpl_path = characters_dir / f"{char_name.replace('_', '-')}.yaml"
         if tmpl_path.is_file():
-            logger.info("Loading character template: %s", char_name)
+            logger.info(f"Loading character template: {char_name}")
             return _load_yaml_file(tmpl_path)
         else:
             raise FileNotFoundError(f"Character template not found: {char_name}")
@@ -458,7 +453,7 @@ def _resolve_character_source(cfg_dir: Path, characters_dir: Path) -> dict[str, 
     # 3. config/character.yaml
     custom_path = cfg_dir / "character.yaml"
     if custom_path.is_file():
-        logger.info("Loading custom character from %s", custom_path)
+        logger.info(f"Loading custom character from {custom_path}")
         return _load_yaml_file(custom_path)
 
     # 4. Default
@@ -480,7 +475,7 @@ def _load_default_fallback(characters_dir: Path) -> CharacterConfig:
             data = _load_yaml_file(default_path)
             return _dict_to_config(data)
     except Exception as e:
-        logger.error("Failed to load even the default character: %s", e)
+        logger.error(f"Failed to load even the default character: {e}")
     return CharacterConfig()
 
 

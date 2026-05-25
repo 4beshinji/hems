@@ -13,13 +13,17 @@ from world_model.data_classes import (
     HomeDevicesState,
     KnowledgeState,
     LightState,
+    NewsState,
     PCState,
     PhysicalSpace,
     ServicesState,
+    ShoppingItemData,
+    ShoppingState,
     SleepData,
     SpO2Data,
     StressData,
     UserState,
+    WeatherState,
     ZoneState,
 )
 
@@ -106,6 +110,15 @@ class TestPropertyAccessorsReturnSameObject:
     def test_biometric_state_is_user_biometrics(self, world_model):
         assert world_model.biometric_state is world_model.user.biometrics
 
+    def test_news_state_is_digital_news_state(self, world_model):
+        assert world_model.news_state is world_model.digital.news_state
+
+    def test_shopping_state_is_digital_shopping_state(self, world_model):
+        assert world_model.shopping_state is world_model.digital.shopping_state
+
+    def test_weather_is_physical_weather(self, world_model):
+        assert world_model.weather is world_model.physical.weather
+
 
 class TestPropertySetters:
     """Setting via property must update the domain object."""
@@ -151,6 +164,24 @@ class TestPropertySetters:
         world_model.biometric_state = new_bio
         assert world_model.user.biometrics is new_bio
         assert world_model.biometric_state is new_bio
+
+    def test_set_news_state(self, world_model):
+        new_news = NewsState(daily_summary="today")
+        world_model.news_state = new_news
+        assert world_model.digital.news_state is new_news
+        assert world_model.news_state is new_news
+
+    def test_set_shopping_state(self, world_model):
+        new_shopping = ShoppingState()
+        world_model.shopping_state = new_shopping
+        assert world_model.digital.shopping_state is new_shopping
+        assert world_model.shopping_state is new_shopping
+
+    def test_set_weather(self, world_model):
+        new_weather = WeatherState(condition="rainy")
+        world_model.weather = new_weather
+        assert world_model.physical.weather is new_weather
+        assert world_model.weather is new_weather
 
 
 class TestMutationThroughProperty:
@@ -233,6 +264,48 @@ class TestMutationThroughProperty:
     def test_mutate_biometric_state_via_domain(self, world_model):
         world_model.user.biometrics.stress.level = 45
         assert world_model.biometric_state.stress.level == 45
+
+    def test_mutate_news_state_via_property(self, world_model):
+        world_model.news_state.daily_summary = "daily news"
+        assert world_model.digital.news_state.daily_summary == "daily news"
+
+    def test_mutate_news_state_via_domain(self, world_model):
+        world_model.digital.news_state.bridge_connected = True
+        assert world_model.news_state.bridge_connected is True
+
+    def test_mutate_shopping_state_via_property(self, world_model):
+        world_model.shopping_state.items.append(ShoppingItemData(name="coffee"))
+        assert world_model.digital.shopping_state.items[0].name == "coffee"
+
+    def test_mutate_shopping_state_via_domain(self, world_model):
+        world_model.digital.shopping_state.items.append(ShoppingItemData(name="rice"))
+        assert world_model.shopping_state.pending_count == 1
+
+    def test_mutate_weather_via_property(self, world_model):
+        world_model.weather.temperature = 22.5
+        assert world_model.physical.weather.temperature == 22.5
+
+    def test_mutate_weather_via_domain(self, world_model):
+        world_model.physical.weather.condition = "sunny"
+        assert world_model.weather.condition == "sunny"
+
+
+def test_world_model_exposes_split_mixin_methods(world_model):
+    method_names = [
+        "update_from_mqtt",
+        "_update_sensor",
+        "_update_pc_state",
+        "_update_home_device",
+        "_update_gas_state",
+        "_update_personal",
+        "_get_physical_context",
+        "_get_digital_context",
+        "_get_user_context",
+        "reconcile_presence",
+        "is_anyone_home",
+    ]
+    missing = [name for name in method_names if not callable(getattr(world_model, name, None))]
+    assert missing == []
 
 
 class TestMQTTUpdatesThroughDomains:

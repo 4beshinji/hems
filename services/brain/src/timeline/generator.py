@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 from .edf_scheduler import schedule_edf
 from .free_window import compute_free_windows
 from .models import CandidateTask, TimelineSlot
@@ -18,7 +20,6 @@ except Exception:
     LOCAL_TZ = ZoneInfo("Asia/Tokyo")
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
-HEMS_HOME_LOCATION_KEYWORDS = ("home", "自宅", "家", "")
 
 # Default routine anchors when schedule_learner has no data
 DEFAULT_WAKE_HOUR = 7.0
@@ -47,9 +48,13 @@ def _is_home_location(location: str | None) -> bool:
 
 
 class TimelineGenerator:
-    """Build a day's timeline slots from routines + calendar + tasks. Stateless per-call."""
+    """Build a day's timeline slots from routines + calendar + tasks.
 
-    def __init__(self, world_model, schedule_learner, session, auth_headers: dict | None = None):
+    Holds injected dependencies (world_model, schedule_learner, HTTP session,
+    travel matrix); each generate_* call derives slots fresh from current state.
+    """
+
+    def __init__(self, world_model, schedule_learner, session):
         self.world_model = world_model
         self.schedule_learner = schedule_learner
         self.session = session
@@ -69,19 +74,9 @@ class TimelineGenerator:
 
         weekday = day_start.weekday()
 
-        def _median(hist_dict: dict, default: float) -> float:
-            if not sl:
-                return default
-            entries = hist_dict.get(weekday, [])
-            if len(entries) >= 2:
-                import statistics as _st
-
-                return _st.median(entries)
-            return default
-
-        wake_hour = _median(getattr(sl, "_wake_history", {}) if sl else {}, DEFAULT_WAKE_HOUR)
-        dep_hour = _median(getattr(sl, "_departure_history", {}) if sl else {}, DEFAULT_DEPARTURE_HOUR)
-        arr_hour = _median(getattr(sl, "_arrival_history", {}) if sl else {}, DEFAULT_ARRIVAL_HOUR)
+        wake_hour = sl.median_hour("wake", weekday, DEFAULT_WAKE_HOUR) if sl else DEFAULT_WAKE_HOUR
+        dep_hour = sl.median_hour("departure", weekday, DEFAULT_DEPARTURE_HOUR) if sl else DEFAULT_DEPARTURE_HOUR
+        arr_hour = sl.median_hour("arrival", weekday, DEFAULT_ARRIVAL_HOUR) if sl else DEFAULT_ARRIVAL_HOUR
 
         wake_dt = _hour_float_to_dt(day_start, wake_hour)
         slots.append(
@@ -95,8 +90,8 @@ class TimelineGenerator:
         )
 
         # Only generate commute blocks when schedule_learner has actual history
-        has_dep_data = sl and len(getattr(sl, "_departure_history", {}).get(weekday, [])) >= 2
-        has_arr_data = sl and len(getattr(sl, "_arrival_history", {}).get(weekday, [])) >= 2
+        has_dep_data = bool(sl) and sl.history_count("departure", weekday) >= 2
+        has_arr_data = bool(sl) and sl.history_count("arrival", weekday) >= 2
         if has_dep_data and has_arr_data and dep_hour > wake_hour + 0.5 and dep_hour < arr_hour:
             dep_dt = _hour_float_to_dt(day_start, dep_hour)
             travel_out = lookup_travel_minutes(self.travel_matrix, "home", "office")
@@ -214,6 +209,7 @@ class TimelineGenerator:
         try:
             async with self.session.get(
                 f"{BACKEND_URL}/tasks/?include_proposed=false",
+                headers=backend_auth_headers(),
                 timeout=5,
             ) as resp:
                 if resp.status != 200:
@@ -300,6 +296,7 @@ class TimelineGenerator:
         try:
             async with self.session.post(
                 f"{BACKEND_URL}/timeline/regenerate",
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=10,
             ) as resp:
@@ -311,8 +308,12 @@ class TimelineGenerator:
 
         return all_slots
 
-    async def generate_for_today(self) -> list[TimelineSlot]:
-        """Generate timeline for today + next 6 days (1 week)."""
+    async def generate_week(self) -> list[TimelineSlot]:
+        """Generate (and persist) timelines for today + next 6 days (1 week).
+
+        Returns today's slots; the remaining days are generated for their
+        side effects (persistence) via generate_for_date.
+        """
         now = datetime.now(LOCAL_TZ)
         today_slots: list[TimelineSlot] = []
         for offset in range(7):

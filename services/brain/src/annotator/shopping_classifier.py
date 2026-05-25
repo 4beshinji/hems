@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 from .cache import ClassifierCache
 from .rules import match_rule
 
@@ -134,8 +136,8 @@ class ShoppingClassifier:
         try:
             async with self.session.patch(
                 url,
+                headers=backend_auth_headers(),
                 json={"store_category": store_category},
-
                 timeout=10,
             ) as resp:
                 if resp.status == 200:
@@ -172,7 +174,7 @@ class ShoppingClassifier:
         try:
             url = f"{self.backend_url}/shopping/purchase-history"
             params = {"name": item_name, "limit": 10}
-            async with self.session.get(url, params=params, timeout=10) as resp:
+            async with self.session.get(url, headers=backend_auth_headers(), params=params, timeout=10) as resp:
                 if resp.status != 200:
                     return False
                 history = await resp.json()
@@ -205,10 +207,7 @@ class ShoppingClassifier:
         if len(timestamps) < 3:
             return False
         timestamps.sort()
-        gaps_days = [
-            (timestamps[i + 1] - timestamps[i]) / 86400
-            for i in range(len(timestamps) - 1)
-        ]
+        gaps_days = [(timestamps[i + 1] - timestamps[i]) / 86400 for i in range(len(timestamps) - 1)]
         gaps_days.sort()
         median_days = gaps_days[len(gaps_days) // 2]
         if median_days < 1:
@@ -219,18 +218,20 @@ class ShoppingClassifier:
         if not item_id:
             return False
 
+        recurrence_days = round(median_days)
         try:
             patch_url = f"{self.backend_url}/shopping/{int(item_id)}"
             async with self.session.patch(
                 patch_url,
-                json={"is_recurring": True, "recurrence_days": int(round(median_days))},
+                headers=backend_auth_headers(),
+                json={"is_recurring": True, "recurrence_days": recurrence_days},
                 timeout=10,
             ) as resp:
                 if resp.status == 200:
                     logger.info(
                         "Shopping cycle learned: {!r} → every ~{} days (n={})",
                         item_name,
-                        int(round(median_days)),
+                        recurrence_days,
                         len(purchases),
                     )
                     return True

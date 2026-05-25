@@ -22,13 +22,13 @@ from typing import Any
 import aiohttp
 from loguru import logger
 
+from brain_constants import backend_auth_headers
 from brain_utils import parse_iso_ts as _parse_iso_ts
 
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
 TAPO_BRIDGE_URL = os.getenv("TAPO_BRIDGE_URL", "")
 DASHBOARD_API_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
-
 
 
 @dataclass
@@ -494,7 +494,6 @@ def parse_z2m_bridge_devices(payload: list[dict]) -> list[DeviceObservation]:
         if not device_class:
             continue
 
-        is_battery = dev.get("power_source") == "Battery"
         description_text = f"{vendor} {desc}" if vendor and desc else (desc or model or "")
         display_name = _z2m_friendly_display(friendly, vendor, model, desc)
 
@@ -537,6 +536,7 @@ class DeviceDispatcher:
         try:
             async with self.session.get(
                 f"{self.backend_url}/devices/{device_id}",
+                headers=backend_auth_headers(),
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status == 200:
@@ -568,6 +568,7 @@ class DeviceDispatcher:
         try:
             async with self.session.get(
                 f"{self.backend_url}/devices/",
+                headers=backend_auth_headers(),
                 params=params,
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
@@ -588,7 +589,7 @@ class DeviceDispatcher:
         caps = device.get("capabilities", []) or []
 
         # Per-action capability guardrail
-        if action not in _ALLOWED_ACTIONS:
+        if action not in ALLOWED_ACTIONS:
             return {"success": False, "error": f"Unknown action '{action}'"}
         required_cap = _ACTION_CAPABILITY.get(action)
         if required_cap and required_cap not in caps:
@@ -644,8 +645,11 @@ class DeviceDispatcher:
             try:
                 async with self.session.post(
                     f"{HA_BRIDGE_URL}/api/device/control",
-                    json={"entity_id": entity_id, "service": "light/turn_on",
-                           "data": {"hs_color": [hue, 100], "brightness": 254}},
+                    json={
+                        "entity_id": entity_id,
+                        "service": "light/turn_on",
+                        "data": {"hs_color": [hue, 100], "brightness": 254},
+                    },
                     timeout=aiohttp.ClientTimeout(total=5),
                 ) as resp:
                     await resp.read()
@@ -656,8 +660,7 @@ class DeviceDispatcher:
         try:
             async with self.session.post(
                 f"{HA_BRIDGE_URL}/api/device/control",
-                json={"entity_id": entity_id, "service": "light/turn_on",
-                       "data": {"color_temp": 350}},
+                json={"entity_id": entity_id, "service": "light/turn_on", "data": {"color_temp": 350}},
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 await resp.read()
@@ -804,8 +807,10 @@ class DeviceDispatcher:
 
 
 # ── Action capability allowlist ───────────────────────────────────
+# Single source of truth for the control_actuator action allowlist; sanitizer
+# imports this so the two never drift out of sync.
 
-_ALLOWED_ACTIONS = {
+ALLOWED_ACTIONS = {
     "on",
     "off",
     "toggle",

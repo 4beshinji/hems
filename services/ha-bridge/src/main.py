@@ -14,10 +14,10 @@ from entity_mapper import EntityMapper
 from fastapi import FastAPI, HTTPException
 from ha_client import HAClient
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 
 import config
-from mqtt_publisher import MQTTPublisher
 
 # Module-level shared state
 ha_client: HAClient | None = None

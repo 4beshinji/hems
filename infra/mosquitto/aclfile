@@ -54,8 +54,13 @@ topic write  hems/gas/#
 user hems-obsidian
 topic write  hems/personal/notes/#
 
-# --- localcraw Bridge ---
+# --- OpenClaw Bridge ---
 # Publishes PC metrics to hems/pc/# and service status to hems/services/#.
+user hems-openclaw
+topic write  hems/pc/#
+topic write  hems/services/#
+
+# Legacy localcraw username retained for old bridge deployments.
 user hems-localcraw
 topic write  hems/pc/#
 topic write  hems/services/#

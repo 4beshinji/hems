@@ -36,66 +36,20 @@ class PersonaRewriter:
         if not PERSONA_REWRITE_ENABLED or not message:
             return message
 
-        # Check cache
-        cache_key = (message, tone)
-        now = time.monotonic()
-        self._cache_checks += 1
-
-        cached = self._cache.get(cache_key)
-        if cached is not None:
-            rewritten, ts = cached
-            if PERSONA_REWRITE_CACHE_TTL > 0 and (now - ts) < PERSONA_REWRITE_CACHE_TTL:
-                return rewritten
-
-        # Periodically prune expired entries
-        if self._cache_checks % 100 == 0 or len(self._cache) > 200:
-            self._prune_cache(now)
-
         user_prompt = (
             f"以下のメッセージを、あなたの口調で言い換えてください。\n"
             f"トーン: {tone}\n"
             f"制約: 事実情報（数字・名前・場所）は正確に保持。70字以内。\n"
             f"メッセージ: {message}"
         )
-
-        messages = [
-            {"role": "system", "content": self._persona_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-
-        try:
-            response = await self.llm_client.chat(
-                messages,
-                temperature=0.7,
-                max_tokens=80,
-            )
-            if response.error or not response.content:
-                logger.debug(f"Persona rewrite failed: {response.error}")
-                return message
-
-            rewritten = response.content.strip()
-            # Strip surrounding quotes
-            if len(rewritten) >= 2 and rewritten[0] in ('"', "'", "「", "『"):
-                closing = {'"': '"', "'": "'", "「": "」", "『": "』"}
-                expected_close = closing.get(rewritten[0])
-                if expected_close and rewritten[-1] == expected_close:
-                    rewritten = rewritten[1:-1]
-
-            # Truncate to 70 chars
-            if len(rewritten) > 70:
-                rewritten = rewritten[:70]
-
-            if not rewritten:
-                return message
-
-            # Store in cache
-            self._cache[cache_key] = (rewritten, now)
-
-            return rewritten
-
-        except Exception as e:
-            logger.debug(f"Persona rewrite exception: {e}")
-            return message
+        return await self._rewrite_impl(
+            message,
+            cache_key=(message, tone),
+            user_prompt=user_prompt,
+            max_chars=70,
+            max_tokens=80,
+            prune=True,
+        )
 
     async def rewrite_long(self, message: str, tone: str = "neutral", max_chars: int = 500) -> str:
         """Rewrite a longer message (e.g. chat response) in character voice.
@@ -106,14 +60,6 @@ class PersonaRewriter:
         if not PERSONA_REWRITE_ENABLED or not message:
             return message
 
-        cache_key = (f"long:{tone}:{max_chars}:{message}", tone)
-        now = time.monotonic()
-        cached = self._cache.get(cache_key)
-        if cached is not None:
-            rewritten, ts = cached
-            if PERSONA_REWRITE_CACHE_TTL > 0 and (now - ts) < PERSONA_REWRITE_CACHE_TTL:
-                return rewritten
-
         user_prompt = (
             f"以下のメッセージを、あなたの口調で言い換えてください。\n"
             f"トーン: {tone}\n"
@@ -121,6 +67,42 @@ class PersonaRewriter:
             f"{max_chars}字以内。箇条書きの構造は保持してよい。\n"
             f"メッセージ: {message}"
         )
+        return await self._rewrite_impl(
+            message,
+            cache_key=(f"long:{tone}:{max_chars}:{message}", tone),
+            user_prompt=user_prompt,
+            max_chars=max_chars,
+            max_tokens=min(max_chars * 2, 1024),
+            prune=False,
+        )
+
+    async def _rewrite_impl(
+        self,
+        message: str,
+        *,
+        cache_key: tuple[str, str],
+        user_prompt: str,
+        max_chars: int,
+        max_tokens: int,
+        prune: bool,
+    ) -> str:
+        """Shared rewrite path: cache lookup → LLM call → quote-strip → truncate.
+
+        `prune=True` (the short rewrite path) also counts cache checks and
+        periodically evicts expired entries; rewrite_long opts out.
+        """
+        now = time.monotonic()
+        if prune:
+            self._cache_checks += 1
+
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            rewritten, ts = cached
+            if PERSONA_REWRITE_CACHE_TTL > 0 and (now - ts) < PERSONA_REWRITE_CACHE_TTL:
+                return rewritten
+
+        if prune and (self._cache_checks % 100 == 0 or len(self._cache) > 200):
+            self._prune_cache(now)
 
         messages = [
             {"role": "system", "content": self._persona_prompt},
@@ -128,32 +110,21 @@ class PersonaRewriter:
         ]
 
         try:
-            response = await self.llm_client.chat(
-                messages,
-                temperature=0.7,
-                max_tokens=min(max_chars * 2, 1024),
-            )
+            response = await self.llm_client.chat(messages, temperature=0.7, max_tokens=max_tokens)
             if response.error or not response.content:
-                logger.debug(f"Persona rewrite_long failed: {response.error}")
+                logger.debug(f"Persona rewrite failed: {response.error}")
                 return message
 
-            rewritten = response.content.strip()
-            if len(rewritten) >= 2 and rewritten[0] in ('"', "'", "「", "『"):
-                closing = {'"': '"', "'": "'", "「": "」", "『": "』"}
-                expected_close = closing.get(rewritten[0])
-                if expected_close and rewritten[-1] == expected_close:
-                    rewritten = rewritten[1:-1]
-
+            rewritten = _strip_surrounding_quotes(response.content.strip())
             if len(rewritten) > max_chars:
                 rewritten = rewritten[:max_chars]
-
             if not rewritten:
                 return message
 
             self._cache[cache_key] = (rewritten, now)
             return rewritten
         except Exception as e:
-            logger.debug(f"Persona rewrite_long exception: {e}")
+            logger.debug(f"Persona rewrite exception: {e}")
             return message
 
     def _prune_cache(self, now: float) -> None:
@@ -163,6 +134,16 @@ class PersonaRewriter:
         expired = [key for key, (_, ts) in self._cache.items() if (now - ts) >= PERSONA_REWRITE_CACHE_TTL]
         for key in expired:
             del self._cache[key]
+
+
+def _strip_surrounding_quotes(text: str) -> str:
+    """Strip a single matched pair of surrounding quotes (ASCII or 「」/『』)."""
+    if len(text) >= 2 and text[0] in ('"', "'", "「", "『"):
+        closing = {'"': '"', "'": "'", "「": "」", "『": "』"}
+        expected_close = closing.get(text[0])
+        if expected_close and text[-1] == expected_close:
+            return text[1:-1]
+    return text
 
 
 def _build_persona_prompt(character) -> str:

@@ -36,3 +36,15 @@ class FallbackProvider(TTSProvider):
         if await self.primary.is_available():
             return True
         return await self.fallback.is_available()
+
+    # Health monitoring tracks the primary provider (the one we prefer to use).
+    @property
+    def health_poll_interval(self) -> float | None:
+        return self.primary.health_poll_interval
+
+    @property
+    def healthy(self) -> bool:
+        return self.primary.healthy
+
+    async def passive_health_snapshot(self) -> dict | None:
+        return await self.primary.passive_health_snapshot()

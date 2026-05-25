@@ -4,7 +4,6 @@ Tests for BootLoadManager — state machine, cache persistence, confidence windo
 
 import asyncio
 import json
-import os
 import tempfile
 import time
 from datetime import datetime, timedelta
@@ -132,13 +131,17 @@ class TestBootLoadCachePersistence:
         # Drop a fake cache file from yesterday
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         stale = cache_dir / f"{yesterday}.json"
-        stale.write_text(json.dumps({
-            "briefing_chunks": ["old"],
-            "audio_urls": [],
-            "news_chunks": [],
-            "generated_at": 1.0,
-            "is_complete": True,
-        }))
+        stale.write_text(
+            json.dumps(
+                {
+                    "briefing_chunks": ["old"],
+                    "audio_urls": [],
+                    "news_chunks": [],
+                    "generated_at": 1.0,
+                    "is_complete": True,
+                }
+            )
+        )
         assert stale.exists()
 
         # New manager should GC it
@@ -150,13 +153,17 @@ class TestBootLoadCachePersistence:
         cache_dir = BLM()._cache_path().parent
         today = datetime.now().strftime("%Y-%m-%d")
         path = cache_dir / f"{today}.json"
-        path.write_text(json.dumps({
-            "briefing_chunks": ["partial"],
-            "audio_urls": [],
-            "news_chunks": [],
-            "generated_at": 1.0,
-            "is_complete": False,  # crashed mid-run
-        }))
+        path.write_text(
+            json.dumps(
+                {
+                    "briefing_chunks": ["partial"],
+                    "audio_urls": [],
+                    "news_chunks": [],
+                    "generated_at": 1.0,
+                    "is_complete": False,  # crashed mid-run
+                }
+            )
+        )
 
         blm = BLM()
         assert not blm.is_ready
@@ -191,6 +198,7 @@ class TestBootLoadRunPipeline:
         class FailingSession:
             async def __aenter__(self_):
                 return self_
+
             async def __aexit__(self_, *a):
                 return False
 
@@ -246,11 +254,13 @@ class TestBootLoadRunPipeline:
         class StubSession:
             async def __aenter__(self_):
                 return self_
+
             async def __aexit__(self_, *a):
                 return False
 
             def post(self_, *a, **kw):
                 raise RuntimeError("no")
+
             def get(self_, *a, **kw):
                 raise RuntimeError("no")
 

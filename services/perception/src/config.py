@@ -28,26 +28,11 @@ CONFIDENCE_THRESHOLD = float(os.getenv("HEMS_PERCEPTION_CONFIDENCE", "0.5"))
 # Processing interval (seconds)
 PROCESS_INTERVAL = int(os.getenv("HEMS_PERCEPTION_INTERVAL", "5"))
 
-# VLM (Vision Language Model) — disabled by default.
-# Default backend: llama.cpp `vlm-light` / `vlm-heavy` services (OpenAI-compat).
-# Legacy fallback: if VLM_LIGHT_API_URL is unset and VLM_OLLAMA_URL is given,
-# we treat the Ollama URL as an OpenAI-compat base (`/v1` is appended by the
-# analyzer). Ollama 0.1.26+ exposes `/v1/chat/completions`.
+# VLM (Vision Language Model) — disabled by default
 VLM_ENABLED = os.getenv("VLM_ENABLED", "false").lower() == "true"
-_ollama_fallback = os.getenv("VLM_OLLAMA_URL", "").rstrip("/")
-_ollama_fallback_v1 = f"{_ollama_fallback}/v1" if _ollama_fallback else ""
-VLM_LIGHT_API_URL = (
-    os.getenv("VLM_LIGHT_API_URL", "").rstrip("/")
-    or _ollama_fallback_v1
-    or "http://vlm-light:8080/v1"
-)
-VLM_HEAVY_API_URL = (
-    os.getenv("VLM_HEAVY_API_URL", "").rstrip("/")
-    or _ollama_fallback_v1
-    or "http://vlm-heavy:8080/v1"
-)
-VLM_LIGHT_MODEL = os.getenv("VLM_LIGHT_MODEL", "minicpm-v")
-VLM_HEAVY_MODEL = os.getenv("VLM_HEAVY_MODEL", "qwen2-vl-7b")
+VLM_OLLAMA_URL = os.getenv("VLM_OLLAMA_URL", "http://ollama:11434")
+VLM_LIGHT_MODEL = os.getenv("VLM_LIGHT_MODEL", "moondream")
+VLM_HEAVY_MODEL = os.getenv("VLM_HEAVY_MODEL", "minicpm-v")
 VLM_BASE_INTERVAL = int(os.getenv("VLM_BASE_INTERVAL", "1800"))
 VLM_MIN_INTERVAL = int(os.getenv("VLM_MIN_INTERVAL", "60"))
 VLM_MAX_INTERVAL = int(os.getenv("VLM_MAX_INTERVAL", "7200"))

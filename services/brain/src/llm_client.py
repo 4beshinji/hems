@@ -1,10 +1,5 @@
 """
 LLM Client for HEMS Brain — supports OpenAI-compatible, Ollama native, and Anthropic APIs.
-
-Default path is `LLM_PROVIDER=openai`, which talks to any OpenAI-compatible
-server (llama.cpp `llama-server`, LocalAI, mock-llm, OpenAI Cloud, or Ollama's
-`/v1` endpoint). The native Ollama `/api/chat` path is kept for compatibility
-but is not the default in this project anymore.
 """
 
 import json
@@ -19,6 +14,10 @@ class LLMResponse:
     content: str = ""
     tool_calls: list = field(default_factory=list)
     error: str | None = None
+    # Token usage normalized to {"prompt_tokens": int, "completion_tokens": int}
+    # across providers (None when the backend reports nothing). Read by the
+    # cognitive loop for per-cycle cost metering (Group E).
+    usage: dict | None = None
 
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # openai | anthropic | ollama
@@ -107,9 +106,18 @@ class LLMClient:
                         }
                     )
 
+                # Ollama native reports counts at the top level, not "usage".
+                usage = None
+                if data.get("prompt_eval_count") is not None or data.get("eval_count") is not None:
+                    usage = {
+                        "prompt_tokens": data.get("prompt_eval_count"),
+                        "completion_tokens": data.get("eval_count"),
+                    }
+
                 return LLMResponse(
                     content=msg.get("content", "") or "",
                     tool_calls=tool_calls,
+                    usage=usage,
                 )
         except Exception as e:
             logger.error(f"Ollama API error: {e}")
@@ -160,6 +168,7 @@ class LLMClient:
                 return LLMResponse(
                     content=msg.get("content", "") or "",
                     tool_calls=tool_calls,
+                    usage=data.get("usage"),
                 )
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
@@ -246,7 +255,16 @@ class LLMClient:
                             }
                         )
 
-                return LLMResponse(content=content_text, tool_calls=tool_calls)
+                # Anthropic reports input_tokens/output_tokens under "usage".
+                au = data.get("usage") or {}
+                usage = None
+                if au:
+                    usage = {
+                        "prompt_tokens": au.get("input_tokens"),
+                        "completion_tokens": au.get("output_tokens"),
+                    }
+
+                return LLMResponse(content=content_text, tool_calls=tool_calls, usage=usage)
         except Exception as e:
             logger.error(f"Anthropic API error: {e}")
             return LLMResponse(error=str(e))

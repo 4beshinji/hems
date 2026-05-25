@@ -18,6 +18,19 @@ class SpeechGenerator:
         self.llm_api_url = LLM_API_URL
         self.model = LLM_MODEL
         self._persona = self._build_persona(character_config or {})
+        # Shared session, created lazily on the running loop and reused across
+        # calls; closed via aclose() on service shutdown.
+        self._session: aiohttp.ClientSession | None = None
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
+        return self._session
+
+    async def aclose(self) -> None:
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
+            self._session = None
 
     def _build_persona(self, config: dict) -> str:
         parts = []
@@ -75,17 +88,16 @@ class SpeechGenerator:
         if not url.endswith("/chat/completions"):
             url += "/chat/completions"
 
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
-            async with session.post(
-                url,
-                json={
-                    "model": self.model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 100,
-                    "temperature": 0.3,
-                },
-            ) as resp:
-                if resp.status != 200:
-                    raise Exception(f"LLM API error {resp.status}")
-                data = await resp.json()
-                return data["choices"][0]["message"]["content"]
+        async with self._get_session().post(
+            url,
+            json={
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 100,
+                "temperature": 0.3,
+            },
+        ) as resp:
+            if resp.status != 200:
+                raise Exception(f"LLM API error {resp.status}")
+            data = await resp.json()
+            return data["choices"][0]["message"]["content"]

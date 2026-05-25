@@ -68,6 +68,7 @@ services:
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}
       - ROOMS=${ROOMS:-living_room}
+      - OPENCLAW_BRIDGE_URL=${OPENCLAW_BRIDGE_URL:-}
       - LOCALCRAW_BRIDGE_URL=${LOCALCRAW_BRIDGE_URL:-}
       - OBSIDIAN_BRIDGE_URL=${OBSIDIAN_BRIDGE_URL:-}
       - GAS_BRIDGE_URL=${GAS_BRIDGE_URL:-}
@@ -94,6 +95,7 @@ services:
       - HEMS_GMAIL_VIP_SENDERS=${HEMS_GMAIL_VIP_SENDERS:-}
       - HEMS_GITHUB_VIP_REPOS=${HEMS_GITHUB_VIP_REPOS:-}
       - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
+      - BACKEND_API_KEY=${BACKEND_API_KEY:-}
     volumes:
       - ../services/brain/src:/app
       - ../config:/config:ro
@@ -131,6 +133,7 @@ services:
       - VOICE_SERVICE_URL=${VOICE_SERVICE_URL:-http://voice-service:8000}
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
       - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
+      - BACKEND_API_KEY=${BACKEND_API_KEY:-}
     volumes:
       - ../services/backend:/app
       - ../config:/config:ro
@@ -157,6 +160,9 @@ services:
         condition: service_healthy
     environment:
       - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
+      # nginx envsubst injects this into the /api/ proxy Authorization header
+      # so the dashboard reaches the backend when BACKEND_API_KEY is enforced.
+      - BACKEND_API_KEY=${BACKEND_API_KEY:-}
     networks:
       - hems-net
     healthcheck:
@@ -226,14 +232,14 @@ services:
 
   # ========== Optional Services (profiles) ==========
 
-  # --- localcraw Bridge (PC metrics + service monitor, OpenClaw不要) ---
+  # --- OpenClaw Bridge (PC metrics + service monitor; built from legacy localcraw repo) ---
   localcraw-bridge:
     build:
       context: ../../localcraw
       dockerfile: Dockerfile
-    container_name: hems-localcraw-bridge
+    container_name: hems-openclaw-bridge
     restart: always
-    profiles: ["localcraw"]
+    profiles: ["openclaw", "localcraw"]
     # pid:host でホストのPID名前空間を共有。
     # /proc はpid:host時にコンテナ内で自動的にホストのものが見えるため明示的なマウント不要。
     # (/proc:ro マウントは AppArmor + healthcheck exec と競合するため使用しない)
@@ -249,7 +255,7 @@ services:
       - PORT=8000
       - TZ=${TZ:-Asia/Tokyo}
       - MQTT_BROKER=mosquitto
-      - MQTT_USER=hems-localcraw
+      - MQTT_USER=hems-openclaw
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - OPENCLAW_METRICS_INTERVAL=${OPENCLAW_METRICS_INTERVAL:-10}
       - OPENCLAW_PROCESS_INTERVAL=${OPENCLAW_PROCESS_INTERVAL:-30}
@@ -264,7 +270,9 @@ services:
       - HEMS_HA_URL=${HEMS_HA_URL:-}
       - HEMS_HA_TOKEN=${HEMS_HA_TOKEN:-}
     networks:
-      - hems-net
+      hems-net:
+        aliases:
+          - openclaw-bridge
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
@@ -472,8 +480,10 @@ services:
   # Pulls LLM_MODEL on startup (one-shot). Re-run after changing LLM_MODEL.
   # VRAM-based model selection: run `python infra/scripts/gpu_setup.py --auto-select`
   #   Default: ArliAI Qwen-3.5-27B-Derestricted (via mradermacher GGUF)
-  #   Tiers: ~4GB→qwen2.5:3b  ~14GB→Derestricted:Q3_K_M  ~16GB→:Q4_K_M
-  #          ~20GB→:Q6_K  ~26GB→:Q8_0  ~85GB+→qwen3.5:122b-a10b
+  #   Usable VRAM ≈ total − ~2GiB; a model must be ≲ usable to fully GPU-offload.
+  #   Tiers: ~4GB→qwen2.5:3b  ~16GB→qwen3.5:9b-q8_0 (dense, 100% GPU — measured;
+  #   a 27B ~15-17GB does NOT load on 16GB)  ~20GB→Derestricted:Q4_K_M
+  #   ~22GB→:Q6_K  ~26GB→:Q8_0  ~85GB+→qwen3.5:122b-a10b
   ollama-pull:
     image: ollama/ollama
     container_name: hems-ollama-pull

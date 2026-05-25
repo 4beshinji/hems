@@ -7,9 +7,9 @@ import time
 
 from gas_client import GASClient
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 
 import config
-from mqtt_publisher import MQTTPublisher
 
 
 class DataPoller:

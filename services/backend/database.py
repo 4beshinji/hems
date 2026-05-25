@@ -1,5 +1,5 @@
 import os
-from datetime import timezone as _tz
+from datetime import UTC
 
 from sqlalchemy import DateTime as _SADateTime
 from sqlalchemy import TypeDecorator
@@ -18,8 +18,9 @@ class TZDateTime(TypeDecorator):
 
     def process_result_value(self, value, dialect):
         if value is not None and value.tzinfo is None:
-            return value.replace(tzinfo=_tz.utc)
+            return value.replace(tzinfo=UTC)
         return value
+
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/hems.db")
 

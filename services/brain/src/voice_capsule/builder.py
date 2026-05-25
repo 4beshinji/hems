@@ -23,10 +23,13 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 
 def _internal_headers() -> dict:
     token = os.getenv("HEMS_INTERNAL_TOKEN", "")
     return {"Authorization": f"Bearer {token}"} if token else {}
+
 
 from .generic_bank import GenericSpec, default_bank
 from .persist import push_manifest
@@ -142,7 +145,7 @@ class CapsuleBuilder:
         """GET /frequent-places/ — returns enabled places only."""
         url = f"{self.backend_url}/frequent-places/?enabled_only=true"
         try:
-            async with self.session.get(url, timeout=10) as resp:
+            async with self.session.get(url, headers=backend_auth_headers(), timeout=10) as resp:
                 if resp.status == 200:
                     return await resp.json()
         except Exception as exc:
@@ -153,7 +156,7 @@ class CapsuleBuilder:
         """GET /shopping/ — pending (not purchased) items only."""
         url = f"{self.backend_url}/shopping/?include_purchased=false"
         try:
-            async with self.session.get(url, timeout=10) as resp:
+            async with self.session.get(url, headers=backend_auth_headers(), timeout=10) as resp:
                 if resp.status == 200:
                     return await resp.json()
         except Exception as exc:

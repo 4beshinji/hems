@@ -2,7 +2,7 @@
 Bridge status SLA logging — receives state transitions from Brain and exposes uptime stats.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -37,7 +37,7 @@ async def record_event(event: BridgeStatusEvent, db: AsyncSession = Depends(get_
 async def uptime(days: int = 7, db: AsyncSession = Depends(get_db)):
     """Per-service uptime % over the last N days, plus disconnect counts."""
     days = max(1, min(days, 30))
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since = datetime.now(UTC) - timedelta(days=days)
 
     result = await db.execute(
         select(BridgeStatusLog.service, BridgeStatusLog.state, func.count())

@@ -3,7 +3,7 @@ Device action log — receives transition records from Brain.
 Used by frontend DeviceTimelineCard for 24h state-transition timeline.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -47,7 +47,7 @@ async def list_actions(
     db: AsyncSession = Depends(get_db),
 ):
     """Return recent device actions for timeline display."""
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    since = datetime.now(UTC) - timedelta(hours=hours)
     stmt = (
         select(DeviceActionLog)
         .where(DeviceActionLog.timestamp >= since)

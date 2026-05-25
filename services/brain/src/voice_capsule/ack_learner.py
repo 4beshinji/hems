@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 if TYPE_CHECKING:
     import aiohttp
 
@@ -72,7 +74,11 @@ class AckLearner:
         if self.motion_retriever is not None:
             motion_rejections: dict[str, int] = defaultdict(int)
             for row in logs:
-                motion_id = (row.get("context_json") or {}).get("motion_id") if isinstance(row.get("context_json"), dict) else None
+                motion_id = (
+                    (row.get("context_json") or {}).get("motion_id")
+                    if isinstance(row.get("context_json"), dict)
+                    else None
+                )
                 if not motion_id:
                     continue
                 drift = row.get("trigger_drift_sec")
@@ -124,7 +130,7 @@ class AckLearner:
     async def _fetch_play_logs(self, *, since_days: int) -> list[dict]:
         url = f"{self.backend_url}/mobile/voice-capsule/play-log?since_days={since_days}"
         try:
-            async with self.session.get(url, timeout=15) as resp:
+            async with self.session.get(url, headers=backend_auth_headers(), timeout=15) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 logger.warning("[ack_learner] play-log fetch HTTP {}", resp.status)
@@ -155,7 +161,7 @@ class AckLearner:
     async def _list_event_lead_entries(self) -> list[dict]:
         url = f"{self.backend_url}/classifier-cache?kind=event_lead"
         try:
-            async with self.session.get(url, timeout=15) as resp:
+            async with self.session.get(url, headers=backend_auth_headers(), timeout=15) as resp:
                 if resp.status == 200:
                     return await resp.json()
         except Exception as exc:
@@ -178,7 +184,7 @@ class AckLearner:
             "source": source,
         }
         try:
-            async with self.session.post(url, json=payload, timeout=10) as resp:
+            async with self.session.post(url, headers=backend_auth_headers(), json=payload, timeout=10) as resp:
                 return resp.status == 201
         except Exception as exc:
             logger.warning("[ack_learner] cache put error: {}", exc)

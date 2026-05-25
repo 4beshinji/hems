@@ -6,8 +6,7 @@ timeseries / automations / scenes など見栄え用データを補完する。
 
 import argparse
 import math
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 
@@ -22,7 +21,7 @@ def seed_extras(base: str):
 
     # --- Timeseries (24h, 5min interval = 288 points/metric) ---
     print("\n[Timeseries] 24h × 6 metrics × 3 zones")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     points = []
     for i in range(288):
         # Walk back from now
@@ -49,7 +48,7 @@ def seed_extras(base: str):
 
     # Send in chunks of 500
     for i in range(0, len(points), 500):
-        chunk = points[i:i + 500]
+        chunk = points[i : i + 500]
         post("/timeseries/ingest", {"points": chunk})
     print(f"  → seeded {len(points)} points")
 
@@ -61,9 +60,20 @@ def seed_extras(base: str):
             "description": "リビングのCO2が1000ppmを超えたら換気を促す",
             "enabled": True,
             "trigger_type": "sensor_threshold",
-            "trigger_config": {"device_id": "sensor.living_room_co2", "channel": "co2", "op": ">", "value": 1000, "zone": "living_room"},
+            "trigger_config": {
+                "device_id": "sensor.living_room_co2",
+                "channel": "co2",
+                "op": ">",
+                "value": 1000,
+                "zone": "living_room",
+            },
             "actions": [
-                {"device_id": "speak", "action": "speak", "params": {"text": "CO2が高くなっています。換気をおすすめします。"}, "delay_s": 0},
+                {
+                    "device_id": "speak",
+                    "action": "speak",
+                    "params": {"text": "CO2が高くなっています。換気をおすすめします。"},
+                    "delay_s": 0,
+                },
             ],
             "cooldown_s": 600,
             "mode": "direct",
@@ -91,7 +101,12 @@ def seed_extras(base: str):
             "trigger_config": {"event": "wake_up"},
             "actions": [
                 {"device_id": "ha.cover.bedroom", "action": "open", "params": {}, "delay_s": 0},
-                {"device_id": "speak", "action": "speak", "params": {"text": "おはようございます。本日のニュースをお伝えします。"}, "delay_s": 30},
+                {
+                    "device_id": "speak",
+                    "action": "speak",
+                    "params": {"text": "おはようございます。本日のニュースをお伝えします。"},
+                    "delay_s": 30,
+                },
             ],
             "cooldown_s": 21600,
             "mode": "direct",
@@ -104,7 +119,12 @@ def seed_extras(base: str):
             "trigger_type": "device_state",
             "trigger_config": {"device_id": "zigbee.entrance_motion", "state_key": "occupancy", "state_value": True},
             "actions": [
-                {"device_id": "ha.climate.living_room", "action": "set_mode", "params": {"mode": "auto", "temperature": 24}, "delay_s": 0},
+                {
+                    "device_id": "ha.climate.living_room",
+                    "action": "set_mode",
+                    "params": {"mode": "auto", "temperature": 24},
+                    "delay_s": 0,
+                },
             ],
             "cooldown_s": 1800,
             "mode": "llm_review",
@@ -122,7 +142,12 @@ def seed_extras(base: str):
             "display_name": "映画モード",
             "description": "リビングを暗くして映画鑑賞モードに",
             "actions": [
-                {"device_id": "ha.light.living_room", "action": "set_brightness", "params": {"brightness": 30}, "delay_s": 0},
+                {
+                    "device_id": "ha.light.living_room",
+                    "action": "set_brightness",
+                    "params": {"brightness": 30},
+                    "delay_s": 0,
+                },
                 {"device_id": "ha.cover.living_room", "action": "close", "params": {}, "delay_s": 0},
             ],
             "is_enabled": True,
@@ -132,7 +157,12 @@ def seed_extras(base: str):
             "display_name": "集中モード",
             "description": "作業効率最大化",
             "actions": [
-                {"device_id": "ha.light.living_room", "action": "set_brightness", "params": {"brightness": 255, "color_temp": 250}, "delay_s": 0},
+                {
+                    "device_id": "ha.light.living_room",
+                    "action": "set_brightness",
+                    "params": {"brightness": 255, "color_temp": 250},
+                    "delay_s": 0,
+                },
             ],
             "is_enabled": True,
         },
@@ -154,10 +184,25 @@ def seed_extras(base: str):
     # --- Voice events (more variety) ---
     print("\n[Voice Events extra]")
     extras = [
-        {"message": "デスクから2時間離れていません。少し体を動かしましょう。", "tone": "caring", "audio_url": "", "zone": "living_room"},
+        {
+            "message": "デスクから2時間離れていません。少し体を動かしましょう。",
+            "tone": "caring",
+            "audio_url": "",
+            "zone": "living_room",
+        },
         {"message": "今日は記録的な暑さになる予報です！", "tone": "alert", "audio_url": "", "zone": None},
-        {"message": "Pull Request #42 がマージされました。お疲れさまです。", "tone": "humorous", "audio_url": "", "zone": None},
-        {"message": "気圧が急降下しています。頭痛が出るかもしれません。", "tone": "caring", "audio_url": "", "zone": None},
+        {
+            "message": "Pull Request #42 がマージされました。お疲れさまです。",
+            "tone": "humorous",
+            "audio_url": "",
+            "zone": None,
+        },
+        {
+            "message": "気圧が急降下しています。頭痛が出るかもしれません。",
+            "tone": "caring",
+            "audio_url": "",
+            "zone": None,
+        },
         {"message": "今日のタスクは8件、完了は3件です。", "tone": "neutral", "audio_url": "", "zone": None},
     ]
     for ve in extras:
@@ -169,7 +214,10 @@ def seed_extras(base: str):
     if conv.ok:
         cid = conv.json().get("conversation_id")
         if cid:
-            post("/chat/", {"content": "了解。買い物のリマインドを18時にお願いします。", "tts": False, "conversation_id": cid})
+            post(
+                "/chat/",
+                {"content": "了解。買い物のリマインドを18時にお願いします。", "tts": False, "conversation_id": cid},
+            )
 
     print("\n✓ Extra demo data seeded.")
 

@@ -9,10 +9,10 @@ from contextlib import asynccontextmanager
 from data_poller import DataPoller
 from fastapi import FastAPI, HTTPException
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 from weather_client import JMAClient, OWMClient
 
 import config
-from mqtt_publisher import MQTTPublisher
 
 # Module-level state
 weather_client: JMAClient | OWMClient | None = None

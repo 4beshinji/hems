@@ -164,16 +164,30 @@ class HourlyAggregator:
                     zones[zone_id] = {}
                 zones[zone_id][row[1]] = row[2]
 
-        # LLM decision stats
+        # LLM decision stats + cost/energy rollup (Group E)
         dr = await conn.execute(
             text(
-                f"SELECT COUNT(*), COALESCE(SUM(total_tool_calls), 0) FROM {tp}llm_decisions WHERE timestamp >= :start AND timestamp < :end"
+                f"SELECT COUNT(*), COALESCE(SUM(total_tool_calls), 0), "
+                f"COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), "
+                f"AVG(gpu_util_pct), AVG(gpu_power_w) "
+                f"FROM {tp}llm_decisions WHERE timestamp >= :start AND timestamp < :end"
             ),
             {"start": start_str, "end": end_str},
         )
         d = dr.fetchone()
         llm_cycles = d[0] if d else 0
         total_tool_calls = d[1] if d else 0
+        prompt_tokens = (d[2] if d else 0) or 0
+        completion_tokens = (d[3] if d else 0) or 0
+        avg_gpu_util = d[4] if d else None
+        avg_gpu_power = d[5] if d else None
+        device_health = {
+            "total_tool_calls": total_tool_calls,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "avg_gpu_util_pct": avg_gpu_util,
+            "avg_gpu_power_w": avg_gpu_power,
+        }
 
         # Count tasks created from tool_calls JSON (Postgres only — requires jsonb_array_elements)
         tasks_created = 0
@@ -207,7 +221,7 @@ class HourlyAggregator:
                     "zones": json.dumps(zones),
                     "tasks_created": tasks_created,
                     "llm_cycles": llm_cycles,
-                    "device_health": json.dumps({"total_tool_calls": total_tool_calls}),
+                    "device_health": json.dumps(device_health),
                 },
             )
         else:
@@ -221,7 +235,7 @@ class HourlyAggregator:
                     "zones": json.dumps(zones),
                     "tasks_created": tasks_created,
                     "llm_cycles": llm_cycles,
-                    "device_health": json.dumps({"total_tool_calls": total_tool_calls}),
+                    "device_health": json.dumps(device_health),
                 },
             )
 

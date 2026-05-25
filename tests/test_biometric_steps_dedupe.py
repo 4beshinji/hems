@@ -54,9 +54,7 @@ def test_steps_published_only_to_steps_topic(bridge_main):
     assert by_topic["steps"]["daily_goal"] == 10000
 
     assert "activity" in by_topic, "activity topic should be published when level/calories/active_minutes set"
-    assert "steps" not in by_topic["activity"], (
-        "activity payload must NOT include steps (avoid double publish)"
-    )
+    assert "steps" not in by_topic["activity"], "activity payload must NOT include steps (avoid double publish)"
     assert by_topic["activity"]["calories"] == 250
     assert by_topic["activity"]["active_minutes"] == 30
 

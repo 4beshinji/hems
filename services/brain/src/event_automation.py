@@ -12,8 +12,8 @@ from datetime import datetime
 import aiohttp
 from loguru import logger
 
-from brain_utils import SPEAK_CHUNK_LIMIT
-from brain_utils import split_for_speak as _split_for_speak
+from brain_constants import backend_auth_headers
+from brain_utils import SPEAK_CHUNK_LIMIT, split_for_speak
 
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
@@ -130,7 +130,7 @@ class EventAutomation:
                 if boot_load_used and action_name in _BOOT_LOAD_ACTIONS:
                     continue
                 try:
-                    await self._execute_action(action_name, action_config)
+                    await self.execute_action(action_name, action_config)
                 except Exception as e:
                     logger.error(f"Action {action_name} failed: {e}")
 
@@ -156,11 +156,15 @@ class EventAutomation:
                     action_name = action if isinstance(action, str) else action.get("name", "")
                     action_config = None if isinstance(action, str) else action
                     try:
-                        await self._execute_action(action_name, action_config)
+                        await self.execute_action(action_name, action_config)
                     except Exception as e:
                         logger.error(f"Scheduled action {action_name} failed: {e}")
 
-    async def _execute_action(self, action_name: str, action_config: dict = None):
+    async def _speak(self, message: str, tone: str = "neutral") -> None:
+        """Emit a speak action for the home zone (the only zone event automations use)."""
+        await self.tool_executor.execute("speak", {"message": message, "zone": "home", "tone": tone})
+
+    async def execute_action(self, action_name: str, action_config: dict = None):
         """Execute a single action."""
         # scene:{name} → route to Scene executor
         if action_name.startswith("scene:"):
@@ -184,14 +188,7 @@ class EventAutomation:
         elif action_name == "speak_custom":
             text = (action_config or {}).get("text", "")
             if text:
-                await self.tool_executor.execute(
-                    "speak",
-                    {
-                        "message": text[:SPEAK_CHUNK_LIMIT],
-                        "zone": "home",
-                        "tone": (action_config or {}).get("tone", "neutral"),
-                    },
-                )
+                await self._speak(text[:SPEAK_CHUNK_LIMIT], tone=(action_config or {}).get("tone", "neutral"))
         else:
             logger.warning(f"Unknown action: {action_name}")
 
@@ -215,8 +212,7 @@ class EventAutomation:
             age_hours = (time.time() - ns.daily_timestamp) / 3600 if ns.daily_timestamp else 9999
             if age_hours > NEWS_REFRESH_STALE_HOURS:
                 logger.info(
-                    f"[news_briefing] cache stale ({age_hours:.1f}h > {NEWS_REFRESH_STALE_HOURS}h) "
-                    f"→ trigger refresh"
+                    f"[news_briefing] cache stale ({age_hours:.1f}h > {NEWS_REFRESH_STALE_HOURS}h) → trigger refresh"
                 )
                 try:
                     async with self._session.post(
@@ -255,27 +251,12 @@ class EventAutomation:
             return
 
         # Speak intro
-        await self.tool_executor.execute(
-            "speak",
-            {
-                "message": "ニュースをお伝えします。",
-                "zone": "home",
-                "tone": "neutral",
-            },
-        )
+        await self._speak("ニュースをお伝えします。")
 
         # Speak each chunk, re-splitting if needed for 70-char limit
         for chunk in chunks:
-            sub_chunks = _split_for_speak(chunk)
-            for sub in sub_chunks:
-                await self.tool_executor.execute(
-                    "speak",
-                    {
-                        "message": sub,
-                        "zone": "home",
-                        "tone": "neutral",
-                    },
-                )
+            for sub in split_for_speak(chunk):
+                await self._speak(sub)
 
     async def _action_morning_greeting(self):
         """Generate and speak a morning greeting using LLM."""
@@ -316,7 +297,7 @@ class EventAutomation:
                     ]
                 )
                 if not response.error and response.content:
-                    message = response.content.strip().strip("「」『』\"'")[:67]
+                    message = response.content.strip().strip("「」『』\"'")[:SPEAK_CHUNK_LIMIT]
             except Exception as e:
                 logger.warning(f"Morning greeting LLM failed: {e}")
 
@@ -329,14 +310,7 @@ class EventAutomation:
             else:
                 message = "こんにちは。"
 
-        await self.tool_executor.execute(
-            "speak",
-            {
-                "message": message,
-                "zone": "home",
-                "tone": "caring",
-            },
-        )
+        await self._speak(message, tone="caring")
 
     async def _execute_boot_load_briefing(self):
         """Play pre-generated boot load briefing cache.
@@ -362,6 +336,7 @@ class EventAutomation:
                 try:
                     async with self._session.post(
                         f"{BACKEND_URL}/voice-events/",
+                        headers=backend_auth_headers(),
                         json={
                             "message": chunk,
                             "audio_url": url,
@@ -380,10 +355,7 @@ class EventAutomation:
 
             # No audio_url (or injection failed) → at-wake TTS
             try:
-                await self.tool_executor.execute(
-                    "speak",
-                    {"message": chunk, "zone": "home", "tone": "caring"},
-                )
+                await self._speak(chunk, tone="caring")
                 spoken += 1
             except Exception as e:
                 logger.warning(f"[BootLoad] speak エラー: {e}")
@@ -404,14 +376,7 @@ class EventAutomation:
             tasks = await self.tool_executor.dashboard.get_active_tasks()
             if not tasks:
                 logger.info("[task_planning] アクティブタスクなし")
-                await self.tool_executor.execute(
-                    "speak",
-                    {
-                        "message": "現在アクティブなタスクはありません。",
-                        "zone": "home",
-                        "tone": "neutral",
-                    },
-                )
+                await self._speak("現在アクティブなタスクはありません。")
                 return
 
             tasks_text = "\n".join(f"- [{t['id']}] {t['title']}: {t.get('description', '')}" for t in tasks[:10])
@@ -432,15 +397,8 @@ class EventAutomation:
 
             content = resp.content.strip()
             if content:
-                for chunk in _split_for_speak(content, SPEAK_CHUNK_LIMIT):
-                    await self.tool_executor.execute(
-                        "speak",
-                        {
-                            "message": chunk,
-                            "zone": "home",
-                            "tone": "informative",
-                        },
-                    )
+                for chunk in split_for_speak(content, SPEAK_CHUNK_LIMIT):
+                    await self._speak(chunk, tone="informative")
             logger.info("[task_planning] 完了 (%d tasks)", len(tasks))
         except Exception as e:
             logger.error("[task_planning] エラー: %s", e)
@@ -449,10 +407,7 @@ class EventAutomation:
         """Announce active weather alerts (warning+ severity)."""
         w = self.world_model.physical.weather
         severe_levels = {"warning", "severe", "extreme", "critical"}
-        active = [
-            a for a in w.alerts
-            if (a.severity or "").lower() in severe_levels and a.title
-        ]
+        active = [a for a in w.alerts if (a.severity or "").lower() in severe_levels and a.title]
         if not active:
             logger.debug("[weather_alert_announce] no active severe alerts")
             return
@@ -460,29 +415,15 @@ class EventAutomation:
         for alert in active[:3]:
             area_part = f"（{alert.area}）" if alert.area else ""
             message = f"気象警報: {alert.title}{area_part}。注意してください。"
-            for chunk in _split_for_speak(message, SPEAK_CHUNK_LIMIT):
-                await self.tool_executor.execute(
-                    "speak",
-                    {
-                        "message": chunk,
-                        "zone": "home",
-                        "tone": "alert",
-                    },
-                )
+            for chunk in split_for_speak(message, SPEAK_CHUNK_LIMIT):
+                await self._speak(chunk, tone="alert")
 
     async def _action_weather_report(self):
         """Speak weather summary from world model."""
         w = self.world_model.physical.weather
         if w.last_update == 0:
             logger.warning("weather_report: weather-bridge data not yet received")
-            await self.tool_executor.execute(
-                "speak",
-                {
-                    "message": "天気情報はまだ取得できていません。",
-                    "zone": "home",
-                    "tone": "neutral",
-                },
-            )
+            await self._speak("天気情報はまだ取得できていません。")
             return
 
         parts = []
@@ -512,11 +453,4 @@ class EventAutomation:
         if len(message) > SPEAK_CHUNK_LIMIT:
             message = message[: SPEAK_CHUNK_LIMIT - 1] + "。"
 
-        await self.tool_executor.execute(
-            "speak",
-            {
-                "message": message,
-                "zone": "home",
-                "tone": "neutral",
-            },
-        )
+        await self._speak(message)

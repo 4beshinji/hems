@@ -504,13 +504,13 @@ class TestRuleEngineVLM:
 
 
 # ===========================================================================
-# Brain main.py _summarize_action Tests
+# Brain summarize_action Tests
 # ===========================================================================
 
 
 class TestSummarizeAction:
     def _get_summarize_action(self):
-        """Import _summarize_action from brain main.py (not backend).
+        """Import summarize_action from brain main.py (not backend).
 
         Heavy brain dependencies are mocked so we don't need a full runtime;
         any sys.modules entries we add are cleaned up after the import so
@@ -551,7 +551,7 @@ class TestSummarizeAction:
                 spec.loader.exec_module(mod)
             except Exception:
                 pass
-            return getattr(mod, "_summarize_action", None)
+            return getattr(mod, "summarize_action", None)
         finally:
             # Remove the mock entries we added so downstream tests can import
             # the real packages. Restore any pre-existing entry we may have
@@ -564,13 +564,13 @@ class TestSummarizeAction:
     def test_describe_scene_summary(self):
         fn = self._get_summarize_action()
         if fn is None:
-            pytest.skip("Could not import brain main._summarize_action")
+            pytest.skip("Could not import brain main.summarize_action")
         result = fn("describe_scene", {"zone_id": "living_room"})
         assert "living_room" in result
 
     def test_describe_scene_no_zone(self):
         fn = self._get_summarize_action()
         if fn is None:
-            pytest.skip("Could not import brain main._summarize_action")
+            pytest.skip("Could not import brain main.summarize_action")
         result = fn("describe_scene", {})
         assert "all" in result

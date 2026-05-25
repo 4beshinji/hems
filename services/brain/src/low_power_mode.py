@@ -28,14 +28,23 @@ Transitions:
   away   → normal: any zone occupancy count > 0, OR fresh biometric reading
 """
 
-import logging
 import os
 import time
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+from loguru import logger
+
+from brain_constants import MIN_CYCLE_INTERVAL
 
 # Cycle intervals in seconds (configurable via env vars)
+# NORMAL-mode poll floor: how long to wait for an MQTT event before the loop
+# wakes on its own. Events still trigger immediately via _cycle_triggered; this
+# is only the idle fallback, so a longer floor cuts no-op wakeups.
+NORMAL_CYCLE_INTERVAL = int(os.getenv("HEMS_NORMAL_CYCLE_INTERVAL", "180"))  # 3 min
+# NORMAL-mode proactive-thinking floor: an idle poll (no new events) skips the
+# LLM cycle until this much time has passed since the last cycle. Cuts idle
+# occupied-but-quiet LLM cycles from ~120/hr (30s poll) to ~6/hr.
+NORMAL_HEARTBEAT_INTERVAL = int(os.getenv("HEMS_NORMAL_HEARTBEAT_INTERVAL", "600"))  # 10 min
 LOW_POWER_SLEEP_INTERVAL = int(os.getenv("HEMS_LOW_POWER_SLEEP_INTERVAL", "300"))  # 5 min
 LOW_POWER_AWAY_INTERVAL = int(os.getenv("HEMS_LOW_POWER_AWAY_INTERVAL", "600"))  # 10 min
 # Minimum seconds between cognitive cycles in low-power mode
@@ -96,7 +105,7 @@ class PowerModeManager:
             return LOW_POWER_SLEEP_INTERVAL
         if self._mode == PowerMode.AWAY:
             return LOW_POWER_AWAY_INTERVAL
-        return 30  # matches CYCLE_INTERVAL in main.py
+        return NORMAL_CYCLE_INTERVAL
 
     @property
     def min_cycle_interval(self) -> int:
@@ -105,7 +114,7 @@ class PowerModeManager:
             return LOW_POWER_SLEEP_MIN_INTERVAL
         if self._mode == PowerMode.AWAY:
             return LOW_POWER_AWAY_MIN_INTERVAL
-        return 25  # matches MIN_CYCLE_INTERVAL in main.py
+        return MIN_CYCLE_INTERVAL
 
     # ------------------------------------------------------------------
     # LLM call throttling
@@ -140,11 +149,7 @@ class PowerModeManager:
         self._manual_override_until = now + MANUAL_OVERRIDE_DURATION
         self._away_candidate_since = None
         self._transition(mode, reason, now)
-        logger.info(
-            "[低消費電力] 手動オーバーライド: mode=%s, 自動遷移停止 %ds",
-            mode,
-            MANUAL_OVERRIDE_DURATION,
-        )
+        logger.info(f"[低消費電力] 手動オーバーライド: mode={mode}, 自動遷移停止 {MANUAL_OVERRIDE_DURATION}s")
 
     def seconds_until_llm_allowed(self, now: float | None = None) -> int:
         """Return seconds remaining until next LLM call is allowed (0 if now)."""
@@ -219,10 +224,7 @@ class PowerModeManager:
             if all_empty and any_fresh:
                 if self._away_candidate_since is None:
                     self._away_candidate_since = now
-                    logger.debug(
-                        "[低消費電力] 全ゾーン無人を検出 — %d秒後に外出モードへ移行",
-                        AWAY_CONFIRM_SECONDS,
-                    )
+                    logger.debug(f"[低消費電力] 全ゾーン無人を検出 — {AWAY_CONFIRM_SECONDS}秒後に外出モードへ移行")
                 elif now - self._away_candidate_since >= AWAY_CONFIRM_SECONDS:
                     return self._transition(PowerMode.AWAY, "外出検出（全ゾーン無人）", now)
             else:
@@ -239,12 +241,7 @@ class PowerModeManager:
     def _transition(self, new_mode: str, reason: str, now: float) -> bool:
         if new_mode == self._mode:
             return False
-        logger.info(
-            "[低消費電力] モード変更: %s → %s (%s)",
-            self._mode,
-            new_mode,
-            reason,
-        )
+        logger.info(f"[低消費電力] モード変更: {self._mode} → {new_mode} ({reason})")
         self._mode = new_mode
         self._reason = reason
         self._entered_at = now

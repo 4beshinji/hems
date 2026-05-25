@@ -1,7 +1,7 @@
 """
 Document indexer — multi-source, multi-format hybrid search index.
 3-way Reciprocal Rank Fusion: BM25 + Vector (embedding) + Title boost.
-Graceful degradation: vector search disabled when the embedding server is unavailable.
+Graceful degradation: vector search disabled when Ollama unavailable.
 """
 
 import re
@@ -125,7 +125,7 @@ class DocumentIndex:
 
     Search pipeline:
       1. BM25 keyword scoring over tokenized body text
-      2. Vector cosine similarity via OpenAI-compat embeddings (optional)
+      2. Vector cosine similarity via Ollama embeddings (optional)
       3. Title BM25 scoring (separate index, title-only corpus)
       4. 3-way RRF fusion → final ranked results
     """
@@ -218,7 +218,7 @@ class DocumentIndex:
         self._rebuild_bm25()
 
     async def build_vectors(self):
-        """Build vector index from loaded documents (async, needs embedding server)."""
+        """Build vector index from loaded documents (async, needs Ollama)."""
         if not self._embedder or not self._embedder.available:
             logger.info("Vector index skipped (embedding not available)")
             return

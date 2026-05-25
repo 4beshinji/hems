@@ -2,7 +2,8 @@
 Tests for tool_registry — OpenClaw tool conditional inclusion.
 """
 
-from tool_registry import get_tools
+from tool_dispatch import TOOL_HANDLERS
+from tool_registry import CHAT_ALLOWED_TOOL_NAMES, get_chat_tools, get_tools
 
 PC_TOOL_NAMES = {"get_pc_status", "run_pc_command", "control_browser", "send_pc_notification"}
 BASE_TOOL_NAMES = {
@@ -82,3 +83,83 @@ class TestToolRegistrySchemaValidity:
             params = tool["function"]["parameters"]
             assert params["type"] == "object"
             assert "properties" in params
+
+
+def test_all_enabled_tool_schemas_match_dispatch_handlers():
+    tools = get_tools(
+        openclaw_enabled=True,
+        services_enabled=True,
+        obsidian_enabled=True,
+        ha_enabled=True,
+        biometric_enabled=True,
+        perception_enabled=True,
+        shopping_enabled=True,
+        switchbot_enabled=True,
+        news_enabled=True,
+        knowledge_enabled=True,
+        gas_enabled=True,
+        tapo_enabled=True,
+        device_registry_enabled=True,
+    )
+    schema_names = {t["function"]["name"] for t in tools}
+    assert schema_names == set(TOOL_HANDLERS)
+
+
+def test_chat_allowlist_references_existing_tool_schemas():
+    tools = get_tools(
+        openclaw_enabled=True,
+        services_enabled=True,
+        obsidian_enabled=True,
+        ha_enabled=True,
+        biometric_enabled=True,
+        perception_enabled=True,
+        shopping_enabled=True,
+        switchbot_enabled=True,
+        news_enabled=True,
+        knowledge_enabled=True,
+        gas_enabled=True,
+        tapo_enabled=True,
+        device_registry_enabled=True,
+    )
+    schema_names = {t["function"]["name"] for t in tools}
+    assert schema_names >= CHAT_ALLOWED_TOOL_NAMES
+
+
+def test_chat_tools_do_not_include_mutating_actions():
+    tools = get_chat_tools(
+        openclaw_enabled=True,
+        services_enabled=True,
+        obsidian_enabled=True,
+        ha_enabled=True,
+        biometric_enabled=True,
+        perception_enabled=True,
+        switchbot_enabled=True,
+        news_enabled=True,
+        knowledge_enabled=True,
+        gas_enabled=True,
+        tapo_enabled=True,
+        device_registry_enabled=True,
+    )
+    chat_names = {t["function"]["name"] for t in tools}
+    mutating_names = {
+        "add_shopping_item",
+        "control_actuator",
+        "control_browser",
+        "control_climate",
+        "control_cover",
+        "control_light",
+        "control_switch",
+        "control_switchbot",
+        "create_task",
+        "execute_scene",
+        "execute_scene_by_name",
+        "run_pc_command",
+        "send_device_command",
+        "send_pc_notification",
+        "send_switchbot_ir",
+        "set_guest_mode",
+        "speak",
+        "write_note",
+        "zigbee_permit_join",
+    }
+    assert chat_names.isdisjoint(mutating_names)

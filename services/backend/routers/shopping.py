@@ -40,6 +40,41 @@ def _publish_shopping_event(event_type: str, data: dict):
         logger.warning("MQTT publish failed for shopping: %s", e)
 
 
+async def _publish_shopping_snapshot(db: AsyncSession):
+    """Publish the full pending shopping list to hems/shopping/list.
+
+    The brain world model rebuilds ShoppingState from this snapshot so the
+    recurring-due / departure reminder rules read live data. The per-event
+    topics (added/updated/purchased) remain for the ShoppingClassifier; this
+    snapshot is the source the world-model reducer consumes.
+    """
+    result = await db.execute(select(models.ShoppingItem).filter(models.ShoppingItem.is_purchased == False))
+    items = result.scalars().all()
+    snapshot = {
+        "items": [
+            {
+                "id": it.id,
+                "name": it.name,
+                "category": it.category or "",
+                "quantity": it.quantity or 1,
+                "unit": it.unit or "",
+                "store": it.store or "",
+                "store_category": it.store_category or "",
+                "price": it.price or 0,
+                "is_recurring": bool(it.is_recurring),
+                "recurrence_days": it.recurrence_days or 0,
+                "priority": it.priority or 1,
+                "created_by": it.created_by or "user",
+                "next_purchase_at": it.next_purchase_at.timestamp() if it.next_purchase_at else 0,
+            }
+            for it in items
+        ],
+        "count": len(items),
+        "timestamp": datetime.now(UTC).timestamp(),
+    }
+    _publish_shopping_event("list", snapshot)
+
+
 @router.get("/", response_model=list[schemas.ShoppingItem])
 async def list_items(
     category: str | None = None,
@@ -78,6 +113,7 @@ async def add_item(item: schemas.ShoppingItemCreate, db: AsyncSession = Depends(
         await db.commit()
         await db.refresh(existing_item)
         _publish_shopping_event("updated", {"id": existing_item.id, "name": existing_item.name})
+        await _publish_shopping_snapshot(db)
         return existing_item
 
     new_item = models.ShoppingItem(
@@ -108,6 +144,7 @@ async def add_item(item: schemas.ShoppingItemCreate, db: AsyncSession = Depends(
             "category": new_item.category,
         },
     )
+    await _publish_shopping_snapshot(db)
     return new_item
 
 
@@ -135,6 +172,7 @@ async def update_item(
             "store_category": item.store_category,
         },
     )
+    await _publish_shopping_snapshot(db)
     return item
 
 
@@ -167,6 +205,7 @@ async def patch_item(
             "fields": list(changes.keys()),
         },
     )
+    await _publish_shopping_snapshot(db)
     return item
 
 
@@ -220,6 +259,7 @@ async def purchase_item(item_id: int, db: AsyncSession = Depends(get_db)):
             "price": item.price,
         },
     )
+    await _publish_shopping_snapshot(db)
     return item
 
 
@@ -231,6 +271,8 @@ async def delete_item(item_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Item not found")
     await db.delete(item)
     await db.commit()
+    _publish_shopping_event("deleted", {"id": item_id})
+    await _publish_shopping_snapshot(db)
     return {"success": True}
 
 

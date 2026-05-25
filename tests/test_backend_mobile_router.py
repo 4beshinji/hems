@@ -12,6 +12,7 @@ Covers:
 import hashlib
 import hmac
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -435,13 +436,14 @@ class TestVoiceCapsule:
     def test_admin_play_log_list(self, client):
         reg = _register_device(client, "play-log-test")
         self._insert_capsule(capsule_date="2026-04-20")
+        played_at = datetime.now(UTC).isoformat()
 
         client.post(
             "/mobile/voice-capsule/ack",
             json={
                 "capsule_id": "2026-04-20",
                 "clip_id": "morning_greet",
-                "played_at": "2026-04-20T07:31:00+00:00",
+                "played_at": played_at,
                 "trigger_drift_sec": 5,
             },
             headers=self._device_headers(reg),
@@ -451,7 +453,7 @@ class TestVoiceCapsule:
             json={
                 "capsule_id": "2026-04-20",
                 "clip_id": "weather_morning",
-                "played_at": "2026-04-20T07:33:00+00:00",
+                "played_at": played_at,
             },
             headers=self._device_headers(reg),
         )
