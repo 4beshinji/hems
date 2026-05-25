@@ -2,7 +2,7 @@
 
 > 作成: 2026-05-04 / 対象ブランチ: `lite` (最終 commit `39dcc43`, 2026-03-05)
 > 起点ブランチ: `hardening/p0-impl` (進化先, 2026-04-30+)
-> 関連: [`docs/lite/README.md`](./README.md), [Phase A+C ビルド改善](../../infra/base/Dockerfile)
+> 関連: [Phase A+C ビルド改善](../../infra/base/Dockerfile)
 
 ## 1. 現状スナップショット
 

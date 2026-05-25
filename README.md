@@ -36,7 +36,7 @@ docker compose up -d --build
 
 ### 外部連携
 
-- **PC/サービス監視** (localcraw): CPU/GPU/メモリ/ディスク + Gmail・GitHub 未読エッジトリガー
+- **PC/サービス監視** (OpenClaw): CPU/GPU/メモリ/ディスク + Gmail・GitHub 未読エッジトリガー
 - **ナレッジストア** (Obsidian): vault 連携 — 検索・書込・決定ログ自動記録
 - **外部ナレッジ** (knowledge-bridge): マルチフォーマット文書取込 (MD/Python/JSON/PDF/DOCX/CSV/HTML) — BM25+ベクトル+タイトルブーストのハイブリッド検索 (3-way RRF)
 - **Google 連携** (GAS): Calendar・Tasks・Gmail・Sheets・Drive
@@ -72,7 +72,7 @@ docker compose up -d --build
 │  (TTS×4)     │                     │      (dev)          │
 └──────────────┴─────────────────────┴─────────────────────┘
 
-Profiles:  voicevox | ollama | postgres | mock | localcraw | obsidian
+Profiles:  voicevox | ollama | postgres | mock | openclaw | obsidian
            gas | ha | biometric | perception | switchbot | tapo
            zigbee | news | knowledge | stt
 ```
@@ -84,8 +84,8 @@ Profiles:  voicevox | ollama | postgres | mock | localcraw | obsidian
 | 基本 | `create_task`, `speak`*, `get_active_tasks`, `get_zone_status`, `get_device_status`, `send_device_command`, `get_sensor_history` | 常時 |
 | 買い物 | `add_shopping_item`, `get_shopping_list` | 常時 |
 | デバイスレジストリ | `control_actuator`, `list_devices`, `describe_device`, `execute_scene_by_name`, `list_scenes`, `zigbee_permit_join` | 常時 (デフォルト有効) |
-| PC | `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification` | localcraw |
-| サービス | `get_service_status` | localcraw |
+| PC | `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification` | openclaw |
+| サービス | `get_service_status` | openclaw |
 | ナレッジ (Obsidian) | `search_notes`, `write_note`, `get_recent_notes` | obsidian |
 | ナレッジ (外部) | `search_knowledge`, `get_knowledge_sources`, `read_knowledge_document` | knowledge |
 | スマートホーム | `control_light`, `control_climate`, `control_cover`, `control_switch`, `get_home_devices`, `get_sensor_data`, `execute_scene` | ha |
@@ -105,7 +105,7 @@ Profiles:  voicevox | ollama | postgres | mock | localcraw | obsidian
 | Backend API | 8010 | hems-backend |
 | Mock LLM | 8011 | hems-mock-llm |
 | Voice | 8012 | hems-voice |
-| localcraw | 8013 | hems-localcraw-bridge |
+| OpenClaw Bridge | 8013 | hems-openclaw-bridge |
 | Obsidian | 8014 | hems-obsidian-bridge |
 | GAS | 8015 | hems-gas-bridge |
 | HA | 8016 | hems-ha-bridge |
@@ -230,8 +230,8 @@ docker exec hems-ollama ollama pull qwen3.5
 # PostgreSQL (SQLite の代替)
 docker compose --profile postgres up -d
 
-# localcraw (PC メトリクス + Gmail/GitHub 監視)
-docker compose --profile localcraw up -d
+# OpenClaw (PC メトリクス + Gmail/GitHub 監視)
+docker compose --profile openclaw up -d
 
 # Obsidian (ナレッジストア)
 docker compose --profile obsidian up -d
@@ -314,7 +314,7 @@ pnpm build    # tsc -b && vite build
 ## Roadmap
 
 - **Phase 1** (完了): Core MVP — Backend + Brain + Voice + Frontend + Character + Alert Suppression
-- **Phase 2** (完了): 外部連携 — localcraw, Obsidian, GAS, Home Assistant, Biometric
+- **Phase 2** (完了): 外部連携 — OpenClaw, Obsidian, GAS, Home Assistant, Biometric
 - **Phase 3** (完了): Perception — カメラ検知・姿勢分類・活動追跡 (YOLOv11s-pose)
 - **Phase 4** (完了): IoT拡張 — SwitchBot直接統合, Weather Bridge, 買い物リスト, Edge Swarm
 - **Phase 5** (完了): 知覚・情報統合 — VLM シーン理解, ニュースブリーフィング, イベント自動化, Ollama ネイティブ API

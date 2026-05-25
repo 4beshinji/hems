@@ -1,6 +1,9 @@
 HEMS — Home Environment Management System
 三空間統合型パーソナル AI 基盤
 
+Historical notice (2026-05-24): この pitch 原稿は当時の説明資料であり、現行構成の SoT ではない。
+本文中の localcraw は現在の OpenClaw PC bridge の legacy alias として読む。
+
 ■ HEMSとは何か
 
 HEMSは、個人・家庭向けのパーソナルAI基盤である。実空間、個人電子空間、インターネットという3つの空間を横断的に監視・判断・制御する。完全ローカルで動作し、クラウドにデータを送る必要がない。

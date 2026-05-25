@@ -22,7 +22,7 @@
 | frontend | hems-frontend | (always) | services/frontend | ✓ |
 | voice-service | hems-voice | (always) | services/voice | ✓ |
 | mock-llm | hems-mock-llm | mock | infra/mock_llm | ✓ |
-| localcraw-bridge | hems-localcraw-bridge | localcraw | external repo (`../localcraw`) | ✓ ※注 |
+| localcraw-bridge | hems-openclaw-bridge | openclaw / localcraw | external repo (`../localcraw`) | ✓ ※注 |
 | obsidian-bridge | hems-obsidian-bridge | obsidian | services/obsidian-bridge | ✓ |
 | gas-bridge | hems-gas-bridge | gas | services/gas-bridge | ✓ |
 | homeassistant | hems-homeassistant | ha | external image | ✓ |
@@ -41,9 +41,9 @@
 | knowledge-bridge | hems-knowledge-bridge | knowledge | services/knowledge-bridge | ✓ |
 | stt-service | hems-stt | stt | services/stt | ✓ |
 
-注: localcraw-bridge は別リポジトリ `../localcraw/` (Node.js + systeminformation) からビルド。
-旧 Python 実装 `services/openclaw-bridge/` は 2026-05-03 削除済み。`openclaw_url` 等の
-変数名・MQTT トピック (`hems/pc/*`) は歴史的経緯で残存（実装は Node 側）。
+注: OpenClaw Bridge は互換のため compose service key `localcraw-bridge` を維持し、別リポジトリ
+`../localcraw/` (Node.js + systeminformation) からビルドする。コンテナ名と DNS alias は
+`hems-openclaw-bridge` / `openclaw-bridge`。`OPENCLAW_BRIDGE_URL` が正、`LOCALCRAW_BRIDGE_URL` は旧 alias。
 
 ### 1.2 services/ 配下に存在するが docker-compose に無い (Orphans)
 
@@ -69,7 +69,9 @@ diff <(ls services/) <(grep -E "build: \.\./services/" infra/docker-compose.yml 
 
 ## 2. Brain 内部モジュール一覧
 
-`services/brain/src/main.py` の `Brain.__init__` および async startup で初期化されるモジュール。
+初期化は 2 段に分かれる: **always-on コア**は `services/brain/src/main.py` の `Brain.__init__`、
+**async startup 配線**は `brain_startup.py` の `_wire_runtime_components()`(`Brain.run()` から呼ばれる)。
+「起動条件」列の `startup` は後者を指す。
 
 | Module | File | 起動条件 | 役割 |
 |--------|------|----------|------|
@@ -85,8 +87,8 @@ diff <(ls services/) <(grep -E "build: \.\./services/" infra/docker-compose.yml 
 | BootLoadManager | boot_load_manager.py | `BOOT_LOAD_ENABLED=true` (default true) | 起床前の重量モデル briefing 事前生成 |
 | SunriseAlarm | sunrise_alarm.py | `SUNRISE_ALARM_DEVICE` 設定時 | Zigbee ライトの段階的明度ランプアップ |
 | ScheduleLearner | schedule_learner.py | HA / biometric / switchbot 有効時 | 帰宅・出発・起床パターン学習 |
-| TimelineGenerator | timeline/ | GAS_ENABLED 時 | 1日のタイムライン生成 (EDF + free window) |
-| EventAutomation | event_automation.py | NEWS / GAS 有効時 | wake_up / arrival / departure / scheduled 連動 |
+| TimelineGenerator | timeline/ | startup (常時 instantiate) | 1日のタイムライン生成 (EDF + free window)。calendar 無時は内部 degrade |
+| EventAutomation | event_automation.py | startup (常時 instantiate) | wake_up / arrival / departure / scheduled 連動。action は news/gas 無時 degrade |
 | AmbientSpeaker | ambient_speaker.py | startup | 5分間隔の自然な独り言生成 |
 | AutomationEngine | automation_engine.py | always | sensor_threshold / schedule / device_state / event ルール |
 | SceneExecutor | scene_executor.py | always | 複数デバイスを束ねた named scene 実行 |
@@ -94,7 +96,7 @@ diff <(ls services/) <(grep -E "build: \.\./services/" infra/docker-compose.yml 
 | TaskQueueManager | task_scheduling/ | startup | LLM 出力タスクのバッチ化 |
 | TaskReminder | task_reminder.py | startup | 期日付きタスクの再通知 |
 | ToolExecutor | tool_executor.py | startup | LLM tool calls のディスパッチ |
-| PersonaRewriter | persona_rewriter.py | `PERSONA_REWRITE_ENABLED=true` | rule-engine speak をキャラ口調に書換 |
+| PersonaRewriter | persona_rewriter.py | startup (常時 instantiate) | rule-engine speak をキャラ口調に書換。`PERSONA_REWRITE_ENABLED=false` で書換動作のみ無効化(instantiate はされる) |
 | Annotators | annotator/ | startup | EventClassifier / RulePromoter / ShoppingClassifier / ClassifierCache |
 | AckLearner | voice_capsule/ack_learner.py | mobile companion 経由 | ユーザー認識パターン学習 |
 | MotionRetriever | motion_retriever.py | startup | VRM モーション選定 (BM25 + 親和度 + 新規性) |
@@ -103,15 +105,17 @@ diff <(ls services/) <(grep -E "build: \.\./services/" infra/docker-compose.yml 
 ### 2.1 Verification
 
 ```bash
-grep -nE "^from |^import " services/brain/src/main.py | head -50
+# always-on コア (__init__)
 grep -nE "self\.\w+ = " services/brain/src/main.py | head -50
+# async startup 配線 (_wire_runtime_components / _start_event_store)
+grep -nE "self\.\w+ = " services/brain/src/brain_startup.py | head -50
 ```
 
 ---
 
 ## 3. Brain Tools 一覧 (LLM が呼べるもの)
 
-`services/brain/src/tool_registry.py` の `get_tools()` が返す JSON Schema と、`tool_executor.py` の dispatch ブランチを突合した結果。
+`services/brain/src/tool_registry.py` の `get_tools()` が返す JSON Schema と、`tool_dispatch.py` の `TOOL_HANDLERS` を突合した結果(全 flag 有効時 **58 ツール**、schema↔handler 完全一致を §3.5 で検証)。
 
 ### 3.1 Always-on (gating: なし)
 
@@ -131,11 +135,11 @@ grep -nE "self\.\w+ = " services/brain/src/main.py | head -50
 
 | Tool | 必要環境変数 | 備考 |
 |------|--------------|------|
-| `get_pc_status` | `LOCALCRAW_BRIDGE_URL` | PC メトリクス |
-| `run_pc_command` | `LOCALCRAW_BRIDGE_URL` | shell command 実行 (sanitizer でブロック) |
-| `control_browser` | `LOCALCRAW_BRIDGE_URL` | Playwright 経由 |
-| `send_pc_notification` | `LOCALCRAW_BRIDGE_URL` | デスクトップ通知 |
-| `get_service_status` | `LOCALCRAW_BRIDGE_URL` + service データ存在時 | Gmail/GitHub/browser checker |
+| `get_pc_status` | `OPENCLAW_BRIDGE_URL` (`LOCALCRAW_BRIDGE_URL` alias) | PC メトリクス |
+| `run_pc_command` | `OPENCLAW_BRIDGE_URL` (`LOCALCRAW_BRIDGE_URL` alias) | shell command 実行 (sanitizer でブロック) |
+| `control_browser` | `OPENCLAW_BRIDGE_URL` (`LOCALCRAW_BRIDGE_URL` alias) | Playwright 経由 |
+| `send_pc_notification` | `OPENCLAW_BRIDGE_URL` (`LOCALCRAW_BRIDGE_URL` alias) | デスクトップ通知 |
+| `get_service_status` | `OPENCLAW_BRIDGE_URL` (`LOCALCRAW_BRIDGE_URL` alias) + service データ存在時 | Gmail/GitHub/browser checker |
 | `search_notes` | `OBSIDIAN_BRIDGE_URL` | Obsidian vault 検索 |
 | `write_note` | `OBSIDIAN_BRIDGE_URL` | `HEMS/` 配下のみ書込可 |
 | `get_recent_notes` | `OBSIDIAN_BRIDGE_URL` | 最新ノート取得 |
@@ -161,10 +165,19 @@ grep -nE "self\.\w+ = " services/brain/src/main.py | head -50
 | `search_knowledge` | `KNOWLEDGE_BRIDGE_URL` | 外部ドキュメント検索 |
 | `get_knowledge_sources` | `KNOWLEDGE_BRIDGE_URL` | 設定済みソース一覧 |
 | `read_knowledge_document` | `KNOWLEDGE_BRIDGE_URL` | ドキュメント本文取得 |
-| `list_processes` | `LOCALCRAW_BRIDGE_URL` | PC プロセス一覧 (CPU/メモリでソート、name フィルタ) |
+| `list_processes` | `OPENCLAW_BRIDGE_URL` (`LOCALCRAW_BRIDGE_URL` alias) | PC プロセス一覧 (CPU/メモリでソート、name フィルタ) |
 | `get_entity_status` | `HA_BRIDGE_URL` | HA 単一エンティティ状態 |
 | `get_power_consumption` | `TAPO_BRIDGE_URL` | Tapo 瞬時電力 (W) — device_id 省略で全プラグ並列取得 |
 | `get_recent_emails` | `GAS_BRIDGE_URL` | Gmail スレッド一覧 (sender/subject/unread でフィルタ) |
+| `gas_query_free_slots` | `GAS_BRIDGE_URL` | カレンダー空き時間クエリ |
+| `gas_query_sheet` | `GAS_BRIDGE_URL` | Google Sheets 値クエリ |
+| `list_note_tags` | `OBSIDIAN_BRIDGE_URL` | Obsidian タグ一覧 |
+| `get_recent_knowledge_changes` | `KNOWLEDGE_BRIDGE_URL` | 外部ナレッジ最近変更 |
+| `get_biometric_trend` | `BIOMETRIC_BRIDGE_URL` | 生体メトリクスのトレンド |
+| `get_sleep_history` | `BIOMETRIC_BRIDGE_URL` | 睡眠履歴 |
+| `list_cameras` | `PERCEPTION_BRIDGE_URL` | カメラ一覧 |
+| `get_vlm_status` | `PERCEPTION_BRIDGE_URL` | VLM 稼働状態 |
+| `get_activity_history` | `PERCEPTION_BRIDGE_URL` | 活動履歴 |
 
 ### 3.3 Device Registry (default: enabled)
 
@@ -184,16 +197,132 @@ grep -nE "self\.\w+ = " services/brain/src/main.py | head -50
 ### 3.5 Verification
 
 ```bash
-# code 上のツール定義
-grep -nE '"name":' services/brain/src/tool_registry.py
-# dispatch ブランチ
-grep -nE 'tool_name == "' services/brain/src/tool_executor.py
-# 両者の差分が 0 になっていることを確認
+PYTHONPATH=services/brain/src:services/backend .venv/bin/python - <<'PY'
+from tool_dispatch import TOOL_HANDLERS
+from tool_registry import get_tools
+
+flags = dict(
+    openclaw_enabled=True,
+    services_enabled=True,
+    obsidian_enabled=True,
+    ha_enabled=True,
+    biometric_enabled=True,
+    perception_enabled=True,
+    shopping_enabled=True,
+    switchbot_enabled=True,
+    news_enabled=True,
+    knowledge_enabled=True,
+    gas_enabled=True,
+    tapo_enabled=True,
+    device_registry_enabled=True,
+)
+schema_names = {tool["function"]["name"] for tool in get_tools(**flags)}
+handler_names = set(TOOL_HANDLERS)
+print("schema_count", len(schema_names), "handler_count", len(handler_names))
+print("schema_only", sorted(schema_names - handler_names))
+print("handler_only", sorted(handler_names - schema_names))
+assert schema_names == handler_names
+PY
 ```
 
 ---
 
 ## 4. MQTT Topic Map
+
+### 4.0 トピックツリー(可読リファレンス)
+
+ドメイン別の全トピック一覧。`hems/CLAUDE.md` から集約(プレフィックス概要のみ親に残す)。ブリッジ別の詳細は `docs/CLAUDE-bridges.md`。
+
+```
+# Sensor telemetry
+office/{zone}/{device_type}/{device_id}/{channel}
+
+# PC metrics (OpenClaw bridge)
+hems/pc/metrics/{cpu|memory|gpu|disk}
+hems/pc/processes/top
+hems/pc/bridge/status
+
+# Service monitor (OpenClaw bridge)
+hems/services/{name}/status
+hems/services/{name}/event
+
+# Knowledge store (Obsidian bridge)
+hems/personal/notes/changed
+hems/personal/notes/stats
+
+# GAS integration (Google Apps Script bridge)
+hems/gas/calendar/upcoming
+hems/gas/calendar/free_slots
+hems/gas/tasks/all
+hems/gas/tasks/due_today
+hems/gas/gmail/summary
+hems/gas/gmail/recent
+hems/gas/sheets/{name}
+hems/gas/drive/recent
+hems/gas/bridge/status
+
+# Smart home (HA bridge)
+hems/home/{zone}/{domain}/{entity_id}/state
+hems/home/bridge/status
+
+# Biometric data (biometric-bridge)
+hems/personal/biometrics/{provider}/heart_rate
+hems/personal/biometrics/{provider}/spo2
+hems/personal/biometrics/{provider}/sleep
+hems/personal/biometrics/{provider}/activity
+hems/personal/biometrics/{provider}/steps
+hems/personal/biometrics/{provider}/stress
+hems/personal/biometrics/{provider}/fatigue
+hems/personal/biometrics/bridge/status
+
+# Perception (camera detection + activity tracking + VLM)
+office/{zone}/camera/{camera_id}/status
+office/{zone}/activity/{monitor_id}
+hems/perception/bridge/status
+hems/perception/vlm/{zone}
+hems/perception/vlm/status
+hems/perception/vlm/model_swap
+hems/perception/vlm/request
+
+# Personal data (future: data-bridge — service is a stub, no compose entry yet)
+hems/personal/calendar/{id}/events
+hems/personal/training/fitness
+hems/system/gpu/utilization
+
+# Tapo (direct LAN bridge)
+hems/tapo/{vendor_ref}/state
+
+# Zigbee2MQTT (direct, retained)
+zigbee2mqtt/{device}              # device state
+zigbee2mqtt/bridge/devices        # device listing
+
+# Shopping list
+hems/shopping/{added,updated,purchased,deleted}  # per-event (ShoppingClassifier + event_store)
+hems/shopping/list                               # full pending snapshot (world_model ShoppingState reducer)
+
+# SwitchBot (direct API bridge)
+# device/sensor state は HA 互換で hems/home/* に publish(world_model _update_home_device で統合)
+hems/home/{zone}/{domain}/{entity_id}/state
+hems/home/{zone}/sensor/switchbot.{device_id}_{temperature,humidity,co2,power}/state
+hems/switchbot/bridge/status   # bridge status のみ hems/switchbot/
+
+# News (news-bridge)
+hems/news/daily
+hems/news/urgent
+hems/news/bridge/status
+
+# Knowledge (knowledge-bridge)
+hems/personal/knowledge/changed
+hems/personal/knowledge/stats
+
+# Weather (weather-bridge, always-on)
+hems/weather/{current,forecast,alerts}
+hems/weather/bridge/status
+
+# Brain control
+hems/brain/reload-character
+hems/brain/guest-mode
+```
 
 ### 4.1 ブローカーへの subscribe (Brain)
 
@@ -218,11 +347,11 @@ zigbee2mqtt/#
 | perception (VLM mgmt) | `hems/perception/vlm/model_swap` | swap event |
 | perception (bridge) | `hems/perception/bridge/status` | health |
 | brain (request) | `hems/perception/vlm/request` | rule engine からの再スキャン要求 |
-| localcraw-bridge | `hems/pc/metrics/{cpu,memory,gpu,disk,temp}` | PC メトリクス |
-| localcraw-bridge | `hems/pc/processes/top` | top プロセス一覧 |
-| localcraw-bridge | `hems/pc/bridge/status` | bridge 状態 |
-| localcraw-bridge | `hems/services/{name}/status` | Gmail / GitHub / browser checker |
-| localcraw-bridge | `hems/services/{name}/event` | unread 増加などのエッジトリガー |
+| OpenClaw bridge | `hems/pc/metrics/{cpu,memory,gpu,disk,temp}` | PC メトリクス |
+| OpenClaw bridge | `hems/pc/processes/top` | top プロセス一覧 |
+| OpenClaw bridge | `hems/pc/bridge/status` | bridge 状態 |
+| OpenClaw bridge | `hems/services/{name}/status` | Gmail / GitHub / browser checker |
+| OpenClaw bridge | `hems/services/{name}/event` | unread 増加などのエッジトリガー |
 | obsidian-bridge | `hems/personal/notes/changed` | ファイル変更通知 |
 | obsidian-bridge | `hems/personal/notes/stats` | vault 統計 |
 | gas-bridge | `hems/gas/calendar/upcoming` | 直近イベント |
@@ -250,13 +379,17 @@ zigbee2mqtt/#
 | weather-bridge | `hems/weather/bridge/status` | 健康状態 |
 | zigbee2mqtt | `zigbee2mqtt/{device}` | デバイス状態 (retained) |
 | zigbee2mqtt | `zigbee2mqtt/bridge/devices` | 全デバイス listing (retained) |
-| backend | `hems/shopping/{added,updated,purchased}` | ショッピング連動 |
+| backend | `hems/shopping/{added,updated,purchased,deleted}` | ショッピング連動 (per-event) |
+| backend | `hems/shopping/list` | 全 pending snapshot (ShoppingState reducer 用) |
 | brain | `hems/brain/reload-character` | self-trigger |
 | brain | `hems/brain/guest-mode` | self-trigger |
 | brain | `hems/brain/set-power-mode` | self-trigger |
 | brain | `hems/brain/batch-run` | self-trigger |
 
 ### 4.3 Brain WorldModel 受信 (`update_from_mqtt`) → 状態反映
+
+`update_from_mqtt`(ルーティング)は `world_model/mqtt_router.py`(`MqttRouterMixin`)、各 `_update_*` ハンドラは
+`world_model/{physical,digital,user}_updates.py` のミキシンに分割済(facade `world_model.py` が全体を合成)。
 
 | Topic Pattern | Handler | 反映先 |
 |---------------|---------|--------|
@@ -281,12 +414,11 @@ zigbee2mqtt/#
 
 | Topic | 公開元 | 状態 |
 |-------|--------|------|
-| `hems/pc/processes/top` | localcraw-bridge | world_model に保存されない (PCState には top プロセス用フィールド有るが reducer 未実装の可能性 — `_update_pc_state` で確認要) |
 | `hems/perception/vlm/model_swap` | perception | world_model 内で `vlm_model_swap_active` は管理されるが、フラグ立てるトリガーが explicit subscribe のみで全イベント保存はされない |
 | `*/bridge/status` (各サービス) | 各 bridge | bridge_connected フラグ更新のみで履歴は残らない |
 | `hems/gas/sheets/{name}` | gas-bridge | `_update_gas_state` で受けるが、業務的に活用するルール無し |
 | `hems/gas/drive/recent` | gas-bridge | 同上 |
-| `hems/services/{name}/event` (edge events) | localcraw-bridge | 受信はするがイベント駆動の即時ルールは無く、5分インターバルで拾う |
+| `hems/services/{name}/event` (edge events) | OpenClaw bridge | 受信はするがイベント駆動の即時ルールは無く、5分インターバルで拾う |
 
 ### 4.5 公開先のあるが Subscriber が居ない (Orphan publish)
 
@@ -297,8 +429,8 @@ zigbee2mqtt/#
 ```bash
 # Publishers
 grep -rnE '\.publish\("(office|hems|zigbee2mqtt)' services/ --include="*.py"
-# Subscribers (brain only)
-grep -nE 'parts\[0\] == |parts\[1\] == ' services/brain/src/world_model/world_model.py
+# Subscribers (brain only — ルーティングは mqtt_router.py に分割済)
+grep -nE 'parts\[0\] == |parts\[1\] == ' services/brain/src/world_model/mqtt_router.py
 ```
 
 ---
@@ -316,7 +448,7 @@ grep -nE 'parts\[0\] == |parts\[1\] == ' services/brain/src/world_model/world_mo
 | Digital | ServicesState | services dict / events | hems/services/* |
 | Digital | GASState | calendar_events / free_slots / tasks / gmail_summary / sheets / drive_files | hems/gas/* |
 | Digital | KnowledgeState | obsidian / external_sources | hems/personal/notes/* + knowledge/* |
-| Digital | ShoppingState | items / due_count / pending_count | hems/shopping/* + backend DB |
+| Digital | ShoppingState | items / due_items / pending_count | `digital_updates._update_shopping_state` が `hems/shopping/list`(backend が mutation 毎に publish する全 pending snapshot)から rebuild。recurring-due / departure reminder rule(`rules/shopping.py`)が消費。per-event(added/updated/purchased)は ShoppingClassifier + event_store 経由。backend DB が依然 SoT |
 | Digital | NewsState | daily_summary / urgent_articles | hems/news/* |
 | User | BiometricState | heart_rate / sleep / activity / stress / fatigue / spo2 / hrv / body_temp / respiratory_rate / steps | hems/personal/biometrics/* |
 | User | ScreenTimeData | accumulated_minutes_today / last_active_ts | PC アクティビティ + biometric |
@@ -326,14 +458,17 @@ grep -nE 'parts\[0\] == |parts\[1\] == ' services/brain/src/world_model/world_mo
 
 ```bash
 grep -nE "^@dataclass|^class " services/brain/src/world_model/data_classes.py
-grep -nE "^\s+def _update_" services/brain/src/world_model/world_model.py
+# _update_* ハンドラは physical/digital/user_updates.py に分割済
+grep -nE "^\s+def _update_" services/brain/src/world_model/{physical,digital,user}_updates.py
 ```
 
 ---
 
 ## 6. RuleEngine トリガー一覧
 
-`services/brain/src/rule_engine.py` ベース。
+`services/brain/src/rule_engine.py` の `evaluate()`(環境/PC/ライトはインライン)+ `rules/` パッケージの
+8 ドメインミキシン(biometric/gas/home/perception/services/shopping/weather/zigbee、`evaluate` が `actions.extend`
+で集約)。閾値は `world_model.world_model` のモジュール定数 + `rules/config.py` の `RuleThresholds` の二系統。
 
 ### 6.1 Critical (常時実行、LLM 関係なく即時)
 
@@ -385,7 +520,10 @@ grep -nE "^\s+def _update_" services/brain/src/world_model/world_model.py
 ### 6.6 Verification
 
 ```bash
+# インライン環境/PC/ライト rule + cooldown helper
 grep -nE "^\s+def _check_|create_task|speak|control_" services/brain/src/rule_engine.py | head -100
+# ドメイン rule (biometric/gas/home/perception/services/shopping/weather/zigbee)
+grep -rnE "^\s+def _evaluate_\w+_rules" services/brain/src/rules/
 ```
 
 ---
@@ -413,6 +551,7 @@ grep -nE "^\s+def _check_|create_task|speak|control_" services/brain/src/rule_en
 - `morning_greeting` (LLM 生成)
 - `news_briefing` (news-bridge から取得)
 - `weather_report` (world_model.weather から)
+- `weather_alert_announce` (警報級アラートのみ読み上げ。`DEFAULT_AUTOMATIONS` の wake_up 先頭)
 - `task_planning` (LLM タスク生成)
 - `speak_custom` (任意テキスト発話)
 - `scene:{name}` (named scene 実行)
@@ -431,23 +570,23 @@ grep -nE "^\s+(def |async def |@register)" services/brain/src/automation_engine.
 
 | Bridge | Endpoint | ツール化状態 | 備考 |
 |--------|----------|--------------|------|
-| ha-bridge | `/api/device/{entity_id}` GET | ✗ | エンティティ単体クエリ。`get_sensor_data` / `get_home_devices` で代替可 |
+| ha-bridge | `/api/device/{entity_id}` GET | ✓ `get_entity_status` | エンティティ単体クエリ(tool_handlers_home.py:128) |
 | biometric-bridge | `/api/biometric/activity` GET | ✗ | 活動量ログ。現状は world_model 経由のみ |
-| obsidian-bridge | `/api/notes/tags` GET | ✗ | タグ一覧 |
+| obsidian-bridge | `/api/notes/tags` GET | ✓ `list_note_tags` | タグ一覧(tool_handlers_external.py:73) |
 | obsidian-bridge | `/api/notes/decision-log` POST | (内部利用) | brain が直接呼ぶ |
 | obsidian-bridge | `/api/notes/learning-memo` POST | (内部利用) | 同上 |
 | switchbot-bridge | `/api/devices/{id}/status` GET | ✗ | 個別状態 (リスト経由で取得可) |
 | tapo-bridge | `/api/devices/{ref}/status` GET | ✗ | 同上 |
-| perception | `/api/perception/cameras` GET | ✗ | カメラ一覧 |
-| perception | `/api/perception/vlm/status` GET | ✗ | VLM サービス状態 |
-| knowledge-bridge | `/api/knowledge/recent` GET | ✗ | 最近変更されたドキュメント |
+| perception | `/api/perception/cameras` GET | ✓ `list_cameras` | カメラ一覧(tool_handlers_perception.py:138) |
+| perception | `/api/perception/vlm/status` GET | ✓ `get_vlm_status` | VLM サービス状態(tool_handlers_perception.py:153) |
+| knowledge-bridge | `/api/knowledge/recent` GET | ✓ `get_recent_knowledge_changes` | 最近変更されたドキュメント(tool_handlers_external.py:298) |
 | knowledge-bridge | `/api/knowledge/reindex` POST | ✗ | 管理用 |
 
 ### 8.1 Verification
 
 ```bash
 grep -rnE "@app\.(get|post|put|delete)" services/*-bridge/src/ services/perception/src/ services/stt/src/
-grep -nE 'tool_name == "' services/brain/src/tool_executor.py
+grep -nE '"[^"]+": "_handle_' services/brain/src/tool_dispatch.py
 ```
 
 ---
@@ -561,10 +700,10 @@ grep -E "^[A-Z_]+=|^# [A-Z_]+=" env.example | grep -oE "^# ?[A-Z_]+" | sort -u
 以下を四半期ごとに走らせて、ドキュメント追従状況を確認する。
 
 - [ ] `services/` 配下のディレクトリすべてが docker-compose に登録されているか? (orphan 検出)
-- [ ] `tool_registry.py` の tool 数 == `tool_executor.py` の tool dispatch 数?
-- [ ] `world_model.py:update_from_mqtt` のすべての elif 分岐が公開されているトピックを網羅?
-- [ ] 各 bridge で `os.getenv` されている環境変数すべてが `env.example` に記載?
-- [ ] CLAUDE.md の MQTT topic 一覧が §4 と一致?
-- [ ] `weather-bridge`, `data-bridge`, `sentinel` の orphan 状態が解消されたか?
+- [x] `tool_registry.py` の tool 数 == `tool_dispatch.py` の `TOOL_HANDLERS` 数? — **2026-05-25 検証: 58==58 完全一致**(§3.5)
+- [ ] `world_model/mqtt_router.py:update_from_mqtt` のすべての elif 分岐が公開されているトピックを網羅?(reducer は `{physical,digital,user}_updates.py`)
+- [ ] 各 bridge で `os.getenv` されている環境変数すべてが `env.example` に記載?(未解決: `AUTOMATION_ENGINE_ENABLED` が未記載 — audit/2026-05-25/brain-core-loop.md)
+- [ ] CLAUDE.md の MQTT topic 一覧が §4 と一致?(2026-05-25: SwitchBot は hems/home/* へ publish と判明、§4.0 修正済)
+- [ ] `data-bridge` の orphan 状態(README のみの scaffold、src 無し)— weather-bridge は always-on 化で解消済
 
-最終更新: 2026-04-30
+最終更新: 2026-05-25(サービス単位実装監査。詳細 `docs/audit/2026-05-25/`)

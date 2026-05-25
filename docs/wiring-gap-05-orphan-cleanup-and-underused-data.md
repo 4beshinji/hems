@@ -1,6 +1,9 @@
 # Wiring Gap 05 — Orphan Cleanup と未活用データの解消
 
 > **CLOSED 2026-05-03**: 全項目が [`wiring-gap-06-data-flow-consolidation.md`](wiring-gap-06-data-flow-consolidation.md) に統合・解消済み (Wave 1.5 で Device 列追加、Wave 2 で C-1 残ツール群、Wave 4.1 で B-4 Bridge SLA、Wave 4.9 で C-3 MotionRetriever rejection feedback)。
+>
+> **Historical notice (2026-05-24)**: この文書は当時の配線計画を保存する historical doc。`localcraw-bridge`
+> などの名称は当時の前提を含む。現行 active docs では OpenClaw が canonical、`localcraw` は legacy alias。
 
 2026-04-30 監査 (`docs/IMPLEMENTATION_MAP.md` ベース) で抽出された配線ギャップを「根本原因 → 解消案 → 実装ステップ」の順で整理し、Wave 計画に落とす。`wiring-gap-04` で未着手の sensor 活用は引き続き有効。本ドキュメントは weather-bridge orphan 等の **メタな配線問題** に焦点を絞る。
 
