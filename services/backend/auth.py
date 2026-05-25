@@ -1,7 +1,9 @@
 """
 HEMS Backend — authentication.
 
-- :func:`verify_api_key` — no-op (LAN-trusted, no API key required).
+- :func:`verify_api_key` — shared-key gate for the dashboard routers. Open
+  (no-op) when ``BACKEND_API_KEY`` is unset, so zero-config LAN deployments
+  keep working; enforced when the env var is set.
 - :func:`verify_mobile_device` — per-device key stored hashed in the
   ``mobile_devices`` table; used by endpoints under ``/mobile/*``
   (except ``/mobile/register`` which is gated by the admin key).
@@ -16,6 +18,7 @@ import secrets
 
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -26,8 +29,29 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 _DEVICE_KEY_BYTES = int(os.getenv("MOBILE_DEVICE_KEY_BYTES", "32"))
 _HMAC_SECRET_BYTES = int(os.getenv("MOBILE_HMAC_SECRET_BYTES", "32"))
 
+# Shared key for the dashboard API. Empty → open (LAN-trusted, zero-config).
+BACKEND_API_KEY = os.getenv("BACKEND_API_KEY", "")
+if not BACKEND_API_KEY:
+    logger.warning("BACKEND_API_KEY unset — dashboard API is open (LAN-trusted mode)")
 
-async def verify_api_key():
+
+async def verify_api_key(
+    credentials: HTTPAuthorizationCredentials = Security(_bearer_scheme),
+):
+    """Require ``Authorization: Bearer <BACKEND_API_KEY>`` when the key is set.
+
+    Returns ``None`` (allow) when ``BACKEND_API_KEY`` is unset so existing
+    zero-config deployments are unaffected. Uses a constant-time comparison
+    to avoid leaking the key via timing.
+    """
+    if not BACKEND_API_KEY:
+        return None
+    if credentials is None or not secrets.compare_digest(credentials.credentials, BACKEND_API_KEY):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return None
 
 
