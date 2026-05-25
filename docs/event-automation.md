@@ -87,12 +87,12 @@ EVENT_AUTOMATIONS='[
 | アクション | 必要なプロファイル |
 |-----------|------------------|
 | `morning_greeting` | なし (LLM は常時利用) |
-| `news_briefing` | `--profile news --profile llm` (legacy: `--profile ollama`) |
+| `news_briefing` | `--profile news --profile ollama` |
 | `weather_report` | なし (weather-bridge データが推奨、なくても動作) |
 
 ```bash
 # news_briefing を使う場合
-docker compose --profile news --profile llm up -d --build
+docker compose --profile news --profile ollama up -d --build
 ```
 
 ## 各アクションの詳細

@@ -1,5 +1,10 @@
 # HEMS Security Audit Report
 
+> **Historical notice (2026-05-24)**: This document reflects the repository layout and bridge names at the
+> time of the 2026-03-07 audit. Current active docs use OpenClaw as the canonical PC bridge name,
+> with `LOCALCRAW_BRIDGE_URL` / `localcraw-bridge` retained as legacy compatibility aliases.
+> References such as `services/openclaw-bridge` may no longer be literal current paths.
+
 **Date**: 2026-03-07
 **Scope**: Full codebase — services/*, infra/*, config files
 **Tools**: Bandit 1.9.x, Semgrep (auto config, 501 rules), manual code review
