@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from rule_engine import RuleEngine
-from world_model.data_classes import LightState, ZoneState
+from world_model.data_classes import ZoneState
 
 
 class _FakeDatetime(_real_dt):
@@ -81,19 +81,20 @@ class TestEmptyRoomDetection:
         world_model.zones["living_room"] = zone
 
         world_model.home_devices.bridge_connected = True
-        engine._device_cache = [{
-            "device_id": "light.living_room",
-            "device_class": "light",
-            "is_enabled": True,
-            "capabilities": ["brightness"],
-            "last_state": {"on": True, "brightness": 200},
-            "zone": "living_room",
-        }]
+        engine._device_cache = [
+            {
+                "device_id": "light.living_room",
+                "device_class": "light",
+                "is_enabled": True,
+                "capabilities": ["brightness"],
+                "last_state": {"on": True, "brightness": 200},
+                "zone": "living_room",
+            }
+        ]
 
         actions = engine.evaluate(world_model)
         light_off = [
-            a for a in actions
-            if a.get("tool") == "control_actuator" and a.get("args", {}).get("action") == "off"
+            a for a in actions if a.get("tool") == "control_actuator" and a.get("args", {}).get("action") == "off"
         ]
         assert len(light_off) >= 1
 
@@ -104,14 +105,16 @@ class TestEmptyRoomDetection:
         world_model.zones["living_room"] = zone
 
         world_model.home_devices.bridge_connected = True
-        engine._device_cache = [{
-            "device_id": "light.living_room",
-            "device_class": "light",
-            "is_enabled": True,
-            "capabilities": ["brightness"],
-            "last_state": {"on": True, "brightness": 200},
-            "zone": "living_room",
-        }]
+        engine._device_cache = [
+            {
+                "device_id": "light.living_room",
+                "device_class": "light",
+                "is_enabled": True,
+                "capabilities": ["brightness"],
+                "last_state": {"on": True, "brightness": 200},
+                "zone": "living_room",
+            }
+        ]
 
         actions = engine.evaluate(world_model)
         # Perception empty-room rule should not fire when room is occupied

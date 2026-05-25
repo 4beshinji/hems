@@ -35,6 +35,30 @@ class ScheduleLearner:
         self._last_occupancy: int = 0
         self._last_transition_time: float = 0
 
+    # Public history accessors so consumers (e.g. TimelineGenerator) read routine
+    # patterns without reaching into the private _*_history dicts.
+    _HISTORY_ATTR = {
+        "wake": "_wake_history",
+        "departure": "_departure_history",
+        "arrival": "_arrival_history",
+    }
+
+    def history_count(self, kind: str, weekday: int) -> int:
+        """Number of recorded samples for a routine *kind* on *weekday* (0-6)."""
+        hist = getattr(self, self._HISTORY_ATTR[kind], {})
+        return len(hist.get(weekday, []))
+
+    def median_hour(self, kind: str, weekday: int, default: float, min_samples: int = 2) -> float:
+        """Median recorded hour_float for a routine *kind* on *weekday*.
+
+        Returns *default* when fewer than *min_samples* observations exist.
+        """
+        hist = getattr(self, self._HISTORY_ATTR[kind], {})
+        entries = hist.get(weekday, [])
+        if len(entries) >= min_samples:
+            return statistics.median(entries)
+        return default
+
     def update_occupancy(self, count: int, timestamp: float | None = None):
         """Update with new occupancy count. Detects arrivals and departures."""
         ts = timestamp or time.time()

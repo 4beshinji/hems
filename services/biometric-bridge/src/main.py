@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from data_processor import BiometricReading, DataProcessor
 from fastapi import FastAPI, HTTPException, Request
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 from providers.gadgetbridge import GadgetbridgeProvider
 from providers.huami import HuamiProvider
 from providers.zepp import ZeppProvider
@@ -40,7 +41,6 @@ from config import (
     ZEPP_PASSWORD,
     ZEPP_POLL_INTERVAL,
 )
-from mqtt_publisher import MQTTPublisher
 
 # HMAC secret for webhook authentication.
 # Set BIOMETRIC_WEBHOOK_SECRET in environment (required).

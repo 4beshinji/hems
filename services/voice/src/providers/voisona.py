@@ -35,6 +35,9 @@ HEALTH_SLOW_THRESHOLD = 15.0  # seconds — flag as degraded if short text takes
 
 
 class VoisonaProvider(TTSProvider):
+    # Enable the voice service's generic passive health loop.
+    health_poll_interval = HEALTH_CHECK_INTERVAL
+
     def __init__(self, config: dict | None = None):
         self.base_url = VOISONA_URL
         self.username = VOISONA_USERNAME
@@ -197,6 +200,31 @@ class VoisonaProvider(TTSProvider):
                 return resp.status == 200
         except Exception:
             return False
+
+    async def passive_health_snapshot(self) -> dict:
+        """Passive health status from API reachability + last synthesis duration.
+
+        Unlike health_check(), this sends no probe synthesis — the brain's
+        AmbientSpeaker traffic is the implicit probe. Used by the voice
+        service's generic health loop (health_poll_interval).
+        """
+        reachable = await self.is_available()
+        if not reachable:
+            self._healthy = False
+            return {"healthy": False, "wall_seconds": 0, "state": "unreachable", "detail": "VoiSona API unreachable"}
+        if self._last_synth_duration > HEALTH_SLOW_THRESHOLD:
+            return {
+                "healthy": True,
+                "wall_seconds": self._last_synth_duration,
+                "state": "slow",
+                "detail": f"Last synthesis took {self._last_synth_duration:.1f}s",
+            }
+        return {
+            "healthy": self._healthy,
+            "wall_seconds": self._last_synth_duration,
+            "state": "ok" if self._healthy else "degraded",
+            "detail": "",
+        }
 
     async def health_check(self) -> dict:
         """Run a probe synthesis to measure VoiSona responsiveness.

@@ -9,10 +9,9 @@ def should_dispatch(task: dict, world_model) -> bool:
     if task.get("urgency", 0) >= 4:
         return True
 
-    # Check if someone is home (any zone has occupancy)
-    someone_home = any(z.occupancy and z.occupancy.count > 0 for z in world_model.zones.values())
-
-    if not someone_home:
+    # Check if someone is home via multi-source presence inference, so a task
+    # is not withheld when the camera is offline but PC/HR/PIR signal occupancy.
+    if not world_model.is_anyone_home():
         return False  # Don't dispatch if nobody is home
 
     return True

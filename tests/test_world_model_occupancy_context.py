@@ -40,3 +40,14 @@ class TestWorldModelOccupancyContext:
         assert "在室: 1人" in ctx
         assert "活動:" not in ctx
         assert "姿勢:" not in ctx
+
+    def test_inferred_presence_appears_in_user_context(self, world_model):
+        zone = world_model._get_zone("office")
+        zone.occupancy = OccupancyData(
+            inferred_occupied=True,
+            inference_sources=["pc_activity"],
+        )
+
+        ctx = world_model._get_user_context()
+
+        assert "office: 在室推定 (根拠: pc_activity)" in ctx

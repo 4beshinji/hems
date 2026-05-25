@@ -121,7 +121,7 @@ class TestLLMFallback:
         clf = ShoppingClassifier(
             session=mock_session,
             backend_url="http://backend:8000",
-                cache=ClassifierCache(session=mock_session, backend_url="http://backend:8000"),
+            cache=ClassifierCache(session=mock_session, backend_url="http://backend:8000"),
             llm_router=llm_router,
         )
         result = asyncio.run(clf.classify_async("未知のアイテム"))
@@ -139,7 +139,7 @@ class TestLLMFallback:
         clf = ShoppingClassifier(
             session=mock_session,
             backend_url="http://backend:8000",
-                llm_router=llm_router,
+            llm_router=llm_router,
         )
         assert asyncio.run(clf.classify_async("アイテム")) is None
 
@@ -151,7 +151,7 @@ class TestLLMFallback:
         clf = ShoppingClassifier(
             session=mock_session,
             backend_url="http://backend:8000",
-                llm_router=llm_router,
+            llm_router=llm_router,
         )
         assert asyncio.run(clf.classify_async("バケツ")) == "home_center"
 
@@ -161,7 +161,7 @@ class TestLLMFallback:
         clf = ShoppingClassifier(
             session=mock_session,
             backend_url="http://backend:8000",
-            )
+        )
         assert asyncio.run(clf.classify_async("未知")) is None
 
     def test_llm_exception_returns_none(self, mock_session):
@@ -172,6 +172,6 @@ class TestLLMFallback:
         clf = ShoppingClassifier(
             session=mock_session,
             backend_url="http://backend:8000",
-                llm_router=llm_router,
+            llm_router=llm_router,
         )
         assert asyncio.run(clf.classify_async("未知")) is None

@@ -18,6 +18,7 @@ from camera_manager import CameraManager
 from detector import Detector
 from fastapi import FastAPI
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 
 from config import (
@@ -42,7 +43,6 @@ from config import (
     VLM_OLLAMA_URL,
     VLM_TIMEOUT,
 )
-from mqtt_publisher import MQTTPublisher
 
 # Module-level state
 mqtt_pub: MQTTPublisher | None = None
@@ -201,89 +201,84 @@ async def _vlm_processing_loop():
             _vlm_session = None
 
 
+def _signal_heavy_loading() -> None:
+    """Tell the brain to enter rule-only mode while the heavy VLM loads."""
+    mqtt_pub.publish(
+        "hems/perception/vlm/model_swap",
+        {"status": "heavy_loading", "model": vlm_analyzer.heavy_model},
+    )
+    logger.info(f"VLM heavy tier: model_swap signal sent (model={vlm_analyzer.heavy_model})")
+
+
+async def _signal_heavy_ready() -> None:
+    """Unload the heavy VLM and signal the brain it can resume LLM cycles."""
+    await vlm_analyzer._unload_model(vlm_analyzer.heavy_model, _vlm_session)
+    mqtt_pub.publish(
+        "hems/perception/vlm/model_swap",
+        {"status": "ready", "model": vlm_analyzer.heavy_model},
+    )
+    logger.info("VLM heavy tier: model unloaded, model_swap ready signal sent")
+
+
+async def _analyze_frames(frames: dict, target_zone: str, custom_prompt: str, tier: str) -> bool:
+    """Analyze each captured frame and publish results. Returns True if any was interesting."""
+    any_interesting = False
+    for cam_id, frame in frames.items():
+        cam = camera_mgr.cameras.get(cam_id)
+        if not cam:
+            continue
+
+        zone = cam.zone
+        # Filter by target zone if on-demand specifies one
+        if target_zone and zone != target_zone:
+            continue
+
+        result = await vlm_analyzer.analyze(
+            frame=frame,
+            session=_vlm_session,
+            prompt=custom_prompt or None,
+            mode="general",
+            tier=tier,
+            zone=zone,
+        )
+
+        if result.get("error"):
+            logger.warning(f"VLM analysis error ({zone}): {result['error']}")
+            continue
+
+        mqtt_pub.publish(f"hems/perception/vlm/{zone}", result)
+
+        if result.get("anomalies") or result.get("objects"):
+            any_interesting = True
+
+        logger.info(f"VLM [{tier}] {zone}: {result.get('description', '')[:80]}... ({result.get('elapsed_ms', 0)}ms)")
+    return any_interesting
+
+
 async def _run_vlm_cycle():
-    """Execute one VLM analysis cycle."""
+    """Execute one VLM analysis cycle: tier select → analyze → publish → model swap."""
     if not (vlm_analyzer and vlm_scheduler and camera_mgr and mqtt_pub and _vlm_session):
         return
 
-    # Check for on-demand request
     on_demand = vlm_scheduler.pop_on_demand()
     tier = vlm_scheduler.current_tier
-
-    # Determine target zone/prompt
     target_zone = on_demand.zone if on_demand else ""
     custom_prompt = on_demand.prompt if on_demand else ""
 
-    # Heavy tier: signal brain to enter rule-only mode
     is_heavy = tier == "heavy"
     if is_heavy:
-        mqtt_pub.publish(
-            "hems/perception/vlm/model_swap",
-            {
-                "status": "heavy_loading",
-                "model": vlm_analyzer.heavy_model,
-            },
-        )
-        logger.info(f"VLM heavy tier: model_swap signal sent (model={vlm_analyzer.heavy_model})")
+        _signal_heavy_loading()
 
     try:
-        # Capture frames from cameras
         frames = await camera_mgr.capture_all()
         if not frames:
             vlm_scheduler.record_run(interesting=False)
             return
-
-        any_interesting = False
-
-        for cam_id, frame in frames.items():
-            cam = camera_mgr.cameras.get(cam_id)
-            if not cam:
-                continue
-
-            zone = cam.zone
-
-            # Filter by target zone if on-demand specifies one
-            if target_zone and zone != target_zone:
-                continue
-
-            result = await vlm_analyzer.analyze(
-                frame=frame,
-                session=_vlm_session,
-                prompt=custom_prompt or None,
-                mode="general",
-                tier=tier,
-                zone=zone,
-            )
-
-            if result.get("error"):
-                logger.warning(f"VLM analysis error ({zone}): {result['error']}")
-                continue
-
-            # Publish result
-            mqtt_pub.publish(f"hems/perception/vlm/{zone}", result)
-
-            # Check if result was interesting (has anomalies or objects)
-            if result.get("anomalies") or result.get("objects"):
-                any_interesting = True
-
-            logger.info(
-                f"VLM [{tier}] {zone}: {result.get('description', '')[:80]}... ({result.get('elapsed_ms', 0)}ms)"
-            )
-
+        any_interesting = await _analyze_frames(frames, target_zone, custom_prompt, tier)
         vlm_scheduler.record_run(interesting=any_interesting)
-
     finally:
-        # Heavy tier: unload model and signal brain to resume
         if is_heavy:
-            await vlm_analyzer._unload_model(vlm_analyzer.heavy_model, _vlm_session)
-            mqtt_pub.publish(
-                "hems/perception/vlm/model_swap",
-                {
-                    "status": "ready",
-                    "model": vlm_analyzer.heavy_model,
-                },
-            )
-            logger.info("VLM heavy tier: model unloaded, model_swap ready signal sent")
+            await _signal_heavy_ready()
 
     # Publish scheduler status (retained)
     _publish_vlm_status()
@@ -340,6 +335,7 @@ async def lifespan(app: FastAPI):
     # Camera manager
     camera_mgr = CameraManager(mqtt_pub)
     if mqtt_pub:
+
         def _dispatch_mqtt(topic: str, payload: dict):
             # Brain → perception VLM rescan request (anomaly re-evaluation rule)
             if topic == "hems/perception/vlm/request":

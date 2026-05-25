@@ -21,7 +21,7 @@ class QueuedTask:
     title: str
     urgency: int = 2
     zone: str = ""
-    task_type: list = None
+    task_type: list | None = None
     estimated_duration: int = 10
     created_at: float = 0
 

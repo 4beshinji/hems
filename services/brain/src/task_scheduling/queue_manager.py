@@ -3,7 +3,10 @@ Task queue manager — dispatches queued tasks based on priority.
 Simplified from SOMS for single-user home use.
 """
 
+import aiohttp
 from loguru import logger
+
+from brain_constants import backend_auth_headers
 
 from .decision import should_dispatch
 from .priority import QueuedTask
@@ -15,24 +18,30 @@ class TaskQueueManager:
         self.dashboard = dashboard_client
 
     async def add_task(self, task_id: int, title: str, urgency: int = 2, zone: str = ""):
-        """Register a newly created task for queue processing.
+        """Logging-only stub — does NOT enqueue anything itself.
 
-        The task is already persisted in the backend DB; this logs the addition
-        so the next process_queue() cycle picks it up.
+        The task is already persisted in the backend DB at creation time, and
+        process_queue() reads the queue straight from the backend each cycle.
+        This method keeps no in-memory queue; it only emits an observability
+        log line. Kept (rather than removed) so the create_task tool handler has
+        a stable hook if local queueing is reintroduced later.
         """
         logger.info(f"Task queued: #{task_id} '{title}' (urgency={urgency}, zone={zone})")
 
     async def process_queue(self):
         """Check queued tasks and dispatch the highest priority one."""
+        if self.dashboard is None or self.dashboard.session is None:
+            return
         try:
-            # Fetch queued tasks from backend
-            import aiohttp
-
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-                async with session.get(f"{self.dashboard.backend_url}/tasks/queue") as resp:
-                    if resp.status != 200:
-                        return
-                    tasks = await resp.json()
+            # Fetch queued tasks from backend via the shared session
+            async with self.dashboard.session.get(
+                f"{self.dashboard.backend_url}/tasks/queue",
+                headers=backend_auth_headers(),
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status != 200:
+                    return
+                tasks = await resp.json()
 
             if not tasks:
                 return
@@ -57,8 +66,11 @@ class TaskQueueManager:
                     logger.debug(f"Skipping task {qt.task_id}: dispatch conditions not met")
                     continue
                 logger.info(f"Dispatching task {qt.task_id}: {qt.title}")
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-                    await session.put(f"{self.dashboard.backend_url}/tasks/{qt.task_id}/dispatch")
+                await self.dashboard.session.put(
+                    f"{self.dashboard.backend_url}/tasks/{qt.task_id}/dispatch",
+                    headers=backend_auth_headers(),
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
                 break  # One dispatch per cycle
 
         except Exception as e:

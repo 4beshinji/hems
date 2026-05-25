@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 """
-HEMS LLM Model Evaluation Framework.
-
-Evaluates multiple LLM models against HEMS Brain/Voice scenarios. Relies on
-Ollama's management APIs (`/api/tags`, `/api/pull`) to enumerate and fetch
-models, so point it at an Ollama instance (the `--profile ollama` service or
-a host install). For per-model benchmarking against llama.cpp / other
-OpenAI-compatible servers, use `infra/tests/benchmark/benchmark_llm.py`.
+HEMS LLM Model Evaluation Framework
+Evaluates multiple LLM models against HEMS Brain/Voice scenarios.
 
 No external dependencies — uses only Python standard library + urllib.
 

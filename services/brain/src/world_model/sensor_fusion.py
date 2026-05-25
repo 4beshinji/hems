@@ -7,14 +7,13 @@ import math
 import time
 from enum import Enum
 
-
 # ── Channel Classification ──────────────────────────────────────────
 
 
 class ChannelType(Enum):
-    ANALOG = "analog"          # Continuous numeric (temperature, humidity, ...)
-    EVENT = "event"            # Pulse/spike (motion, vibration)
-    STATE = "state"            # Binary on/off (door, presence, contact)
+    ANALOG = "analog"  # Continuous numeric (temperature, humidity, ...)
+    EVENT = "event"  # Pulse/spike (motion, vibration)
+    STATE = "state"  # Binary on/off (door, presence, contact)
     PASSTHROUGH = "passthrough"  # Unknown — store and display as-is
 
 
@@ -62,6 +61,12 @@ class SensorFusion:
         "default": 120,
     }
 
+    # Hard age cap (Group C, ported from SOMS): readings older than this never
+    # contribute to a fused value, regardless of the caller's buffer. When every
+    # reading for a channel is older than this, fusion returns None and the
+    # channel goes stale instead of surfacing an arbitrarily old value.
+    MAX_FUSION_AGE_SEC = 600
+
     def __init__(self):
         self.sensor_reliability: dict[str, float] = {"default": 0.5}
         self._readings: list[tuple[str, float, float]] = []  # (sensor_id, value, ts)
@@ -90,17 +95,29 @@ class SensorFusion:
         return self.fuse_generic(self._readings, sensor_type)
 
     def fuse_temperature(
-        self, readings: list[tuple[str, float, float]], sensor_type: str = "temperature"
+        self,
+        readings: list[tuple[str, float, float]],
+        sensor_type: str = "temperature",
+        max_age_sec: float | None = None,
     ) -> float | None:
-        """Fuse multiple temperature readings with weighted average."""
+        """Fuse multiple readings with reliability- and recency-weighted average.
+
+        Readings older than ``max_age_sec`` (default ``MAX_FUSION_AGE_SEC``) are
+        excluded outright; if none remain, returns None so the channel goes
+        stale rather than surfacing an old value.
+        """
         if not readings:
             return None
+        if max_age_sec is None:
+            max_age_sec = self.MAX_FUSION_AGE_SEC
         total_weight = 0.0
         weighted_sum = 0.0
         current_time = time.time()
         half_life = self._get_half_life(sensor_type)
         for sensor_id, value, timestamp in readings:
             age_seconds = current_time - timestamp
+            if age_seconds > max_age_sec:
+                continue
             age_factor = math.exp(-age_seconds / half_life)
             reliability = self.sensor_reliability.get(sensor_id, self.sensor_reliability["default"])
             weight = reliability * age_factor
@@ -110,9 +127,14 @@ class SensorFusion:
             return None
         return weighted_sum / total_weight
 
-    def fuse_generic(self, readings: list[tuple[str, float, float]], sensor_type: str = "default") -> float | None:
+    def fuse_generic(
+        self,
+        readings: list[tuple[str, float, float]],
+        sensor_type: str = "default",
+        max_age_sec: float | None = None,
+    ) -> float | None:
         """Generic sensor fusion with sensor-type specific half-life."""
-        return self.fuse_temperature(readings, sensor_type)
+        return self.fuse_temperature(readings, sensor_type, max_age_sec)
 
     def integrate_occupancy(self, vision_count: int, pir_active: bool, zone_size: float = 20.0) -> int:
         """Integrate occupancy from YOLO vision and PIR sensor."""

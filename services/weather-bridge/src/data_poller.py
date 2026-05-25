@@ -6,9 +6,9 @@ import asyncio
 import time
 
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 
 import config
-from mqtt_publisher import MQTTPublisher
 
 
 class DataPoller:

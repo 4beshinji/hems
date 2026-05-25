@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 if TYPE_CHECKING:
     import aiohttp
 
@@ -63,7 +65,7 @@ class RulePromoter:
         params = f"?source=llm&min_hit_count={PROMOTION_THRESHOLD}"
         url = f"{self.backend_url}/classifier-cache{params}"
         try:
-            async with self.session.get(url, timeout=15) as resp:
+            async with self.session.get(url, headers=backend_auth_headers(), timeout=15) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 logger.warning("[rule_promoter] fetch failed: HTTP {}", resp.status)
@@ -82,6 +84,7 @@ class RulePromoter:
         try:
             async with self.session.post(
                 url,
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=10,
             ) as resp:

@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 if TYPE_CHECKING:
     import aiohttp
 
@@ -72,7 +74,7 @@ class ClassifierCache:
         h = hash_key(kind, key)
         url = f"{self.backend_url}/classifier-cache/{kind}/{h}"
         try:
-            async with self.session.get(url, timeout=10) as resp:
+            async with self.session.get(url, headers=backend_auth_headers(), timeout=10) as resp:
                 if resp.status == 404:
                     return None
                 if resp.status != 200:
@@ -106,6 +108,7 @@ class ClassifierCache:
         try:
             async with self.session.post(
                 url,
+                headers=backend_auth_headers(),
                 json=payload,
                 timeout=10,
             ) as resp:

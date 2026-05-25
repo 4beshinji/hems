@@ -13,11 +13,11 @@ import aiohttp
 from device_mapper import DeviceMapper
 from fastapi import FastAPI, HTTPException, Request
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 from switchbot_client import SwitchBotClient
 
 import config
-from mqtt_publisher import MQTTPublisher
 
 # Module-level shared state
 sb_client: SwitchBotClient | None = None

@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 import aiohttp
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 
 def _internal_headers() -> dict:
     token = os.getenv("HEMS_INTERNAL_TOKEN", "")
@@ -45,7 +47,7 @@ class TaskReminder:
         - Either never reminded, or last reminded more than REMINDER_COOLDOWN ago
         """
         try:
-            async with self._session.get(f"{self.dashboard_api_url}/tasks/") as resp:
+            async with self._session.get(f"{self.dashboard_api_url}/tasks/", headers=backend_auth_headers()) as resp:
                 if resp.status != 200:
                     logger.error(f"Failed to fetch tasks: {resp.status}")
                     return []
@@ -127,7 +129,9 @@ class TaskReminder:
     async def update_reminder_timestamp(self, task_id):
         """Update the last_reminded_at timestamp for a task."""
         try:
-            async with self._session.put(f"{self.dashboard_api_url}/tasks/{task_id}/reminded") as resp:
+            async with self._session.put(
+                f"{self.dashboard_api_url}/tasks/{task_id}/reminded", headers=backend_auth_headers()
+            ) as resp:
                 if resp.status == 200:
                     logger.debug(f"Updated reminder timestamp for task {task_id}")
                     return True

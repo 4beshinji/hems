@@ -13,7 +13,7 @@ import hashlib
 import json
 import os
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from loguru import logger
@@ -21,6 +21,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 IS_POSTGRES = "postgresql" in os.getenv("DATABASE_URL", "")
+# Schema-qualified table prefix: Postgres groups the data-mart tables under the
+# `events` schema; SQLite keeps them in the default schema.
+TABLE_PREFIX = "events." if IS_POSTGRES else ""
 
 
 class EventWriter:
@@ -36,6 +39,11 @@ class EventWriter:
         self._world_events: list[dict] = []
         # payload_digest → last accepted timestamp (unix); for 5min dedupe
         self._world_dedup: dict[str, float] = {}
+        # Intervention efficacy (Group D): created rows are INSERTed, completed
+        # rows are UPDATEd by task_id. Buffered like everything else so the
+        # MQTT-thread completion path stays a plain thread-safe append.
+        self._interventions_created: list[dict] = []
+        self._interventions_completed: list[dict] = []
         self._lock = asyncio.Lock()
         self._running = False
 
@@ -137,12 +145,20 @@ class EventWriter:
         tool_calls: list | None = None,
         world_state_snapshot: dict | None = None,
         cause_event_id: int | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        gpu_util_pct: float | None = None,
+        gpu_power_w: float | None = None,
     ):
         """Buffer an LLM cognitive cycle decision.
 
         cause_event_id: optional FK back to world_events.id — the originating
         event that triggered this cognitive cycle (e.g. a GAS event change,
         biometric threshold crossing). Enables causal traceability.
+
+        prompt_tokens/completion_tokens/gpu_util_pct/gpu_power_w: optional
+        cost/energy metering (Group E). All nullable — rule-based cycles and
+        backends that report no usage leave them None.
         """
         self._decisions.append(
             {
@@ -154,8 +170,126 @@ class EventWriter:
                 "tool_calls": json.dumps(tool_calls or []),
                 "world_state_snapshot": json.dumps(world_state_snapshot or {}),
                 "cause_event_id": cause_event_id,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "gpu_util_pct": gpu_util_pct,
+                "gpu_power_w": gpu_power_w,
             }
         )
+
+    # ------------------------------------------------------------------
+    # Intervention efficacy (Group D)
+    # ------------------------------------------------------------------
+
+    def record_intervention_created(
+        self,
+        task_id: str,
+        zone: str,
+        trigger_metric: str,
+        baseline_value: float | None,
+        window_sec: int = 1800,
+    ):
+        """Buffer a pending efficacy row for an environment task (INSERT)."""
+        self._interventions_created.append(
+            {
+                "task_id": str(task_id),
+                "zone": zone,
+                "trigger_metric": trigger_metric,
+                "baseline_value": baseline_value,
+                "created_at": datetime.now(UTC).isoformat(),
+                "window_sec": window_sec,
+            }
+        )
+
+    def mark_intervention_completed(self, task_id: str):
+        """Buffer a completion timestamp for a tracked task (UPDATE by task_id).
+
+        Safe to call from the MQTT-dispatch thread — only appends.
+        """
+        self._interventions_completed.append({"task_id": str(task_id), "completed_at": datetime.now(UTC).isoformat()})
+
+    async def fetch_pending_interventions(self) -> list[dict]:
+        """Return completed-but-unverdicted rows whose post-window has elapsed.
+
+        Window elapsis is computed in Python so the query stays backend-agnostic
+        (SQLite has no interval arithmetic).
+        """
+        tp = TABLE_PREFIX
+        async with self._engine.begin() as conn:
+            rows = await conn.execute(
+                text(f"""
+                    SELECT id, task_id, zone, trigger_metric, baseline_value,
+                           completed_at, window_sec
+                    FROM {tp}intervention_efficacy
+                    WHERE verdict IS NULL AND completed_at IS NOT NULL
+                    ORDER BY completed_at
+                    LIMIT 50
+                """)
+            )
+            now = datetime.now(UTC)
+            pending = []
+            for r in rows:
+                d = dict(r._mapping)
+                ca = d["completed_at"]
+                if isinstance(ca, str):
+                    ca = datetime.fromisoformat(ca)
+                if ca.tzinfo is None:
+                    ca = ca.replace(tzinfo=UTC)
+                if now >= ca + timedelta(seconds=d["window_sec"]):
+                    pending.append(d)
+            return pending
+
+    async def compute_post_value(self, zone: str, channel: str, start, window_sec: int) -> float | None:
+        """AVG of a channel's sensor readings in [start, start+window_sec)."""
+        if isinstance(start, str):
+            start_dt = datetime.fromisoformat(start)
+        else:
+            start_dt = start
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=UTC)
+        start_str = start_dt.isoformat()
+        end_str = (start_dt + timedelta(seconds=window_sec)).isoformat()
+        tp = TABLE_PREFIX
+        async with self._engine.begin() as conn:
+            if IS_POSTGRES:
+                row = await conn.execute(
+                    text(rf"""
+                        SELECT AVG((data->>'value')::float)
+                        FROM {tp}raw_events
+                        WHERE zone = :zone AND event_type = 'sensor_reading'
+                          AND data->>'channel' = :channel
+                          AND timestamp >= :start AND timestamp < :end
+                          AND data->>'value' ~ '^-?[0-9]+\.?[0-9]*([eE][+-]?[0-9]+)?$'
+                    """),
+                    {"zone": zone, "channel": channel, "start": start_str, "end": end_str},
+                )
+            else:
+                row = await conn.execute(
+                    text("""
+                        SELECT AVG(CAST(json_extract(data, '$.value') AS REAL))
+                        FROM raw_events
+                        WHERE zone = :zone AND event_type = 'sensor_reading'
+                          AND json_extract(data, '$.channel') = :channel
+                          AND timestamp >= :start AND timestamp < :end
+                          AND typeof(json_extract(data, '$.value')) IN ('integer', 'real')
+                    """),
+                    {"zone": zone, "channel": channel, "start": start_str, "end": end_str},
+                )
+            return row.scalar()
+
+    async def record_intervention_verdict(self, row_id: int, post_value: float | None, verdict: str):
+        """Persist the post value + verdict for one efficacy row (UPDATE)."""
+        tp = TABLE_PREFIX
+        now_str = datetime.now(UTC).isoformat()
+        async with self._engine.begin() as conn:
+            await conn.execute(
+                text(f"""
+                    UPDATE {tp}intervention_efficacy
+                    SET post_value = :post_value, verdict = :verdict, evaluated_at = :evaluated_at
+                    WHERE id = :row_id
+                """),
+                {"row_id": row_id, "post_value": post_value, "verdict": verdict, "evaluated_at": now_str},
+            )
 
     # ------------------------------------------------------------------
     # Flush loop
@@ -178,110 +312,119 @@ class EventWriter:
         await self._flush()
         logger.info("EventWriter stopped")
 
+    async def _bulk_insert(self, conn, table: str, cols: list[str], rows: list[dict], jsonb_cols: tuple = ()):
+        """INSERT rows into {TABLE_PREFIX}{table}.
+
+        On Postgres the columns in *jsonb_cols* are CAST to jsonb and all rows
+        go in a single executemany; on SQLite each row is inserted plainly
+        (jsonb_cols are stored as-is, matching the legacy per-row path).
+        """
+        col_list = ", ".join(cols)
+        if IS_POSTGRES:
+            values = ", ".join(f"CAST(:{c} AS jsonb)" if c in jsonb_cols else f":{c}" for c in cols)
+            await conn.execute(
+                text(f"INSERT INTO {TABLE_PREFIX}{table} ({col_list}) VALUES ({values})"),
+                rows,
+            )
+        else:
+            values = ", ".join(f":{c}" for c in cols)
+            stmt = text(f"INSERT INTO {TABLE_PREFIX}{table} ({col_list}) VALUES ({values})")
+            for r in rows:
+                await conn.execute(stmt, r)
+
     async def _flush(self):
         """Bulk INSERT buffered events and decisions, then clear buffers."""
         async with self._lock:
             events = self._events[:]
             decisions = self._decisions[:]
             world_events = self._world_events[:]
+            iv_created = self._interventions_created[:]
+            iv_completed = self._interventions_completed[:]
             self._events.clear()
             self._decisions.clear()
             self._world_events.clear()
+            self._interventions_created.clear()
+            self._interventions_completed.clear()
 
-        if not events and not decisions and not world_events:
+        if not events and not decisions and not world_events and not iv_created and not iv_completed:
             return
 
-        tp = "events." if IS_POSTGRES else ""
+        tp = TABLE_PREFIX
 
         try:
             async with self._engine.begin() as conn:
                 if events:
-                    if IS_POSTGRES:
-                        await conn.execute(
-                            text(f"""
-                                INSERT INTO {tp}raw_events
-                                    (timestamp, zone, event_type, source_device, data)
-                                VALUES
-                                    (:timestamp, :zone, :event_type, :source_device,
-                                     CAST(:data AS jsonb))
-                            """),
-                            events,
-                        )
-                    else:
-                        for e in events:
-                            await conn.execute(
-                                text(f"""
-                                    INSERT INTO {tp}raw_events
-                                        (timestamp, zone, event_type, source_device, data)
-                                    VALUES (:timestamp, :zone, :event_type, :source_device, :data)
-                                """),
-                                e,
-                            )
+                    await self._bulk_insert(
+                        conn,
+                        "raw_events",
+                        ["timestamp", "zone", "event_type", "source_device", "data"],
+                        events,
+                        jsonb_cols=("data",),
+                    )
                     logger.debug("Flushed {} raw events", len(events))
 
                 if decisions:
-                    # Ensure cause_event_id is present (default None) for backward compatibility
+                    # Ensure newer columns are present (default None) for buffers
+                    # captured before a code update — backward compatibility.
                     for d in decisions:
                         d.setdefault("cause_event_id", None)
-                    if IS_POSTGRES:
-                        await conn.execute(
-                            text(f"""
-                                INSERT INTO {tp}llm_decisions
-                                    (timestamp, cycle_duration_sec, iterations,
-                                     total_tool_calls, trigger_events, tool_calls,
-                                     world_state_snapshot, cause_event_id)
-                                VALUES
-                                    (:timestamp, :cycle_duration_sec, :iterations,
-                                     :total_tool_calls, CAST(:trigger_events AS jsonb),
-                                     CAST(:tool_calls AS jsonb),
-                                     CAST(:world_state_snapshot AS jsonb),
-                                     :cause_event_id)
-                            """),
-                            decisions,
-                        )
-                    else:
-                        for d in decisions:
-                            await conn.execute(
-                                text(f"""
-                                    INSERT INTO {tp}llm_decisions
-                                        (timestamp, cycle_duration_sec, iterations,
-                                         total_tool_calls, trigger_events, tool_calls,
-                                         world_state_snapshot, cause_event_id)
-                                    VALUES
-                                        (:timestamp, :cycle_duration_sec, :iterations,
-                                         :total_tool_calls, :trigger_events, :tool_calls,
-                                         :world_state_snapshot, :cause_event_id)
-                                """),
-                                d,
-                            )
+                        d.setdefault("prompt_tokens", None)
+                        d.setdefault("completion_tokens", None)
+                        d.setdefault("gpu_util_pct", None)
+                        d.setdefault("gpu_power_w", None)
+                    await self._bulk_insert(
+                        conn,
+                        "llm_decisions",
+                        [
+                            "timestamp",
+                            "cycle_duration_sec",
+                            "iterations",
+                            "total_tool_calls",
+                            "trigger_events",
+                            "tool_calls",
+                            "world_state_snapshot",
+                            "cause_event_id",
+                            "prompt_tokens",
+                            "completion_tokens",
+                            "gpu_util_pct",
+                            "gpu_power_w",
+                        ],
+                        decisions,
+                        jsonb_cols=("trigger_events", "tool_calls", "world_state_snapshot"),
+                    )
                     logger.debug("Flushed {} LLM decisions", len(decisions))
 
                 if world_events:
-                    if IS_POSTGRES:
+                    await self._bulk_insert(
+                        conn,
+                        "world_events",
+                        ["timestamp", "source_type", "topic", "payload_digest", "subject_ref", "data"],
+                        world_events,
+                        jsonb_cols=("data",),
+                    )
+                    logger.debug("Flushed {} world events", len(world_events))
+
+                if iv_created:
+                    await self._bulk_insert(
+                        conn,
+                        "intervention_efficacy",
+                        ["task_id", "zone", "trigger_metric", "baseline_value", "created_at", "window_sec"],
+                        iv_created,
+                    )
+                    logger.debug("Flushed {} intervention rows", len(iv_created))
+
+                if iv_completed:
+                    # UPDATE the latest still-open row for each task_id.
+                    for iv in iv_completed:
                         await conn.execute(
                             text(f"""
-                                INSERT INTO {tp}world_events
-                                    (timestamp, source_type, topic, payload_digest,
-                                     subject_ref, data)
-                                VALUES
-                                    (:timestamp, :source_type, :topic, :payload_digest,
-                                     :subject_ref, CAST(:data AS jsonb))
+                                UPDATE {tp}intervention_efficacy
+                                SET completed_at = :completed_at
+                                WHERE task_id = :task_id AND completed_at IS NULL
                             """),
-                            world_events,
+                            iv,
                         )
-                    else:
-                        for w in world_events:
-                            await conn.execute(
-                                text(f"""
-                                    INSERT INTO {tp}world_events
-                                        (timestamp, source_type, topic, payload_digest,
-                                         subject_ref, data)
-                                    VALUES (:timestamp, :source_type, :topic,
-                                            :payload_digest, :subject_ref, :data)
-                                """),
-                                w,
-                            )
-                    logger.debug("Flushed {} world events", len(world_events))
+                    logger.debug("Flushed {} intervention completions", len(iv_completed))
 
         except Exception as e:
             logger.error("Event flush failed: {}", e)
@@ -290,3 +433,5 @@ class EventWriter:
                 self._events = events + self._events
                 self._decisions = decisions + self._decisions
                 self._world_events = world_events + self._world_events
+                self._interventions_created = iv_created + self._interventions_created
+                self._interventions_completed = iv_completed + self._interventions_completed

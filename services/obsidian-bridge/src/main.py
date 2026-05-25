@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 from note_writer import NoteWriter
 from pydantic import BaseModel
 from vault_index import VaultIndex
@@ -25,7 +26,6 @@ from config import (
     VAULT_PATH,
     WATCHER_DEBOUNCE,
 )
-from mqtt_publisher import MQTTPublisher
 
 logger.configure(handlers=[{"sink": sys.stderr, "level": LOG_LEVEL}])
 

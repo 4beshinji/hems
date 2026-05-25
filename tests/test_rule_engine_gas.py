@@ -51,8 +51,8 @@ class TestRuleEngineGASRules:
 
     def test_meeting_reminder_10min(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.calendar_events = [
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.calendar_events = [
             CalendarEvent(
                 id="ev1",
                 title="Team Standup",
@@ -68,8 +68,8 @@ class TestRuleEngineGASRules:
 
     def test_meeting_reminder_not_fired_when_far(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.calendar_events = [
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.calendar_events = [
             CalendarEvent(
                 id="ev1",
                 title="Meeting",
@@ -83,8 +83,8 @@ class TestRuleEngineGASRules:
 
     def test_meeting_reminder_skips_all_day(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.calendar_events = [
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.calendar_events = [
             CalendarEvent(
                 id="ev1",
                 title="Holiday",
@@ -100,8 +100,8 @@ class TestRuleEngineGASRules:
     def test_overlap_detection(self, world_model):
         engine = self._make_engine()
         now = time.time()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.calendar_events = [
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.calendar_events = [
             CalendarEvent(id="ev1", title="Meeting A", start_ts=now + 100, end_ts=now + 3700),
             CalendarEvent(id="ev2", title="Meeting B", start_ts=now + 3600, end_ts=now + 7200),
         ]
@@ -112,8 +112,8 @@ class TestRuleEngineGASRules:
     def test_no_overlap_when_sequential(self, world_model):
         engine = self._make_engine()
         now = time.time()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.calendar_events = [
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.calendar_events = [
             CalendarEvent(id="ev1", title="A", start_ts=now + 100, end_ts=now + 3600),
             CalendarEvent(id="ev2", title="B", start_ts=now + 3600, end_ts=now + 7200),
         ]
@@ -125,8 +125,8 @@ class TestRuleEngineGASRules:
 
     def test_overdue_alert(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.tasks = [
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.tasks = [
             GoogleTask(id="t1", title="Expired task", is_overdue=True, status="needsAction"),
         ]
         actions = engine.evaluate(world_model)
@@ -135,8 +135,8 @@ class TestRuleEngineGASRules:
 
     def test_no_overdue_alert_when_none(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.tasks = [
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.tasks = [
             GoogleTask(id="t1", title="On time task", is_overdue=False, status="needsAction"),
         ]
         actions = engine.evaluate(world_model)
@@ -147,24 +147,24 @@ class TestRuleEngineGASRules:
 
     def test_gmail_unread_alert_10(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=12)}
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=12)}
         actions = engine.evaluate(world_model)
         gmail_speaks = [a for a in actions if a["tool"] == "speak" and "未読" in a["args"]["message"]]
         assert len(gmail_speaks) == 1
 
     def test_gmail_critical_20_creates_task(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=25)}
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=25)}
         actions = engine.evaluate(world_model)
         tasks = [a for a in actions if a["tool"] == "create_task" and "メール" in a["args"]["title"]]
         assert len(tasks) == 1
 
     def test_gmail_no_alert_below_threshold(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=5)}
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=5)}
         actions = engine.evaluate(world_model)
         gmail = [a for a in actions if "未読" in a["args"].get("message", "")]
         assert len(gmail) == 0
@@ -173,8 +173,8 @@ class TestRuleEngineGASRules:
 
     def test_drive_document_update_notification(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.drive_recent = [
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.drive_recent = [
             DriveFile(
                 name="Budget 2026",
                 mime_type="application/vnd.google-apps.spreadsheet",
@@ -189,8 +189,8 @@ class TestRuleEngineGASRules:
 
     def test_drive_non_doc_ignored(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.drive_recent = [
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.drive_recent = [
             DriveFile(name="photo.jpg", mime_type="image/jpeg", modified_time="2026-02-19T10:00:00Z"),
         ]
         actions = engine.evaluate(world_model)
@@ -201,8 +201,8 @@ class TestRuleEngineGASRules:
 
     def test_sheet_threshold_alert(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.sheets = {
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.sheets = {
             "budget": SheetData(
                 name="budget",
                 headers=["metric", "value", "threshold"],
@@ -217,8 +217,8 @@ class TestRuleEngineGASRules:
 
     def test_sheet_below_threshold_no_alert(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.sheets = {
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.sheets = {
             "budget": SheetData(
                 name="budget",
                 headers=["metric", "value", "threshold"],
@@ -232,8 +232,8 @@ class TestRuleEngineGASRules:
 
     def test_sheet_without_required_columns_ignored(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.sheets = {
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.sheets = {
             "notes": SheetData(
                 name="notes",
                 headers=["title", "content"],
@@ -249,8 +249,8 @@ class TestRuleEngineGASRules:
 
     def test_gas_cooldown_prevents_duplicate(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = True
-        world_model.digital.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=15)}
+        world_model.gas_state.bridge_connected = True
+        world_model.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=15)}
 
         actions1 = engine.evaluate(world_model)
         actions2 = engine.evaluate(world_model)
@@ -264,8 +264,8 @@ class TestRuleEngineGASRules:
 
     def test_no_gas_rules_when_disconnected(self, world_model):
         engine = self._make_engine()
-        world_model.digital.gas_state.bridge_connected = False
-        world_model.digital.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=50)}
+        world_model.gas_state.bridge_connected = False
+        world_model.gas_state.gmail_labels = {"INBOX": GmailLabel(name="INBOX", unread=50)}
         actions = engine.evaluate(world_model)
         gas_actions = [
             a for a in actions if "未読" in a["args"].get("message", "") or "メール" in a["args"].get("title", "")

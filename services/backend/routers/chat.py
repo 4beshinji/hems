@@ -1,6 +1,12 @@
 """
 Chat router — conversational AI endpoint.
 Persists messages and proxies to Brain chat server for LLM processing.
+
+All DB access goes through the SQLAlchemy ORM (no raw ``text()`` SQL). The
+broad ``except Exception`` blocks in the TTS-synthesis helpers below are
+intentional: speech is a best-effort enhancement, so any synthesis failure
+(network, ffmpeg subprocess, decode) is logged and degraded to "no audio"
+rather than failing the chat response.
 """
 
 import asyncio

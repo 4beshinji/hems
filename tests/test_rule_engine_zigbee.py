@@ -10,7 +10,6 @@ from rule_engine import RuleEngine
 from world_model.data_classes import (
     BinarySensorState,
     HASensorState,
-    LightState,
     OccupancyData,
 )
 
@@ -76,23 +75,22 @@ class TestDoorArrivalDepartureRule:
             previous_state=True,
             last_changed=now,
         )
-        engine._device_cache = [{
-            "device_id": "light.living",
-            "device_class": "light",
-            "is_enabled": True,
-            "capabilities": ["brightness"],
-            "last_state": {"on": False},
-            "zone": "living_room",
-        }]
+        engine._device_cache = [
+            {
+                "device_id": "light.living",
+                "device_class": "light",
+                "is_enabled": True,
+                "capabilities": ["brightness"],
+                "last_state": {"on": False},
+                "zone": "living_room",
+            }
+        ]
         zone = world_model._get_zone("living_room")
         zone.occupancy = OccupancyData(count=1)
 
         actions = engine.evaluate(world_model)
         speak_actions = [a for a in actions if a["tool"] == "speak" and "おかえり" in a["args"]["message"]]
-        light_ons = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "on"
-        ]
+        light_ons = [a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "on"]
         assert len(speak_actions) >= 1
         assert len(light_ons) >= 1
 
@@ -106,24 +104,23 @@ class TestDoorArrivalDepartureRule:
             previous_state=True,
             last_changed=now,
         )
-        engine._device_cache = [{
-            "device_id": "light.living",
-            "device_class": "light",
-            "is_enabled": True,
-            "capabilities": ["brightness"],
-            "last_state": {"on": True},
-            "zone": "living_room",
-        }]
+        engine._device_cache = [
+            {
+                "device_id": "light.living",
+                "device_class": "light",
+                "is_enabled": True,
+                "capabilities": ["brightness"],
+                "last_state": {"on": True},
+                "zone": "living_room",
+            }
+        ]
         # No occupants
         zone = world_model._get_zone("living_room")
         zone.occupancy = OccupancyData(count=0)
 
         actions = engine.evaluate(world_model)
         speak_actions = [a for a in actions if a["tool"] == "speak" and "いってらっしゃい" in a["args"]["message"]]
-        light_off = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
-        ]
+        light_off = [a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "off"]
         assert len(speak_actions) >= 1
         assert len(light_off) >= 1
 
@@ -262,19 +259,22 @@ class TestPM25Rule:
             value=50,
             device_class="pm25",
         )
-        engine._device_cache = [{
-            "device_id": "switch.air_purifier",
-            "device_class": "switch",
-            "is_enabled": True,
-            "capabilities": [],
-            "last_state": {"on": False},
-            "zone": "home",
-            "purpose": "空気清浄機",
-        }]
+        engine._device_cache = [
+            {
+                "device_id": "switch.air_purifier",
+                "device_class": "switch",
+                "is_enabled": True,
+                "capabilities": [],
+                "last_state": {"on": False},
+                "zone": "home",
+                "purpose": "空気清浄機",
+            }
+        ]
         actions = engine.evaluate(world_model)
         speak_actions = [a for a in actions if a["tool"] == "speak" and "PM2.5" in a["args"]["message"]]
         switch_actions = [
-            a for a in actions
+            a
+            for a in actions
             if a["tool"] == "control_actuator"
             and a["args"]["device_id"] == "switch.air_purifier"
             and a["args"]["action"] == "on"

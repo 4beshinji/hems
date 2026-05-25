@@ -35,14 +35,19 @@ MODEL_RECOMMENDATIONS = [
     {"vram_min": 6144, "models": [
         "qwen2.5:7b", "llama3.1:8b", "mistral:7b",
     ], "tier": "~8GB", "desc": "General purpose (7-8B params)"},
-    # 12–18GB VRAM
+    # 12–18GB VRAM. Ollama's usable VRAM ≈ total − ~2GiB, so the largest dense
+    # model that fully GPU-offloads here is ~9–14B. Measured on a 16GB RX 6900 XT
+    # (usable ≈ 14.1GiB): qwen3.5:9b-q8_0 loads 100% GPU; a 27B (15GB) fails to
+    # load. So 16GB cards land here, not on the 27B tier below.
     {"vram_min": 12288, "models": [
-        "qwen2.5:14b", "deepseek-r1:14b",
-    ], "tier": "~14GB", "desc": "Strong reasoning (14B params)"},
-    # 15–24GB VRAM: qwen3.5:27b (17GB model; Ollama auto-offloads overflow layers to CPU)
-    {"vram_min": 15360, "models": [
+        "qwen3.5:9b-q8_0", "qwen2.5:14b", "deepseek-r1:14b",
+    ], "tier": "~14GB", "desc": "Dense 9–14B — fully GPU-resident on 12–18GB"},
+    # 20GB+ VRAM: qwen3.5:27b (15–17GB weights). NOTE: needs ~20GB+ to fully fit.
+    # On a 16GB card ollama reports only ~14GiB usable and the model fails to
+    # load (500) — no usable partial-CPU-offload path for it in practice.
+    {"vram_min": 20480, "models": [
         "qwen3.5:27b",
-    ], "tier": "~16-20GB", "desc": "Qwen3.5 27B — 256K ctx, multilingual"},
+    ], "tier": "~20-24GB", "desc": "Qwen3.5 27B dense — needs 20GB+ VRAM"},
     # 24GB+ VRAM: qwen3.5:35b-a3b MoE (24GB model, 3B active params)
     {"vram_min": 24576, "models": [
         "qwen3.5:35b-a3b", "qwen3.5:35b",

@@ -12,18 +12,10 @@ MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER = os.getenv("MQTT_USER", "")
 MQTT_PASS = os.getenv("MQTT_PASS", "")
 
-# LLM (OpenAI-compatible, defaults to llama.cpp `llm` service)
-# Precedence: NEWS_LLM_API_URL > LLM_API_URL > OLLAMA_URL (legacy).
-# NEWS_LLM_API_URL is a bare base URL; `/v1` is appended by the client.
-LLM_API_URL = os.getenv("NEWS_LLM_API_URL", "") \
-    or os.getenv("LLM_API_URL", "") \
-    or os.getenv("OLLAMA_URL", "http://llm:8080")
-LLM_MODEL = os.getenv("NEWS_LLM_MODEL", "") \
-    or os.getenv("LLM_MODEL", "") \
-    or os.getenv("OLLAMA_MODEL", "qwen2.5-14b-instruct")
-LLM_SUMMARY_MODEL = os.getenv("NEWS_LLM_SUMMARY_MODEL", "") \
-    or os.getenv("OLLAMA_SUMMARY_MODEL", "") \
-    or LLM_MODEL
+# Ollama
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5")
+OLLAMA_SUMMARY_MODEL = os.getenv("OLLAMA_SUMMARY_MODEL", "") or OLLAMA_MODEL
 
 # News sources
 NEWS_SOURCES = os.getenv("NEWS_SOURCES", "nhk_main,nhk_international,bbc_world,guardian_world")

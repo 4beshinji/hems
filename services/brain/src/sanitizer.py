@@ -382,27 +382,16 @@ class Sanitizer:
 
     def _validate_control_actuator(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate control_actuator — generic device control via Device Registry."""
-        _ALLOWED_ACTIONS = {
-            "on",
-            "off",
-            "toggle",
-            "set_brightness",
-            "set_color_temp",
-            "set_color_xy",
-            "set_color_hs",
-            "set_position",
-            "set_temperature",
-            "pulse",
-            "rainbow",
-            "ir_send",
-        }
+        # Action allowlist is owned by device_dispatcher (single source of truth).
+        from device_dispatcher import ALLOWED_ACTIONS
+
         device_id = args.get("device_id", "")
         if not device_id or "." not in device_id:
             return {"allowed": False, "reason": f"Invalid device_id '{device_id}' (expected 'vendor.name')"}
 
         action = args.get("action", "")
-        if action not in _ALLOWED_ACTIONS:
-            return {"allowed": False, "reason": f"action '{action}' not in {sorted(_ALLOWED_ACTIONS)}"}
+        if action not in ALLOWED_ACTIONS:
+            return {"allowed": False, "reason": f"action '{action}' not in {sorted(ALLOWED_ACTIONS)}"}
 
         params = args.get("params") or {}
         if action == "pulse":

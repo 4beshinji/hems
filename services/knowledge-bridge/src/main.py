@@ -1,6 +1,6 @@
 """
 Knowledge Bridge — multi-format document ingestion service for HEMS.
-Hybrid search: BM25 + Vector (OpenAI-compat embedding, default TEI) + Title boost via RRF.
+Hybrid search: BM25 + Vector (Ollama embedding) + Title boost via RRF.
 """
 
 import asyncio
@@ -12,6 +12,7 @@ from document_index import DocumentIndex
 from embedding import EmbeddingClient
 from fastapi import FastAPI, HTTPException
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 from source_watcher import SourceWatcher
 
@@ -30,7 +31,6 @@ from config import (
     MQTT_USER,
     WATCHER_DEBOUNCE,
 )
-from mqtt_publisher import MQTTPublisher
 
 logger.configure(handlers=[{"sink": sys.stderr, "level": LOG_LEVEL}])
 
@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     # Connect MQTT
     mqtt_pub.connect()
 
-    # Initialize embedding client (probe the embeddings server)
+    # Initialize embedding client (probe Ollama)
     await embedder.initialize()
 
     # Register and index all sources

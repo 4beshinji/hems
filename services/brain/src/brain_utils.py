@@ -2,6 +2,7 @@
 Shared utilities for HEMS Brain modules.
 """
 
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -73,3 +74,41 @@ def parse_iso_ts(value: Any) -> float | None:
         return datetime.fromisoformat(s).timestamp()
     except (ValueError, TypeError):
         return None
+
+
+# --------------------------------------------------------------------------- #
+#  Provider-specific tool-call message formatting                             #
+# --------------------------------------------------------------------------- #
+
+
+def format_tool_call_blocks(provider: str, calls: list) -> list[dict]:
+    """Build assistant `tool_calls` blocks for the given LLM provider.
+
+    Ollama keeps `arguments` as a dict; OpenAI-compatible providers expect a
+    JSON-encoded string. Shared by the cognitive loop and the chat server.
+    """
+    blocks = []
+    for tc in calls:
+        fn = tc["function"]
+        arguments = fn["arguments"] if provider == "ollama" else json.dumps(fn["arguments"], ensure_ascii=False)
+        blocks.append(
+            {
+                "id": tc["id"],
+                "type": "function",
+                "function": {"name": fn["name"], "arguments": arguments},
+            }
+        )
+    return blocks
+
+
+def format_tool_result_msg(provider: str, tool_name: str, tool_call_id: str, content: str) -> dict:
+    """Build a provider-specific `role: tool` result message.
+
+    Ollama identifies the result by `name`; OpenAI by `tool_call_id`.
+    """
+    msg = {"role": "tool", "content": content}
+    if provider == "ollama":
+        msg["name"] = tool_name
+    else:
+        msg["tool_call_id"] = tool_call_id
+    return msg

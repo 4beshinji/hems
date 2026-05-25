@@ -9,10 +9,9 @@ from pathlib import Path
 
 from document_index import DocumentIndex
 from loguru import logger
+from mqtt_publisher import MQTTPublisher
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
-
-from mqtt_publisher import MQTTPublisher
 
 
 class _SourceEventHandler(FileSystemEventHandler):

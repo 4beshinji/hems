@@ -101,7 +101,10 @@ class TestWakeUpRouting:
         blm.reset = MagicMock()
 
         ea = ea_mod.EventAutomation(
-            tool_executor=te, world_model=wm, llm_client=None, character=None,
+            tool_executor=te,
+            world_model=wm,
+            llm_client=None,
+            character=None,
             boot_load_manager=blm,
         )
 
@@ -142,7 +145,10 @@ class TestWakeUpRouting:
         blm.is_ready = False
 
         ea = ea_mod.EventAutomation(
-            tool_executor=te, world_model=wm, llm_client=llm, character=None,
+            tool_executor=te,
+            world_model=wm,
+            llm_client=llm,
+            character=None,
             boot_load_manager=blm,
         )
         ea.set_session(session)
@@ -166,7 +172,9 @@ class TestWakeUpRouting:
         blm.is_ready = False
 
         ea = ea_mod.EventAutomation(
-            tool_executor=te, world_model=wm, boot_load_manager=blm,
+            tool_executor=te,
+            world_model=wm,
+            boot_load_manager=blm,
         )
         ea.set_session(StubSession())
 

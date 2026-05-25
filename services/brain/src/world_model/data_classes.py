@@ -4,7 +4,9 @@ Home Assistant smart home devices, biometrics, and tri-domain facades.
 """
 
 import time
+from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -230,7 +232,7 @@ class KnowledgeState:
             self.recent_changes = self.recent_changes[-self.max_recent :]
 
 
-# --- PC State (localcraw integration) ---
+# --- PC State (OpenClaw integration) ---
 
 
 @dataclass
@@ -566,26 +568,21 @@ class SchedulePredictions:
 
 
 _BIOMETRIC_HISTORY_MAXLEN: dict[str, int] = {
-    "heart_rate": 1440,        # 24h @ 1min cadence
+    "heart_rate": 1440,  # 24h @ 1min cadence
     "hrv": 1440,
-    "stress": 4032,            # 14d @ 5min
+    "stress": 4032,  # 14d @ 5min
     "fatigue": 4032,
-    "sleep_quality": 14,       # one entry per night, 14 nights
+    "sleep_quality": 14,  # one entry per night, 14 nights
     "sleep_duration": 14,
     "spo2": 1440,
     "body_temperature": 1440,
     "respiratory_rate": 1440,
-    "steps": 30,               # 30 daily totals
+    "steps": 30,  # 30 daily totals
 }
 
 
-def _make_history_dict() -> dict[str, "deque"]:
-    from collections import deque
-
-    return {
-        metric: deque(maxlen=maxlen)
-        for metric, maxlen in _BIOMETRIC_HISTORY_MAXLEN.items()
-    }
+def _make_history_dict() -> dict[str, deque[Any]]:
+    return {metric: deque(maxlen=maxlen) for metric, maxlen in _BIOMETRIC_HISTORY_MAXLEN.items()}
 
 
 @dataclass
@@ -606,7 +603,7 @@ class BiometricState:
     # Per-metric rolling history of (timestamp, value) tuples for trend rules / tools.
     # In-memory only; not persisted across brain restarts (acceptable: trend rules gate
     # on minimum sample counts so a fresh deque just pauses trend evaluation).
-    history: dict[str, "deque"] = field(default_factory=_make_history_dict)
+    history: dict[str, deque[Any]] = field(default_factory=_make_history_dict)
 
     def add_event(self, event: Event):
         self.events.append(event)

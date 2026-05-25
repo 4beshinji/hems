@@ -16,6 +16,7 @@ add hems-health
 add hems-brain
 add hems-backend
 add hems-voice
+add hems-openclaw
 add hems-localcraw
 add hems-obsidian
 add hems-gas

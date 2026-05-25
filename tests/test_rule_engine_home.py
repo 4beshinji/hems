@@ -84,10 +84,7 @@ class TestSleepDetection:
             mock_dt.now.return_value = datetime(2026, 2, 20, 23, 30)
             actions = engine.evaluate(world_model)
 
-        light_offs = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
-        ]
+        light_offs = [a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "off"]
         speak_actions = [a for a in actions if a["tool"] == "speak" and "おやすみ" in a["args"]["message"]]
         assert len(light_offs) >= 1
         assert any(a["args"]["device_id"] == "light.bedroom" for a in light_offs)
@@ -159,8 +156,7 @@ class TestPreArrivalHVAC:
             actions = engine.evaluate(world_model)
 
         climate_actions = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "set_temperature"
+            a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "set_temperature"
         ]
         assert len(climate_actions) >= 1
         params = climate_actions[0]["args"].get("params") or {}
@@ -182,8 +178,7 @@ class TestPreArrivalHVAC:
             actions = engine.evaluate(world_model)
 
         climate_actions = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "set_temperature"
+            a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "set_temperature"
         ]
         assert len(climate_actions) >= 1
         params = climate_actions[0]["args"].get("params") or {}
@@ -223,8 +218,7 @@ class TestWakeUpCurtain:
             actions = engine.evaluate(world_model)
 
         cover_actions = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "set_position"
+            a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "set_position"
         ]
         assert len(cover_actions) >= 1
         params = cover_actions[0]["args"].get("params") or {}
@@ -266,10 +260,7 @@ class TestWakeDetection:
             mock_dt.now.return_value = datetime(2026, 2, 20, 7, 0)
             actions = engine.evaluate(world_model)
 
-        light_ons = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "on"
-        ]
+        light_ons = [a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "on"]
         speak_actions = [a for a in actions if a["tool"] == "speak" and "おはよう" in a["args"]["message"]]
         assert len(light_ons) >= 1
         assert any(a["args"]["device_id"] == "light.bedroom" for a in light_ons)

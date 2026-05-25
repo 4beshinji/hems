@@ -14,6 +14,8 @@ from typing import Any
 
 from loguru import logger
 
+from brain_constants import backend_auth_headers
+
 
 class SceneExecutor:
     """Sequential (delay-sorted) executor. Each action block runs in order of delay_s."""
@@ -38,19 +40,16 @@ class SceneExecutor:
         return await self._fetch_all()
 
     async def _fetch_all(self) -> list[dict]:
-        import os
-
         import aiohttp
 
-        backend_url = os.getenv("BACKEND_URL", "http://backend:8000")
+        if self.dashboard is None or self.dashboard.session is None:
+            return []
         try:
-            async with (
-                aiohttp.ClientSession() as s,
-                s.get(
-                    f"{backend_url}/scenes/?enabled_only=true",
-                    timeout=aiohttp.ClientTimeout(total=5),
-                ) as resp,
-            ):
+            async with self.dashboard.session.get(
+                f"{self.dashboard.backend_url}/scenes/?enabled_only=true",
+                headers=backend_auth_headers(),
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
                 if resp.status == 200:
                     return await resp.json()
         except Exception as e:

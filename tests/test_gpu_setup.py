@@ -256,7 +256,8 @@ class TestRecommendModels:
     def test_16gb_vram(self):
         models = gpu_setup.recommend_models(16384)
         tiers = [m["tier"] for m in models]
-        assert "~16-20GB" in tiers
+        assert "~14GB" in tiers
+        assert "~20-24GB" not in tiers
         assert "~26GB" not in tiers
 
     def test_24gb_vram(self):

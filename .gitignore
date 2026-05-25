@@ -22,7 +22,16 @@ wheels/
 .installed.cfg
 *.egg
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.hypothesis/
+.tox/
+.nox/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 .venv
 venv/
@@ -34,7 +43,13 @@ dist/
 build/
 .next/
 out/
+.vite/
+.parcel-cache/
 *.tsbuildinfo
+
+# Python/uv local caches
+.cache/
+.uv-cache/
 
 # Docker
 .docker/
@@ -43,6 +58,7 @@ out/
 .env
 .env.local
 .env.*.local
+.env.bak*
 infra/.env.ports
 
 # IDE
@@ -57,6 +73,17 @@ Thumbs.db
 
 # Generated GPU override
 infra/docker-compose.gpu.yml
+
+# Android / Gradle
+.gradle/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
 
 # Project Specific
 /data/
@@ -103,11 +130,11 @@ services/frontend/public/assets/character/
 /yukari/
 
 # Zigbee2MQTT runtime state (network_key, coordinator backup, pairing state)
-# Keep configuration.yaml / secret.yaml templates tracked but ignore runtime writes.
 /config/zigbee2mqtt/state.json
 /config/zigbee2mqtt/coordinator_backup.json
 /config/zigbee2mqtt/database.db
 /config/zigbee2mqtt/log/
+/config/zigbee2mqtt/secret.yaml
 /config/zigbee2mqtt/secret.yaml.local
 # Zigbee2MQTT migration artifacts
 /config/zigbee2mqtt/configuration_backup_*.yaml

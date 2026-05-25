@@ -133,9 +133,7 @@ class SunriseAlarm:
                     topic,
                 )
             except Exception as e:
-                logger.warning(
-                    "[SunriseAlarm] MQTT publish exception (attempt {}): {}", attempt, e
-                )
+                logger.warning("[SunriseAlarm] MQTT publish exception (attempt {}): {}", attempt, e)
             if attempt == 1:
                 time.sleep(1.0)
         logger.error("[SunriseAlarm] publish failed after retry: {}", topic)
@@ -176,9 +174,7 @@ class SunriseAlarm:
         else:
             logger.error("[SunriseAlarm] unknown payload_action {}", payload_action)
             return False
-        return await asyncio.get_running_loop().run_in_executor(
-            None, self._direct_publish, self._mqtt_client, body
-        )
+        return await asyncio.get_running_loop().run_in_executor(None, self._direct_publish, self._mqtt_client, body)
 
     async def _ramp(self, wake_ts: float):
         """Gradually increase brightness from MIN to MAX."""
@@ -207,9 +203,7 @@ class SunriseAlarm:
                 await asyncio.sleep(STEP_SEC)
                 elapsed = time.time() - ramp_start
                 progress = min(elapsed / ramp_duration, 1.0)
-                brightness = int(
-                    MIN_BRIGHTNESS + (MAX_BRIGHTNESS - MIN_BRIGHTNESS) * progress
-                )
+                brightness = int(MIN_BRIGHTNESS + (MAX_BRIGHTNESS - MIN_BRIGHTNESS) * progress)
                 brightness = max(MIN_BRIGHTNESS, min(MAX_BRIGHTNESS, brightness))
 
                 if brightness != last_brightness:

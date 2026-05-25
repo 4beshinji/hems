@@ -354,16 +354,16 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.last_update = time.time()
 
         world_model.home_devices.bridge_connected = True
-        self._populate_device_cache(engine, {
-            "light.bedroom": (True, 200),
-            "light.living": (True, 150),
-        })
+        self._populate_device_cache(
+            engine,
+            {
+                "light.bedroom": (True, 200),
+                "light.living": (True, 150),
+            },
+        )
 
         actions = engine.evaluate(world_model)
-        light_offs = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
-        ]
+        light_offs = [a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "off"]
         speaks = [a for a in actions if a["tool"] == "speak" and "おやすみ" in a["args"]["message"]]
         assert len(light_offs) == 2
         assert len(speaks) == 1
@@ -380,10 +380,7 @@ class TestRuleEngineBiometricRules:
         self._populate_device_cache(engine, {"light.bedroom": (True, 100)})
 
         actions = engine.evaluate(world_model)
-        light_offs = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
-        ]
+        light_offs = [a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "off"]
         assert len(light_offs) == 1
 
     def test_sleep_stage_rem_turns_off_lights(self, world_model):
@@ -397,10 +394,7 @@ class TestRuleEngineBiometricRules:
         self._populate_device_cache(engine, {"light.bedroom": (True, 100)})
 
         actions = engine.evaluate(world_model)
-        light_offs = [
-            a for a in actions
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
-        ]
+        light_offs = [a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "off"]
         assert len(light_offs) == 1
 
     def test_sleep_stage_awake_no_lights_off(self, world_model):
@@ -466,14 +460,8 @@ class TestRuleEngineBiometricRules:
         actions1 = engine.evaluate(world_model)
         actions2 = engine.evaluate(world_model)
 
-        light_offs1 = [
-            a for a in actions1
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
-        ]
-        light_offs2 = [
-            a for a in actions2
-            if a["tool"] == "control_actuator" and a["args"]["action"] == "off"
-        ]
+        light_offs1 = [a for a in actions1 if a["tool"] == "control_actuator" and a["args"]["action"] == "off"]
+        light_offs2 = [a for a in actions2 if a["tool"] == "control_actuator" and a["args"]["action"] == "off"]
         assert len(light_offs1) >= 1
         assert len(light_offs2) == 0
 
@@ -496,15 +484,14 @@ class TestRuleEngineBiometricRules:
             actions = engine.evaluate(world_model)
 
         dims = [
-            a for a in actions
+            a
+            for a in actions
             if a["tool"] == "control_actuator"
             and a["args"]["action"] == "set_brightness"
             and (a["args"].get("params") or {}).get("value") == 80
         ]
         color_temps = [
-            a for a in actions
-            if a["tool"] == "control_actuator"
-            and a["args"]["action"] == "set_color_temp"
+            a for a in actions if a["tool"] == "control_actuator" and a["args"]["action"] == "set_color_temp"
         ]
         assert len(dims) == 1
         assert dims[0]["args"]["device_id"] == "light.living"
@@ -518,11 +505,14 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.fatigue.last_update = time.time()
 
         world_model.home_devices.bridge_connected = True
-        self._populate_device_cache(engine, {
-            "light.living": (True, 200),
-            "light.kitchen": (True, 150),
-            "light.dim_one": (True, 50),  # brightness <= 100 — not dimmed
-        })
+        self._populate_device_cache(
+            engine,
+            {
+                "light.living": (True, 200),
+                "light.kitchen": (True, 150),
+                "light.dim_one": (True, 50),  # brightness <= 100 — not dimmed
+            },
+        )
 
         mock_dt = datetime(2026, 2, 20, 21, 30, 0)
         with patch("rule_engine.datetime") as mock_datetime:
@@ -531,7 +521,8 @@ class TestRuleEngineBiometricRules:
             actions = engine.evaluate(world_model)
 
         dims = [
-            a for a in actions
+            a
+            for a in actions
             if a["tool"] == "control_actuator"
             and a["args"]["action"] == "set_brightness"
             and (a["args"].get("params") or {}).get("value") == 80
