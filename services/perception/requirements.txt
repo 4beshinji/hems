@@ -3,5 +3,9 @@
 
 # Perception-specific (computer vision)
 opencv-python-headless>=4.10.0
-ultralytics>=8.4.0
+onnxruntime>=1.18.0
 numpy>=2.0.0
+# rtmlib is installed --no-deps in the Dockerfile (to keep headless opencv and
+# avoid the full opencv-python/-contrib variants it declares); supply its one
+# remaining pure-python runtime dep here.
+tqdm>=4.66.0

@@ -103,7 +103,7 @@ class VLMScheduler:
         return self._last_run + self.current_interval
 
     def notify_event(self, event_type: str, data: dict | None = None) -> None:
-        """Called by YOLO loop on state changes to potentially boost VLM frequency.
+        """Called by the pose loop on state changes to potentially boost VLM frequency.
 
         Args:
             event_type: One of person_count_changed, posture_changed,

@@ -1,6 +1,6 @@
 """
 Posture classification, activity level computation, and duration tracking.
-Uses COCO 17-keypoint skeleton from YOLOv11-pose.
+Uses COCO 17-keypoint skeleton from the RTMO pose detector.
 """
 
 import time

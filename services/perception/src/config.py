@@ -20,9 +20,17 @@ try:
 except json.JSONDecodeError:
     CAMERAS = []
 
-# YOLO model settings
-PERCEPTION_MODEL = os.getenv("HEMS_PERCEPTION_MODEL", "yolo11s.pt")
-POSE_MODEL = os.getenv("HEMS_PERCEPTION_POSE_MODEL", "yolo11s-pose.pt")
+# RTMO pose model (rtmlib / ONNX Runtime, Apache-2.0). Default = rtmo-s (CPU).
+# Baked into the image at build time; override to a local .onnx path or another
+# rtmo-{s,m,l} url. See services/perception/NOTICE for attribution.
+POSE_MODEL = os.getenv(
+    "HEMS_PERCEPTION_POSE_MODEL",
+    "https://download.openmmlab.com/mmpose/v1/projects/rtmo/onnx_sdk/"
+    "rtmo-s_8xb32-600e_body7-640x640-dac2bf74_20231211.zip",
+)
+# Inference device for onnxruntime: "cpu" (default) or "cuda". AMD ROCm EP is
+# immature — keep CPU; GPU load belongs to the VLM (Ollama) path.
+POSE_DEVICE = os.getenv("HEMS_PERCEPTION_DEVICE", "cpu")
 CONFIDENCE_THRESHOLD = float(os.getenv("HEMS_PERCEPTION_CONFIDENCE", "0.5"))
 
 # Processing interval (seconds)

@@ -224,7 +224,7 @@ VRM avatar / animation の詳細は [`docs/avatar-setup.md`](docs/avatar-setup.m
 | Weather(JMA/OWM) | always-on | — | `docs/CLAUDE-bridges.md` |
 | News(RSS + Ollama) | `news` | 8021 | `docs/CLAUDE-bridges.md` |
 | Knowledge(multi-format ingest) | `knowledge` | 8022 | `docs/CLAUDE-bridges.md` |
-| Perception(YOLOv11s-pose + VLM) | `perception` | 8018 | `services/perception/CLAUDE.md` |
+| Perception(RTMO pose + VLM) | `perception` | 8018 | `services/perception/CLAUDE.md` |
 | Voice TTS / STT | `voicevox` / `stt` | 8012 / 8023 | `services/voice/CLAUDE.md` |
 | Event Automation | (news/gas) | — | `services/brain/CLAUDE.md` + [`docs/event-automation.md`](docs/event-automation.md) |
 
