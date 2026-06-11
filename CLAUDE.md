@@ -230,7 +230,7 @@ For exact mapping between code, docker-compose, MQTT topics, world model fields,
 
 ### Known orphans / wiring gaps (2026-06-11)
 
-- **`services/data-bridge/`** — Phase-2 scaffold (placeholder for future Strava/Fitbit/Garmin/Intervals.icu intake). `src/bridges/` empty, no compose entry. Topics under `hems/personal/calendar`, `hems/personal/training/fitness`, `hems/system/gpu/utilization` are documented but never published. Currently substituted by biometric-bridge + gas-bridge. 存続/アーカイブの意思決定待ち(refactor/2026-06-11 PLAN 参照)。
+- **`services/data-bridge/`** — Phase-2 scaffold (placeholder for future Strava/Fitbit/Garmin/Intervals.icu intake). `src/bridges/` empty, no compose entry. Topics under `hems/personal/calendar`, `hems/personal/training/fitness`, `hems/system/gpu/utilization` are documented but never published. Currently substituted by biometric-bridge + gas-bridge. **存続・実装決定(2026-06-11)** — Strava/Fitbit 連携として共通ブリッジ基盤(refactor/2026-06-11 PLAN W3.1)完了後に着手。
 - **`services/mobile-android/` / `apps/healthconnect-companion/`** — compose 非参照の Android プロジェクト。リポジトリ内での位置づけ未文書化。
 - **`hems/services/{name}/event`** — edge events arrive but only the next 30s cycle picks them up; no immediate-trigger path.
 - **`hems/gas/sheets/{name}` / `hems/gas/drive/recent`** — flow into world_model but no rules / event-automation actions consume them yet.

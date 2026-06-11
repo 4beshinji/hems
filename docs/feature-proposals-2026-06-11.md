@@ -68,13 +68,14 @@
 
 - **現状**: `services/data-bridge/` は src 空の scaffold。topics(`hems/personal/training/fitness` 等)は予約済み。biometric-bridge(Gadgetbridge 系)は心拍・睡眠・歩数のみで、ワークアウト単位のデータがない。
 - **提案**: 運動習慣があるなら、W3.1 の共通ライブラリ完成後に「最初の `_common` ベース新規ブリッジ」として実装するのが一石二鳥(scaffold 検証を兼ねる)。training load を UserState に追加し、ScheduleLearner の疲労考慮・sunrise alarm の強度調整に流す。
-- **判断**: PLAN の意思決定項目 2 と同一。**使わないならアーカイブが正解**。
+- **判断**: **実装決定(2026-06-11)**。data-bridge は存続し、W3.1 完了後の最初の `_common` ベース新規ブリッジとして着手する。
 - **工数感**: 2–3 日(共通ライブラリ後)。
 
 ### C2. 季節パターン提示(event_store 2 年データの回収) ★
 
 - **現状**: 730d retention は「ML 季節パターン学習用」とコメントされているが、hourly_aggregates を読む分析機能が存在しない。データを貯めるコスト(SQLite 肥大リスク、W4.5)だけ払っている状態。
-- **提案**: 月次で「昨年同月との比較」(室温・在宅時間・睡眠)を briefing に 1 段落追加。これが要らないなら retention 短縮(W4.5)の判断材料になる — **機能を作るか retention を縮めるか、どちらかに倒すべき**で、現状は中途半端。
+- **提案**: 月次で「昨年同月との比較」(室温・在宅時間・睡眠)を briefing に 1 段落追加。
+- **判断の前提更新(2026-06-11)**: PostgreSQL 既定化(PLAN W4.5')が決定したため、retention 730d は維持され SQLite 肥大懸念は解消。本提案は「貯めたデータを回収する機能」として純粋に価値判断でき、W4.5' 完了後が着手適期。
 - **工数感**: 1–2 日。
 
 ---
@@ -131,8 +132,8 @@
 | D1 | 通知ダイジェスト | ★★ | 1–2d | なし | 中(suppression との境界に digest queue を挟む小さな状態設計。発話タイミングの判断が絡む) | Sonnet 4.6 |
 | B2 | SSE/WebSocket 化 | ★★ | 2–3d | W5.2 | 高(配信アーキテクチャの新設 — 認証・再接続・nginx buffering・Query invalidation の整合設計) | Opus 4.8(設計)→ Sonnet 4.6(実装) |
 | E1 | make doctor | ★★ | 1d | W4.3 共用 | 中(個々のチェックは定型だが、診断メッセージの質が価値の本体。W4.3 と同一ワーカ推奨) | Sonnet 4.6 |
-| C1 | Strava/Fitbit(data-bridge) | ★★ | 2–3d | W3.1 + 意思決定 | 中(`_common` ベースの新規ブリッジ 1 本 + OAuth フロー。W3.1 完成が前提) | Sonnet 4.6 |
+| C1 | Strava/Fitbit(data-bridge) | ★★ | 2–3d | W3.1(実装決定済 2026-06-11) | 中(`_common` ベースの新規ブリッジ 1 本 + OAuth フロー。W3.1 完成が前提) | Sonnet 4.6 |
 | A3 | VLM swap 履歴可視化 | ★ | 1d | なし | 低(A1 確立後はその縮小コピー。A1 より先にやるなら中) | Haiku 4.5(A1 後) |
-| C2 | 季節パターン briefing | ★ | 1–2d | 意思決定 | 中(hourly_aggregates のクエリ設計 + 欠損期間の扱い) | Sonnet 4.6 |
+| C2 | 季節パターン briefing | ★ | 1–2d | W4.5'(PG 既定化)後推奨 | 中(hourly_aggregates のクエリ設計 + 欠損期間の扱い) | Sonnet 4.6 |
 | D2 | モバイル PTT | ★ | 1–2d | W1.1 | 中(mobile page UI + STT + brain chat server の 3 サービス配線。各経路は実装済みで接続のみ) | Sonnet 4.6 |
 | E2 | read-only キー(ゲスト) | ★ | 1–2d | W1 | 中(verify_api_key のスコープ拡張はコード量こそ小だが認可境界の変更。**レビューは Opus 4.8 必須**) | Sonnet 4.6 |

@@ -85,8 +85,8 @@ deferred 可: TLS/HSTS(LAN 運用前提のため distribution Phase と同期)�
 | W4.1 | env.example 同期: 未記載 ~30 変数の追加(BOOT_LOAD_*、AMBIENT_SPEAK_*、PERSONA_REWRITE_*、VLM_* 完全同期、STT_BEAM_SIZE、KNOWLEDGE_SOURCE_PWS)、未使用 2 変数(ROOMS、COMPOSE_PROJECT_NAME)の削除、`HSA_OVERRIDE_GFX_VERSION` の ollama service への配線 | 低(監査で対象リスト確定済み。突合と追記のみ) | Haiku 4.5 |
 | W4.2 | compose に YAML anchor 導入(`x-healthcheck-*`、`x-resource-limits-*`)+ 欠落 6 サービスへ healthcheck 追加 + 主要サービスに memory limits(brain 2G / ollama 8G / perception 4G を初期値に実測調整) | 中(anchor 化は機械的だが、limits の初期値は実測調整が要り、誤ると OOM kill で稼働系を壊す) | Sonnet 4.6 |
 | W4.3 | CI に `docker compose config` validation と env.example ↔ compose 突合スクリプトを追加(以後の乖離を機械防止) | 中(スクリプト自体は小品だが false positive の調整が要る) | Sonnet 4.6 |
-| W4.4 | `ext:/` ローカル削除、`services/data-bridge` の方針決定(実装再開 or `docs/notes/` へ README 退避)、Android 2 プロジェクトの位置づけを各 README に明記 | 低(方針決定はユーザー、作業は機械的) | Haiku 4.5 |
-| W4.5 | event_store retention の DB 別デフォルト(SQLite=365d、PostgreSQL=730d、env で上書き可)+ `db-improvement-plan.md` と整合 | 中(分岐自体は小さいが、既存データの遡及削除挙動を明示する必要がある — 初回起動で 1 年分消える系の事故防止) | Sonnet 4.6 |
+| W4.4 | `ext:/` ローカル削除、`services/data-bridge` の README に「存続決定・C1(Strava/Fitbit)として W3.1 後に実装」と明記、Android 2 プロジェクトの位置づけを各 README に明記 | 低(機械的) | Haiku 4.5 |
+| W4.5 | ~~event_store retention の DB 別デフォルト~~ → **2026-06-11 決定により W4.5'(PostgreSQL 既定化)に差し替え**。下記「意思決定記録」セクション参照 | — | — |
 
 ## Wave 5 — Frontend 品質(P2、見積 3–4 日)
 
@@ -98,19 +98,33 @@ deferred 可: TLS/HSTS(LAN 運用前提のため distribution Phase と同期)�
 | W5.4 | Context 分割(Avatar/STT/Audio)で Header/AppSidebar の 13+ props を解消 | 中(機械的な移動が主だが再レンダリング境界の設計を 1 段含む) | Sonnet 4.6 |
 | W5.5 | `VITE_API_BASE` / `VITE_BACKEND_URL` を後者に統一、`types.ts`(828 行)のドメイン分割 | 低(rename + ファイル分割。tsc が回帰網) | Haiku 4.5 |
 
-## 意思決定が必要な項目(実装前にユーザー判断)
+## 意思決定記録(2026-06-11 ユーザー決定済み)
 
-1. **MQTT 二重プレフィックス**(`office/*` vs `hems/*`): 機械的統一は edge デバイスのファーム更新を伴う。(a) 現行規約として維持し doc で「物理センサ = office、それ以外 = hems」を明文化、(b) brain に互換 subscribe を残したまま `hems/sensors/*` へ段階移行 — の二択。推奨は (a)(実害が薄く、移行コストが高い)。
-2. **data-bridge**: Strava/Fitbit 連携を 2026 内に実装する意思があるか。なければアーカイブ。
-3. **SQLite スケール**: 1 年以上の連続運用を想定するなら W4.5 に加えて PostgreSQL 既定化 or 時系列 DB 検討を distribution 計画に織り込むか。
+1. **MQTT 二重プレフィックス → 段階移行を採用**(推奨案 (a) を棄却)。`office/*` を `hems/sensors/*` へ移行する。W3.8 として計画化(下記)。互換 window を挟むため即時の breaking change はない。
+2. **data-bridge → 存続・実装する**。Strava/Fitbit 連携は [`../../feature-proposals-2026-06-11.md`](../../feature-proposals-2026-06-11.md) C1 として W3.1 完了後に着手。W4.4 から「方針決定」項目を削除済み。
+3. **PostgreSQL 既定化に踏み込む**。retention 短縮(旧 W4.5)は不要になり、W4.5 を「PostgreSQL 既定化 + SQLite→PG 移行」に差し替え。retention は 730d を維持。
+
+### W3.8(決定 1 の計画化)— `office/*` → `hems/sensors/*` 段階移行
+
+| Phase | 内容 | 難度 | ワーカ |
+|---|---|---|---|
+| W3.8a | brain `mqtt_router.py` で `office/{zone}/...` と `hems/sensors/{zone}/...` を併読(reducer 共通化、二重発火防止のデデュープ付き)。IMPLEMENTATION_MAP §4 に移行状態を明記 | 中(reducer 自体は共通、デデュープ条件の設計のみ) | Sonnet 4.6 |
+| W3.8b | `edge/` 配下ファームの publish 先を `hems/sensors/*` へ変更 + mosquitto ACL の新 topic 追加。**実機への書き込みはユーザー作業**(コード変更はワーカ、flash と疎通確認は手元) | 中(コード変更は機械的だが実機検証が律速) | Sonnet 4.6 + ユーザー実機作業 |
+| W3.8c | 全 edge デバイスの移行確認後、`office/*` subscribe・ACL・docs(CLAUDE.md トピック規約 / IMPLEMENTATION_MAP / CLAUDE-bridges)を削除・更新 | 低(削除と doc 同期のみ。着手条件 = 旧 topic の受信が 7 日間ゼロ) | Haiku 4.5 |
+
+### W4.5 差し替え(決定 3 の計画化)— PostgreSQL 既定化
+
+| Row | 内容 | 難度 | ワーカ |
+|---|---|---|---|
+| W4.5' | PostgreSQL を既定 DB に昇格: compose の `postgres` を profile 不要のコアサービス化、backend / brain event_store の `DATABASE_URL` デフォルト切替、SQLite は `--profile sqlite-lite` 相当の軽量オプションとして温存。SQLite→PG データ移行スクリプト(tasks / shopping / event_store の 3 系統、dry-run モード付き)。CLAUDE.md「SQLite default」記述・README・`db-improvement-plan.md`・distribution.md の整合更新 | 高(既存稼働データの無損失移行 + zero-config だった初期体験の再設計。移行スクリプトの設計は design note 先行) | Opus 4.8(設計)→ Sonnet 4.6(実装) |
 
 ## 工数サマリと推奨順序
 
 ```
-W1 (2–3d) → W2 (5–8d) → W3 (4–6d) → W4 (2–3d) → W5 (3–4d)   計 16–24 日
+W1 (2–3d) → W2 (5–8d) → W3 (5–8d, W3.8a-b 含む) → W4 (4–6d, W4.5' 含む) → W5 (3–4d)   計 19–29 日
 ```
 
-W1 と W5 は他 Wave と独立で並行可。W2 → W3.4 は brain を連続で触るため直列推奨。
+W1 と W5 は他 Wave と独立で並行可。W2 → W3.4 は brain を連続で触るため直列推奨。W3.8c は実機移行完了待ちのため非同期(他 Wave をブロックしない)。W4.5' は distribution.md の Phase 計画と整合を取ってから着手。
 
 ---
 
