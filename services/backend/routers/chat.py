@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,9 +40,90 @@ def _internal_headers() -> dict:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+# --- Rate Limiting ---
+
+
+class TokenBucket:
+    """Simple in-memory token bucket for rate limiting."""
+
+    def __init__(self, capacity: float, refill_rate: float):
+        """
+        Args:
+            capacity: Maximum number of tokens in the bucket.
+            refill_rate: Tokens per second.
+        """
+        self.capacity = capacity
+        self.refill_rate = refill_rate
+        self.tokens = capacity
+        self.last_update = time.time()
+        self._lock = asyncio.Lock()
+
+    async def try_consume(self, tokens: int = 1) -> tuple[bool, float]:
+        """
+        Try to consume tokens.
+
+        Returns:
+            (success, retry_after_sec): If success, retry_after_sec is always 0.
+            If not, retry_after_sec is the minimum wait time until a token is available.
+        """
+        async with self._lock:
+            now = time.time()
+            elapsed = now - self.last_update
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_rate)
+            self.last_update = now
+
+            if self.tokens >= tokens:
+                self.tokens -= tokens
+                return (True, 0.0)
+
+            # Calculate when the next token will be available
+            tokens_needed = tokens - self.tokens
+            if self.refill_rate > 0:
+                retry_after = tokens_needed / self.refill_rate
+            else:
+                retry_after = float("inf")  # Never recovers if refill_rate=0
+            return (False, retry_after)
+
+
+_rate_limiter: TokenBucket | None = None
+
+
+def _init_rate_limiter() -> TokenBucket | None:
+    """Initialize rate limiter from env vars. Returns None if disabled (capacity=0)."""
+    capacity = float(os.getenv("CHAT_RATE_LIMIT_CAPACITY", "10"))
+    refill_rate = float(os.getenv("CHAT_RATE_LIMIT_REFILL", "0.5"))
+
+    if capacity <= 0:
+        return None
+
+    return TokenBucket(capacity, refill_rate)
+
+
+async def _check_rate_limit() -> None:
+    """Check rate limit and raise 429 if exceeded."""
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = _init_rate_limiter()
+
+    if _rate_limiter is None:
+        return  # Rate limiting disabled
+
+    success, retry_after = await _rate_limiter.try_consume(1)
+    if not success:
+        retry_after_sec = int(retry_after) + 1  # Round up to next second
+        raise HTTPException(
+            status_code=429,
+            detail="Too many chat requests",
+            headers={"Retry-After": str(retry_after_sec)},
+        )
+
+
 @router.post("/", response_model=schemas.ChatResponse)
 async def send_message(req: schemas.ChatMessageSend, db: AsyncSession = Depends(get_db)):
     """Send a chat message, get AI response via Brain."""
+    # Rate limit check
+    await _check_rate_limit()
+
     content = req.content.strip()
     if not content:
         raise HTTPException(400, "Empty message")
