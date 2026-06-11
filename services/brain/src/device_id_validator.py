@@ -19,14 +19,20 @@ DEVICE_ID_MAX_LEN = 128
 def is_valid_device_ref(value: str) -> bool:
     """Return True iff *value* is a safe device_id / vendor_ref.
 
-    Rejects empty strings, strings longer than DEVICE_ID_MAX_LEN, and any
-    string containing characters outside [A-Za-z0-9_.-].
+    Rejects empty strings, strings longer than DEVICE_ID_MAX_LEN, any string
+    containing characters outside [A-Za-z0-9_.-], and any dot-separated
+    component that consists solely of dots (e.g. ``mcp..`` from a ``..``
+    path-traversal vendor_ref).
     """
     if not value:
         return False
     if len(value) > DEVICE_ID_MAX_LEN:
         return False
-    return bool(_DEVICE_ID_RE.match(value))
+    if not _DEVICE_ID_RE.match(value):
+        return False
+    # Reject empty dot-separated components, which arise from consecutive,
+    # leading, or trailing dots — e.g. "../../etc/passwd" collapsing into "mcp..".
+    return all(value.split("."))
 
 
 def validate_device_ref(field_name: str, value: str) -> str:
