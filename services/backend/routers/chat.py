@@ -205,6 +205,7 @@ async def _call_brain(history: list[dict], user_message: str) -> dict:
             resp = await client.post(
                 f"{BRAIN_CHAT_URL}/chat",
                 json={"messages": history, "user_message": user_message},
+                headers=_internal_headers(),
             )
             if resp.status_code != 200:
                 logger.warning(f"Brain chat error: {resp.status_code} {resp.text[:200]}")

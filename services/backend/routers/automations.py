@@ -25,6 +25,19 @@ router = APIRouter(prefix="/automations", tags=["automations"])
 BRAIN_URL = os.getenv("BRAIN_CHAT_URL", "http://brain:8080")
 
 _ALLOWED_TRIGGER_TYPES = {"sensor_threshold", "schedule", "event", "device_state"}
+
+
+def _brain_auth_headers() -> dict:
+    """Authorization header for backend → brain chat-server proxied requests.
+
+    Carries ``HEMS_INTERNAL_TOKEN`` as a Bearer token when set; returns ``{}``
+    (no header) in zero-config / dev deployments. Reads env each call so a
+    live-reloaded token takes effect without restarting the backend.
+    """
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 _ALLOWED_MODES = {"direct", "llm_review"}
 
 
@@ -184,6 +197,7 @@ async def test_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
                     "trigger_type": rule.trigger_type,
                     "trigger_config": rule.trigger_config,
                 },
+                headers=_brain_auth_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp,
         ):

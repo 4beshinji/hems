@@ -211,7 +211,9 @@ class BrainStartupMixin:
         asyncio.create_task(self.task_reminder.run_periodic_check())
 
     async def _start_chat_http_server(self) -> None:
-        chat_app = aio_web.Application()
+        from brain_chat_server import brain_auth_middleware
+
+        chat_app = aio_web.Application(middlewares=[brain_auth_middleware])
         chat_app.router.add_post("/chat", self._handle_chat)
         chat_app.router.add_get("/health", self._chat_health)
         chat_app.router.add_post("/devices/control", self._handle_device_control)

@@ -1,3 +1,6 @@
+import hmac
+import os
+
 from aiohttp import web as aio_web
 from loguru import logger
 
@@ -18,6 +21,26 @@ from brain_constants import (
 from brain_utils import format_tool_call_blocks, format_tool_result_msg
 from system_prompt import build_chat_system_message
 from tool_registry import get_chat_tools
+
+# Endpoints that are always accessible regardless of token configuration.
+_HEALTH_PATHS = frozenset({"/health"})
+
+
+@aio_web.middleware
+async def brain_auth_middleware(request: aio_web.Request, handler):
+    """Bearer token gate for the brain chat server.
+
+    When ``HEMS_INTERNAL_TOKEN`` is set, every request to non-health endpoints
+    must carry ``Authorization: Bearer <token>``. When the env var is unset or
+    empty the middleware is a no-op (zero-config / dev mode).
+    """
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    if token and request.path not in _HEALTH_PATHS:
+        auth_header = request.headers.get("Authorization", "")
+        provided = auth_header.removeprefix("Bearer ").strip()
+        if not hmac.compare_digest(provided, token):
+            return aio_web.json_response({"error": "Unauthorized"}, status=401)
+    return await handler(request)
 
 
 class ChatServerMixin:

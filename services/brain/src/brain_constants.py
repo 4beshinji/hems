@@ -34,6 +34,18 @@ VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
 BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
 
 
+def brain_auth_headers() -> dict:
+    """Auth header for backend → brain chat-server calls.
+
+    Matches the ``brain_auth_middleware`` gate on the brain's aiohttp server:
+    every proxied request must carry ``Authorization: Bearer <HEMS_INTERNAL_TOKEN>``
+    when the token is configured. Returns ``{}`` when unset so zero-config
+    deployments are unaffected. Reads env each call for hot-reload friendliness.
+    """
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def backend_auth_headers() -> dict:
     """Auth header for brain → backend dashboard-router calls.
 

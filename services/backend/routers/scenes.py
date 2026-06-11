@@ -26,6 +26,17 @@ router = APIRouter(prefix="/scenes", tags=["scenes"])
 BRAIN_URL = os.getenv("BRAIN_CHAT_URL", "http://brain:8080")
 
 
+def _brain_auth_headers() -> dict:
+    """Authorization header for backend → brain chat-server proxied requests.
+
+    Carries ``HEMS_INTERNAL_TOKEN`` as a Bearer token when set; returns ``{}``
+    (no header) in zero-config / dev deployments. Reads env each call so a
+    live-reloaded token takes effect without restarting the backend.
+    """
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 @router.get("/", response_model=list[schemas.Scene])
 async def list_scenes(
     enabled_only: bool = False,
@@ -114,6 +125,7 @@ async def execute_scene(scene_id: int, db: AsyncSession = Depends(get_db)):
             session.post(
                 f"{BRAIN_URL}/scenes/execute",
                 json={"name": scene.name, "actions": scene.actions},
+                headers=_brain_auth_headers(),
                 timeout=aiohttp.ClientTimeout(total=60),
             ) as resp,
         ):
