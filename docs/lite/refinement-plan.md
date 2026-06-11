@@ -1,5 +1,7 @@
 # HEMS Lite — 子機リファインメント計画
 
+> **Status: HISTORICAL(2026-06-11 付記)** — `lite` ブランチは凍結中。本資料は Phase A+C(2026-05-04)時点の基準線であり、main はその後 2026-05-25 R0-R8 リファクタ等で大きく進行済み。現行の負債状況は `docs/audit/2026-06-11/SUMMARY.md`、実行計画は `docs/refactor/2026-06-11/PLAN.md` を参照。lite 再開時の復旧ガイドとして保持する。
+
 > 作成: 2026-05-04 / 対象ブランチ: `lite` (最終 commit `39dcc43`, 2026-03-05)
 > 起点ブランチ: `hardening/p0-impl` (進化先, 2026-04-30+)
 > 関連: [Phase A+C ビルド改善](../../infra/base/Dockerfile)

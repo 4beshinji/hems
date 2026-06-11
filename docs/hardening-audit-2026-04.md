@@ -12,6 +12,8 @@ backend/frontend / brain+bridges / infra+ops の 3 領域を並列監査し、
 
 本書は**監査結果 + 優先度付き修正ロードマップ**。修正着手は別途計画する。
 
+> **進捗(2026-06-11 付記)**: P0 群(MQTT 認証/ACL、port 127.0.0.1 バインド、シークレット排除)および backend shared-key 認証(BACKEND_API_KEY、commit `e5de771` + 全配線 `3636e18`)は実装済み。残存する P1 群(brain chat server 認証・webhook replay 防御・control params 検証・rate limit・CSP)は `docs/refactor/2026-06-11/PLAN.md` Wave 1 で追跡。最新の検証結果は `docs/audit/2026-06-11/SUMMARY.md` §2。
+
 ---
 
 ## 検証サマリ (一次ソース確認済み)

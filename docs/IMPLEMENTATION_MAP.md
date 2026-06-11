@@ -410,15 +410,17 @@ zigbee2mqtt/#
 | `hems/tapo/{vendor_ref}/state` | `_update_tapo_state` | `physical.home_devices` (HA 不要経路) |
 | `zigbee2mqtt/{device}` | `_update_zigbee_state` | `physical.home_devices` (HA 不要経路) |
 
-### 4.4 受信されているが未統合 (Brain で利用されていない)
+### 4.4 部分統合 / 未活用 (受信はされるが Brain で十分に利用されていない)
 
-| Topic | 公開元 | 状態 |
-|-------|--------|------|
-| `hems/perception/vlm/model_swap` | perception | world_model 内で `vlm_model_swap_active` は管理されるが、フラグ立てるトリガーが explicit subscribe のみで全イベント保存はされない |
-| `*/bridge/status` (各サービス) | 各 bridge | bridge_connected フラグ更新のみで履歴は残らない |
-| `hems/gas/sheets/{name}` | gas-bridge | `_update_gas_state` で受けるが、業務的に活用するルール無し |
-| `hems/gas/drive/recent` | gas-bridge | 同上 |
-| `hems/services/{name}/event` (edge events) | OpenClaw bridge | 受信はするがイベント駆動の即時ルールは無く、5分インターバルで拾う |
+分類: **partial** = state は更新されるが履歴・分析なし / **unused** = state 更新まで届くが consume するルール・アクションなし。
+
+| Topic | 公開元 | 分類 | 状態 |
+|-------|--------|------|------|
+| `hems/perception/vlm/model_swap` | perception | partial | `vlm_model_swap_active` フラグは管理されるが、swap イベント履歴の記録・分析はなし |
+| `*/bridge/status` (各サービス) | 各 bridge | partial | bridge_connected フラグ更新のみで outage 履歴は残らない。topic 自体も実装間で不統一 + 4 ブリッジ未発行(refactor/2026-06-11 W3.3 で追跡) |
+| `hems/gas/sheets/{name}` | gas-bridge | unused | `_update_gas_state` で受けるが、業務的に活用するルール無し |
+| `hems/gas/drive/recent` | gas-bridge | unused | 同上 |
+| `hems/services/{name}/event` (edge events) | OpenClaw bridge | partial | 受信はするがイベント駆動の即時ルールは無く、次の 30s サイクルで拾う(即時トリガ経路なし) |
 
 ### 4.5 公開先のあるが Subscriber が居ない (Orphan publish)
 

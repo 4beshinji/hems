@@ -65,14 +65,19 @@
 
 | Doc | 状態 |
 |---|---|
+| [`refactor/2026-06-11/PLAN.md`](refactor/2026-06-11/PLAN.md) | **active** — 現行リファクタリング計画(W1 セキュリティ残課題 → W2 構造改革 → W3 ブリッジ共通基盤 → W4 インフラ → W5 frontend)。2026-05-25 deferred 9 行を継承 |
+| [`feature-proposals-2026-06-11.md`](feature-proposals-2026-06-11.md) | **active** — 監査由来の機能提案 12 件(未活用データの機能化・即時トリガ・新データソース・運用)。各提案に前提 Wave と工数を付記 |
+| [`audit/2026-06-11/SUMMARY.md`](audit/2026-06-11/SUMMARY.md) | **active** — 最新の技術的負債・セキュリティ統合監査(誤検知の棄却記録含む) |
 | [`distribution.md`](distribution.md) | active — 配布/オンボーディング Phase 計画(GHCR publish・compose 配布化・quickstart・既定修復・wizard) |
 | [`db-improvement-plan.md`](db-improvement-plan.md) | active(SQLite WAL / retention / schema gaps) |
 | [`morning-briefing-refactor-plan.md`](morning-briefing-refactor-plan.md) | Waves 1-3 完了(gap-06 参照) |
-| [`hardening-audit-2026-04.md`](hardening-audit-2026-04.md) | security hardening 監査 |
-| [`../SECURITY_AUDIT.md`](../SECURITY_AUDIT.md) | security 監査(2026-03-07) |
+| [`hardening-audit-2026-04.md`](hardening-audit-2026-04.md) | security hardening 監査。P0 実装済 / P1 残は refactor/2026-06-11 W1 で追跡 |
+| [`../SECURITY_AUDIT.md`](../SECURITY_AUDIT.md) | **historical** — security 監査(2026-03-07、構成変更で一部陳腐化。hardening-audit-2026-04 が後継) |
 | [`audit-jisei-roku-2026-05-16.md`](audit-jisei-roku-2026-05-16.md) | 監査メモ(5/16) |
+| [`technical-debt-audit-2026-05-24.md`](technical-debt-audit-2026-05-24.md) → [`technical-debt-refactoring-plan-2026-05-24.md`](technical-debt-refactoring-plan-2026-05-24.md) → [`technical-debt-followups-2026-05-25.md`](technical-debt-followups-2026-05-25.md) | **completed** — 5/24-25 負債監査 → 計画 → followup。followup P1-P3 は全解決済(2026-06-11 監査で確認) |
 | [`audit/2026-05-25/`](audit/2026-05-25/README.md) | サービス単位 実装監査(命名/スコープ/可読性 + doc 乖離是正、全 16 unit)。後続リファクタの起点 |
-| [`lite/refinement-plan.md`](lite/refinement-plan.md) | lite 版精査計画 |
+| [`refactor/2026-05-25/LEDGER.md`](refactor/2026-05-25/LEDGER.md) | **completed** — R0-R8 リファクタ台帳。非 deferred 34 行消化済、deferred 9 行は refactor/2026-06-11 W2 へ移管 |
+| [`lite/refinement-plan.md`](lite/refinement-plan.md) | **historical** — lite ブランチ(2026-03-05 凍結)精査計画。再開時の復旧ガイド |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | breaking change / migration / deprecation |
 | `wiring-gap-0{1,2,3,4,5}-*.md` | **CLOSED (2026-05-03)** — gap-06 に統合済。履歴参照用 |
 | `pitch-slides.md` / `pitch-deck.md` / `pitch-gamma-prompt.md` / `pitch-notebooklm.txt` / `pitch-slides.pdf` / `pitch-diagrams*.mmd` | **historical** — pitch 資料(運用対象外) |
