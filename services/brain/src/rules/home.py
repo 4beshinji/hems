@@ -123,7 +123,7 @@ class HomeRulesMixin:
 
     def _evaluate_circadian_lighting(self, world_model, now: float) -> list[dict]:
         """Adjust light color temperature based on time of day (circadian rhythm)."""
-        if not _rule_engine.CIRCADIAN_ENABLED:
+        if not self.thresholds.circadian_enabled:
             return []
         if not self._check_cooldown("circadian_update", now):
             return []
@@ -149,10 +149,9 @@ class HomeRulesMixin:
             actions.append(self._make_action(d["device_id"], "set_color_temp", {"value": target_mirek}))
         return actions
 
-    @staticmethod
-    def _interpolate_circadian(hour: float) -> tuple[int, int]:
+    def _interpolate_circadian(self, hour: float) -> tuple[int, int]:
         """Interpolate circadian curve for given fractional hour."""
-        curve = _rule_engine.CIRCADIAN_CURVE
+        curve = self.thresholds.circadian_curve
         # Find surrounding points
         for i in range(len(curve) - 1):
             if curve[i][0] <= hour < curve[i + 1][0]:
@@ -165,7 +164,7 @@ class HomeRulesMixin:
 
     def _evaluate_absence_lighting(self, world_model, now: float) -> list[dict]:
         """Randomly toggle lights during extended absence to simulate presence."""
-        if not _rule_engine.ABSENCE_LIGHTING_ENABLED:
+        if not self.thresholds.absence_lighting_enabled:
             return []
 
         # Check every presence signal, not just the camera — otherwise the
@@ -180,7 +179,7 @@ class HomeRulesMixin:
             return actions
 
         hour = _rule_engine.datetime.now().hour
-        if not (_rule_engine.ABSENCE_LIGHTING_START_HOUR <= hour < _rule_engine.ABSENCE_LIGHTING_END_HOUR):
+        if not (self.thresholds.absence_lighting_start_hour <= hour < self.thresholds.absence_lighting_end_hour):
             return []
 
         if not self._check_cooldown("absence_lighting", now):
@@ -189,7 +188,7 @@ class HomeRulesMixin:
             now
             - self.COOLDOWN_SECONDS
             + _rule_engine.random.randint(
-                _rule_engine.ABSENCE_LIGHTING_INTERVAL // 2, _rule_engine.ABSENCE_LIGHTING_INTERVAL
+                self.thresholds.absence_lighting_interval // 2, self.thresholds.absence_lighting_interval
             )
         )
 

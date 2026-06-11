@@ -19,7 +19,7 @@ class BiometricRulesMixin:
         if (
             bio.bridge_connected
             and bio.last_update > 0
-            and (now - bio.last_update) > _rule_engine.BIOMETRIC_STALE_MINUTES * 60
+            and (now - bio.last_update) > self.thresholds.biometric_stale_minutes * 60
             and self._check_cooldown("bio_stale_data", now)
         ):
             stale_minutes = int((now - bio.last_update) / 60)
@@ -144,7 +144,7 @@ class BiometricRulesMixin:
         # 8. Low HRV alert (autonomic stress)
         if (
             bio.hrv.rmssd_ms is not None
-            and bio.hrv.rmssd_ms < _rule_engine.HRV_LOW
+            and bio.hrv.rmssd_ms < self.thresholds.hrv_low
             and bio.hrv.last_update > 0
             and self._check_cooldown("bio_hrv_low", now)
         ):
@@ -162,7 +162,7 @@ class BiometricRulesMixin:
         # 9. Body temperature high
         if (
             bio.body_temperature.celsius is not None
-            and bio.body_temperature.celsius > _rule_engine.BODY_TEMP_HIGH
+            and bio.body_temperature.celsius > self.thresholds.body_temp_high
             and bio.body_temperature.last_update > 0
             and self._check_cooldown("bio_body_temp_high", now)
         ):
@@ -180,7 +180,7 @@ class BiometricRulesMixin:
         # 10. Respiratory rate high
         if (
             bio.respiratory_rate.breaths_per_minute is not None
-            and bio.respiratory_rate.breaths_per_minute > _rule_engine.RESPIRATORY_RATE_HIGH
+            and bio.respiratory_rate.breaths_per_minute > self.thresholds.respiratory_rate_high
             and bio.respiratory_rate.last_update > 0
             and self._check_cooldown("bio_resp_high", now)
         ):

@@ -12,77 +12,21 @@ from datetime import UTC, datetime  # noqa: F401 - used by extracted rule mixins
 from loguru import logger
 
 from brain_utils import parse_iso_ts  # noqa: F401 - used by extracted rule mixins
-from rules.config import load_rule_thresholds
+from rules.config import RuleThresholds, load_rule_thresholds
 from schedule_learner import ScheduleLearner
-from world_model.world_model import (
-    BODY_TEMP_HIGH,  # noqa: F401 - used by extracted rule mixins
-    CO2_CRITICAL,
-    CO2_HIGH,
-    HRV_LOW,  # noqa: F401 - used by extracted rule mixins
-    HUMIDITY_HIGH,
-    HUMIDITY_LOW,
-    PC_DISK_HIGH,
-    PC_GPU_TEMP_HIGH,
-    PM25_HIGH,  # noqa: F401 - used by extracted rule mixins
-    POWER_IDLE_WATTS,  # noqa: F401 - used by extracted rule mixins
-    RESPIRATORY_RATE_HIGH,  # noqa: F401 - used by extracted rule mixins
-    SCREEN_TIME_ALERT_MINUTES,
-    SEDENTARY_MINUTES,
-    TEMP_HIGH,
-    TEMP_LOW,
-)
-
-RULE_THRESHOLDS = load_rule_thresholds()
-
-# Backward-compatible constant exports for existing mixins/tests.
-TEMP_CRITICAL_HIGH = RULE_THRESHOLDS.temp_critical_high
-TEMP_CRITICAL_LOW = RULE_THRESHOLDS.temp_critical_low
-SPO2_CRITICAL_LOW = RULE_THRESHOLDS.spo2_critical_low
-HR_CRITICAL_SLEEP = RULE_THRESHOLDS.hr_critical_sleep
-BIOMETRIC_STALE_MINUTES = RULE_THRESHOLDS.biometric_stale_minutes
-PC_PROC_CPU_HIGH = RULE_THRESHOLDS.pc_proc_cpu_high
-PC_PROC_CPU_SUSTAIN_S = RULE_THRESHOLDS.pc_proc_cpu_sustain_s
-PC_PROC_MEM_HIGH_GB = RULE_THRESHOLDS.pc_proc_mem_high_gb
-PC_PROC_COOLDOWN_S = RULE_THRESHOLDS.pc_proc_cooldown_s
-PC_PROC_HEAVY_EXCLUDE = RULE_THRESHOLDS.pc_proc_heavy_exclude
-DEVICE_BATTERY_LOW = RULE_THRESHOLDS.device_battery_low
-DEVICE_LQI_LOW = RULE_THRESHOLDS.device_lqi_low
-DEVICE_STALE_HOURS = RULE_THRESHOLDS.device_stale_hours
-GPU_TYPE = RULE_THRESHOLDS.gpu_type
-GPU_HIGH_LOAD_THRESHOLD = RULE_THRESHOLDS.gpu_high_load_threshold
-SOIL_MOISTURE_LOW = RULE_THRESHOLDS.soil_moisture_low
-AUTO_WATER_ENABLED = RULE_THRESHOLDS.auto_water_enabled
-AUTO_WATER_DURATION_S = RULE_THRESHOLDS.auto_water_duration_s
-VOC_HIGH_THRESHOLD = RULE_THRESHOLDS.voc_high_threshold
-VOC_SUSTAIN_SECONDS = RULE_THRESHOLDS.voc_sustain_seconds
-VOC_COOLDOWN_SECONDS = RULE_THRESHOLDS.voc_cooldown_seconds
-PM25_NATIVE_HIGH = RULE_THRESHOLDS.pm25_native_high
-LOW_PRESSURE_THRESHOLD = RULE_THRESHOLDS.low_pressure_threshold
-LOW_PRESSURE_SUSTAIN_S = RULE_THRESHOLDS.low_pressure_sustain_s
-ILLUMINANCE_LOW_LX = RULE_THRESHOLDS.illuminance_low_lx
-ILLUMINANCE_LOW_SUSTAIN_S = RULE_THRESHOLDS.illuminance_low_sustain_s
-ILLUMINANCE_HIGH_LX = RULE_THRESHOLDS.illuminance_high_lx
-ILLUMINANCE_HIGH_SUSTAIN_S = RULE_THRESHOLDS.illuminance_high_sustain_s
-ABSENCE_LIGHTING_ENABLED = RULE_THRESHOLDS.absence_lighting_enabled
-ABSENCE_LIGHTING_INTERVAL = RULE_THRESHOLDS.absence_lighting_interval
-ABSENCE_LIGHTING_START_HOUR = RULE_THRESHOLDS.absence_lighting_start_hour
-ABSENCE_LIGHTING_END_HOUR = RULE_THRESHOLDS.absence_lighting_end_hour
-CIRCADIAN_ENABLED = RULE_THRESHOLDS.circadian_enabled
-CIRCADIAN_INTERVAL = RULE_THRESHOLDS.circadian_interval
-CIRCADIAN_CURVE = RULE_THRESHOLDS.circadian_curve
 
 
-def _get_gpu_utilization() -> float | None:
+def _get_gpu_utilization(gpu_type: str) -> float | None:
     """Query GPU utilization percentage. Returns None if unavailable."""
     try:
-        if GPU_TYPE == "nvidia":
+        if gpu_type == "nvidia":
             out = subprocess.check_output(
                 ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
                 timeout=5,
                 text=True,
             )
             return float(out.strip().split("\n")[0])
-        elif GPU_TYPE == "amd":
+        elif gpu_type == "amd":
             out = subprocess.check_output(
                 ["rocm-smi", "--showuse", "--csv"],
                 timeout=5,
@@ -125,7 +69,16 @@ class RuleEngine(
 
     COOLDOWN_SECONDS = 300  # 5 minutes
 
-    def __init__(self, schedule_learner: ScheduleLearner | None = None, mqtt_publisher=None):
+    def __init__(
+        self,
+        schedule_learner: ScheduleLearner | None = None,
+        mqtt_publisher=None,
+        thresholds: RuleThresholds | None = None,
+    ):
+        # Single source of truth for thresholds (constructor DI, W2.3).
+        # Falls back to env-loaded defaults when not injected. Brain shares the
+        # same RuleThresholds instance held by WorldModel (see main.py).
+        self.thresholds: RuleThresholds = thresholds or load_rule_thresholds()
         self.schedule_learner = schedule_learner
         self.device_dispatcher = None
         self.mqtt_publisher = mqtt_publisher  # Callable[[str, dict], None] — fire-and-forget publish
@@ -183,10 +136,10 @@ class RuleEngine(
 
     def should_use_rules(self) -> bool:
         """Check if we should use rule-based mode instead of LLM."""
-        if GPU_TYPE == "none":
+        if self.thresholds.gpu_type == "none":
             return False
-        util = _get_gpu_utilization()
-        if util is not None and util > GPU_HIGH_LOAD_THRESHOLD:
+        util = _get_gpu_utilization(self.thresholds.gpu_type)
+        if util is not None and util > self.thresholds.gpu_high_load_threshold:
             return True
         return False
 
@@ -199,7 +152,7 @@ class RuleEngine(
             env = zone.environment
 
             # CO2 above threshold -> create ventilation task
-            if env.co2 is not None and env.co2 > CO2_HIGH:
+            if env.co2 is not None and env.co2 > self.thresholds.co2_high:
                 if self._check_cooldown(f"co2_{zone_id}", now):
                     actions.append(
                         {
@@ -216,7 +169,7 @@ class RuleEngine(
 
             # Temperature too high or too low
             if env.temperature is not None:
-                if env.temperature > TEMP_HIGH and self._check_cooldown(f"temp_high_{zone_id}", now):
+                if env.temperature > self.thresholds.temp_high and self._check_cooldown(f"temp_high_{zone_id}", now):
                     actions.append(
                         {
                             "tool": "speak",
@@ -227,7 +180,7 @@ class RuleEngine(
                             },
                         }
                     )
-                elif env.temperature < TEMP_LOW and self._check_cooldown(f"temp_low_{zone_id}", now):
+                elif env.temperature < self.thresholds.temp_low and self._check_cooldown(f"temp_low_{zone_id}", now):
                     actions.append(
                         {
                             "tool": "speak",
@@ -257,7 +210,7 @@ class RuleEngine(
             occ = zone.occupancy
             if (
                 occ.posture_status == "static"
-                and occ.posture_duration_sec > SEDENTARY_MINUTES * 60
+                and occ.posture_duration_sec > self.thresholds.sedentary_minutes * 60
                 and self._check_cooldown(f"posture_{zone_id}", now)
             ):
                 duration_min = int(occ.posture_duration_sec / 60)
@@ -273,7 +226,7 @@ class RuleEngine(
                 )
 
             # Humidity high
-            if env.humidity is not None and env.humidity > HUMIDITY_HIGH:
+            if env.humidity is not None and env.humidity > self.thresholds.humidity_high:
                 if self._check_cooldown(f"humidity_high_{zone_id}", now):
                     actions.append(
                         {
@@ -287,7 +240,7 @@ class RuleEngine(
                     )
 
             # Humidity low
-            if env.humidity is not None and env.humidity < HUMIDITY_LOW:
+            if env.humidity is not None and env.humidity < self.thresholds.humidity_low:
                 if self._check_cooldown(f"humidity_low_{zone_id}", now):
                     actions.append(
                         {
@@ -318,11 +271,11 @@ class RuleEngine(
                         )
 
                 # Sustained low pressure → weather headache warning (≤1 per day)
-                if env.pressure < LOW_PRESSURE_THRESHOLD:
+                if env.pressure < self.thresholds.low_pressure_threshold:
                     start = self._low_pressure_since.get(zone_id)
                     if start is None:
                         self._low_pressure_since[zone_id] = now
-                    elif now - start >= LOW_PRESSURE_SUSTAIN_S and self._check_cooldown_daily(
+                    elif now - start >= self.thresholds.low_pressure_sustain_s and self._check_cooldown_daily(
                         f"pressure_low_sustained_{zone_id}", now
                     ):
                         actions.append(
@@ -339,7 +292,7 @@ class RuleEngine(
                     self._low_pressure_since.pop(zone_id, None)
 
             # Soil moisture watering (watering-gap-04 P1.4)
-            if env.soil_moisture is not None and env.soil_moisture < SOIL_MOISTURE_LOW:
+            if env.soil_moisture is not None and env.soil_moisture < self.thresholds.soil_moisture_low:
                 if self._check_cooldown_custom(f"soil_low_{zone_id}", now, 6 * 3600):
                     pump = next(
                         (
@@ -355,12 +308,12 @@ class RuleEngine(
                         None,
                     )
                     msg = f"植物の土壌水分が{env.soil_moisture:.0f}%です。水やりをしてください。"
-                    if AUTO_WATER_ENABLED and pump is not None:
+                    if self.thresholds.auto_water_enabled and pump is not None:
                         actions.append(
                             self._make_action(
                                 pump["device_id"],
                                 "pulse",
-                                {"duration_s": AUTO_WATER_DURATION_S},
+                                {"duration_s": self.thresholds.auto_water_duration_s},
                             )
                         )
                         actions.append(
@@ -399,12 +352,12 @@ class RuleEngine(
 
             # VOC sustained high (wiring-gap-04 P1.5)
             if env.voc is not None:
-                if env.voc > VOC_HIGH_THRESHOLD:
+                if env.voc > self.thresholds.voc_high_threshold:
                     start = self._voc_high_since.get(zone_id)
                     if start is None:
                         self._voc_high_since[zone_id] = now
-                    elif now - start >= VOC_SUSTAIN_SECONDS and self._check_cooldown_custom(
-                        f"voc_high_{zone_id}", now, VOC_COOLDOWN_SECONDS
+                    elif now - start >= self.thresholds.voc_sustain_seconds and self._check_cooldown_custom(
+                        f"voc_high_{zone_id}", now, self.thresholds.voc_cooldown_seconds
                     ):
                         actions.append(
                             {
@@ -437,7 +390,7 @@ class RuleEngine(
             # Native PM2.5 high (wiring-gap-04 P1.6)
             # Dedup key is shared with zigbee HA-binary PM2.5 rule so both paths
             # can't fire the same message twice.
-            if env.pm25 is not None and env.pm25 > PM25_NATIVE_HIGH:
+            if env.pm25 is not None and env.pm25 > self.thresholds.pm25_native_high:
                 if self._check_cooldown(f"zigbee_pm25_{zone_id}", now):
                     actions.append(
                         {
@@ -460,11 +413,11 @@ class RuleEngine(
                 hour = datetime.now().hour
                 is_night = hour >= 22 or hour < 5
                 # Sustained darkness outside sleeping hours → sensor / power fault suspicion
-                if not is_night and env.light < ILLUMINANCE_LOW_LX:
+                if not is_night and env.light < self.thresholds.illuminance_low_lx:
                     start = self._low_light_since.get(zone_id)
                     if start is None:
                         self._low_light_since[zone_id] = now
-                    elif now - start >= ILLUMINANCE_LOW_SUSTAIN_S and self._check_cooldown_daily(
+                    elif now - start >= self.thresholds.illuminance_low_sustain_s and self._check_cooldown_daily(
                         f"light_low_sustained_{zone_id}", now
                     ):
                         actions.append(
@@ -486,11 +439,11 @@ class RuleEngine(
                     self._low_light_since.pop(zone_id, None)
 
                 # Sustained daylight glare → suggest / request curtain close
-                if env.light > ILLUMINANCE_HIGH_LX:
+                if env.light > self.thresholds.illuminance_high_lx:
                     start = self._high_light_since.get(zone_id)
                     if start is None:
                         self._high_light_since[zone_id] = now
-                    elif now - start >= ILLUMINANCE_HIGH_SUSTAIN_S and self._check_cooldown_custom(
+                    elif now - start >= self.thresholds.illuminance_high_sustain_s and self._check_cooldown_custom(
                         f"light_high_sustained_{zone_id}", now, 3600
                     ):
                         covers = self._get_devices(device_class="cover", zone=zone_id)
@@ -531,7 +484,7 @@ class RuleEngine(
 
         # --- PC rules ---
         pc = world_model.pc_state
-        if pc.gpu.temp_c > PC_GPU_TEMP_HIGH and self._check_cooldown("pc_gpu_hot", now):
+        if pc.gpu.temp_c > self.thresholds.pc_gpu_temp_high and self._check_cooldown("pc_gpu_hot", now):
             actions.append(
                 {
                     "tool": "speak",
@@ -545,7 +498,7 @@ class RuleEngine(
 
         if pc.disk.partitions:
             for p in pc.disk.partitions:
-                if p.percent > PC_DISK_HIGH and self._check_cooldown(f"pc_disk_{p.mount}", now):
+                if p.percent > self.thresholds.pc_disk_high and self._check_cooldown(f"pc_disk_{p.mount}", now):
                     actions.append(
                         {
                             "tool": "create_task",
@@ -594,13 +547,13 @@ class RuleEngine(
                 seen_names.add(proc.name)
                 # Skip dev-environment noise (Chrome, Slack, VS Code, etc.)
                 pname_lower = proc.name.lower()
-                if any(ex in pname_lower for ex in PC_PROC_HEAVY_EXCLUDE):
+                if any(ex in pname_lower for ex in self.thresholds.pc_proc_heavy_exclude):
                     continue
                 # CPU sustained
-                if proc.cpu_percent >= PC_PROC_CPU_HIGH:
+                if proc.cpu_percent >= self.thresholds.pc_proc_cpu_high:
                     start = self._heavy_proc_since.setdefault(proc.name, now)
-                    if now - start >= PC_PROC_CPU_SUSTAIN_S and self._check_cooldown_custom(
-                        f"pc_proc_cpu_{proc.name}", now, PC_PROC_COOLDOWN_S
+                    if now - start >= self.thresholds.pc_proc_cpu_sustain_s and self._check_cooldown_custom(
+                        f"pc_proc_cpu_{proc.name}", now, self.thresholds.pc_proc_cooldown_s
                     ):
                         actions.append(
                             {
@@ -616,8 +569,8 @@ class RuleEngine(
                     self._heavy_proc_since.pop(proc.name, None)
                 # Memory single-process
                 mem_gb = proc.mem_mb / 1024.0
-                if mem_gb >= PC_PROC_MEM_HIGH_GB and self._check_cooldown_custom(
-                    f"pc_proc_mem_{proc.name}", now, PC_PROC_COOLDOWN_S
+                if mem_gb >= self.thresholds.pc_proc_mem_high_gb and self._check_cooldown_custom(
+                    f"pc_proc_mem_{proc.name}", now, self.thresholds.pc_proc_cooldown_s
                 ):
                     actions.append(
                         {
@@ -655,7 +608,9 @@ class RuleEngine(
 
         # --- Screen time rule ---
         st = world_model.user.screen_time
-        if st.total_minutes >= SCREEN_TIME_ALERT_MINUTES and self._check_cooldown("screen_time_alert", now):
+        if st.total_minutes >= self.thresholds.screen_time_alert_minutes and self._check_cooldown(
+            "screen_time_alert", now
+        ):
             hours = st.total_minutes // 60
             actions.append(
                 {
@@ -718,7 +673,11 @@ class RuleEngine(
         # --- Environmental: CO2 danger level ---
         for zone_id, zone in world_model.zones.items():
             env = zone.environment
-            if env.co2 is not None and env.co2 > CO2_CRITICAL and self._check_cooldown(f"critical_co2_{zone_id}", now):
+            if (
+                env.co2 is not None
+                and env.co2 > self.thresholds.co2_critical
+                and self._check_cooldown(f"critical_co2_{zone_id}", now)
+            ):
                 actions.append(
                     {
                         "tool": "create_task",
@@ -746,7 +705,9 @@ class RuleEngine(
 
             # --- Environmental: extreme temperature ---
             if env.temperature is not None:
-                if env.temperature > TEMP_CRITICAL_HIGH and self._check_cooldown(f"critical_temp_high_{zone_id}", now):
+                if env.temperature > self.thresholds.temp_critical_high and self._check_cooldown(
+                    f"critical_temp_high_{zone_id}", now
+                ):
                     actions.append(
                         {
                             "tool": "speak",
@@ -759,7 +720,9 @@ class RuleEngine(
                             },
                         }
                     )
-                elif env.temperature < TEMP_CRITICAL_LOW and self._check_cooldown(f"critical_temp_low_{zone_id}", now):
+                elif env.temperature < self.thresholds.temp_critical_low and self._check_cooldown(
+                    f"critical_temp_low_{zone_id}", now
+                ):
                     actions.append(
                         {
                             "tool": "speak",
@@ -807,7 +770,7 @@ class RuleEngine(
         bio = world_model.biometric_state
         if (
             bio.spo2.percent is not None
-            and bio.spo2.percent < SPO2_CRITICAL_LOW
+            and bio.spo2.percent < self.thresholds.spo2_critical_low
             and bio.spo2.last_update > now - 300
             and self._check_cooldown("critical_spo2", now)
         ):
@@ -827,7 +790,7 @@ class RuleEngine(
         # --- Biometric: very high heart rate during sleep ---
         if (
             bio.heart_rate.bpm is not None
-            and bio.heart_rate.bpm > HR_CRITICAL_SLEEP
+            and bio.heart_rate.bpm > self.thresholds.hr_critical_sleep
             and bio.sleep.stage in ("deep", "light", "rem")
             and bio.heart_rate.last_update > now - 120
             and self._check_cooldown("critical_hr_sleep", now)

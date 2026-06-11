@@ -108,21 +108,12 @@ def _sanitize_text(text: str, max_len: int = 200) -> str:
     return cleaned
 
 
-# Threshold constants are derived from the single source of truth
-# (rules.config.RuleThresholds). The module attributes below are retained as
-# aliases so existing facade references (`_world_model.CO2_HIGH`) and
-# rule_engine re-exports keep working unchanged (W2.1). rules.config depends
-# only on os/dataclasses/loguru, so importing it here introduces no cycle.
+# Alert/event thresholds are owned by the single source of truth
+# (rules.config.RuleThresholds) and reached via constructor DI
+# (`self.thresholds.*`, W2.2/W2.3). No module-level threshold aliases remain.
+# rules.config depends only on os/dataclasses/loguru, so importing it here
+# introduces no cycle.
 from rules.config import RuleThresholds, load_rule_thresholds
-
-_WM_THRESH = load_rule_thresholds()
-
-# Environment thresholds for event generation (alias for facade compatibility)
-CO2_HIGH = _WM_THRESH.co2_high
-CO2_CRITICAL = _WM_THRESH.co2_critical
-TEMP_HIGH = _WM_THRESH.temp_high
-TEMP_LOW = _WM_THRESH.temp_low
-SEDENTARY_MINUTES = _WM_THRESH.sedentary_minutes
 
 # Freshness / degraded-operation thresholds (Group C, ported from SOMS).
 # A reading older than ENV_STALE_SEC is annotated as stale in the LLM context.
@@ -132,32 +123,6 @@ SEDENTARY_MINUTES = _WM_THRESH.sedentary_minutes
 # RuleThresholds) per the W2.1 design note.
 ENV_STALE_SEC = int(os.getenv("HEMS_ENV_STALE_SEC", "300"))  # 5 min
 ZONE_BLIND_SEC = int(os.getenv("HEMS_ZONE_BLIND_SEC", "300"))  # 5 min
-
-# PC thresholds (alias for facade compatibility)
-PC_CPU_HIGH = _WM_THRESH.pc_cpu_high
-PC_MEMORY_HIGH = _WM_THRESH.pc_memory_high
-PC_GPU_TEMP_HIGH = _WM_THRESH.pc_gpu_temp_high
-PC_DISK_HIGH = _WM_THRESH.pc_disk_high
-
-# Biometric thresholds (alias for facade compatibility)
-HR_HIGH = _WM_THRESH.hr_high
-HR_LOW = _WM_THRESH.hr_low
-SPO2_LOW = _WM_THRESH.spo2_low
-STRESS_HIGH = _WM_THRESH.stress_high
-
-# Environment extended thresholds (alias for facade compatibility)
-HUMIDITY_HIGH = _WM_THRESH.humidity_high
-HUMIDITY_LOW = _WM_THRESH.humidity_low
-
-# Extended biometric thresholds (alias for facade compatibility)
-HRV_LOW = _WM_THRESH.hrv_low
-BODY_TEMP_HIGH = _WM_THRESH.body_temp_high
-RESPIRATORY_RATE_HIGH = _WM_THRESH.respiratory_rate_high
-SCREEN_TIME_ALERT_MINUTES = _WM_THRESH.screen_time_alert_minutes
-
-# Zigbee sensor thresholds (alias for facade compatibility)
-POWER_IDLE_WATTS = _WM_THRESH.power_idle_watts
-PM25_HIGH = _WM_THRESH.pm25_high
 
 
 from .context_builder import ContextBuilderMixin

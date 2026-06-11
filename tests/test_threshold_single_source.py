@@ -6,7 +6,6 @@ dataclass are derived from a single source of truth and stay value-identical.
 """
 
 import dataclasses
-import importlib
 import os
 
 import pytest
@@ -80,31 +79,6 @@ GOLDEN_RULE_THRESHOLDS = {
     "circadian_interval": 1800,
 }
 
-# world_model module constant name -> RuleThresholds field name.
-WM_TO_FIELD = {
-    "CO2_HIGH": "co2_high",
-    "CO2_CRITICAL": "co2_critical",
-    "TEMP_HIGH": "temp_high",
-    "TEMP_LOW": "temp_low",
-    "SEDENTARY_MINUTES": "sedentary_minutes",
-    "PC_CPU_HIGH": "pc_cpu_high",
-    "PC_MEMORY_HIGH": "pc_memory_high",
-    "PC_GPU_TEMP_HIGH": "pc_gpu_temp_high",
-    "PC_DISK_HIGH": "pc_disk_high",
-    "HR_HIGH": "hr_high",
-    "HR_LOW": "hr_low",
-    "SPO2_LOW": "spo2_low",
-    "STRESS_HIGH": "stress_high",
-    "HUMIDITY_HIGH": "humidity_high",
-    "HUMIDITY_LOW": "humidity_low",
-    "HRV_LOW": "hrv_low",
-    "BODY_TEMP_HIGH": "body_temp_high",
-    "RESPIRATORY_RATE_HIGH": "respiratory_rate_high",
-    "SCREEN_TIME_ALERT_MINUTES": "screen_time_alert_minutes",
-    "POWER_IDLE_WATTS": "power_idle_watts",
-    "PM25_HIGH": "pm25_high",
-}
-
 
 def _clean_env(monkeypatch):
     """Remove all threshold env vars so defaults are exercised."""
@@ -137,40 +111,51 @@ def test_rule_thresholds_golden_snapshot(monkeypatch):
         assert getattr(rt, field_name) == expected, field_name
 
 
-def test_world_model_constants_golden_snapshot(monkeypatch):
+def test_world_model_thresholds_golden_snapshot(monkeypatch):
     _clean_env(monkeypatch)
-    import world_model.world_model as wm
+    from world_model.world_model import WorldModel
 
-    wm = importlib.reload(wm)
-    for const_name, field_name in WM_TO_FIELD.items():
-        assert getattr(wm, const_name) == GOLDEN_RULE_THRESHOLDS[field_name], const_name
+    rt = WorldModel().thresholds
+    for field_name, expected in GOLDEN_RULE_THRESHOLDS.items():
+        assert getattr(rt, field_name) == expected, field_name
 
 
-def test_ab_identity_world_model_vs_rule_thresholds(monkeypatch):
+def test_ab_identity_world_model_vs_rule_engine(monkeypatch):
+    """After constructor DI (W2.3) both engines must derive from one source.
+
+    The strongest guarantee — and what Brain actually wires (main.py shares the
+    WorldModel's instance) — is that WorldModel().thresholds and a RuleEngine
+    built from it are the *same* RuleThresholds instance, and value-identical to
+    a freshly loaded one.
+    """
     _clean_env(monkeypatch)
-    import world_model.world_model as wm
+    from rule_engine import RuleEngine
+    from world_model.world_model import WorldModel
 
-    wm = importlib.reload(wm)
+    wm = WorldModel()
+    engine = RuleEngine(thresholds=wm.thresholds)
+    assert engine.thresholds is wm.thresholds  # shared single instance
     rt = load_rule_thresholds()
-    for const_name, field_name in WM_TO_FIELD.items():
-        assert getattr(wm, const_name) == getattr(rt, field_name), const_name
+    for field_name in GOLDEN_RULE_THRESHOLDS:
+        assert getattr(wm.thresholds, field_name) == getattr(rt, field_name), field_name
 
 
 def test_env_override_reflected_in_both(monkeypatch):
     _clean_env(monkeypatch)
     monkeypatch.setenv("HEMS_THRESHOLD_CO2_HIGH", "2000")
     monkeypatch.setenv("HEMS_THRESHOLD_TEMP_HIGH", "33")
-    import world_model.world_model as wm
+    from rule_engine import RuleEngine
+    from world_model.world_model import WorldModel
 
-    wm = importlib.reload(wm)
+    wm = WorldModel()
+    engine = RuleEngine(thresholds=wm.thresholds)
     rt = load_rule_thresholds()
-    assert wm.CO2_HIGH == 2000
+    assert wm.thresholds.co2_high == 2000
+    assert engine.thresholds.co2_high == 2000
     assert rt.co2_high == 2000
-    assert wm.TEMP_HIGH == 33
+    assert wm.thresholds.temp_high == 33
+    assert engine.thresholds.temp_high == 33
     assert rt.temp_high == 33
-    # restore module to default state for other tests
-    _clean_env(monkeypatch)
-    importlib.reload(wm)
 
 
 def test_pm25_native_backward_compat_warning(monkeypatch, caplog):

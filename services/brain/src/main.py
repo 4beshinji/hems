@@ -67,6 +67,9 @@ class Brain(
         self.rule_engine = RuleEngine(
             schedule_learner=self.schedule_learner,
             mqtt_publisher=self._publish_mqtt,
+            # Share the WorldModel's RuleThresholds instance so both engines are
+            # guaranteed to derive thresholds from a single source (W2.3).
+            thresholds=self.world_model.thresholds,
         )
         self.power_mode_manager = PowerModeManager()
 

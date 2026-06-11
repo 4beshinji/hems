@@ -5,8 +5,14 @@ Regression tests for RuleEngine sustained-condition trackers.
 from datetime import datetime
 from unittest.mock import patch
 
-from rule_engine import ILLUMINANCE_LOW_SUSTAIN_S, LOW_PRESSURE_SUSTAIN_S, PC_PROC_CPU_SUSTAIN_S, RuleEngine
+from rule_engine import RuleEngine
+from rules.config import load_rule_thresholds
 from world_model.data_classes import EnvironmentData, ProcessInfo
+
+_THRESH = load_rule_thresholds()
+ILLUMINANCE_LOW_SUSTAIN_S = _THRESH.illuminance_low_sustain_s
+LOW_PRESSURE_SUSTAIN_S = _THRESH.low_pressure_sustain_s
+PC_PROC_CPU_SUSTAIN_S = _THRESH.pc_proc_cpu_sustain_s
 
 
 def test_voc_high_requires_sustain_and_resets_when_normal(monkeypatch, world_model):

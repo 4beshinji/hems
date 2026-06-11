@@ -53,7 +53,7 @@ class ServiceRulesMixin:
 
         WEEK_S = 7 * 86400
         DAY_S = 86400
-        stale_threshold_s = _rule_engine.DEVICE_STALE_HOURS * 3600
+        stale_threshold_s = self.thresholds.device_stale_hours * 3600
 
         for d in self._device_cache:
             if not d.get("is_enabled", True):
@@ -65,7 +65,7 @@ class ServiceRulesMixin:
 
             # Battery (≤10% by default)
             battery = d.get("battery_pct")
-            if isinstance(battery, (int, float)) and battery <= _rule_engine.DEVICE_BATTERY_LOW:
+            if isinstance(battery, (int, float)) and battery <= self.thresholds.device_battery_low:
                 if self._check_cooldown_custom(f"dev_battery_{device_id}", now, WEEK_S):
                     actions.append(
                         {
@@ -82,7 +82,7 @@ class ServiceRulesMixin:
 
             # Link quality (Z2M LQI < 50 means weak mesh signal)
             lqi = d.get("link_quality")
-            if isinstance(lqi, (int, float)) and lqi < _rule_engine.DEVICE_LQI_LOW and (d.get("vendor") == "zigbee"):
+            if isinstance(lqi, (int, float)) and lqi < self.thresholds.device_lqi_low and (d.get("vendor") == "zigbee"):
                 if self._check_cooldown_custom(f"dev_lqi_{device_id}", now, DAY_S):
                     actions.append(
                         {

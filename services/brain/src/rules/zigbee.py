@@ -3,8 +3,6 @@
 Extracted as a mixin to keep RuleEngine public methods stable.
 """
 
-import rule_engine as _rule_engine
-
 
 class ZigbeeRulesMixin:
     def _evaluate_zigbee_sensor_rules(self, world_model, now: float) -> list[dict]:
@@ -86,8 +84,8 @@ class ZigbeeRulesMixin:
         for eid, s in hd.sensors.items():
             if (
                 s.device_class == "power"
-                and s.previous_value > _rule_engine.POWER_IDLE_WATTS
-                and s.value <= _rule_engine.POWER_IDLE_WATTS
+                and s.previous_value > self.thresholds.power_idle_watts
+                and s.value <= self.thresholds.power_idle_watts
             ):
                 if self._check_cooldown(f"zigbee_power_{eid}", now):
                     name = eid.split(".")[-1] if "." in eid else eid
@@ -142,7 +140,7 @@ class ZigbeeRulesMixin:
         co2_sensors = [s for s in hd.sensors.values() if s.device_class == "carbon_dioxide"]
         window_sensors = [bs for bs in hd.binary_sensors.values() if bs.device_class == "window"]
         for s in co2_sensors:
-            if s.value > _rule_engine.CO2_HIGH:
+            if s.value > self.thresholds.co2_high:
                 all_closed = all(not ws.state for ws in window_sensors) if window_sensors else False
                 if all_closed and self._check_cooldown(f"zigbee_co2_window_{s.entity_id}", now):
                     actions.append(
@@ -159,7 +157,7 @@ class ZigbeeRulesMixin:
         # --- Z5: PM2.5 high → purifier on ---
         pm25_sensors = [s for s in hd.sensors.values() if s.device_class == "pm25"]
         for s in pm25_sensors:
-            if s.value > _rule_engine.PM25_HIGH:
+            if s.value > self.thresholds.pm25_high:
                 if self._check_cooldown(f"zigbee_pm25_{s.entity_id}", now):
                     actions.append(
                         {
