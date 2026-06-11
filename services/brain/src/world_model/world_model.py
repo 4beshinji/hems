@@ -108,45 +108,56 @@ def _sanitize_text(text: str, max_len: int = 200) -> str:
     return cleaned
 
 
-# Environment thresholds for event generation (configurable via env vars)
-CO2_HIGH = int(os.getenv("HEMS_THRESHOLD_CO2_HIGH", "1000"))
-CO2_CRITICAL = int(os.getenv("HEMS_THRESHOLD_CO2_CRITICAL", "1500"))
-TEMP_HIGH = int(os.getenv("HEMS_THRESHOLD_TEMP_HIGH", "28"))
-TEMP_LOW = int(os.getenv("HEMS_THRESHOLD_TEMP_LOW", "16"))
-SEDENTARY_MINUTES = int(os.getenv("HEMS_THRESHOLD_SEDENTARY_MINUTES", "60"))
+# Threshold constants are derived from the single source of truth
+# (rules.config.RuleThresholds). The module attributes below are retained as
+# aliases so existing facade references (`_world_model.CO2_HIGH`) and
+# rule_engine re-exports keep working unchanged (W2.1). rules.config depends
+# only on os/dataclasses/loguru, so importing it here introduces no cycle.
+from rules.config import load_rule_thresholds
+
+_WM_THRESH = load_rule_thresholds()
+
+# Environment thresholds for event generation (alias for facade compatibility)
+CO2_HIGH = _WM_THRESH.co2_high
+CO2_CRITICAL = _WM_THRESH.co2_critical
+TEMP_HIGH = _WM_THRESH.temp_high
+TEMP_LOW = _WM_THRESH.temp_low
+SEDENTARY_MINUTES = _WM_THRESH.sedentary_minutes
 
 # Freshness / degraded-operation thresholds (Group C, ported from SOMS).
 # A reading older than ENV_STALE_SEC is annotated as stale in the LLM context.
 # A zone with no update for ZONE_BLIND_SEC counts toward system-wide blindness,
 # which puts the cognitive loop into observe-only mode (side-effects suppressed).
+# These are time-windows, not alert thresholds, and remain env-direct (not in
+# RuleThresholds) per the W2.1 design note.
 ENV_STALE_SEC = int(os.getenv("HEMS_ENV_STALE_SEC", "300"))  # 5 min
 ZONE_BLIND_SEC = int(os.getenv("HEMS_ZONE_BLIND_SEC", "300"))  # 5 min
 
-# PC thresholds (configurable via env vars)
-PC_CPU_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_CPU_HIGH", "90"))
-PC_MEMORY_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_MEMORY_HIGH", "90"))
-PC_GPU_TEMP_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_GPU_TEMP_HIGH", "85"))
-PC_DISK_HIGH = int(os.getenv("HEMS_THRESHOLD_PC_DISK_HIGH", "90"))
+# PC thresholds (alias for facade compatibility)
+PC_CPU_HIGH = _WM_THRESH.pc_cpu_high
+PC_MEMORY_HIGH = _WM_THRESH.pc_memory_high
+PC_GPU_TEMP_HIGH = _WM_THRESH.pc_gpu_temp_high
+PC_DISK_HIGH = _WM_THRESH.pc_disk_high
 
-# Biometric thresholds (configurable via env vars)
-HR_HIGH = int(os.getenv("HEMS_THRESHOLD_HR_HIGH", "120"))
-HR_LOW = int(os.getenv("HEMS_THRESHOLD_HR_LOW", "45"))
-SPO2_LOW = int(os.getenv("HEMS_THRESHOLD_SPO2_LOW", "92"))
-STRESS_HIGH = int(os.getenv("HEMS_THRESHOLD_STRESS_HIGH", "80"))
+# Biometric thresholds (alias for facade compatibility)
+HR_HIGH = _WM_THRESH.hr_high
+HR_LOW = _WM_THRESH.hr_low
+SPO2_LOW = _WM_THRESH.spo2_low
+STRESS_HIGH = _WM_THRESH.stress_high
 
-# Environment extended thresholds
-HUMIDITY_HIGH = int(os.getenv("HEMS_THRESHOLD_HUMIDITY_HIGH", "70"))
-HUMIDITY_LOW = int(os.getenv("HEMS_THRESHOLD_HUMIDITY_LOW", "30"))
+# Environment extended thresholds (alias for facade compatibility)
+HUMIDITY_HIGH = _WM_THRESH.humidity_high
+HUMIDITY_LOW = _WM_THRESH.humidity_low
 
-# Extended biometric thresholds
-HRV_LOW = int(os.getenv("HEMS_THRESHOLD_HRV_LOW", "20"))
-BODY_TEMP_HIGH = float(os.getenv("HEMS_THRESHOLD_BODY_TEMP_HIGH", "37.5"))
-RESPIRATORY_RATE_HIGH = int(os.getenv("HEMS_THRESHOLD_RESPIRATORY_RATE_HIGH", "25"))
-SCREEN_TIME_ALERT_MINUTES = int(os.getenv("HEMS_THRESHOLD_SCREEN_TIME_MINUTES", "120"))
+# Extended biometric thresholds (alias for facade compatibility)
+HRV_LOW = _WM_THRESH.hrv_low
+BODY_TEMP_HIGH = _WM_THRESH.body_temp_high
+RESPIRATORY_RATE_HIGH = _WM_THRESH.respiratory_rate_high
+SCREEN_TIME_ALERT_MINUTES = _WM_THRESH.screen_time_alert_minutes
 
-# Zigbee sensor thresholds
-POWER_IDLE_WATTS = float(os.getenv("HEMS_THRESHOLD_POWER_IDLE_WATTS", "5"))
-PM25_HIGH = float(os.getenv("HEMS_THRESHOLD_PM25_HIGH", "35"))
+# Zigbee sensor thresholds (alias for facade compatibility)
+POWER_IDLE_WATTS = _WM_THRESH.power_idle_watts
+PM25_HIGH = _WM_THRESH.pm25_high
 
 
 from .context_builder import ContextBuilderMixin

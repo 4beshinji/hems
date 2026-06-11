@@ -3,10 +3,30 @@
 import os
 from dataclasses import dataclass, field
 
+from loguru import logger
+
 
 def _env_bool(name: str, default: bool) -> bool:
     fallback = "true" if default else "false"
     return os.getenv(name, fallback).lower() == "true"
+
+
+def _pm25_native_default() -> float:
+    """Resolve pm25_native_high default with backward-compat for the deprecated env var.
+
+    Canonical env var is HEMS_THRESHOLD_PM25_HIGH (shared with the world_model
+    PM2.5 estimate threshold). The legacy HEMS_THRESHOLD_PM25_NATIVE is honored
+    for backward compatibility: if set, it takes precedence and emits a
+    deprecation warning. Otherwise the canonical var (default 35) is used.
+    """
+    legacy = os.getenv("HEMS_THRESHOLD_PM25_NATIVE")
+    if legacy is not None:
+        logger.warning(
+            "HEMS_THRESHOLD_PM25_NATIVE is deprecated; use HEMS_THRESHOLD_PM25_HIGH. "
+            "Honoring the legacy value for backward compatibility."
+        )
+        return float(legacy)
+    return float(os.getenv("HEMS_THRESHOLD_PM25_HIGH", "35"))
 
 
 @dataclass(frozen=True)
@@ -60,6 +80,32 @@ class RuleThresholds:
     circadian_interval: int = 1800
     circadian_curve: list[tuple[int, int, int]] = field(default_factory=list)
 
+    # World-model-derived event/alert thresholds (single source of truth).
+    # env var names, defaults and types copied verbatim from the former
+    # world_model.world_model module constants. The freshness time-windows
+    # (ENV_STALE_SEC / ZONE_BLIND_SEC) are intentionally NOT included here.
+    co2_high: int = 1000
+    co2_critical: int = 1500
+    temp_high: int = 28
+    temp_low: int = 16
+    sedentary_minutes: int = 60
+    pc_cpu_high: int = 90
+    pc_memory_high: int = 90
+    pc_gpu_temp_high: int = 85
+    pc_disk_high: int = 90
+    hr_high: int = 120
+    hr_low: int = 45
+    spo2_low: int = 92
+    stress_high: int = 80
+    humidity_high: int = 70
+    humidity_low: int = 30
+    hrv_low: int = 20
+    body_temp_high: float = 37.5
+    respiratory_rate_high: int = 25
+    screen_time_alert_minutes: int = 120
+    power_idle_watts: float = 5.0
+    pm25_high: float = 35.0
+
 
 def load_rule_thresholds() -> RuleThresholds:
     return RuleThresholds(
@@ -68,6 +114,27 @@ def load_rule_thresholds() -> RuleThresholds:
         spo2_critical_low=int(os.getenv("HEMS_THRESHOLD_SPO2_CRITICAL_LOW", "88")),
         hr_critical_sleep=int(os.getenv("HEMS_THRESHOLD_HR_CRITICAL_SLEEP", "150")),
         biometric_stale_minutes=int(os.getenv("HEMS_BIOMETRIC_STALE_MINUTES", "30")),
+        co2_high=int(os.getenv("HEMS_THRESHOLD_CO2_HIGH", "1000")),
+        co2_critical=int(os.getenv("HEMS_THRESHOLD_CO2_CRITICAL", "1500")),
+        temp_high=int(os.getenv("HEMS_THRESHOLD_TEMP_HIGH", "28")),
+        temp_low=int(os.getenv("HEMS_THRESHOLD_TEMP_LOW", "16")),
+        sedentary_minutes=int(os.getenv("HEMS_THRESHOLD_SEDENTARY_MINUTES", "60")),
+        pc_cpu_high=int(os.getenv("HEMS_THRESHOLD_PC_CPU_HIGH", "90")),
+        pc_memory_high=int(os.getenv("HEMS_THRESHOLD_PC_MEMORY_HIGH", "90")),
+        pc_gpu_temp_high=int(os.getenv("HEMS_THRESHOLD_PC_GPU_TEMP_HIGH", "85")),
+        pc_disk_high=int(os.getenv("HEMS_THRESHOLD_PC_DISK_HIGH", "90")),
+        hr_high=int(os.getenv("HEMS_THRESHOLD_HR_HIGH", "120")),
+        hr_low=int(os.getenv("HEMS_THRESHOLD_HR_LOW", "45")),
+        spo2_low=int(os.getenv("HEMS_THRESHOLD_SPO2_LOW", "92")),
+        stress_high=int(os.getenv("HEMS_THRESHOLD_STRESS_HIGH", "80")),
+        humidity_high=int(os.getenv("HEMS_THRESHOLD_HUMIDITY_HIGH", "70")),
+        humidity_low=int(os.getenv("HEMS_THRESHOLD_HUMIDITY_LOW", "30")),
+        hrv_low=int(os.getenv("HEMS_THRESHOLD_HRV_LOW", "20")),
+        body_temp_high=float(os.getenv("HEMS_THRESHOLD_BODY_TEMP_HIGH", "37.5")),
+        respiratory_rate_high=int(os.getenv("HEMS_THRESHOLD_RESPIRATORY_RATE_HIGH", "25")),
+        screen_time_alert_minutes=int(os.getenv("HEMS_THRESHOLD_SCREEN_TIME_MINUTES", "120")),
+        power_idle_watts=float(os.getenv("HEMS_THRESHOLD_POWER_IDLE_WATTS", "5")),
+        pm25_high=float(os.getenv("HEMS_THRESHOLD_PM25_HIGH", "35")),
         pc_proc_cpu_high=float(os.getenv("HEMS_PROC_CPU_HIGH", "90")),
         pc_proc_cpu_sustain_s=int(os.getenv("HEMS_PROC_CPU_SUSTAIN_S", "300")),
         pc_proc_mem_high_gb=float(os.getenv("HEMS_PROC_MEM_HIGH_GB", "4.0")),
@@ -86,7 +153,7 @@ def load_rule_thresholds() -> RuleThresholds:
         voc_high_threshold=float(os.getenv("HEMS_THRESHOLD_VOC_HIGH", "500")),
         voc_sustain_seconds=int(os.getenv("HEMS_VOC_SUSTAIN_SECONDS", "120")),
         voc_cooldown_seconds=int(os.getenv("HEMS_VOC_COOLDOWN_SECONDS", "1800")),
-        pm25_native_high=float(os.getenv("HEMS_THRESHOLD_PM25_NATIVE", "35")),
+        pm25_native_high=_pm25_native_default(),
         low_pressure_threshold=float(os.getenv("HEMS_THRESHOLD_PRESSURE_LOW", "1000")),
         low_pressure_sustain_s=int(os.getenv("HEMS_PRESSURE_LOW_SUSTAIN_S", str(3 * 3600))),
         illuminance_low_lx=float(os.getenv("HEMS_THRESHOLD_LIGHT_LOW", "20")),
