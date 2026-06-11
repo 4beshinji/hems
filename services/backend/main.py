@@ -72,7 +72,58 @@ async def lifespan(app: FastAPI):
         # aborts the whole tx on a failed statement).
         async with engine.begin() as conn:
             await _add_column_if_missing(conn, table, col, col_type)
+
+    # W1.2: Audit existing Device rows for identifier safety.
+    # Rows that pre-date validation are left intact (no deletion/rejection) but
+    # a warning is emitted so operators can review and manually correct them.
+    await _audit_existing_device_ids()
+
     yield
+
+
+async def _audit_existing_device_ids() -> None:
+    """Scan Device table for rows whose device_id or vendor_ref violate the
+    ^[\\w.\\-]+$ allowlist introduced in W1.2.
+
+    Existing rows are NOT modified — this is a read-only audit that logs
+    warnings so operators can clean up legacy data at their own pace.
+    """
+    import re
+
+    from sqlalchemy.future import select
+
+    import models
+    from database import AsyncSessionLocal
+
+    _RE = re.compile(r"^[\w.\-]+$")
+    _MAX = 128
+
+    def _unsafe(v: str | None) -> bool:
+        if v is None:
+            return False
+        return not v or len(v) > _MAX or not _RE.match(v)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(models.Device))
+            devices = result.scalars().all()
+        bad: list[str] = []
+        for d in devices:
+            if _unsafe(d.device_id):
+                bad.append(f"device_id={d.device_id!r} (id={d.id})")
+            if _unsafe(d.vendor_ref):
+                bad.append(f"vendor_ref={d.vendor_ref!r} for device_id={d.device_id!r} (id={d.id})")
+        if bad:
+            logger.warning(
+                "W1.2 audit: %d existing Device row(s) contain unsafe identifier(s) — "
+                "these are NOT rejected but should be reviewed: %s",
+                len(bad),
+                "; ".join(bad),
+            )
+        else:
+            logger.info("W1.2 audit: all existing Device identifiers pass the safe-character check")
+    except Exception as exc:
+        logger.warning("W1.2 audit: could not scan Device table: %s", exc)
 
 
 app = FastAPI(

@@ -1,6 +1,34 @@
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# ---------------------------------------------------------------------------
+# Device identifier validation
+# ---------------------------------------------------------------------------
+
+_DEVICE_ID_RE = re.compile(r"^[\w.\-]+$")
+_DEVICE_ID_MAX_LEN = 128
+
+
+def _validate_device_ref(field_name: str, value: str | None) -> str | None:
+    """Validate device_id / vendor_ref against the safe-character allowlist.
+
+    Returns the value unchanged when valid, or raises ValueError.
+    None is passed through (vendor_ref is optional).
+    """
+    if value is None:
+        return value
+    if not value:
+        raise ValueError(f"{field_name} must not be empty")
+    if len(value) > _DEVICE_ID_MAX_LEN:
+        raise ValueError(f"{field_name} must be ≤{_DEVICE_ID_MAX_LEN} chars; got {len(value)}")
+    if not _DEVICE_ID_RE.match(value):
+        raise ValueError(
+            f"{field_name} must match ^[\\w.\\-]+$ (alphanumeric, underscore, dot, hyphen only); got {value!r}"
+        )
+    return value
+
 
 # --- Task ---
 
@@ -376,6 +404,16 @@ class DeviceBase(BaseModel):
     notes: str | None = None
     metadata_json: str | None = None
 
+    @field_validator("device_id")
+    @classmethod
+    def _check_device_id(cls, v: str) -> str:
+        return _validate_device_ref("device_id", v)  # type: ignore[return-value]
+
+    @field_validator("vendor_ref")
+    @classmethod
+    def _check_vendor_ref(cls, v: str | None) -> str | None:
+        return _validate_device_ref("vendor_ref", v)
+
 
 class DeviceCreate(DeviceBase):
     pass
@@ -400,6 +438,11 @@ class DeviceUpdate(BaseModel):
     is_enabled: bool | None = None
     notes: str | None = None
     metadata_json: str | None = None
+
+    @field_validator("vendor_ref")
+    @classmethod
+    def _check_vendor_ref(cls, v: str | None) -> str | None:
+        return _validate_device_ref("vendor_ref", v)
 
 
 class Device(DeviceBase):
@@ -435,6 +478,16 @@ class DeviceHeartbeat(BaseModel):
     battery_pct: int | None = None
     link_quality: int | None = None
     last_seen_reported: float | None = None  # epoch seconds (Z2M last_seen)
+
+    @field_validator("device_id")
+    @classmethod
+    def _check_device_id(cls, v: str) -> str:
+        return _validate_device_ref("device_id", v)  # type: ignore[return-value]
+
+    @field_validator("vendor_ref")
+    @classmethod
+    def _check_vendor_ref(cls, v: str | None) -> str | None:
+        return _validate_device_ref("vendor_ref", v)
 
 
 class DeviceControlRequest(BaseModel):

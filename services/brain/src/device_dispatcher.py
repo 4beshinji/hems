@@ -24,6 +24,7 @@ from loguru import logger
 
 from brain_constants import backend_auth_headers
 from brain_utils import parse_iso_ts as _parse_iso_ts
+from device_id_validator import is_valid_device_ref
 
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 SWITCHBOT_BRIDGE_URL = os.getenv("SWITCHBOT_BRIDGE_URL", "")
@@ -581,6 +582,12 @@ class DeviceDispatcher:
     async def dispatch(self, device_id: str, action: str, params: dict | None = None) -> dict:
         """Execute action on a device. Returns {"success": bool, "result"|"error": str}."""
         params = params or {}
+
+        # W1.2: reject invalid device_id before any network I/O
+        if not is_valid_device_ref(device_id):
+            logger.warning("dispatch rejected: invalid device_id %r", device_id)
+            return {"success": False, "error": f"Invalid device_id {device_id!r}: must match ^[\\w.\\-]+$"}
+
         device = await self.lookup(device_id)
         if not device:
             return {"success": False, "error": f"Device '{device_id}' not registered"}
@@ -671,6 +678,10 @@ class DeviceDispatcher:
         if not SWITCHBOT_BRIDGE_URL:
             return {"success": False, "error": "SwitchBot bridge not configured"}
         device_ref = device.get("vendor_ref") or device.get("device_id", "").replace("switchbot.", "")
+        # W1.2: guard before injecting device_ref into HTTP URL path
+        if not is_valid_device_ref(device_ref):
+            logger.warning("switchbot dispatch rejected: invalid device_ref %r", device_ref)
+            return {"success": False, "error": f"Invalid vendor_ref {device_ref!r}: must match ^[\\w.\\-]+$"}
 
         cmd, parameter, cmd_type = _switchbot_cmd_for(action, params)
         if cmd is None:
@@ -690,6 +701,10 @@ class DeviceDispatcher:
         if not TAPO_BRIDGE_URL:
             return {"success": False, "error": "Tapo bridge not configured"}
         device_ref = device.get("vendor_ref") or device.get("device_id", "").replace("tapo.", "")
+        # W1.2: guard before injecting device_ref into HTTP URL path
+        if not is_valid_device_ref(device_ref):
+            logger.warning("tapo dispatch rejected: invalid device_ref %r", device_ref)
+            return {"success": False, "error": f"Invalid vendor_ref {device_ref!r}: must match ^[\\w.\\-]+$"}
 
         # pulse is handled here: on → sleep → off
         if action == "pulse":
@@ -728,6 +743,10 @@ class DeviceDispatcher:
         if self.mqtt_client is None:
             return {"success": False, "error": "MQTT client not available for Zigbee dispatch"}
         device_ref = device.get("vendor_ref") or device.get("device_id", "").replace("zigbee.", "")
+        # W1.2: guard before injecting device_ref into MQTT topic
+        if not is_valid_device_ref(device_ref):
+            logger.warning("zigbee dispatch rejected: invalid device_ref %r", device_ref)
+            return {"success": False, "error": f"Invalid vendor_ref {device_ref!r}: must match ^[\\w.\\-]+$"}
         payload = _zigbee_payload_for(action, params)
         if payload is None and action not in ("pulse", "rainbow"):
             return {"success": False, "error": f"action '{action}' not mapped for Zigbee"}
