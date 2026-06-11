@@ -56,7 +56,7 @@ class DigitalUpdatesMixin:
                 ]
                 pc.disk = _world_model.DiskData(partitions=partitions, last_update=now)
                 for p in partitions:
-                    if p.percent > _world_model.PC_DISK_HIGH:
+                    if p.percent > self.thresholds.pc_disk_high:
                         pc.add_event(
                             _world_model.Event(
                                 event_type="pc_disk_high",
@@ -125,7 +125,7 @@ class DigitalUpdatesMixin:
     def _check_pc_thresholds(self, metric: str, value: float, prev: float):
         """Generate events from PC metric threshold crossings."""
         pc = self.pc_state
-        if metric == "cpu" and value > _world_model.PC_CPU_HIGH and prev <= _world_model.PC_CPU_HIGH:
+        if metric == "cpu" and value > self.thresholds.pc_cpu_high and prev <= self.thresholds.pc_cpu_high:
             pc.add_event(
                 _world_model.Event(
                     event_type="pc_cpu_high",
@@ -134,7 +134,7 @@ class DigitalUpdatesMixin:
                     data={"usage_percent": value},
                 )
             )
-        elif metric == "memory" and value > _world_model.PC_MEMORY_HIGH and prev <= _world_model.PC_MEMORY_HIGH:
+        elif metric == "memory" and value > self.thresholds.pc_memory_high and prev <= self.thresholds.pc_memory_high:
             pc.add_event(
                 _world_model.Event(
                     event_type="pc_memory_high",
@@ -143,7 +143,11 @@ class DigitalUpdatesMixin:
                     data={"percent": value},
                 )
             )
-        elif metric == "gpu_temp" and value > _world_model.PC_GPU_TEMP_HIGH and prev <= _world_model.PC_GPU_TEMP_HIGH:
+        elif (
+            metric == "gpu_temp"
+            and value > self.thresholds.pc_gpu_temp_high
+            and prev <= self.thresholds.pc_gpu_temp_high
+        ):
             pc.add_event(
                 _world_model.Event(
                     event_type="pc_gpu_hot",

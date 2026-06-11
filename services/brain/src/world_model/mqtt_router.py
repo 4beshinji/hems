@@ -57,7 +57,7 @@ class MqttRouterMixin:
             # Legacy: sedentary string value
             if activity == "sedentary":
                 duration = payload.get("duration_minutes", 0)
-                if duration >= _world_model.SEDENTARY_MINUTES:
+                if duration >= self.thresholds.sedentary_minutes:
                     zone.add_event(
                         _world_model.Event(
                             event_type="sedentary_alert",

@@ -113,7 +113,7 @@ def _sanitize_text(text: str, max_len: int = 200) -> str:
 # aliases so existing facade references (`_world_model.CO2_HIGH`) and
 # rule_engine re-exports keep working unchanged (W2.1). rules.config depends
 # only on os/dataclasses/loguru, so importing it here introduces no cycle.
-from rules.config import load_rule_thresholds
+from rules.config import RuleThresholds, load_rule_thresholds
 
 _WM_THRESH = load_rule_thresholds()
 
@@ -186,7 +186,11 @@ class WorldModel(
         "co2_critical": 600,  # 10 min
     }
 
-    def __init__(self):
+    def __init__(self, thresholds: RuleThresholds | None = None):
+        # Single source of truth for alert thresholds (constructor DI, W2.2).
+        # Falls back to env-loaded defaults when not injected.
+        self.thresholds: RuleThresholds = thresholds or load_rule_thresholds()
+
         # Tri-domain architecture
         self.physical = PhysicalSpace()
         self.digital = DigitalSpace()

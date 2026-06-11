@@ -116,11 +116,11 @@ class PhysicalUpdatesMixin:
         zid = zone.zone_id
         if channel == "co2":
             # Auto-clear suppression when CO2 returns to normal
-            if value <= _world_model.CO2_HIGH:
+            if value <= self.thresholds.co2_high:
                 self.clear_suppression(zid, "co2_high")
                 self.clear_suppression(zid, "co2_critical")
 
-            if value > _world_model.CO2_CRITICAL and (prev is None or prev <= _world_model.CO2_CRITICAL):
+            if value > self.thresholds.co2_critical and (prev is None or prev <= self.thresholds.co2_critical):
                 if not self._is_suppressed(zid, "co2_critical"):
                     zone.add_event(
                         _world_model.Event(
@@ -131,7 +131,7 @@ class PhysicalUpdatesMixin:
                             data={"co2": value},
                         )
                     )
-            elif value > _world_model.CO2_HIGH and (prev is None or prev <= _world_model.CO2_HIGH):
+            elif value > self.thresholds.co2_high and (prev is None or prev <= self.thresholds.co2_high):
                 if not self._is_suppressed(zid, "co2_high"):
                     zone.add_event(
                         _world_model.Event(
@@ -145,11 +145,11 @@ class PhysicalUpdatesMixin:
 
         elif channel == "temperature":
             # Auto-clear suppression when temperature returns to normal range
-            if _world_model.TEMP_LOW <= value <= _world_model.TEMP_HIGH:
+            if self.thresholds.temp_low <= value <= self.thresholds.temp_high:
                 self.clear_suppression(zid, "temp_high")
                 self.clear_suppression(zid, "temp_low")
 
-            if value > _world_model.TEMP_HIGH and (prev is None or prev <= _world_model.TEMP_HIGH):
+            if value > self.thresholds.temp_high and (prev is None or prev <= self.thresholds.temp_high):
                 if not self._is_suppressed(zid, "temp_high"):
                     zone.add_event(
                         _world_model.Event(
@@ -160,7 +160,7 @@ class PhysicalUpdatesMixin:
                             data={"temperature": value},
                         )
                     )
-            elif value < _world_model.TEMP_LOW and (prev is None or prev >= _world_model.TEMP_LOW):
+            elif value < self.thresholds.temp_low and (prev is None or prev >= self.thresholds.temp_low):
                 if not self._is_suppressed(zid, "temp_low"):
                     zone.add_event(
                         _world_model.Event(
@@ -361,7 +361,7 @@ class PhysicalUpdatesMixin:
 
     def _check_power_thresholds(self, hd, entity_id: str, value: float, prev_value: float):
         """Generate event when power drops to idle level."""
-        if prev_value > _world_model.POWER_IDLE_WATTS and value <= _world_model.POWER_IDLE_WATTS:
+        if prev_value > self.thresholds.power_idle_watts and value <= self.thresholds.power_idle_watts:
             hd.add_event(
                 _world_model.Event(
                     event_type="power_drop_idle",

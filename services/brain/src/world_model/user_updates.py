@@ -229,7 +229,9 @@ class UserUpdatesMixin:
                 bio.hrv.last_update = now
                 bio.bridge_connected = True
                 bio.record_history("hrv", float(rmssd), now)
-                if int(rmssd) < _world_model.HRV_LOW and (prev_rmssd is None or prev_rmssd >= _world_model.HRV_LOW):
+                if int(rmssd) < self.thresholds.hrv_low and (
+                    prev_rmssd is None or prev_rmssd >= self.thresholds.hrv_low
+                ):
                     bio.add_event(
                         _world_model.Event(
                             event_type="hrv_low",
@@ -247,8 +249,8 @@ class UserUpdatesMixin:
                 bio.body_temperature.last_update = now
                 bio.bridge_connected = True
                 bio.record_history("body_temperature", float(celsius), now)
-                if float(celsius) > _world_model.BODY_TEMP_HIGH and (
-                    prev_temp is None or prev_temp <= _world_model.BODY_TEMP_HIGH
+                if float(celsius) > self.thresholds.body_temp_high and (
+                    prev_temp is None or prev_temp <= self.thresholds.body_temp_high
                 ):
                     bio.add_event(
                         _world_model.Event(
@@ -267,8 +269,8 @@ class UserUpdatesMixin:
                 bio.respiratory_rate.last_update = now
                 bio.bridge_connected = True
                 bio.record_history("respiratory_rate", float(rate), now)
-                if int(rate) > _world_model.RESPIRATORY_RATE_HIGH and (
-                    prev_rate is None or prev_rate <= _world_model.RESPIRATORY_RATE_HIGH
+                if int(rate) > self.thresholds.respiratory_rate_high and (
+                    prev_rate is None or prev_rate <= self.thresholds.respiratory_rate_high
                 ):
                     bio.add_event(
                         _world_model.Event(
@@ -293,7 +295,7 @@ class UserUpdatesMixin:
         bio = self.biometric_state
 
         if metric == "heart_rate":
-            if value > _world_model.HR_HIGH and (prev is None or prev <= _world_model.HR_HIGH):
+            if value > self.thresholds.hr_high and (prev is None or prev <= self.thresholds.hr_high):
                 bio.add_event(
                     _world_model.Event(
                         event_type="hr_high",
@@ -302,7 +304,7 @@ class UserUpdatesMixin:
                         data={"bpm": value},
                     )
                 )
-            elif value < _world_model.HR_LOW and (prev is None or prev >= _world_model.HR_LOW):
+            elif value < self.thresholds.hr_low and (prev is None or prev >= self.thresholds.hr_low):
                 bio.add_event(
                     _world_model.Event(
                         event_type="hr_low",
@@ -313,7 +315,7 @@ class UserUpdatesMixin:
                 )
 
         elif metric == "spo2":
-            if value < _world_model.SPO2_LOW and (prev is None or prev >= _world_model.SPO2_LOW):
+            if value < self.thresholds.spo2_low and (prev is None or prev >= self.thresholds.spo2_low):
                 bio.add_event(
                     _world_model.Event(
                         event_type="spo2_low",
@@ -324,7 +326,7 @@ class UserUpdatesMixin:
                 )
 
         elif metric == "stress":
-            if value > _world_model.STRESS_HIGH and (prev is None or prev <= _world_model.STRESS_HIGH):
+            if value > self.thresholds.stress_high and (prev is None or prev <= self.thresholds.stress_high):
                 bio.add_event(
                     _world_model.Event(
                         event_type="stress_high",

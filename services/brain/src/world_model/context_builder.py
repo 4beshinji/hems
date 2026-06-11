@@ -101,8 +101,8 @@ class ContextBuilderMixin:
 
             if env.temperature is not None:
                 temp_str = f"  温度: {env.temperature}度 ({env.thermal_comfort}){_t('temperature')}{self._stale_note(env, 'temperature', now)}"
-                if (env.temperature > _world_model.TEMP_HIGH and self._is_suppressed(zone_id, "temp_high")) or (
-                    env.temperature < _world_model.TEMP_LOW and self._is_suppressed(zone_id, "temp_low")
+                if (env.temperature > self.thresholds.temp_high and self._is_suppressed(zone_id, "temp_high")) or (
+                    env.temperature < self.thresholds.temp_low and self._is_suppressed(zone_id, "temp_low")
                 ):
                     temp_str += " (対応中)"
                 parts.append(temp_str)
