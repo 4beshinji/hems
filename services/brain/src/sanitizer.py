@@ -381,71 +381,21 @@ class Sanitizer:
         return {"allowed": True, "reason": ""}
 
     def _validate_control_actuator(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Validate control_actuator — generic device control via Device Registry."""
-        # Action allowlist is owned by device_dispatcher (single source of truth).
-        from device_dispatcher import ALLOWED_ACTIONS
+        """Validate control_actuator — generic device control via Device Registry.
+
+        The device_id format check lives here (LLM-path concern); action/params
+        validation is delegated to ``validate_device_control`` so the same logic
+        also covers the REST path (brain_chat_server._handle_device_control).
+        """
+        from device_control_validator import validate_device_control
 
         device_id = args.get("device_id", "")
         if not device_id or "." not in device_id:
             return {"allowed": False, "reason": f"Invalid device_id '{device_id}' (expected 'vendor.name')"}
 
         action = args.get("action", "")
-        if action not in ALLOWED_ACTIONS:
-            return {"allowed": False, "reason": f"action '{action}' not in {sorted(ALLOWED_ACTIONS)}"}
-
         params = args.get("params") or {}
-        if action == "pulse":
-            duration = params.get("duration_s")
-            if duration is None:
-                return {"allowed": False, "reason": "pulse requires params.duration_s"}
-            try:
-                d = int(duration)
-            except (TypeError, ValueError):
-                return {"allowed": False, "reason": "pulse.duration_s must be integer"}
-            if not (1 <= d <= 600):
-                return {"allowed": False, "reason": f"pulse.duration_s {d} out of range (1-600)"}
-        elif action == "set_brightness":
-            v = params.get("value")
-            if v is None or not (0 <= int(v) <= 255):
-                return {"allowed": False, "reason": "set_brightness.value must be 0-255"}
-        elif action == "set_color_temp":
-            v = params.get("value")
-            if v is None or not (153 <= int(v) <= 500):
-                return {"allowed": False, "reason": "set_color_temp.value must be 153-500"}
-        elif action == "set_color_xy":
-            x = params.get("x")
-            y = params.get("y")
-            if x is None or y is None:
-                return {"allowed": False, "reason": "set_color_xy requires params.x and params.y"}
-            if not (0.0 <= float(x) <= 1.0 and 0.0 <= float(y) <= 1.0):
-                return {"allowed": False, "reason": "set_color_xy x/y must be 0.0-1.0"}
-        elif action == "set_color_hs":
-            hue = params.get("hue")
-            sat = params.get("saturation")
-            if hue is None or sat is None:
-                return {"allowed": False, "reason": "set_color_hs requires params.hue and params.saturation"}
-            if not (0 <= float(hue) <= 360 and 0 <= float(sat) <= 100):
-                return {"allowed": False, "reason": "set_color_hs hue must be 0-360, saturation 0-100"}
-        elif action == "set_position":
-            v = params.get("value")
-            if v is None or not (0 <= int(v) <= 100):
-                return {"allowed": False, "reason": "set_position.value must be 0-100"}
-        elif action == "set_temperature":
-            v = params.get("value")
-            if v is None or not (16 <= float(v) <= 30):
-                return {"allowed": False, "reason": "set_temperature.value must be 16-30"}
-        elif action == "rainbow":
-            duration = params.get("duration_s")
-            if duration is None:
-                return {"allowed": False, "reason": "rainbow requires params.duration_s"}
-            try:
-                d = int(duration)
-            except (TypeError, ValueError):
-                return {"allowed": False, "reason": "rainbow.duration_s must be integer"}
-            if not (1 <= d <= 60):
-                return {"allowed": False, "reason": f"rainbow.duration_s {d} out of range (1-60)"}
-
-        return {"allowed": True, "reason": ""}
+        return validate_device_control(action, params)
 
     def _validate_zigbee_permit_join(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate zigbee_permit_join — only flag + bounded duration."""

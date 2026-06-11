@@ -48,7 +48,14 @@ class ChatServerMixin:
         return aio_web.json_response({"status": "ok"})
 
     async def _handle_device_control(self, request):
-        """Proxy manual device control from backend UI to DeviceDispatcher."""
+        """Proxy manual device control from backend UI to DeviceDispatcher.
+
+        Action/params validation is performed by ``validate_device_control``
+        (shared with the LLM path via sanitizer._validate_control_actuator)
+        so both REST and LLM control requests go through identical checks.
+        """
+        from device_control_validator import validate_device_control
+
         try:
             data = await request.json()
         except Exception:
@@ -69,10 +76,7 @@ class ChatServerMixin:
                 status=400,
             )
 
-        validation = self.sanitizer.validate_tool_call(
-            "control_actuator",
-            {"device_id": device_id, "action": action, "params": params},
-        )
+        validation = validate_device_control(action, params)
         if not validation["allowed"]:
             return aio_web.json_response(
                 {"success": False, "error": validation["reason"]},
