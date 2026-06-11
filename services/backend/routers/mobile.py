@@ -28,7 +28,7 @@ from auth import (
     verify_mobile_device,
 )
 from database import get_db
-from hmac_util import verify_signature
+from hmac_util import verify_signature_with_replay
 
 logger = logging.getLogger(__name__)
 
@@ -221,11 +221,28 @@ async def state_webhook(
     """
     body = await request.body()
     sig_header = request.headers.get("X-HEMS-Signature", "")
-    if not verify_signature(device.hmac_secret, body, sig_header):
-        logger.warning("Mobile state webhook rejected: bad HMAC (device_id=%s)", device.id)
+    ts_header = request.headers.get("X-Timestamp") or None
+    nonce_header = request.headers.get("X-Nonce") or None
+
+    ok, reason = verify_signature_with_replay(
+        device.hmac_secret,
+        body,
+        sig_header,
+        ts_header,
+        nonce_header,
+    )
+    if not ok:
+        logger.warning("Mobile state webhook rejected: %s (device_id=%s)", reason, device.id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid X-HEMS-Signature",
+        )
+    if reason == "legacy":
+        logger.warning(
+            "Mobile state webhook accepted via legacy HMAC (no X-Timestamp/X-Nonce) "
+            "(device_id=%s). Update companion app to include replay-prevention headers. "
+            "Set WEBHOOK_REPLAY_STRICT=true to enforce.",
+            device.id,
         )
 
     try:

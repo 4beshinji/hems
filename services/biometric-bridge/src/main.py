@@ -13,6 +13,8 @@ import hashlib
 import hmac
 import json as _json
 import os
+import time
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 
 from data_processor import BiometricReading, DataProcessor
@@ -48,6 +50,23 @@ from config import (
 _WEBHOOK_SECRET = os.getenv("BIOMETRIC_WEBHOOK_SECRET", "").encode()
 _WEBHOOK_AUTH_ENABLED = bool(_WEBHOOK_SECRET)
 
+# Replay protection (W1.3).
+# When true, X-Timestamp and X-Nonce headers are required.
+# While false, requests that omit them are accepted with a WARNING for backward
+# compatibility with Gadgetbridge / Android companion apps that cannot be updated
+# immediately.  Set WEBHOOK_REPLAY_STRICT=true once companion apps are updated.
+_REPLAY_STRICT: bool = os.getenv("WEBHOOK_REPLAY_STRICT", "false").lower() in ("1", "true", "yes")
+
+# Replay-protection constants (mirror hmac_util.py values; kept local to avoid
+# a cross-service import dependency in the bridge container).
+_REPLAY_WINDOW_SECONDS: int = 300  # ±5 minutes
+_NONCE_CACHE_MAX: int = 10_000
+
+# In-memory nonce cache.  Cleared on process restart — this is intentional and
+# safe because the timestamp window prevents replay of old requests even with a
+# cold cache.
+_seen_nonces: OrderedDict[str, float] = OrderedDict()
+
 if not _WEBHOOK_AUTH_ENABLED:
     logger.warning(
         "BIOMETRIC_WEBHOOK_SECRET is not set — webhook authentication DISABLED. "
@@ -55,11 +74,39 @@ if not _WEBHOOK_AUTH_ENABLED:
     )
 
 
-async def _verify_webhook_signature(request: Request) -> bytes:
-    """Read request body and verify HMAC-SHA256 signature.
+def _check_nonce(nonce: str, now: float) -> bool:
+    """Return True and record the nonce if unseen; False if already seen."""
+    # Evict expired entries.
+    cutoff = now - _REPLAY_WINDOW_SECONDS
+    while _seen_nonces:
+        _key, ts = next(iter(_seen_nonces.items()))
+        if ts < cutoff:
+            _seen_nonces.popitem(last=False)
+        else:
+            break
+    while len(_seen_nonces) >= _NONCE_CACHE_MAX:
+        _seen_nonces.popitem(last=False)
 
-    Expected header: X-HEMS-Signature: sha256=<hex_digest>
-    Raises HTTPException(401) if signature is missing or invalid.
+    if nonce in _seen_nonces:
+        return False
+    _seen_nonces[nonce] = now
+    return True
+
+
+async def _verify_webhook_signature(request: Request) -> bytes:
+    """Read request body and verify HMAC-SHA256 signature with replay protection.
+
+    New protocol (when X-Timestamp and X-Nonce are present):
+        Sign message = ``<timestamp>:<nonce>:`` + raw body
+        Header: X-HEMS-Signature: sha256=<hex>
+        Header: X-Timestamp: <unix_seconds>
+        Header: X-Nonce: <unique_opaque_string>
+
+    Legacy protocol (X-Timestamp / X-Nonce absent):
+        Sign message = raw body only
+        Accepted only when WEBHOOK_REPLAY_STRICT=false (with a WARNING).
+
+    Raises HTTPException(401) on any auth failure.
     Returns raw body bytes.
     """
     body = await request.body()
@@ -68,19 +115,77 @@ async def _verify_webhook_signature(request: Request) -> bytes:
         return body
 
     sig_header = request.headers.get("X-HEMS-Signature", "")
+    ts_header: str | None = request.headers.get("X-Timestamp") or None
+    nonce_header: str | None = request.headers.get("X-Nonce") or None
+
+    # --- Basic signature header check ---
     if not sig_header.startswith("sha256="):
-        logger.warning("Webhook rejected: missing X-HEMS-Signature header")
+        logger.warning("Biometric webhook rejected: missing X-HEMS-Signature header")
         raise HTTPException(
             status_code=401,
             detail="Missing X-HEMS-Signature header. Include: X-HEMS-Signature: sha256=<hmac-sha256-hex>",
         )
 
-    provided_sig = sig_header[7:]  # strip "sha256=" prefix
-    expected_sig = hmac.new(_WEBHOOK_SECRET, body, hashlib.sha256).hexdigest()
+    provided_sig = sig_header[7:]
 
+    # --- Replay protection ---
+    now = time.time()
+
+    if ts_header is None or nonce_header is None:
+        # Headers absent — legacy path.
+        if _REPLAY_STRICT:
+            logger.warning("Biometric webhook rejected: X-Timestamp/X-Nonce required (WEBHOOK_REPLAY_STRICT=true)")
+            raise HTTPException(
+                status_code=401,
+                detail="X-Timestamp and X-Nonce headers are required (WEBHOOK_REPLAY_STRICT=true)",
+            )
+        # Non-strict: fall through to legacy HMAC check and emit warning.
+        signing_body = body
+        _legacy = True
+    else:
+        _legacy = False
+        # Validate timestamp.
+        try:
+            req_ts = float(ts_header)
+        except (ValueError, TypeError):
+            logger.warning("Biometric webhook rejected: X-Timestamp not numeric")
+            raise HTTPException(status_code=401, detail="X-Timestamp must be a unix epoch integer")
+
+        age = abs(now - req_ts)
+        if age > _REPLAY_WINDOW_SECONDS:
+            logger.warning(
+                "Biometric webhook rejected: timestamp age=%.0fs (window=%ds)",
+                age,
+                _REPLAY_WINDOW_SECONDS,
+            )
+            raise HTTPException(
+                status_code=401,
+                detail=f"X-Timestamp outside ±{_REPLAY_WINDOW_SECONDS}s window",
+            )
+
+        # Validate nonce uniqueness.
+        nonce = str(nonce_header).strip()
+        if not nonce:
+            raise HTTPException(status_code=401, detail="X-Nonce must not be empty")
+        if not _check_nonce(nonce, now):
+            logger.warning("Biometric webhook rejected: nonce reuse (replay detected)")
+            raise HTTPException(status_code=401, detail="X-Nonce already used (replay detected)")
+
+        # New signing message folds in timestamp + nonce.
+        signing_body = f"{ts_header}:{nonce_header}:".encode() + body
+
+    # --- HMAC check ---
+    expected_sig = hmac.new(_WEBHOOK_SECRET, signing_body, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(provided_sig, expected_sig):
-        logger.warning("Webhook rejected: invalid HMAC signature")
+        logger.warning("Biometric webhook rejected: invalid HMAC signature")
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    if _legacy:
+        logger.warning(
+            "Biometric webhook accepted via legacy HMAC (no X-Timestamp/X-Nonce). "
+            "Update Gadgetbridge / companion app to add replay-prevention headers. "
+            "Set WEBHOOK_REPLAY_STRICT=true to enforce the new protocol."
+        )
 
     return body
 
