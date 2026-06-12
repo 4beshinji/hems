@@ -19,14 +19,14 @@ def validate_device_control(action: str, params: dict[str, Any]) -> dict[str, An
     Returns ``{"allowed": True, "reason": ""}`` on success or
     ``{"allowed": False, "reason": "<message>"}`` on failure.
 
-    The ``ALLOWED_ACTIONS`` set is imported from ``device_dispatcher`` so
+    The ``DEVICE_ALLOWED_ACTIONS`` set is imported from ``device_dispatcher`` so
     there is a single source of truth for which actions are permitted.
     """
     # Action allowlist is owned by device_dispatcher (single source of truth).
-    from device_dispatcher import ALLOWED_ACTIONS
+    from device_dispatcher import DEVICE_ALLOWED_ACTIONS
 
-    if action not in ALLOWED_ACTIONS:
-        return {"allowed": False, "reason": f"action '{action}' not in {sorted(ALLOWED_ACTIONS)}"}
+    if action not in DEVICE_ALLOWED_ACTIONS:
+        return {"allowed": False, "reason": f"action '{action}' not in {sorted(DEVICE_ALLOWED_ACTIONS)}"}
 
     if params is None:
         params = {}

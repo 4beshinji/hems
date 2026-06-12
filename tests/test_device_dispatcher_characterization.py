@@ -1716,7 +1716,8 @@ class TestZigbeePayloadFor:
 
 class TestAllowedActions:
     def test_all_expected_actions_present(self):
-        from device_dispatcher import ALLOWED_ACTIONS
+        # W3.4-C2: ALLOWED_ACTIONS renamed to DEVICE_ALLOWED_ACTIONS (no alias).
+        from device_dispatcher import DEVICE_ALLOWED_ACTIONS
 
         expected = {
             "on",
@@ -1732,4 +1733,4 @@ class TestAllowedActions:
             "rainbow",
             "ir_send",
         }
-        assert expected == ALLOWED_ACTIONS
+        assert expected == DEVICE_ALLOWED_ACTIONS
