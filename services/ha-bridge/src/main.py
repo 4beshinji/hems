@@ -13,7 +13,7 @@ import aiohttp
 from entity_mapper import EntityMapper
 from fastapi import FastAPI, HTTPException
 from ha_client import HAClient
-from hems_common import MqttPublisher, bridge_lifespan
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
 from loguru import logger
 from pydantic import BaseModel
 
@@ -85,26 +85,19 @@ async def _poll_states():
                 topic = entity_mapper.get_mqtt_topic(entity_id)
                 mqtt_pub.publish(topic, parsed)
 
-        # Publish bridge status
-        mqtt_pub.publish(
-            "hems/home/bridge/status",
-            {
-                "connected": ha_client.connected,
-                "mode": "polling",
-            },
-        )
+        # Publish bridge status (canonical: hems/ha/bridge/status)
+        publish_bridge_status(mqtt_pub, "ha", connected=ha_client.connected, mode="polling")
         await asyncio.sleep(config.STATE_POLL_INTERVAL)
 
 
 async def _bridge_status_loop():
-    """Periodically publish bridge connection status."""
+    """Periodically publish bridge connection status (canonical: hems/ha/bridge/status)."""
     while True:
-        mqtt_pub.publish(
-            "hems/home/bridge/status",
-            {
-                "connected": ha_client.connected,
-                "mode": "websocket" if ha_client.connected else "disconnected",
-            },
+        publish_bridge_status(
+            mqtt_pub,
+            "ha",
+            connected=ha_client.connected,
+            mode="websocket" if ha_client.connected else "disconnected",
         )
         await asyncio.sleep(30)
 

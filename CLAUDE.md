@@ -234,7 +234,7 @@ For exact mapping between code, docker-compose, MQTT topics, world model fields,
 - **`services/mobile-android/` / `apps/healthconnect-companion/`** — compose 非参照の Android プロジェクト。リポジトリ内での位置づけ未文書化。
 - **`hems/services/{name}/event`** — edge events arrive but only the next 30s cycle picks them up; no immediate-trigger path.
 - **`hems/gas/sheets/{name}` / `hems/gas/drive/recent`** — flow into world_model but no rules / event-automation actions consume them yet.
-- **`*/bridge/status`** — only `bridge_connected` flag is updated; outage history is not retained. また status topic は規約 `hems/<service>/bridge/status` に対し実装がばらつき、gas/weather/news/knowledge は未発行。
+- **`*/bridge/status`** — only `bridge_connected` flag is updated; outage history is not retained. W3.3(2026-06-12)で ha/biometric を規約 `hems/<service>/bridge/status` に統一(旧 `hems/home/bridge/status` / `hems/personal/biometrics/bridge/status` は互換 window で併読)。gas/weather/news/knowledge は status topic 未発行のまま。
 - 解消済: ~~`services/weather-bridge/`~~(always-on 配線済)。
 
 ## Tech Stack

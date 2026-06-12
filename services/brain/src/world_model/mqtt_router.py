@@ -92,7 +92,30 @@ class MqttRouterMixin:
         elif parts[0] == "hems" and len(parts) >= 4 and parts[1] == "services":
             self._update_service_state(parts[2], parts[3], payload)
 
-        # hems/home/* topics (HA bridge)
+        # hems/ha/bridge/status — canonical bridge status (W3.3)
+        elif (
+            parts[0] == "hems"
+            and len(parts) == 4
+            and parts[1] == "ha"
+            and parts[2] == "bridge"
+            and parts[3] == "status"
+        ):
+            self.home_devices.bridge_connected = payload.get("connected", False)
+
+        # hems/biometric/bridge/status — canonical bridge status (W3.3)
+        elif (
+            parts[0] == "hems"
+            and len(parts) == 4
+            and parts[1] == "biometric"
+            and parts[2] == "bridge"
+            and parts[3] == "status"
+        ):
+            bio = self.biometric_state
+            bio.bridge_connected = payload.get("connected", False)
+            if payload.get("provider"):
+                bio.provider = payload["provider"]
+
+        # hems/home/* topics (HA bridge — also handles legacy hems/home/bridge/status)
         elif parts[0] == "hems" and len(parts) >= 3 and parts[1] == "home":
             self._update_home_device(parts[2:], payload)
 

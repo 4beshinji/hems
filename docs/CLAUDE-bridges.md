@@ -89,7 +89,7 @@ Connects Home Assistant to HEMS for smart home device control and life automatio
   - WebSocket: real-time `state_changed` events → MQTT publish
   - REST API: Brain tool calls → HA service calls
   - Polling fallback: 30s interval when WebSocket disconnects
-  - Publishes to `hems/home/*` MQTT topics
+  - Publishes to `hems/home/*` MQTT topics; bridge status: `hems/ha/bridge/status` (canonical W3.3; legacy `hems/home/bridge/status` も互換 window で brain が受信)
 - **Deploy**: HA running on host or via Docker, configure `HA_URL` + `HA_TOKEN`
 - **Profile**: `docker compose --profile ha up -d --build`
 - **Brain tools**: `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`, `get_entity_status` (単一エンティティ状態)
@@ -116,7 +116,7 @@ Tracks heart rate, sleep, activity, stress, and fatigue via smartband/smartwatch
   - POST webhook endpoint normalizes device data → MQTT publish
   - Fatigue score computation (weighted: HR 30%, sleep 40%, stress 30%)
   - Sleep session caching for daily summaries
-  - Publishes to `hems/personal/biometrics/*` MQTT topics
+  - Publishes to `hems/personal/biometrics/*` MQTT topics; bridge status: `hems/biometric/bridge/status` (canonical W3.3; legacy `hems/personal/biometrics/bridge/status` も互換 window で brain が受信)
 - **Deploy**: Install Gadgetbridge on phone, configure webhook to `http://<host>:8017/api/biometric/webhook`
 - **Profile**: `docker compose --profile biometric up -d --build`
 - **Brain tools**: `get_biometrics` (current readings), `get_sleep_summary` (last night's sleep), `get_biometric_trend` (履歴トレンド), `get_sleep_history` (睡眠履歴)

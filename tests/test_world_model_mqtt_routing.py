@@ -88,3 +88,96 @@ def test_routes_task_report_to_zone_event(world_model):
     assert event.event_type == "task_report"
     assert event.severity == 1
     assert "換気する" in event.description
+
+
+# ---------------------------------------------------------------------------
+# W3.3: bridge status topic unification
+# ---------------------------------------------------------------------------
+
+
+class TestBridgeStatusRoutingW33:
+    """New canonical topics and legacy compat topics both update bridge_connected."""
+
+    # --- HA bridge ---
+
+    def test_ha_canonical_topic_sets_bridge_connected(self, world_model):
+        """hems/ha/bridge/status (new canonical) updates home_devices.bridge_connected."""
+        world_model.update_from_mqtt(
+            "hems/ha/bridge/status",
+            {"connected": True, "mode": "websocket"},
+        )
+        assert world_model.home_devices.bridge_connected is True
+
+    def test_ha_canonical_topic_disconnected(self, world_model):
+        """connected=False in hems/ha/bridge/status clears bridge_connected."""
+        world_model.home_devices.bridge_connected = True
+        world_model.update_from_mqtt(
+            "hems/ha/bridge/status",
+            {"connected": False, "mode": "disconnected"},
+        )
+        assert world_model.home_devices.bridge_connected is False
+
+    def test_ha_legacy_topic_still_works(self, world_model):
+        """hems/home/bridge/status (legacy compat) still updates home_devices.bridge_connected."""
+        world_model.update_from_mqtt(
+            "hems/home/bridge/status",
+            {"connected": True, "mode": "polling"},
+        )
+        assert world_model.home_devices.bridge_connected is True
+
+    def test_ha_legacy_topic_disconnected(self, world_model):
+        """connected=False via legacy topic clears bridge_connected."""
+        world_model.home_devices.bridge_connected = True
+        world_model.update_from_mqtt(
+            "hems/home/bridge/status",
+            {"connected": False},
+        )
+        assert world_model.home_devices.bridge_connected is False
+
+    # --- Biometric bridge ---
+
+    def test_biometric_canonical_topic_sets_bridge_connected(self, world_model):
+        """hems/biometric/bridge/status (new canonical) updates biometric_state.bridge_connected."""
+        world_model.update_from_mqtt(
+            "hems/biometric/bridge/status",
+            {"connected": True, "provider": "gadgetbridge", "active_providers": ["gadgetbridge"]},
+        )
+        assert world_model.biometric_state.bridge_connected is True
+        assert world_model.biometric_state.provider == "gadgetbridge"
+
+    def test_biometric_canonical_topic_disconnected(self, world_model):
+        """connected=False in hems/biometric/bridge/status clears bridge_connected."""
+        world_model.biometric_state.bridge_connected = True
+        world_model.update_from_mqtt(
+            "hems/biometric/bridge/status",
+            {"connected": False},
+        )
+        assert world_model.biometric_state.bridge_connected is False
+
+    def test_biometric_canonical_topic_no_provider_key(self, world_model):
+        """hems/biometric/bridge/status without provider key leaves provider unchanged."""
+        world_model.biometric_state.provider = "huami"
+        world_model.update_from_mqtt(
+            "hems/biometric/bridge/status",
+            {"connected": True},
+        )
+        assert world_model.biometric_state.bridge_connected is True
+        assert world_model.biometric_state.provider == "huami"
+
+    def test_biometric_legacy_topic_still_works(self, world_model):
+        """hems/personal/biometrics/bridge/status (legacy compat) updates biometric_state.bridge_connected."""
+        world_model.update_from_mqtt(
+            "hems/personal/biometrics/bridge/status",
+            {"connected": True, "provider": "zepp"},
+        )
+        assert world_model.biometric_state.bridge_connected is True
+        assert world_model.biometric_state.provider == "zepp"
+
+    def test_biometric_legacy_topic_disconnected(self, world_model):
+        """connected=False via legacy topic clears bridge_connected."""
+        world_model.biometric_state.bridge_connected = True
+        world_model.update_from_mqtt(
+            "hems/personal/biometrics/bridge/status",
+            {"connected": False, "provider": ""},
+        )
+        assert world_model.biometric_state.bridge_connected is False

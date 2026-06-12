@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 
 from data_processor import BiometricReading, DataProcessor
 from fastapi import FastAPI, HTTPException, Request
-from hems_common import MqttPublisher, bridge_lifespan
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
 from loguru import logger
 from providers.gadgetbridge import GadgetbridgeProvider
 from providers.huami import HuamiProvider
@@ -302,19 +302,19 @@ def _publish_reading(reading: BiometricReading):
 
 
 async def _bridge_status_loop():
-    """Periodically publish bridge status."""
+    """Periodically publish bridge status (canonical: hems/biometric/bridge/status)."""
     while True:
         providers = [BIOMETRIC_PROVIDER]
         if huami and huami._running:
             providers.append("huami")
-        _mqtt_publish(
-            f"{MQTT_TOPIC_PREFIX}/bridge/status",
-            {
-                "connected": True,
-                "provider": BIOMETRIC_PROVIDER,
-                "active_providers": providers,
-            },
-        )
+        if mqtt_pub:
+            publish_bridge_status(
+                mqtt_pub,
+                "biometric",
+                connected=True,
+                provider=BIOMETRIC_PROVIDER,
+                active_providers=providers,
+            )
         await asyncio.sleep(60)
 
 

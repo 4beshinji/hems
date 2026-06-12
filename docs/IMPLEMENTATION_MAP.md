@@ -263,7 +263,8 @@ hems/gas/bridge/status
 
 # Smart home (HA bridge)
 hems/home/{zone}/{domain}/{entity_id}/state
-hems/home/bridge/status
+hems/ha/bridge/status              # canonical (W3.3)
+hems/home/bridge/status            # legacy compat (互換 window — 旧 ha-bridge が発行していたトピック)
 
 # Biometric data (biometric-bridge)
 hems/personal/biometrics/{provider}/heart_rate
@@ -273,7 +274,8 @@ hems/personal/biometrics/{provider}/activity
 hems/personal/biometrics/{provider}/steps
 hems/personal/biometrics/{provider}/stress
 hems/personal/biometrics/{provider}/fatigue
-hems/personal/biometrics/bridge/status
+hems/biometric/bridge/status       # canonical (W3.3)
+hems/personal/biometrics/bridge/status  # legacy compat (互換 window)
 
 # Perception (camera detection + activity tracking + VLM)
 office/{zone}/camera/{camera_id}/status
@@ -364,9 +366,11 @@ zigbee2mqtt/#
 | gas-bridge | `hems/gas/drive/recent` | Drive 最近ファイル |
 | gas-bridge | `hems/gas/bridge/status` | 健康状態 |
 | ha-bridge | `hems/home/{zone}/{domain}/{entity_id}/state` | HA エンティティ状態 |
-| ha-bridge | `hems/home/bridge/status` | 健康状態 |
+| ha-bridge | `hems/ha/bridge/status` | 健康状態 (canonical W3.3) |
+| ha-bridge | ~~`hems/home/bridge/status`~~ | 旧トピック(互換 window — brain は新旧両方を受信) |
 | biometric-bridge | `hems/personal/biometrics/{provider}/{metric}` | heart_rate / spo2 / sleep / activity / steps / stress / fatigue / hrv / body_temp / respiratory_rate |
-| biometric-bridge | `hems/personal/biometrics/bridge/status` | 健康状態 |
+| biometric-bridge | `hems/biometric/bridge/status` | 健康状態 (canonical W3.3) |
+| biometric-bridge | ~~`hems/personal/biometrics/bridge/status`~~ | 旧トピック(互換 window — brain は新旧両方を受信) |
 | switchbot-bridge | `hems/switchbot/{device_id}/state` | 状態 |
 | switchbot-bridge | `hems/switchbot/bridge/status` | 健康状態 |
 | tapo-bridge | `hems/tapo/{vendor_ref}/state` | 電力計測 + on/off |
