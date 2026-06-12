@@ -360,7 +360,7 @@ def _make_bio_client(monkeypatch, strict: bool):
 
     # Import under patches so module-level class instantiations don't fail.
     with (
-        patch("mqtt_publisher.MQTTPublisher"),
+        patch("hems_common.MqttPublisher"),
         patch("send_queue.SendQueue"),
         patch("providers.gadgetbridge.GadgetbridgeProvider"),
         patch("data_processor.DataProcessor"),

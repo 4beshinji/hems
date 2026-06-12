@@ -19,8 +19,8 @@ from contextlib import asynccontextmanager
 
 from data_processor import BiometricReading, DataProcessor
 from fastapi import FastAPI, HTTPException, Request
+from hems_common import MqttPublisher, bridge_lifespan
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 from providers.gadgetbridge import GadgetbridgeProvider
 from providers.huami import HuamiProvider
 from providers.zepp import ZeppProvider
@@ -191,13 +191,12 @@ async def _verify_webhook_signature(request: Request) -> bytes:
 
 
 # Module-level state
-mqtt_pub: MQTTPublisher | None = None
+mqtt_pub: MqttPublisher | None = None
 send_queue: SendQueue = SendQueue()
 processor = DataProcessor()
 gadgetbridge = GadgetbridgeProvider()
 huami: HuamiProvider | None = None
 zepp: ZeppProvider | None = None
-_tasks: list[asyncio.Task] = []
 
 
 def _mqtt_publish(topic: str, data: dict, retain: bool = True):
@@ -368,49 +367,68 @@ async def _zepp_poll_loop():
 async def lifespan(app: FastAPI):
     global mqtt_pub, huami, zepp
 
-    await send_queue.init()
+    # biometric: connection tracking + auto-reconnect enable the send-queue contract
+    # (connected property + publish() -> bool).  ensure_ascii=False preserves
+    # existing UTF-8 payload bytes.  raise_on_connect_error=False matches the
+    # original try/except so messages are queued rather than hard-failing.
+    mqtt_pub = MqttPublisher(
+        MQTT_BROKER,
+        MQTT_PORT,
+        MQTT_USER,
+        MQTT_PASS,
+        ensure_ascii=False,
+        track_connection=True,
+        auto_reconnect=True,
+        raise_on_connect_error=False,
+    )
 
-    mqtt_pub = MQTTPublisher(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS)
-    try:
-        mqtt_pub.connect()
-    except Exception as e:
-        logger.error(f"MQTT connect failed: {e} — messages will be queued")
+    async def _startup():
+        global huami, zepp
+        await send_queue.init()
+        await gadgetbridge.start()
 
-    await gadgetbridge.start()
+        # Huami cloud API (primary server-side path)
+        if HUAMI_ENABLED:
+            huami = HuamiProvider(
+                HUAMI_AUTH_TOKEN,
+                HUAMI_USER_ID,
+                HUAMI_SERVER_REGION,
+                HUAMI_POLL_INTERVAL,
+            )
+            await huami.start()
 
-    # Huami cloud API (primary server-side path)
+        # Zepp (legacy, kept for backward compat)
+        if ZEPP_ENABLED and not HUAMI_ENABLED:
+            zepp = ZeppProvider(ZEPP_EMAIL, ZEPP_PASSWORD, ZEPP_POLL_INTERVAL)
+            await zepp.start()
+
+        logger.info(f"Biometric Bridge started (provider={BIOMETRIC_PROVIDER}, huami={HUAMI_ENABLED})")
+
+    async def _shutdown():
+        if huami:
+            await huami.stop()
+        if zepp:
+            await zepp.stop()
+        await gadgetbridge.stop()
+        await send_queue.close()
+
+    # Conditional poll loops — always include _bridge_status_loop and
+    # _flush_queue_loop; huami/zepp loops are included when their provider is
+    # enabled (the loops guard on their own global being set, so this is safe).
+    task_factories = [_bridge_status_loop, _flush_queue_loop]
     if HUAMI_ENABLED:
-        huami = HuamiProvider(
-            HUAMI_AUTH_TOKEN,
-            HUAMI_USER_ID,
-            HUAMI_SERVER_REGION,
-            HUAMI_POLL_INTERVAL,
-        )
-        await huami.start()
-        _tasks.append(asyncio.create_task(_huami_poll_loop()))
-
-    # Zepp (legacy, kept for backward compat)
+        task_factories.append(_huami_poll_loop)
     if ZEPP_ENABLED and not HUAMI_ENABLED:
-        zepp = ZeppProvider(ZEPP_EMAIL, ZEPP_PASSWORD, ZEPP_POLL_INTERVAL)
-        await zepp.start()
-        _tasks.append(asyncio.create_task(_zepp_poll_loop()))
+        task_factories.append(_zepp_poll_loop)
 
-    _tasks.append(asyncio.create_task(_bridge_status_loop()))
-    _tasks.append(asyncio.create_task(_flush_queue_loop()))
-
-    logger.info(f"Biometric Bridge started (provider={BIOMETRIC_PROVIDER}, huami={HUAMI_ENABLED})")
-    yield
-
-    for t in _tasks:
-        t.cancel()
-    if huami:
-        await huami.stop()
-    if zepp:
-        await zepp.stop()
-    await gadgetbridge.stop()
-    if mqtt_pub:
-        mqtt_pub.disconnect()
-    await send_queue.close()
+    async with bridge_lifespan(
+        app,
+        mqtt=mqtt_pub,
+        on_startup=_startup,
+        task_factories=task_factories,
+        on_shutdown=_shutdown,
+    ):
+        yield
 
 
 app = FastAPI(title="HEMS Biometric Bridge", lifespan=lifespan)
