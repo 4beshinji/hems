@@ -51,6 +51,8 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = [
+    "brain_mqtt",
+    "brain_constants",
     "world_model",
     "tool_executor",
     "tool_registry",
