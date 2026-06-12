@@ -46,8 +46,9 @@ import type {
 } from './types'
 
 // In production, nginx proxies /api/ → backend (with auth header injected).
-// In dev, set VITE_API_BASE to point at the backend directly (e.g. http://localhost:8010).
-const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
+// In dev, set VITE_BACKEND_URL to point at the backend directly (e.g. http://localhost:8010).
+// Same variable is used by vite.config.ts as the dev proxy target.
+const BASE = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? '/api'
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`)
