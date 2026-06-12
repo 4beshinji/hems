@@ -6,6 +6,7 @@ import json
 import os
 
 from dotenv import load_dotenv
+from hems_common import load_mqtt_config
 
 load_dotenv()
 
@@ -36,11 +37,12 @@ DEFAULT_EXTENSIONS = [
 ]
 DEFAULT_EXCLUDE_PATTERNS = [".*", "__pycache__", "node_modules", ".git", ".venv"]
 
-# MQTT
-MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER = os.getenv("MQTT_USER", "")
-MQTT_PASS = os.getenv("MQTT_PASS", "")
+# MQTT — module-level constants kept for backward compat; loaded via hems_common
+_mqtt = load_mqtt_config()
+MQTT_BROKER = _mqtt.broker
+MQTT_PORT = _mqtt.port
+MQTT_USER = _mqtt.user
+MQTT_PASS = _mqtt.password
 
 # Index
 MAX_SEARCH_RESULTS = int(os.getenv("KNOWLEDGE_MAX_SEARCH_RESULTS", "20"))

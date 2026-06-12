@@ -8,8 +8,8 @@ import time
 from pathlib import Path
 
 from document_index import DocumentIndex
+from hems_common import MqttPublisher
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -85,7 +85,7 @@ class _SourceEventHandler(FileSystemEventHandler):
 class SourceWatcher:
     """Watches multiple source directories, updates index and publishes MQTT events."""
 
-    def __init__(self, doc_index: DocumentIndex, mqtt_pub: MQTTPublisher, debounce: float = 3.0):
+    def __init__(self, doc_index: DocumentIndex, mqtt_pub: MqttPublisher, debounce: float = 3.0):
         self.index = doc_index
         self.mqtt = mqtt_pub
         self.debounce = debounce

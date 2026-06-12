@@ -3,7 +3,6 @@ Knowledge Bridge — multi-format document ingestion service for HEMS.
 Hybrid search: BM25 + Vector (Ollama embedding) + Title boost via RRF.
 """
 
-import asyncio
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -11,8 +10,8 @@ from contextlib import asynccontextmanager
 from document_index import DocumentIndex
 from embedding import EmbeddingClient
 from fastapi import FastAPI, HTTPException
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 from source_watcher import SourceWatcher
 
@@ -41,58 +40,73 @@ embedder = EmbeddingClient(
     cache_dir=EMBEDDING_CACHE_DIR,
 )
 doc_index = DocumentIndex(embedding_client=embedder)
-mqtt_pub = MQTTPublisher(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS)
+# knowledge: no retain, UTF-8 raw, debug errors, raise on connect failure, no connection tracking
+mqtt_pub = MqttPublisher(
+    MQTT_BROKER,
+    MQTT_PORT,
+    MQTT_USER,
+    MQTT_PASS,
+    default_retain=False,
+    default_qos=0,
+    ensure_ascii=False,
+    error_level="debug",
+    raise_on_connect_error=True,
+    track_connection=False,
+    auto_reconnect=False,
+)
 watcher = SourceWatcher(doc_index, mqtt_pub, debounce=WATCHER_DEBOUNCE)
 start_time = time.time()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Connect MQTT
-    mqtt_pub.connect()
+    async def _startup():
+        # Initialize embedding client (probe Ollama)
+        await embedder.initialize()
 
-    # Initialize embedding client (probe Ollama)
-    await embedder.initialize()
+        # Register and index all sources
+        for src in KNOWLEDGE_SOURCES:
+            name = src.get("name", "")
+            path = src.get("path", "")
+            extensions = src.get("extensions", DEFAULT_EXTENSIONS)
+            exclude = src.get("exclude_patterns", DEFAULT_EXCLUDE_PATTERNS)
+            if not name or not path:
+                logger.warning(f"Skipping invalid source config: {src}")
+                continue
+            doc_index.add_source(name, path, extensions, exclude)
+            watcher.add_source(name, path, extensions, exclude)
 
-    # Register and index all sources
-    for src in KNOWLEDGE_SOURCES:
-        name = src.get("name", "")
-        path = src.get("path", "")
-        extensions = src.get("extensions", DEFAULT_EXTENSIONS)
-        exclude = src.get("exclude_patterns", DEFAULT_EXCLUDE_PATTERNS)
-        if not name or not path:
-            logger.warning(f"Skipping invalid source config: {src}")
-            continue
-        doc_index.add_source(name, path, extensions, exclude)
-        watcher.add_source(name, path, extensions, exclude)
+        # Build BM25 index (sync, fast)
+        doc_index.build_all()
 
-    # Build BM25 index (sync, fast)
-    doc_index.build_all()
+        # Build vector index (async, may be slow on first run)
+        await doc_index.build_vectors()
 
-    # Build vector index (async, may be slow on first run)
-    await doc_index.build_vectors()
+        # Start watchers
+        watcher.start()
 
-    # Start watchers
-    watcher.start()
+        # Publish bridge status
+        publish_bridge_status(mqtt_pub, "knowledge")
 
-    # Background tasks
-    tasks = [
-        asyncio.create_task(watcher.process_loop()),
-        asyncio.create_task(watcher.publish_stats_loop()),
-    ]
+        search_mode = "BM25 + Vector + Title" if embedder.available else "BM25 + Title"
+        source_names = [s.get("name") for s in KNOWLEDGE_SOURCES]
+        logger.info(
+            f"Knowledge Bridge started (sources={source_names}, total={doc_index.get_total_docs()}, search={search_mode})"
+        )
 
-    search_mode = "BM25 + Vector + Title" if embedder.available else "BM25 + Title"
-    source_names = [s.get("name") for s in KNOWLEDGE_SOURCES]
-    logger.info(
-        f"Knowledge Bridge started (sources={source_names}, total={doc_index.get_total_docs()}, search={search_mode})"
-    )
-    yield
+    async def _shutdown():
+        watcher.stop()
+        await embedder.close()
 
-    for t in tasks:
-        t.cancel()
-    watcher.stop()
-    await embedder.close()
-    mqtt_pub.disconnect()
+    async with bridge_lifespan(
+        app,
+        mqtt=mqtt_pub,
+        on_startup=_startup,
+        task_factories=[watcher.process_loop, watcher.publish_stats_loop],
+        on_shutdown=_shutdown,
+    ):
+        yield
+    logger.info("Knowledge Bridge stopped")
 
 
 app = FastAPI(title="Knowledge Bridge", lifespan=lifespan)
