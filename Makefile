@@ -48,7 +48,7 @@ NON_PYTHON_SERVICES := frontend
 
 docker-base: ## Build hems-base:py3.11 (shared Python runtime)
 	@printf "\n\033[36m=== Building hems-base:py3.11 ===\033[0m\n"
-	docker build -t hems-base:py3.11 infra/base
+	docker build -t hems-base:py3.11 -f infra/base/Dockerfile .
 
 docker-build: docker-base ## Build all core Docker images (no push)
 	@for svc in $(PYTHON_SERVICES) $(NON_PYTHON_SERVICES); do \

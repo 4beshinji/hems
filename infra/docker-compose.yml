@@ -8,7 +8,8 @@ services:
   base:
     image: hems-base:py3.11
     build:
-      context: ./base
+      context: ..
+      dockerfile: infra/base/Dockerfile
     profiles: ["bootstrap"]
     command: ["true"]
     restart: "no"

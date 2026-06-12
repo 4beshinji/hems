@@ -12,6 +12,8 @@ import pytest
 _root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_root / "services" / "brain" / "src"))
 sys.path.insert(0, str(_root / "services" / "backend"))
+# Shared bridge infra (hems_common namespace pkg — no flat-module shadow risk).
+sys.path.insert(0, str(_root / "services" / "_common"))
 # NOTE: gas-bridge/src is NOT added here because its config.py would shadow
 # other services' config.py modules.  gas-bridge tests manage their own path.
 

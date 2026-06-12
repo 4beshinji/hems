@@ -1,0 +1,46 @@
+# Build-context excludes. The hems-base image now builds from the repo root
+# (to COPY services/_common); keep the context lean.
+
+# VCS
+.git
+.gitignore
+.github
+
+# Python caches / venvs
+**/.venv
+.venv
+venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+.coverage
+htmlcov
+
+# Node / frontend
+**/node_modules
+**/dist
+**/.vite
+**/pnpm-store
+
+# Editor / OS
+.vscode
+.idea
+**/.DS_Store
+
+# Local env & secrets
+.env
+**/.env.local
+
+# Docs / heavy artifacts (not needed at build time)
+*.pdf
+**/*.pdf
+
+# Data & runtime state
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+infra/mosquitto/data
+infra/mosquitto/log

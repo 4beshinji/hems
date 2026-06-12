@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hems-common"
+version = "0.1.0"
+description = "Shared bridge infrastructure (MQTT publisher, lifespan, config, auth, status) for HEMS services."
+requires-python = ">=3.11"
+dependencies = [
+    "paho-mqtt>=2.0",
+    "loguru",
+    "fastapi",
+]
+
+[tool.setuptools.packages.find]
+include = ["hems_common*"]
