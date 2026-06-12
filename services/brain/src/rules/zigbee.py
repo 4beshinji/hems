@@ -206,6 +206,43 @@ class ZigbeeRulesMixin:
 
         return actions
 
+    def _eval_critical_moisture(self, world_model, now: float) -> list[dict]:
+        """C3 Water-leak emergency (evaluate_critical block).
+
+        Uses cooldown key ``critical_moisture_{eid}`` (separate from the
+        normal-mode ``zigbee_moisture_{eid}``) so the two paths do not share
+        state.
+        """
+        actions: list[dict] = []
+        hd = world_model.home_devices
+        for eid, bs in hd.binary_sensors.items():
+            if bs.device_class == "moisture" and bs.state:
+                if self._check_cooldown(f"critical_moisture_{eid}", now):
+                    name = eid.split(".")[-1] if "." in eid else eid
+                    actions.append(
+                        {
+                            "tool": "create_task",
+                            "args": {
+                                "title": f"【緊急】水漏れ検知: {name}",
+                                "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
+                                "urgency": 4,
+                                "zone": "home",
+                                "task_type": ["water_leak"],
+                            },
+                        }
+                    )
+                    actions.append(
+                        {
+                            "tool": "speak",
+                            "args": {
+                                "message": f"緊急！{name}で水漏れを検知しました！すぐに確認してください！",
+                                "zone": "home",
+                                "tone": "alert",
+                            },
+                        }
+                    )
+        return actions
+
     def _evaluate_zigbee_critical_only(self, world_model, now: float) -> list[dict]:
         """In guest mode, only evaluate critical safety rules (water leak, extreme conditions)."""
         actions = []

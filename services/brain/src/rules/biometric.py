@@ -346,3 +346,57 @@ class BiometricRulesMixin:
                 }
             )
         return actions
+
+    def _eval_critical_spo2(self, bio, now: float) -> list[dict]:
+        """C4 SpO2 critical drop (sleep apnea risk) — evaluate_critical block.
+
+        Fires when SpO2 is below the critical threshold AND the reading is fresh
+        (within 300 s).  Uses cooldown key ``critical_spo2``.
+        """
+        actions: list[dict] = []
+        if (
+            bio.spo2.percent is not None
+            and bio.spo2.percent < self.thresholds.spo2_critical_low
+            and bio.spo2.last_update > now - 300
+            and self._check_cooldown("critical_spo2", now)
+        ):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": (
+                            f"緊急！血中酸素濃度が{bio.spo2.percent}%まで低下しています！目を覚ましてください！"
+                        ),
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                }
+            )
+        return actions
+
+    def _eval_critical_hr_sleep(self, bio, now: float) -> list[dict]:
+        """C5 Very high heart rate during sleep — evaluate_critical block.
+
+        Fires when HR exceeds the sleep-critical threshold AND sleep stage is
+        active AND the reading is fresh (within 120 s).  Uses cooldown key
+        ``critical_hr_sleep``.
+        """
+        actions: list[dict] = []
+        if (
+            bio.heart_rate.bpm is not None
+            and bio.heart_rate.bpm > self.thresholds.hr_critical_sleep
+            and bio.sleep.stage in ("deep", "light", "rem")
+            and bio.heart_rate.last_update > now - 120
+            and self._check_cooldown("critical_hr_sleep", now)
+        ):
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": (f"睡眠中に心拍数が{bio.heart_rate.bpm}bpmに達しています！体調を確認してください！"),
+                        "zone": "home",
+                        "tone": "alert",
+                    },
+                }
+            )
+        return actions

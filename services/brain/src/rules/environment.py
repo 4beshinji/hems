@@ -407,6 +407,80 @@ class EnvironmentRulesMixin:
                 self._high_light_since.pop(zone_id, None)
         return actions
 
+    def _eval_critical_env_zone(self, zone_id, env, now: float) -> list[dict]:
+        """C1 CO2 danger level + C2 extreme temperature (critical zone block).
+
+        Extracted from evaluate_critical.  Uses distinct cooldown keys
+        (``critical_co2_*`` / ``critical_temp_high_*`` / ``critical_temp_low_*``)
+        that are separate from the normal-mode keys so the two code paths do not
+        interfere with each other.
+        """
+        actions: list[dict] = []
+
+        # --- C1: CO2 danger level ---
+        if (
+            env.co2 is not None
+            and env.co2 > self.thresholds.co2_critical
+            and self._check_cooldown(f"critical_co2_{zone_id}", now)
+        ):
+            actions.append(
+                {
+                    "tool": "create_task",
+                    "args": {
+                        "title": f"【緊急】{zone_id}のCO2危険レベル",
+                        "description": (f"CO2濃度が{int(env.co2)}ppmです。直ちに換気してください。"),
+                        "urgency": 4,
+                        "zone": zone_id,
+                        "task_type": ["ventilation"],
+                    },
+                }
+            )
+            actions.append(
+                {
+                    "tool": "speak",
+                    "args": {
+                        "message": (f"緊急です！{zone_id}のCO2濃度が{int(env.co2)}ppmです。すぐに換気してください！"),
+                        "zone": zone_id,
+                        "tone": "alert",
+                    },
+                }
+            )
+
+        # --- C2: Extreme temperature ---
+        if env.temperature is not None:
+            if env.temperature > self.thresholds.temp_critical_high and self._check_cooldown(
+                f"critical_temp_high_{zone_id}", now
+            ):
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": (
+                                f"危険！{zone_id}の室温が{env.temperature:.1f}℃です。熱中症に注意してください！"
+                            ),
+                            "zone": zone_id,
+                            "tone": "alert",
+                        },
+                    }
+                )
+            elif env.temperature < self.thresholds.temp_critical_low and self._check_cooldown(
+                f"critical_temp_low_{zone_id}", now
+            ):
+                actions.append(
+                    {
+                        "tool": "speak",
+                        "args": {
+                            "message": (
+                                f"危険！{zone_id}の室温が{env.temperature:.1f}℃まで低下しています。"
+                                "暖房を確認してください！"
+                            ),
+                            "zone": zone_id,
+                            "tone": "alert",
+                        },
+                    }
+                )
+        return actions
+
     def _eval_late_night(self, zone_id, zone, now: float) -> list[dict]:
         """Z12 late-night low activity → suggest sleep."""
         actions: list[dict] = []

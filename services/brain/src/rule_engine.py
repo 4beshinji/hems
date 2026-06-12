@@ -244,144 +244,33 @@ class RuleEngine(
         Used in low-power mode (sleep / away) to respond to dangerous conditions
         without running the full rule set or the LLM.  Only fires on conditions
         that genuinely require immediate action regardless of occupancy or time.
+
+        Thin orchestrator (W2.4-C3): each block was extracted into a mixin
+        method.  The call order below is the *exact* source order of the former
+        inline blocks, so the emitted action list is byte-for-byte identical to
+        the pre-refactor behaviour.
+
+        Block map:
+          C1,C2  zone CO2 danger + extreme temperature  -> _eval_critical_env_zone
+          C3     moisture / water leak                  -> _eval_critical_moisture
+          C4     SpO2 critical drop                     -> _eval_critical_spo2
+          C5     very high HR during sleep              -> _eval_critical_hr_sleep
         """
         actions = []
         now = time.time()
 
-        # --- Environmental: CO2 danger level ---
+        # --- C1, C2: Environmental zone checks (CO2 danger + extreme temperature) ---
         for zone_id, zone in world_model.zones.items():
-            env = zone.environment
-            if (
-                env.co2 is not None
-                and env.co2 > self.thresholds.co2_critical
-                and self._check_cooldown(f"critical_co2_{zone_id}", now)
-            ):
-                actions.append(
-                    {
-                        "tool": "create_task",
-                        "args": {
-                            "title": f"【緊急】{zone_id}のCO2危険レベル",
-                            "description": (f"CO2濃度が{int(env.co2)}ppmです。直ちに換気してください。"),
-                            "urgency": 4,
-                            "zone": zone_id,
-                            "task_type": ["ventilation"],
-                        },
-                    }
-                )
-                actions.append(
-                    {
-                        "tool": "speak",
-                        "args": {
-                            "message": (
-                                f"緊急です！{zone_id}のCO2濃度が{int(env.co2)}ppmです。すぐに換気してください！"
-                            ),
-                            "zone": zone_id,
-                            "tone": "alert",
-                        },
-                    }
-                )
+            actions.extend(self._eval_critical_env_zone(zone_id, zone.environment, now))
 
-            # --- Environmental: extreme temperature ---
-            if env.temperature is not None:
-                if env.temperature > self.thresholds.temp_critical_high and self._check_cooldown(
-                    f"critical_temp_high_{zone_id}", now
-                ):
-                    actions.append(
-                        {
-                            "tool": "speak",
-                            "args": {
-                                "message": (
-                                    f"危険！{zone_id}の室温が{env.temperature:.1f}℃です。熱中症に注意してください！"
-                                ),
-                                "zone": zone_id,
-                                "tone": "alert",
-                            },
-                        }
-                    )
-                elif env.temperature < self.thresholds.temp_critical_low and self._check_cooldown(
-                    f"critical_temp_low_{zone_id}", now
-                ):
-                    actions.append(
-                        {
-                            "tool": "speak",
-                            "args": {
-                                "message": (
-                                    f"危険！{zone_id}の室温が{env.temperature:.1f}℃まで低下しています。"
-                                    "暖房を確認してください！"
-                                ),
-                                "zone": zone_id,
-                                "tone": "alert",
-                            },
-                        }
-                    )
+        # --- C3: Zigbee moisture emergency (water leak) ---
+        actions.extend(self._eval_critical_moisture(world_model, now))
 
-        # --- Zigbee: Moisture emergency (water leak) ---
-        hd = world_model.home_devices
-        for eid, bs in hd.binary_sensors.items():
-            if bs.device_class == "moisture" and bs.state:
-                if self._check_cooldown(f"critical_moisture_{eid}", now):
-                    name = eid.split(".")[-1] if "." in eid else eid
-                    actions.append(
-                        {
-                            "tool": "create_task",
-                            "args": {
-                                "title": f"【緊急】水漏れ検知: {name}",
-                                "description": f"{name}で水漏れが検知されました。直ちに確認してください。",
-                                "urgency": 4,
-                                "zone": "home",
-                                "task_type": ["water_leak"],
-                            },
-                        }
-                    )
-                    actions.append(
-                        {
-                            "tool": "speak",
-                            "args": {
-                                "message": f"緊急！{name}で水漏れを検知しました！すぐに確認してください！",
-                                "zone": "home",
-                                "tone": "alert",
-                            },
-                        }
-                    )
-
-        # --- Biometric: SpO2 critical drop (sleep apnea risk) ---
+        # --- C4: Biometric SpO2 critical drop ---
         bio = world_model.biometric_state
-        if (
-            bio.spo2.percent is not None
-            and bio.spo2.percent < self.thresholds.spo2_critical_low
-            and bio.spo2.last_update > now - 300
-            and self._check_cooldown("critical_spo2", now)
-        ):
-            actions.append(
-                {
-                    "tool": "speak",
-                    "args": {
-                        "message": (
-                            f"緊急！血中酸素濃度が{bio.spo2.percent}%まで低下しています！目を覚ましてください！"
-                        ),
-                        "zone": "home",
-                        "tone": "alert",
-                    },
-                }
-            )
+        actions.extend(self._eval_critical_spo2(bio, now))
 
-        # --- Biometric: very high heart rate during sleep ---
-        if (
-            bio.heart_rate.bpm is not None
-            and bio.heart_rate.bpm > self.thresholds.hr_critical_sleep
-            and bio.sleep.stage in ("deep", "light", "rem")
-            and bio.heart_rate.last_update > now - 120
-            and self._check_cooldown("critical_hr_sleep", now)
-        ):
-            actions.append(
-                {
-                    "tool": "speak",
-                    "args": {
-                        "message": (f"睡眠中に心拍数が{bio.heart_rate.bpm}bpmに達しています！体調を確認してください！"),
-                        "zone": "home",
-                        "tone": "alert",
-                    },
-                }
-            )
+        # --- C5: Biometric very high heart rate during sleep ---
+        actions.extend(self._eval_critical_hr_sleep(bio, now))
 
         return actions
