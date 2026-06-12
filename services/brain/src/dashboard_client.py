@@ -1,21 +1,39 @@
 """
 REST client for HEMS Dashboard Backend.
+
+Public API is unchanged — callers (brain_startup, brain_loops, tool handlers)
+interact only with DashboardClient and are not aware of the internal split.
+
+Internal structure (W3.6 refactor):
+  dashboard_transport.py  — HTTP / aiohttp session wrappers + auth headers
+  dashboard_mappers.py    — pure world_model → payload serialisation functions
+  dashboard_client.py     — this file: facade that delegates to the two above
 """
 
-import os
 from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 
-from brain_constants import backend_auth_headers
+from dashboard_mappers import (
+    map_biometric_payload,
+    map_device_heartbeat_payload,
+    map_gas_payload,
+    map_home_payload,
+    map_home_timeseries_points,
+    map_knowledge_payload,
+    map_news_payload,
+    map_pc_payload,
+    map_perception_zones,
+    map_services_payload,
+    map_weather_payload,
+    map_zone_rows,
+    map_zone_timeseries_points,
+)
+from dashboard_transport import BACKEND_URL, VOICE_SERVICE_URL, DashboardTransport
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
-VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
-
-
-def _internal_headers() -> dict:
-    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
-    return {"Authorization": f"Bearer {token}"} if token else {}
+# Re-export constants so any code that did ``from dashboard_client import BACKEND_URL``
+# continues to work without modification.
+__all__ = ["BACKEND_URL", "VOICE_SERVICE_URL", "DashboardClient"]
 
 
 class DashboardClient:
@@ -23,25 +41,28 @@ class DashboardClient:
         self.session = session
         self.backend_url = BACKEND_URL
         self.voice_url = VOICE_SERVICE_URL
+        self._transport = DashboardTransport(session, self.backend_url, self.voice_url)
+
+    # ------------------------------------------------------------------
+    # Task management
+    # ------------------------------------------------------------------
 
     async def create_task(self, task_data: dict) -> dict | None:
         """Create a task on the dashboard backend."""
         task_type = task_data.get("task_type", [])
 
-        # Determine expiration based on task type
         expires_in_minutes = task_data.get("expires_in_minutes")
         if expires_in_minutes is None:
-            expires_in_minutes = 60 * 24  # Default 24h
+            expires_in_minutes = 60 * 24
             if "environment" in task_type:
-                expires_in_minutes = min(expires_in_minutes, 60)  # 1 hour max for env issues
+                expires_in_minutes = min(expires_in_minutes, 60)
             if "supply" in task_type:
-                expires_in_minutes = 60 * 24 * 7  # 1 week for supplies
+                expires_in_minutes = 60 * 24 * 7
             if "urgent" in task_type:
-                expires_in_minutes = min(expires_in_minutes, 30)  # 30 mins for urgent
+                expires_in_minutes = min(expires_in_minutes, 30)
 
         expires_at = (datetime.now(UTC) + timedelta(minutes=expires_in_minutes)).isoformat()
 
-        # Generate voice announcement first
         voice_data = await self._generate_voice(task_data)
 
         payload = {
@@ -61,21 +82,7 @@ class DashboardClient:
             payload["completion_audio_url"] = voice_data.get("completion_audio_url")
             payload["completion_text"] = voice_data.get("completion_text")
 
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/tasks/",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=10,
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                else:
-                    text = await resp.text()
-                    logger.warning(f"Create task failed: {resp.status} {text[:200]}")
-        except Exception as e:
-            logger.error(f"Create task error: {e}")
-        return None
+        return await self._transport.post_and_return_json("/tasks/", payload, timeout=10)
 
     async def _generate_voice(self, task_data: dict) -> dict | None:
         """Request voice announcement + completion from voice service."""
@@ -90,40 +97,26 @@ class DashboardClient:
                 "estimated_duration": task_data.get("estimated_duration", 10),
             }
         }
-        try:
-            async with self.session.post(
-                f"{self.voice_url}/api/voice/announce_with_completion",
-                json=voice_payload,
-                headers=_internal_headers(),
-                timeout=30,
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return {
-                        "announcement_audio_url": data.get("announcement_audio_url"),
-                        "announcement_text": data.get("announcement_text"),
-                        "completion_audio_url": data.get("completion_audio_url"),
-                        "completion_text": data.get("completion_text"),
-                    }
-        except Exception as e:
-            logger.warning(f"Voice generation failed: {e}")
-        return None
+        raw = await self._transport.voice_announce(voice_payload)
+        if raw is None:
+            return None
+        return {
+            "announcement_audio_url": raw.get("announcement_audio_url"),
+            "announcement_text": raw.get("announcement_text"),
+            "completion_audio_url": raw.get("completion_audio_url"),
+            "completion_text": raw.get("completion_text"),
+        }
 
     async def speak(self, message: str, zone: str, tone: str = "neutral") -> dict | None:
         """Send speak command through voice service + record event."""
-        try:
-            # Synthesize speech
-            async with self.session.post(
-                f"{self.voice_url}/api/voice/synthesize",
-                json={"text": message, "tone": tone},
-                headers=_internal_headers(),
-                timeout=15,
-            ) as resp:
-                if resp.status != 200:
-                    return None
-                voice_data = await resp.json()
+        voice_data = await self._transport.voice_synthesize(message, tone)
+        if voice_data is None:
+            return None
 
-            # Record voice event
+        # Record voice event (fire-and-forget; ignore response)
+        from brain_constants import backend_auth_headers
+
+        try:
             await self.session.post(
                 f"{self.backend_url}/voice-events/",
                 headers=backend_auth_headers(),
@@ -135,367 +128,107 @@ class DashboardClient:
                 },
                 timeout=5,
             )
-            return voice_data
         except Exception as e:
             logger.error(f"Speak error: {e}")
-            return None
+
+        return voice_data
 
     async def get_active_tasks(self) -> list:
         """Get active (non-completed) tasks from backend."""
-        try:
-            async with self.session.get(
-                f"{self.backend_url}/tasks/",
-                headers=backend_auth_headers(),
-                timeout=5,
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-        except Exception as e:
-            logger.warning(f"Get active tasks error: {e}")
-        return []
+        result = await self._transport.get_json("/tasks/")
+        return result if isinstance(result, list) else []
 
     async def get_task_stats(self) -> dict:
         """Fetch task statistics from backend."""
-        try:
-            async with self.session.get(
-                f"{self.backend_url}/tasks/stats",
-                headers=backend_auth_headers(),
-                timeout=5,
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                else:
-                    logger.warning(f"Get task stats failed: {resp.status}")
-        except Exception as e:
-            logger.warning(f"Get task stats error: {e}")
-        return {}
+        result = await self._transport.get_json("/tasks/stats")
+        return result if isinstance(result, dict) else {}
+
+    # ------------------------------------------------------------------
+    # Domain snapshot pushes
+    # ------------------------------------------------------------------
 
     async def push_pc_snapshot(self, world_model) -> None:
         """Push current PC metrics to backend for frontend consumption."""
-        pc = world_model.pc_state
-        if pc.cpu.last_update == 0 and pc.memory.last_update == 0:
-            return  # No PC data yet
-
-        payload = {
-            "cpu": {
-                "usage_percent": pc.cpu.usage_percent,
-                "core_count": pc.cpu.core_count,
-                "temp_c": pc.cpu.temp_c,
-            },
-            "memory": {
-                "used_gb": pc.memory.used_gb,
-                "total_gb": pc.memory.total_gb,
-                "percent": pc.memory.percent,
-            },
-            "gpu": {
-                "usage_percent": pc.gpu.usage_percent,
-                "vram_used_gb": pc.gpu.vram_used_gb,
-                "vram_total_gb": pc.gpu.vram_total_gb,
-                "temp_c": pc.gpu.temp_c,
-            },
-            "disk": [
-                {"mount": p.mount, "used_gb": p.used_gb, "total_gb": p.total_gb, "percent": p.percent}
-                for p in pc.disk.partitions
-            ],
-            "top_processes": [
-                {"pid": p.pid, "name": p.name, "cpu_percent": p.cpu_percent, "mem_mb": p.mem_mb}
-                for p in pc.top_processes[:10]
-            ],
-            "bridge_connected": pc.bridge_connected,
-        }
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/pc/snapshot",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"PC snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"PC snapshot push error: {e}")
+        payload = map_pc_payload(world_model)
+        if payload is None:
+            return
+        await self._transport.post_snapshot("/pc/snapshot", payload)
 
     async def push_services_snapshot(self, world_model) -> None:
         """Push current service statuses to backend for frontend consumption."""
-        ss = world_model.services_state
-        if not ss.services:
+        payload = map_services_payload(world_model)
+        if payload is None:
             return
-
-        payload = {}
-        for name, svc in ss.services.items():
-            payload[name] = {
-                "name": svc.name,
-                "available": svc.available,
-                "unread_count": svc.unread_count,
-                "summary": svc.summary,
-                "last_check": svc.last_check,
-                "error": svc.error,
-            }
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/services/snapshot",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"Services snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"Services snapshot push error: {e}")
+        await self._transport.post_snapshot("/services/snapshot", payload)
 
     async def push_knowledge_snapshot(self, world_model) -> None:
         """Push current knowledge base status to backend for frontend consumption."""
-        ks = world_model.knowledge_state
-        if not ks.bridge_connected:
+        payload = map_knowledge_payload(world_model)
+        if payload is None:
             return
-
-        payload = {
-            "total_notes": ks.total_notes,
-            "indexed": ks.indexed,
-            "bridge_connected": ks.bridge_connected,
-            "recent_changes": ks.recent_changes[-5:],
-        }
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/knowledge/snapshot",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"Knowledge snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"Knowledge snapshot push error: {e}")
+        await self._transport.post_snapshot("/knowledge/snapshot", payload)
 
     async def push_gas_snapshot(self, world_model) -> None:
         """Push current GAS state to backend for frontend consumption."""
-        gs = world_model.gas_state
-        if not gs.bridge_connected:
+        payload = map_gas_payload(world_model)
+        if payload is None:
             return
-
-        # Upcoming events (next 5)
-        calendar_events = [
-            {
-                "id": ev.id,
-                "title": ev.title,
-                "start": ev.start,
-                "end": ev.end,
-                "location": ev.location,
-                "is_all_day": ev.is_all_day,
-                "calendar_name": ev.calendar_name,
-            }
-            for ev in gs.calendar_events[:10]
-        ]
-
-        # Tasks due today / overdue
-        tasks_due = [
-            {
-                "title": t.title,
-                "due": t.due,
-                "status": t.status,
-                "list_name": t.list_name,
-                "is_overdue": t.is_overdue,
-            }
-            for t in gs.tasks
-            if t.status != "completed"
-        ]
-
-        inbox = gs.gmail_labels.get("INBOX")
-
-        payload = {
-            "bridge_connected": True,
-            "calendar_events": calendar_events,
-            "calendar_event_count": len(gs.calendar_events),
-            "tasks_due": tasks_due[:10],
-            "overdue_count": sum(1 for t in gs.tasks if t.is_overdue),
-            "gmail_inbox_unread": inbox.unread if inbox else 0,
-            "free_slots": [
-                {"start": s.start, "end": s.end, "duration_minutes": s.duration_minutes} for s in gs.free_slots[:5]
-            ],
-            "last_calendar_update": gs.last_calendar_update,
-            "last_tasks_update": gs.last_tasks_update,
-            "last_gmail_update": gs.last_gmail_update,
-        }
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/gas/snapshot",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"GAS snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"GAS snapshot push error: {e}")
+        await self._transport.post_snapshot("/gas/snapshot", payload)
 
     async def push_biometric_snapshot(self, world_model) -> None:
         """Push current biometric state to backend for frontend consumption."""
-        bio = world_model.biometric_state
-        if not bio.bridge_connected and bio.last_update == 0:
+        payload = map_biometric_payload(world_model)
+        if payload is None:
             return
-
-        payload = {
-            "bridge_connected": bio.bridge_connected,
-            "provider": bio.provider,
-        }
-        if bio.heart_rate.bpm is not None:
-            payload["heart_rate"] = {
-                "bpm": bio.heart_rate.bpm,
-                "zone": bio.heart_rate.zone,
-                "resting_bpm": bio.heart_rate.resting_bpm,
-            }
-        if bio.spo2.percent is not None:
-            payload["spo2"] = {"percent": bio.spo2.percent}
-        if bio.sleep.last_update > 0:
-            payload["sleep"] = {
-                "stage": bio.sleep.stage,
-                "duration_minutes": bio.sleep.duration_minutes,
-                "deep_minutes": bio.sleep.deep_minutes,
-                "rem_minutes": bio.sleep.rem_minutes,
-                "light_minutes": bio.sleep.light_minutes,
-                "quality_score": bio.sleep.quality_score,
-            }
-        if bio.activity.last_update > 0:
-            payload["activity"] = {
-                "steps": bio.activity.steps,
-                "steps_goal": bio.activity.steps_goal,
-                "calories": bio.activity.calories,
-                "active_minutes": bio.activity.active_minutes,
-                "level": bio.activity.level,
-            }
-        if bio.stress.last_update > 0:
-            payload["stress"] = {
-                "level": bio.stress.level,
-                "category": bio.stress.category,
-            }
-        if bio.fatigue.last_update > 0:
-            payload["fatigue"] = {
-                "score": bio.fatigue.score,
-                "factors": bio.fatigue.factors,
-            }
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/biometric/snapshot",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"Biometric snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"Biometric snapshot push error: {e}")
+        await self._transport.post_snapshot("/biometric/snapshot", payload)
 
     async def push_perception_snapshot(self, world_model) -> None:
         """Push current perception (camera) state to backend for frontend consumption."""
-        zones_data = {}
-        for zone_id, zone in world_model.zones.items():
-            occ = zone.occupancy
-            has_signal = (
-                occ.last_update > 0 or occ.inferred_occupied or occ.presence_state is not None or occ.last_motion_ts > 0
-            )
-            if has_signal:
-                zones_data[zone_id] = {
-                    "person_count": occ.count,
-                    "activity_level": occ.activity_level,
-                    "activity_class": occ.activity_class,
-                    "posture": occ.posture,
-                    "posture_status": occ.posture_status,
-                    "posture_duration_sec": occ.posture_duration_sec,
-                    "last_update": occ.last_update,
-                    # Multi-source presence inference (reconcile_presence)
-                    "inferred_occupied": occ.inferred_occupied,
-                    "inference_source": occ.inference_source,
-                    "inference_sources": list(occ.inference_sources),
-                    "presence_state": occ.presence_state,
-                    "last_motion_ts": occ.last_motion_ts,
-                    "motion_event_count_5min": occ.motion_event_count_5min,
-                    # VLM scene data
-                    "scene_description": occ.scene_description,
-                    "scene_objects": list(occ.scene_objects),
-                    "scene_type": occ.scene_type,
-                    "scene_anomalies": list(occ.scene_anomalies),
-                    "vlm_last_update": occ.vlm_last_update,
-                    "vlm_history": [
-                        {
-                            "timestamp": s.timestamp,
-                            "description": s.description[:200],
-                            "objects": s.objects[:8],
-                            "scene_type": s.scene_type,
-                            "anomalies": s.anomalies[:3],
-                            "tier": s.tier,
-                        }
-                        for s in list(occ.vlm_history)[-5:]
-                    ],
-                }
-        if not zones_data:
+        zones_data = map_perception_zones(world_model)
+        if zones_data is None:
             return
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/perception/snapshot",
-                headers=backend_auth_headers(),
-                json={"zones": zones_data},
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"Perception snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"Perception snapshot push error: {e}")
+        await self._transport.post_snapshot("/perception/snapshot", {"zones": zones_data})
 
     async def push_home_snapshot(self, world_model) -> None:
         """Push current home device state to backend for frontend consumption."""
-        hd = world_model.home_devices
-        if not hd.bridge_connected:
+        payload = map_home_payload(world_model)
+        if payload is None:
             return
-        # Collect power/energy sensors for dashboard
-        energy_sensors = {}
-        for eid, s in hd.sensors.items():
-            if s.device_class in ("power", "energy"):
-                energy_sensors[eid] = {
-                    "value": s.value,
-                    "unit": s.unit or ("W" if s.device_class == "power" else "kWh"),
-                    "device_class": s.device_class,
-                }
-        payload = {
-            "bridge_connected": True,
-            "lights": {eid: {"on": lt.on, "brightness": lt.brightness} for eid, lt in hd.lights.items()},
-            "climates": {
-                eid: {"mode": c.mode, "target_temp": c.target_temp, "current_temp": c.current_temp}
-                for eid, c in hd.climates.items()
-            },
-            "covers": {eid: {"position": c.position, "is_open": c.is_open} for eid, c in hd.covers.items()},
-            "switches": hd.switches,
-            "energy_sensors": energy_sensors,
-        }
 
-        # Push power readings to timeseries for historical charts
-        ts_points = []
-        for eid, s in hd.sensors.items():
-            if s.device_class == "power" and s.value > 0:
-                name = eid.split(".")[-1] if "." in eid else eid
-                ts_points.append({"metric": f"power.{name}", "value": s.value})
+        ts_points = map_home_timeseries_points(world_model)
         if ts_points:
-            try:
-                async with self.session.post(
-                    f"{self.backend_url}/timeseries/ingest",
-                    headers=backend_auth_headers(),
-                    json={"points": ts_points},
-                    timeout=5,
-                ) as resp:
-                    if resp.status != 200:
-                        logger.debug(f"Energy timeseries push failed: {resp.status}")
-            except Exception as e:
-                logger.debug(f"Energy timeseries push error: {e}")
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/home/snapshot",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"Home snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"Home snapshot push error: {e}")
+            await self._transport.post_snapshot("/timeseries/ingest", {"points": ts_points})
+
+        await self._transport.post_snapshot("/home/snapshot", payload)
+
+    async def push_news_snapshot(self, world_model) -> None:
+        """Push current news state to backend for frontend consumption."""
+        payload = map_news_payload(world_model)
+        if payload is None:
+            return
+        await self._transport.post_snapshot("/news/snapshot", payload)
+
+    async def push_weather_snapshot(self, world_model) -> None:
+        """Push current weather state (current/forecast/alerts) to backend."""
+        payload = map_weather_payload(world_model)
+        if payload is None:
+            return
+        await self._transport.post_snapshot("/weather/snapshot", payload)
+
+    async def push_zone_snapshot(self, world_model) -> None:
+        """Push current zone sensor data to backend for frontend consumption."""
+        zones = map_zone_rows(world_model)
+        if not zones:
+            return
+        await self._transport.post_snapshot("/zones/snapshot", {"zones": zones})
+
+        ts_points = map_zone_timeseries_points(zones)
+        if ts_points:
+            await self._transport.post_snapshot("/timeseries/ingest", {"points": ts_points})
+
+    # ------------------------------------------------------------------
+    # Device & bridge helpers
+    # ------------------------------------------------------------------
 
     async def push_device_action(
         self,
@@ -506,245 +239,48 @@ class DashboardClient:
         success: bool = True,
     ) -> None:
         """Push a device control action to backend log for 24h timeline view."""
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/device-actions/",
-                headers=backend_auth_headers(),
-                json={
-                    "device_id": device_id,
-                    "action": action,
-                    "params": params or {},
-                    "source": source,
-                    "success": success,
-                },
-                timeout=5,
-            ) as resp:
-                if resp.status not in (200, 201):
-                    logger.debug(f"Device action push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"Device action push error: {e}")
+        await self._transport.post_snapshot_multi_status(
+            "/device-actions/",
+            {
+                "device_id": device_id,
+                "action": action,
+                "params": params or {},
+                "source": source,
+                "success": success,
+            },
+            ok_statuses=(200, 201),
+        )
 
     async def push_bridge_status_event(self, service: str, connected: bool, detail: str = "") -> None:
         """Push a bridge state transition to backend SLA log."""
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/bridge-status/event",
-                headers=backend_auth_headers(),
-                json={
-                    "service": service,
-                    "state": "connected" if connected else "disconnected",
-                    "detail": detail or None,
-                },
-                timeout=5,
-            ) as resp:
-                if resp.status not in (200, 201):
-                    logger.debug(f"Bridge status event push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"Bridge status event push error: {e}")
-
-    async def push_news_snapshot(self, world_model) -> None:
-        """Push current news state to backend for frontend consumption."""
-        ns = world_model.news_state
-        if ns.daily_timestamp == 0 and not ns.urgent_articles and not ns.bridge_connected:
-            return
-        payload = {
-            "daily_summary": ns.daily_summary,
-            "daily_chunks": ns.daily_chunks,
-            "daily_timestamp": ns.daily_timestamp,
-            "urgent_articles": ns.urgent_articles[-10:],
-            "bridge_connected": ns.bridge_connected,
-        }
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/news/snapshot",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"News snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"News snapshot push error: {e}")
-
-    async def push_weather_snapshot(self, world_model) -> None:
-        """Push current weather state (current/forecast/alerts) to backend."""
-        w = world_model.weather
-        if w.last_update == 0 and w.last_alerts_update == 0:
-            return
-
-        payload = {
-            "current": {
-                "condition": w.condition,
-                "temperature": w.temperature,
-                "humidity": w.humidity,
-                "wind_speed": w.wind_speed,
-                "last_update": w.last_update,
+        await self._transport.post_snapshot_multi_status(
+            "/bridge-status/event",
+            {
+                "service": service,
+                "state": "connected" if connected else "disconnected",
+                "detail": detail or None,
             },
-            "forecast": [
-                {
-                    "datetime": f.datetime,
-                    "condition": f.condition,
-                    "temperature": f.temperature,
-                    "precipitation_probability": f.precipitation_probability,
-                    "wind_speed": f.wind_speed,
-                }
-                for f in w.forecast[:24]
-            ],
-            "alerts": [
-                {
-                    "title": a.title,
-                    "severity": a.severity,
-                    "description": a.description,
-                    "area": a.area,
-                    "issued_at": a.issued_at,
-                    "expires_at": a.expires_at,
-                }
-                for a in w.alerts
-            ],
-            "last_alerts_update": w.last_alerts_update,
-        }
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/weather/snapshot",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"Weather snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"Weather snapshot push error: {e}")
-
-    async def push_zone_snapshot(self, world_model) -> None:
-        """Push current zone sensor data to backend for frontend consumption."""
-        zones = []
-        for zone_id, zone in world_model.zones.items():
-            env = zone.environment
-            zones.append(
-                {
-                    "zone_id": zone_id,
-                    "environment": {
-                        "temperature": env.temperature,
-                        "humidity": env.humidity,
-                        "co2": env.co2,
-                        "pressure": env.pressure,
-                        "light": env.light,
-                        "voc": env.voc,
-                        "pm25": env.pm25,
-                        "soil_moisture": env.soil_moisture,
-                        "last_update": env.last_update,
-                    },
-                    "occupancy": {
-                        "count": zone.occupancy.count if zone.occupancy else 0,
-                        "last_update": zone.occupancy.last_update if zone.occupancy else None,
-                    },
-                    "events": [
-                        {
-                            "type": e.event_type,
-                            "description": e.description,
-                            "severity": e.severity,
-                            "timestamp": e.timestamp,
-                        }
-                        for e in zone.events[-5:]
-                    ],
-                }
-            )
-        if not zones:
-            return
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/zones/snapshot",
-                headers=backend_auth_headers(),
-                json={"zones": zones},
-                timeout=5,
-            ) as resp:
-                if resp.status != 200:
-                    logger.debug(f"Zone snapshot push failed: {resp.status}")
-        except Exception as e:
-            logger.debug(f"Zone snapshot push error: {e}")
-
-        # Push environment metrics to timeseries for frontend sparklines
-        ts_points = []
-        for z in zones:
-            zid = z["zone_id"]
-            env = z["environment"]
-            for metric in ("temperature", "humidity", "co2"):
-                val = env.get(metric)
-                if val is not None:
-                    ts_points.append({"metric": metric, "zone": zid, "value": val})
-        if ts_points:
-            try:
-                async with self.session.post(
-                    f"{self.backend_url}/timeseries/ingest",
-                    headers=backend_auth_headers(),
-                    json={"points": ts_points},
-                    timeout=5,
-                ) as resp:
-                    if resp.status != 200:
-                        logger.debug(f"Zone timeseries push failed: {resp.status}")
-            except Exception as e:
-                logger.debug(f"Zone timeseries push error: {e}")
+            ok_statuses=(200, 201),
+        )
 
     async def push_device_heartbeat(self, observation) -> dict | None:
-        """Auto-register or refresh a device in the backend Device Registry.
-
-        observation is a DeviceObservation (device_dispatcher.DeviceObservation).
-        """
-        payload = {
-            "device_id": observation.device_id,
-            "vendor": observation.vendor,
-            "vendor_ref": observation.vendor_ref,
-            "kind": observation.kind,
-            "device_class": observation.device_class,
-            "capabilities": observation.capabilities or [],
-            "channels": observation.channels or [],
-            "units": observation.units or {},
-            "zone": observation.zone,
-            "display_name": observation.display_name,
-            "description": observation.description,
-            "model_id": observation.model_id,
-            "manufacturer": observation.manufacturer,
-            "last_state": observation.last_state or {},
-            "last_value": observation.last_value or {},
-            "battery_pct": observation.battery_pct,
-            "link_quality": observation.link_quality,
-            "last_seen_reported": observation.last_seen_ts,
-        }
-        try:
-            async with self.session.post(
-                f"{self.backend_url}/devices/heartbeat",
-                headers=backend_auth_headers(),
-                json=payload,
-                timeout=5,
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                text = await resp.text()
-                logger.debug(f"Device heartbeat failed ({observation.device_id}): {resp.status} {text[:200]}")
-        except Exception as e:
-            logger.debug(f"Device heartbeat error ({observation.device_id}): {e}")
-        return None
+        """Auto-register or refresh a device in the backend Device Registry."""
+        payload = map_device_heartbeat_payload(observation)
+        return await self._transport.post_and_return_json("/devices/heartbeat", payload)
 
     async def fetch_all_devices(self) -> list[dict]:
         """Fetch full device list for LLM context injection."""
-        try:
-            async with self.session.get(
-                f"{self.backend_url}/devices/",
-                headers=backend_auth_headers(),
-                params={"enabled_only": "true"},
-                timeout=5,
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-        except Exception as e:
-            logger.debug(f"Device list fetch error: {e}")
-        return []
+        result = await self._transport.get_json("/devices/", params={"enabled_only": "true"})
+        return result if isinstance(result, list) else []
 
     async def push_brain_snapshot(self, power_mode_status: dict, last_cycle: dict | None = None) -> None:
         """Push brain power mode status + last ReAct cycle summary to backend."""
         payload = dict(power_mode_status)
         if last_cycle is not None:
             payload["last_cycle"] = last_cycle
+
+        from brain_constants import backend_auth_headers
+
         try:
             async with self.session.post(
                 f"{self.backend_url}/brain/snapshot",
