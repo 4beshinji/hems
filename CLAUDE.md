@@ -218,9 +218,21 @@ setup 手順(HA/SwitchBot 配線・smartband ペアリング・avatar・VoiSona 
 
 ### Device Registry / Shopping / Chat
 
-全センサー/アクチュエータを単一 `Device` テーブルで管理(vendor は属性: zigbee/switchbot/tapo/ha/mcp)。Brain が MQTT を監視し未知 device を `/devices/heartbeat` で自動登録、`purpose` フィールドを LLM のツール選択に活用。Shopping List と Chat REST router も backend 側にある。
+**Device Registry は双層設計**: Backend = persistent SoT(登録・CRUD・UI view)、Brain = in-memory TTL cache(LLM context・timeout optimization)。統合しない。
 
-詳細(Device Registry CRUD・Safety・Shopping models・Chat router)→ **[`services/backend/CLAUDE.md`](services/backend/CLAUDE.md)**。ベンダー非依存の device tool(`control_actuator` / `list_devices` / `describe_device`)と dispatcher は `services/brain/CLAUDE.md`。
+- **Backend** (SoT): 単一 `Device` テーブル(vendor 属性: zigbee/switchbot/tapo/ha/mcp)、REST CRUD、heartbeat auto-register(未知 device_id のみ)
+  - メタデータ編集: display_name / zone / location / purpose(LLM context) / description
+  - 揮発フィールド自動更新: last_state / last_value / last_seen / battery_pct / link_quality
+  - Control proxy: `/devices/{id}/control` → Brain dispatcher → bridge
+
+- **Brain** (Cache): in-memory `DeviceRegistry`(TTL 120-900s state machine)、utility scoring(usage decay)、timeout optimization(state-based)
+  - MQTT heartbeat intake: `device_registry.update_from_heartbeat()` ← dispatcher.parse_mqtt
+  - Async write-back: dashboard_client → Backend `/devices/heartbeat` push(永続化)
+  - Device tools: `control_actuator` / `list_devices` / `describe_device` / `zigbee_permit_join`
+
+詳細(Device Registry 責務境界・CRUD・Safety・Heartbeat flow)→ **[`services/backend/CLAUDE.md`](services/backend/CLAUDE.md)** と **[`services/brain/CLAUDE.md`](services/brain/CLAUDE.md)**。同期メカニズムと tool 分担図は **[`docs/IMPLEMENTATION_MAP.md`](docs/IMPLEMENTATION_MAP.md) §2.2**。
+
+Shopping List と Chat REST router も backend 側に属す。
 
 ## Implementation Status & Source-of-Truth Map
 

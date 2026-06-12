@@ -111,6 +111,64 @@ grep -nE "self\.\w+ = " services/brain/src/main.py | head -50
 grep -nE "self\.\w+ = " services/brain/src/brain_startup.py | head -50
 ```
 
+### 2.2 Device Registry 双層アーキテクチャ
+
+Brain DeviceRegistry は Backend Device Registry と対を成す **分離設計**(統合しない)。
+
+| 側 | 役割 | 実装 | 寿命 | 同期 |
+|---|---|---|---|---|
+| **Backend** | persistent SoT、CRUD、UI view | `models.Device` DB table、`routers/devices.py` REST API | 永続 | heartbeat intake (auto-register / volatile refresh) |
+| **Brain** | in-memory LLM context cache、state automation、timeout optimization | `DeviceRegistry` class (`device_registry.py`)、`dict[device_id → DeviceInfo]` | TTL 120-900s | MQTT heartbeat → `update_from_heartbeat()` + async `dashboard_client.push_device_heartbeat()` |
+
+**Heartbeat Flow**:
+1. MQTT sensor / bridge publish → Brain subscriber
+2. dispatcher.parse_mqtt() → DeviceObservation
+3. brain_mqtt._update_device_registry() → device_registry.update_from_heartbeat()
+4. dashboard_client.push_device_heartbeat() → Backend POST /devices/heartbeat
+5. Backend: unknown device_id なら auto-create、already known なら volatile fields (last_state/last_value/battery_pct/link_quality) のみ refresh
+
+**Tool層の分担**:
+- `control_actuator(device_id, action, params)`: Brain dispatcher → bridge (vendor-specific)
+- `list_devices(...)`: Backend DB query (SoT)
+- `describe_device(device_id)`: Backend fetch + Brain cache state merge
+- LLM は always Backend SoT 結果を見る(refresh guarantees)
+
+### 2.3 Backend Models と Persistence
+
+Device Registry persistent 層。以下を参照: `services/backend/models.py` 内の `Device` class。
+
+| Field | Type | Role | 更新ソース | 注記 |
+|-------|------|------|-----------|------|
+| `device_id` | str (unique) | Primary key | heartbeat (Brain dispatcher) | 形式: vendor.詳細 (e.g. `zigbee.0x781c...`) |
+| `vendor` | str | 分類(zigbee/tapo/switchbot/ha/mcp) | heartbeat (初回のみ) | autoregister 時に auto-populate |
+| `vendor_ref` | str | ベンダー側ID (IEEE addr / IP / entity_id) | heartbeat (既知なら refine のみ) | Zigbee IEEE addr or HA entity_id |
+| `kind` | str | 分類(sensor/actuator/both) | heartbeat (upgrade: sensor→actuator/both) | can only upgrade, not downgrade |
+| `device_class` | str | device_class(plug/light/bulb/pump/temp_humidity/co2/pir/hub_ir等) | heartbeat (generic fallback から refine) | Z2M definition.description から推定 |
+| `capabilities` | JSON list | 操作可能アクション(on_off/brightness/color_temp/pulse/ir_send等) | heartbeat (merge: existing ∪ new) | set union、重複排除 |
+| `channels` | JSON list | センサー出力チャネル(temperature/humidity/soil_moisture) | heartbeat (初回のみ) | sensor only |
+| `units` | JSON dict | チャネル単位({temperature: °C}) | heartbeat (初回のみ) | LLM context |
+| `display_name` | str | ユーザー表示名 (e.g. "デスク照明") | Frontend `/devices/{id}` PUT (ユーザー編集) | **重要: heartbeat では placeholder name なら override** |
+| `zone` | str | 物理ゾーン(main / study / kitchen など) | Frontend `/devices/{id}` PUT | LLM context、scheduler filter |
+| `location` | str | 詳細位置(e.g. "北側壁") | Frontend `/devices/{id}` PUT | UI 表示 |
+| `purpose` | str | LLM context (e.g. "起床補助ライト" / "水やりポンプ") | Frontend `/devices/{id}` PUT | **LLM tool decision に活用** |
+| `description` | str | 説明文(e.g. "Zigbee IKEA GLEDOPTO RGB bulb") | heartbeat (初回のみ) or Frontend PUT | audit trail |
+| `model_id` | str | 製造元型番(Z2M definition.model e.g. LED2109G6) | heartbeat (初回のみ) | firmware update tracking |
+| `manufacturer` | str | 製造元(Z2M definition.vendor e.g. IKEA) | heartbeat (初回のみ) | compatibility matrix |
+| `icon` | str | lucide icon name | Frontend PUT | UI 表示 |
+| `last_state` | JSON dict | 最後の状態({on: true, brightness: 200}) | heartbeat (push each update) | 揮発性 |
+| `last_value` | JSON dict | センサー最新値({temperature: 22.5, humidity: 55}) | heartbeat (push each update) | 揮発性 |
+| `last_seen` | datetime | 最後に heartbeat を受け取った wall-clock 時刻 | heartbeat intake時に自動設定 | 揮発性、state machine の入力(online/stale/offline) |
+| `last_seen_reported` | datetime | device が自身で報告した timestamp (Zigbee LQI last_seen等) | heartbeat payload の `last_seen_reported` | device-local time、ズレ検出用 |
+| `battery_pct` | int (0-100) | バッテリー残量 | heartbeat (if present) | nullable |
+| `link_quality` | int | 通信品質スコア(Zigbee LQI 0-255 or Switchbot RSSI) | heartbeat (if present) | 揮発性 |
+| `is_enabled` | bool | 無効化フラグ(true = 使用中) | Frontend PUT (disable/enable) | control proxy で checked |
+| `notes` | str | メモ(ユーザー編集) | Frontend PUT | audit |
+| `metadata_json` | str | ベンダー固有設定(過去互換用 JSON) | Future | 拡張性予約 |
+| `created_at` | datetime | 初回登録時刻 | auto (server_default) | audit trail |
+| `updated_at` | datetime | 最後に更新した時刻 | auto (onupdate) | audit trail |
+
+**重要**: heartbeat 時に display_name が placeholder name (empty / raw IEEE addr / device_id そのまま) なら override、それ以外は保持。
+
 ---
 
 ## 3. Brain Tools 一覧 (LLM が呼べるもの)

@@ -78,3 +78,100 @@ Configure in `.env`:
 NEWS_BRIDGE_URL=http://news-bridge:8000
 EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_briefing","weather_report"]},{"event":"scheduled","time":"12:00","actions":["news_briefing"]}]'
 ```
+
+## Device Registry (Runtime LLM Context Cache)
+
+Brain 側 Device Registry は **in-memory TTL キャッシュ** — Backend の永続 Device Registry と対は分離設計(統合しない)。
+
+**双層設計の理由**:
+- **Backend DB**: persistent、UI state、新 device 発見の auto-register、metadata editing のターゲット
+- **Brain cache**: ephemeral、LLM tool loop の high-frequency device state check、timeout calculation、network topology、utility decay
+
+### DeviceRegistry クラス (`device_registry.py`)
+
+- **Memory Structure**: `dict[device_id: str → DeviceInfo]`
+- **DeviceInfo** (single device):
+  - Volatile: `state` (online/sleeping/stale/offline), `last_seen` (wall-clock), `battery_pct`, `link_quality`
+  - Static: `device_type`, `parent_id`, `hops_to_mqtt`, `capabilities`, `queue_status`
+  - Metadata: `power_mode`, `next_wake_epoch`, `utility_score`, `_last_used`
+
+- **State Automation** (`_update_device_states`):
+  - elapsed = now - last_seen
+  - elapsed < 120s → `state = "online"`
+  - 120s ≤ elapsed < 900s → `state = "stale"`
+  - elapsed ≥ 900s → `state = "offline"`
+  - Sleeping device (power_mode ∈ {DEEP_SLEEP, ULTRA_LOW} ∧ next_wake_epoch is not None) → `state = "sleeping"` (until wake)
+  
+- **Timeout Calculation** (`get_timeout_for_device`):
+  - device state based adaptive LLM tool timeout (ms)
+  - online → 10.0s, sleeping → 30.0s, stale → 20.0s, offline → 5.0s
+  - 物理デバイスへの dispatch 時間が state で異なる(offline なら fast-fail)ため最適化
+
+### MQTT Heartbeat Intake (`update_from_heartbeat`)
+
+**Flow**:
+1. Brain MQTT subscriber: `*/heartbeat` → `_update_device_registry` in `brain_mqtt.py`
+2. `device_registry.update_from_heartbeat(device_id, payload)` ← Backend からではなく、MQTT heartbeat を Brain が parse
+3. DeviceInfo in-memory fields refresh (battery_pct, link_quality, power_mode, device_type, capabilities etc.)
+4. **Async**: dashboard_client → `POST /devices/heartbeat` to Backend で永続化(write-back)
+5. Backend: auto-register or volatile fields refresh のみ
+
+**注意**: heartbeat は MQTT から来ることもあり(Zigbee2MQTT bridge 等)、その場合は topic parsing で DeviceObservation にして push。dispatcher が parse_mqtt で全ベンダーをカバー。
+
+### Device Tools (LLM accessible)
+
+**Default-enabled** (device_registry_enabled=True):
+
+| Tool | Function | Return | LLM side |
+|------|----------|--------|----------|
+| `control_actuator` | device action dispatch | success/result/error | sanitizer validated、dispatcher → bridge |
+| `list_devices` | Backend DB query | list[Device] | kind/zone/vendor/capability/purpose_contains filters |
+| `describe_device` | single device fetch | Device + state | Backend fetch + Brain cache state merge |
+| `execute_scene_by_name` | named multi-device scene | success/error | SceneExecutor (device_dispatcher 用) |
+| `list_scenes` | available scenes | list[Scene] | SceneExecutor |
+| `zigbee_permit_join` | Zigbee pairing mode | success/result | dispatcher publish to zigbee2mqtt/bridge/request/permit_join |
+
+### Dispatcher Integration (`device_dispatcher.py`)
+
+- **Vendor agnostic interface**: `DeviceDispatcher.control_device(device_id, action, params)`
+  - device_id から vendor 決定 (prefix parse: zigbee.*, tapo.*, switchbot.*, hems.ha.*, etc.)
+  - vendor parser → bridge-specific action/params translate
+  - publish to bridge (ha-bridge / switchbot-bridge / tapo-bridge / zigbee2mqtt)
+  
+- **Topic Parsing** (`parse_mqtt`):
+  - `office/{zone}/{device_type}/{device_id}/{channel}` ← sensor telemetry
+  - `hems/home/{zone}/{domain}/{entity_id}/state` ← HA
+  - `hems/switchbot/{device_id}/state` ← SwitchBot
+  - `zigbee2mqtt/{device}` ← Zigbee2MQTT
+  - 各 parser が DeviceObservation emit → dashboard_client.push_device_heartbeat
+
+### Utility Scoring (Ambient Intelligence)
+
+**Usage tracking**:
+- `record_zone_action(zone_id, action_type)` called after LLM decision/task creation
+- zone device の utility_score += 0.3 (decision) or 0.5 (task creation)
+- ceiling: 2.0 (初期値 1.0)
+
+**Decay** (`decay_utility_scores`):
+- Grace period: 7 days (no decay)
+- Full decay: 30 days (score ceiling 2.0 → 0.5)
+- Linear interpolation between
+- 用途: VRM motion retrieval weight (BM25 + affinity + usage decay + novelty)
+
+### Device Registry と Backend の同期（まとめ）
+
+```
+Physical MQTT → dispatcher.parse_mqtt() → DeviceObservation
+  ↓
+brain_mqtt._update_device_registry() → device_registry.update_from_heartbeat()
+  ↓
+In-memory DeviceInfo refresh (TTL-based state machine)
+  ↓
+dashboard_client.push_device_heartbeat() → Backend POST /devices/heartbeat
+  ↓
+Backend: auto-register or volatile fields refresh のみ(metadata override しない)
+  ↓
+Frontend: GET /devices → Backend DB SoT を読む
+```
+
+**Key point**: Brain と Backend は独立に device state を持つが、Frontend UI は常に Backend DB を SoT とする。Brain は LLM context / tool loop / timeout optimization の high-frequency cache。
