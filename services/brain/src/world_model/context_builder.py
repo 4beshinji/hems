@@ -2,6 +2,9 @@
 
 from . import world_model as _world_model
 
+# Trend arrows for analog channels (class-level constant, used in zone sections)
+_TREND = {"rising": "↑", "falling": "↓", "stable": ""}
+
 
 class ContextBuilderMixin:
     def get_llm_context(self) -> str:
@@ -49,261 +52,307 @@ class ContextBuilderMixin:
             return f"（{int(age / 60)}分前・古い）"
         return ""
 
+    # ------------------------------------------------------------------
+    # Physical context section builders
+    # ------------------------------------------------------------------
+
+    def _build_vlm_swap_banner(self) -> str | None:
+        """Return VLM model-swap warning banner, or None when inactive."""
+        if getattr(self, "vlm_model_swap_active", False):
+            return "### ⚠ VLMモデル切替中\n  重量モデルがVRAM占有中 — brainはrule-basedモード"
+        return None
+
+    def _build_zone_sensors_summary(self, env) -> str | None:
+        """Fused one-line sensor summary (priority order, 140-char truncation)."""
+        summary_bits: list[str] = []
+        if env.temperature is not None:
+            summary_bits.append(f"temp {env.temperature:.1f}C")
+        if env.humidity is not None:
+            summary_bits.append(f"hum {env.humidity:.0f}%")
+        if env.pressure is not None:
+            summary_bits.append(f"pressure {env.pressure:.0f}hPa")
+        if env.voc is not None:
+            summary_bits.append(f"voc {env.voc:.0f}")
+        if env.pm25 is not None:
+            summary_bits.append(f"pm25 {env.pm25:.0f}")
+        if env.light is not None:
+            summary_bits.append(f"light {env.light:.0f}lx")
+        if env.soil_moisture is not None:
+            summary_bits.append(f"soil {env.soil_moisture:.0f}%")
+        if not summary_bits:
+            return None
+        summary_line = f"  sensors: {', '.join(summary_bits)}"
+        if len(summary_line) > 140:
+            summary_line = summary_line[:139] + "…"
+        return summary_line
+
+    def _build_zone_vlm_scene(self, zone, now: float) -> list[str]:
+        """VLM scene freshness tiers + history one-liner for a zone."""
+        parts: list[str] = []
+        occ = zone.occupancy
+
+        # 3-stage freshness gate (independent of live occupancy)
+        #   fresh (<300s)   → full description + objects + anomalies
+        #   aged  (<1800s)  → prefix with "約N分前の観測" so LLM knows staleness
+        #   stale (≥1800s)  → only keep minimal summary, and only if zone is occupied
+        if occ.vlm_last_update > 0:
+            age_sec = _world_model.time.time() - occ.vlm_last_update
+            age_min = int(age_sec / 60)
+            occ_now = occ.count > 0 or occ.inferred_occupied
+
+            if age_sec < 300:
+                if occ.scene_description:
+                    parts.append(f"  シーン: {occ.scene_description[:100]}")
+                if occ.scene_objects:
+                    objs = occ.scene_objects[:6]
+                    parts.append(f"  物体: [{', '.join(objs)}]")
+                if occ.scene_anomalies:
+                    parts.append(f"  異常検知: {', '.join(occ.scene_anomalies[:3])}")
+            elif age_sec < 1800:
+                if occ.scene_description:
+                    parts.append(f"  シーン (約{age_min}分前の観測): {occ.scene_description[:100]}")
+                if occ.scene_objects:
+                    objs = occ.scene_objects[:6]
+                    parts.append(f"  物体 (約{age_min}分前): [{', '.join(objs)}]")
+                if occ.scene_anomalies:
+                    parts.append(f"  異常検知 (約{age_min}分前): {', '.join(occ.scene_anomalies[:3])}")
+            elif occ_now:
+                # Stale but zone still occupied — keep a terse summary only
+                obj_hint = f" 物体=[{', '.join(occ.scene_objects[:4])}]" if occ.scene_objects else ""
+                parts.append(f"  VLM最終観測: {age_min}分前{obj_hint}")
+
+        # VLM history one-line summary: union of objects across last 3 snapshots
+        # so the LLM has temporal context (e.g., dish appearing then disappearing).
+        history = list(occ.vlm_history)[-3:] if hasattr(occ, "vlm_history") else []
+        if len(history) >= 2:
+            obj_union: list[str] = []
+            for snap in history:
+                for o in (snap.objects or [])[:6]:
+                    if o not in obj_union:
+                        obj_union.append(o)
+            latest = history[-1]
+            hist_age_min = int((_world_model.time.time() - history[0].timestamp) / 60)
+            obj_str = f"[{', '.join(obj_union[:8])}]" if obj_union else ""
+            parts.append(
+                f"  VLM履歴 (過去{hist_age_min}分, {len(history)}観測): "
+                f"{obj_str} 最新「{(latest.description or '')[:60]}」"
+            )
+
+        return parts
+
+    def _build_zone_section(self, zone_id: str, zone, now: float) -> str:
+        """Build the full multi-line block for a single zone."""
+        env = zone.environment
+        parts = [f"### {zone_id}"]
+
+        # Degraded operation: flag a zone whose sensors have gone quiet, so
+        # the LLM knows the readings below may be stale (and the blind guard
+        # may be suppressing side-effects).
+        if env.last_update > 0 and (now - env.last_update) > _world_model.ENV_STALE_SEC:
+            parts.append(f"  ⚠️ データ更新なし（最終更新 {int((now - env.last_update) / 60)}分前・古い）")
+
+        def _t(ch: str, env=env) -> str:
+            return _TREND.get(env.trends.get(ch, "stable"), "")
+
+        # Fused sensor summary
+        summary_line = self._build_zone_sensors_summary(env)
+        if summary_line is not None:
+            parts.append(summary_line)
+
+        if env.temperature is not None:
+            temp_str = f"  温度: {env.temperature}度 ({env.thermal_comfort}){_t('temperature')}{self._stale_note(env, 'temperature', now)}"
+            if (env.temperature > self.thresholds.temp_high and self._is_suppressed(zone_id, "temp_high")) or (
+                env.temperature < self.thresholds.temp_low and self._is_suppressed(zone_id, "temp_low")
+            ):
+                temp_str += " (対応中)"
+            parts.append(temp_str)
+        if env.humidity is not None:
+            parts.append(f"  湿度: {env.humidity}%{_t('humidity')}{self._stale_note(env, 'humidity', now)}")
+        if env.co2 is not None:
+            co2_str = f"  CO2: {int(env.co2)}ppm{_t('co2')}{self._stale_note(env, 'co2', now)}"
+            if env.is_stuffy and (
+                self._is_suppressed(zone_id, "co2_high") or self._is_suppressed(zone_id, "co2_critical")
+            ):
+                co2_str += " (対応中)"
+            elif env.is_stuffy:
+                co2_str += " (換気推奨)"
+            parts.append(co2_str)
+
+        # Motion event frequency (_world_model.EventCounter)
+        if zone.occupancy.motion_event_count_5min > 0:
+            parts.append(f"  動体検知: 直近5分で{zone.occupancy.motion_event_count_5min}回")
+
+        # Presence state (_world_model.StateTracker)
+        if zone.occupancy.presence_state is not None:
+            dur_min = int(zone.occupancy.presence_duration_sec / 60)
+            state_str = "在室検知中" if zone.occupancy.presence_state else "不在"
+            parts.append(f"  在室センサー: {state_str} ({dur_min}分間)")
+
+        # Door states (_world_model.StateTracker)
+        for dev_id, door_info in zone.occupancy.door_states.items():
+            dur_min = int(door_info["duration_sec"] / 60)
+            state_str = "開放中" if door_info["open"] else "閉鎖中"
+            changes = door_info.get("changes_1h", 0)
+            door_line = f"  ドア({dev_id}): {state_str} ({dur_min}分間)"
+            if changes > 0:
+                door_line += f" [1h内 {changes}回開閉]"
+            parts.append(door_line)
+
+        if zone.occupancy and zone.occupancy.count > 0:
+            parts.append(f"  在室: {zone.occupancy.count}人")
+            if zone.occupancy.activity_class != "unknown":
+                parts.append(f"  活動: {zone.occupancy.activity_class} (レベル{zone.occupancy.activity_level:.1f})")
+            if zone.occupancy.posture != "unknown":
+                duration_min = int(zone.occupancy.posture_duration_sec / 60)
+                parts.append(f"  姿勢: {zone.occupancy.posture} ({duration_min}分)")
+
+        # VLM scene data (3-stage freshness tiers + history)
+        parts.extend(self._build_zone_vlm_scene(zone, now))
+
+        return "\n".join(parts)
+
+    def _build_home_devices_section(self) -> str | None:
+        """Home devices (HA integration) section, or None when bridge is disconnected."""
+        hd = self.home_devices
+        if not hd.bridge_connected:
+            return None
+
+        home_parts = ["### スマートホーム"]
+        lights_on = [lt for lt in hd.lights.values() if lt.on]
+        lights_off = [lt for lt in hd.lights.values() if not lt.on]
+        if lights_on:
+            for lt in lights_on:
+                name = lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id
+                pct = int(lt.brightness / 255 * 100) if lt.brightness else 100
+                home_parts.append(f"  照明: {name} ON({pct}%)")
+        if lights_off:
+            names = ", ".join(lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id for lt in lights_off)
+            home_parts.append(f"  照明: {names} OFF")
+
+        for c in hd.climates.values():
+            name = c.entity_id.split(".")[-1] if "." in c.entity_id else c.entity_id
+            mode_names = {
+                "off": "停止",
+                "cool": "冷房",
+                "heat": "暖房",
+                "dry": "除湿",
+                "fan_only": "送風",
+                "auto": "自動",
+            }
+            mode_ja = mode_names.get(c.mode, c.mode)
+            temp_str = f"{c.target_temp:.0f}°C" if c.target_temp else ""
+            curr_str = f" (室温{c.current_temp:.1f}°C)" if c.current_temp else ""
+            home_parts.append(f"  エアコン: {name} {mode_ja}{temp_str}{curr_str}")
+
+        for cv in hd.covers.values():
+            name = cv.entity_id.split(".")[-1] if "." in cv.entity_id else cv.entity_id
+            status = "全開" if cv.position >= 95 else "閉" if cv.position <= 5 else f"{cv.position}%"
+            home_parts.append(f"  カーテン: {name} {status}")
+
+        if hd.switches:
+            on_switches = [k.split(".")[-1] if "." in k else k for k, v in hd.switches.items() if v]
+            off_switches = [k.split(".")[-1] if "." in k else k for k, v in hd.switches.items() if not v]
+            if on_switches:
+                home_parts.append(f"  スイッチ: {', '.join(on_switches)} ON")
+            if off_switches:
+                home_parts.append(f"  スイッチ: {', '.join(off_switches)} OFF")
+
+        # Binary sensors
+        _DEVICE_CLASS_JA = {
+            "door": "ドア",
+            "window": "窓",
+            "moisture": "水漏れ",
+            "vibration": "振動",
+            "motion": "モーション",
+            "occupancy": "在室",
+        }
+        for bs in hd.binary_sensors.values():
+            if bs.device_class == "moisture":
+                name = bs.entity_id.split(".")[-1] if "." in bs.entity_id else bs.entity_id
+                status = "検知" if bs.state else "正常"
+                prefix = "⚠ " if bs.state else ""
+                dc_ja = _DEVICE_CLASS_JA.get(bs.device_class, bs.device_class)
+                home_parts.append(f"  {prefix}{dc_ja}: {name} {status}")
+            elif bs.state:
+                name = bs.entity_id.split(".")[-1] if "." in bs.entity_id else bs.entity_id
+                dc_ja = _DEVICE_CLASS_JA.get(bs.device_class, bs.device_class)
+                home_parts.append(f"  {dc_ja}: {name} 検知中")
+
+        # HA sensors (power, air quality)
+        for s in hd.sensors.values():
+            name = s.entity_id.split(".")[-1] if "." in s.entity_id else s.entity_id
+            if s.device_class == "power" and s.value > 0:
+                home_parts.append(f"  電力: {name} {s.value:.0f}{s.unit or 'W'}")
+            elif s.device_class in ("carbon_dioxide", "pm25", "voc"):
+                dc_labels = {"carbon_dioxide": "CO2", "pm25": "PM2.5", "voc": "VOC"}
+                label = dc_labels.get(s.device_class, s.device_class)
+                home_parts.append(f"  {label}: {name} {s.value:.0f}{s.unit or ''}")
+
+        if not hd.bridge_connected:
+            home_parts.append("  ⚠ HAブリッジ: 切断中")
+
+        return "\n".join(home_parts)
+
+    def _build_weather_section(self) -> str | None:
+        """Weather section (weather-bridge), or None when no data."""
+        w = self.weather
+        if not (w.last_update > 0 or w.alerts):
+            return None
+
+        weather_parts = ["### 天気"]
+        if w.last_update > 0:
+            weather_parts.append(
+                f"  現在: {w.condition} {w.temperature:.0f}°C 湿度{w.humidity:.0f}% 風速{w.wind_speed:.1f}m/s"
+            )
+        if w.alerts:
+            _SEV_JA = {
+                "extreme": "最大",
+                "severe": "重大",
+                "moderate": "中程度",
+                "minor": "軽微",
+                "unknown": "",
+            }
+            for a in w.alerts[:5]:
+                sev = _SEV_JA.get(a.severity, a.severity)
+                prefix = "⚠ " if a.severity in ("extreme", "severe") else ""
+                title = a.title or "天気警報"
+                label = f"{prefix}警報[{sev}]" if sev else f"{prefix}警報"
+                suffix = f" ({a.area})" if a.area else ""
+                line = f"  {label}: {title}{suffix}"
+                if len(line) > 140:
+                    line = line[:139] + "…"
+                weather_parts.append(line)
+
+        return "\n".join(weather_parts)
+
     def _get_physical_context(self) -> str:
-        """Build physical space context (zones + smart home)."""
+        """Build physical space context (zones + smart home).
+
+        Thin orchestrator: calls section builders in canonical order and joins
+        non-empty results with double newlines — identical to the original
+        monolithic implementation.
+        """
         lines = []
         now = _world_model.time.time()
 
         # VLM model swap banner — brain is in rule-based fallback during heavy load
-        if getattr(self, "vlm_model_swap_active", False):
-            lines.append("### ⚠ VLMモデル切替中\n  重量モデルがVRAM占有中 — brainはrule-basedモード")
-
-        # Trend arrows for analog channels
-        _TREND = {"rising": "↑", "falling": "↓", "stable": ""}
+        banner = self._build_vlm_swap_banner()
+        if banner is not None:
+            lines.append(banner)
 
         # Zone data
         for zone_id, zone in self.zones.items():
-            env = zone.environment
-            parts = [f"### {zone_id}"]
-
-            # Degraded operation: flag a zone whose sensors have gone quiet, so
-            # the LLM knows the readings below may be stale (and the blind guard
-            # may be suppressing side-effects).
-            if env.last_update > 0 and (now - env.last_update) > _world_model.ENV_STALE_SEC:
-                parts.append(f"  ⚠️ データ更新なし（最終更新 {int((now - env.last_update) / 60)}分前・古い）")
-
-            def _t(ch: str, env=env) -> str:
-                return _TREND.get(env.trends.get(ch, "stable"), "")
-
-            # Fused sensor summary — one line per zone, priority order
-            # (temp, hum, pressure, voc, pm25, light, soil). Skips None channels,
-            # truncates to 140 chars.
-            summary_bits: list[str] = []
-            if env.temperature is not None:
-                summary_bits.append(f"temp {env.temperature:.1f}C")
-            if env.humidity is not None:
-                summary_bits.append(f"hum {env.humidity:.0f}%")
-            if env.pressure is not None:
-                summary_bits.append(f"pressure {env.pressure:.0f}hPa")
-            if env.voc is not None:
-                summary_bits.append(f"voc {env.voc:.0f}")
-            if env.pm25 is not None:
-                summary_bits.append(f"pm25 {env.pm25:.0f}")
-            if env.light is not None:
-                summary_bits.append(f"light {env.light:.0f}lx")
-            if env.soil_moisture is not None:
-                summary_bits.append(f"soil {env.soil_moisture:.0f}%")
-            if summary_bits:
-                summary_line = f"  sensors: {', '.join(summary_bits)}"
-                if len(summary_line) > 140:
-                    summary_line = summary_line[:139] + "…"
-                parts.append(summary_line)
-
-            if env.temperature is not None:
-                temp_str = f"  温度: {env.temperature}度 ({env.thermal_comfort}){_t('temperature')}{self._stale_note(env, 'temperature', now)}"
-                if (env.temperature > self.thresholds.temp_high and self._is_suppressed(zone_id, "temp_high")) or (
-                    env.temperature < self.thresholds.temp_low and self._is_suppressed(zone_id, "temp_low")
-                ):
-                    temp_str += " (対応中)"
-                parts.append(temp_str)
-            if env.humidity is not None:
-                parts.append(f"  湿度: {env.humidity}%{_t('humidity')}{self._stale_note(env, 'humidity', now)}")
-            if env.co2 is not None:
-                co2_str = f"  CO2: {int(env.co2)}ppm{_t('co2')}{self._stale_note(env, 'co2', now)}"
-                if env.is_stuffy and (
-                    self._is_suppressed(zone_id, "co2_high") or self._is_suppressed(zone_id, "co2_critical")
-                ):
-                    co2_str += " (対応中)"
-                elif env.is_stuffy:
-                    co2_str += " (換気推奨)"
-                parts.append(co2_str)
-
-            # Motion event frequency (_world_model.EventCounter)
-            if zone.occupancy.motion_event_count_5min > 0:
-                parts.append(f"  動体検知: 直近5分で{zone.occupancy.motion_event_count_5min}回")
-
-            # Presence state (_world_model.StateTracker)
-            if zone.occupancy.presence_state is not None:
-                dur_min = int(zone.occupancy.presence_duration_sec / 60)
-                state_str = "在室検知中" if zone.occupancy.presence_state else "不在"
-                parts.append(f"  在室センサー: {state_str} ({dur_min}分間)")
-
-            # Door states (_world_model.StateTracker)
-            for dev_id, door_info in zone.occupancy.door_states.items():
-                dur_min = int(door_info["duration_sec"] / 60)
-                state_str = "開放中" if door_info["open"] else "閉鎖中"
-                changes = door_info.get("changes_1h", 0)
-                door_line = f"  ドア({dev_id}): {state_str} ({dur_min}分間)"
-                if changes > 0:
-                    door_line += f" [1h内 {changes}回開閉]"
-                parts.append(door_line)
-
-            if zone.occupancy and zone.occupancy.count > 0:
-                parts.append(f"  在室: {zone.occupancy.count}人")
-                if zone.occupancy.activity_class != "unknown":
-                    parts.append(f"  活動: {zone.occupancy.activity_class} (レベル{zone.occupancy.activity_level:.1f})")
-                if zone.occupancy.posture != "unknown":
-                    duration_min = int(zone.occupancy.posture_duration_sec / 60)
-                    parts.append(f"  姿勢: {zone.occupancy.posture} ({duration_min}分)")
-
-            # VLM scene data — 3-stage freshness gate (independent of live occupancy)
-            #   fresh (<300s)   → full description + objects + anomalies
-            #   aged  (<1800s)  → prefix with "約N分前の観測" so LLM knows staleness
-            #   stale (≥1800s)  → only keep minimal summary, and only if zone is occupied
-            if zone.occupancy.vlm_last_update > 0:
-                age_sec = _world_model.time.time() - zone.occupancy.vlm_last_update
-                age_min = int(age_sec / 60)
-                occ_now = zone.occupancy.count > 0 or zone.occupancy.inferred_occupied
-
-                if age_sec < 300:
-                    if zone.occupancy.scene_description:
-                        parts.append(f"  シーン: {zone.occupancy.scene_description[:100]}")
-                    if zone.occupancy.scene_objects:
-                        objs = zone.occupancy.scene_objects[:6]
-                        parts.append(f"  物体: [{', '.join(objs)}]")
-                    if zone.occupancy.scene_anomalies:
-                        parts.append(f"  異常検知: {', '.join(zone.occupancy.scene_anomalies[:3])}")
-                elif age_sec < 1800:
-                    if zone.occupancy.scene_description:
-                        parts.append(f"  シーン (約{age_min}分前の観測): {zone.occupancy.scene_description[:100]}")
-                    if zone.occupancy.scene_objects:
-                        objs = zone.occupancy.scene_objects[:6]
-                        parts.append(f"  物体 (約{age_min}分前): [{', '.join(objs)}]")
-                    if zone.occupancy.scene_anomalies:
-                        parts.append(f"  異常検知 (約{age_min}分前): {', '.join(zone.occupancy.scene_anomalies[:3])}")
-                elif occ_now:
-                    # Stale but zone still occupied — keep a terse summary only
-                    obj_hint = (
-                        f" 物体=[{', '.join(zone.occupancy.scene_objects[:4])}]" if zone.occupancy.scene_objects else ""
-                    )
-                    parts.append(f"  VLM最終観測: {age_min}分前{obj_hint}")
-
-            # VLM history one-line summary: union of objects across last 3 snapshots
-            # so the LLM has temporal context (e.g., dish appearing then disappearing).
-            history = list(zone.occupancy.vlm_history)[-3:] if hasattr(zone.occupancy, "vlm_history") else []
-            if len(history) >= 2:
-                obj_union: list[str] = []
-                for snap in history:
-                    for o in (snap.objects or [])[:6]:
-                        if o not in obj_union:
-                            obj_union.append(o)
-                latest = history[-1]
-                hist_age_min = int((_world_model.time.time() - history[0].timestamp) / 60)
-                obj_str = f"[{', '.join(obj_union[:8])}]" if obj_union else ""
-                parts.append(
-                    f"  VLM履歴 (過去{hist_age_min}分, {len(history)}観測): "
-                    f"{obj_str} 最新「{(latest.description or '')[:60]}」"
-                )
-
-            lines.append("\n".join(parts))
+            lines.append(self._build_zone_section(zone_id, zone, now))
 
         # Home devices (HA integration)
-        hd = self.home_devices
-        if hd.bridge_connected:
-            home_parts = ["### スマートホーム"]
-            lights_on = [lt for lt in hd.lights.values() if lt.on]
-            lights_off = [lt for lt in hd.lights.values() if not lt.on]
-            if lights_on:
-                for lt in lights_on:
-                    name = lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id
-                    pct = int(lt.brightness / 255 * 100) if lt.brightness else 100
-                    home_parts.append(f"  照明: {name} ON({pct}%)")
-            if lights_off:
-                names = ", ".join(
-                    lt.entity_id.split(".")[-1] if "." in lt.entity_id else lt.entity_id for lt in lights_off
-                )
-                home_parts.append(f"  照明: {names} OFF")
-
-            for c in hd.climates.values():
-                name = c.entity_id.split(".")[-1] if "." in c.entity_id else c.entity_id
-                mode_names = {
-                    "off": "停止",
-                    "cool": "冷房",
-                    "heat": "暖房",
-                    "dry": "除湿",
-                    "fan_only": "送風",
-                    "auto": "自動",
-                }
-                mode_ja = mode_names.get(c.mode, c.mode)
-                temp_str = f"{c.target_temp:.0f}°C" if c.target_temp else ""
-                curr_str = f" (室温{c.current_temp:.1f}°C)" if c.current_temp else ""
-                home_parts.append(f"  エアコン: {name} {mode_ja}{temp_str}{curr_str}")
-
-            for cv in hd.covers.values():
-                name = cv.entity_id.split(".")[-1] if "." in cv.entity_id else cv.entity_id
-                status = "全開" if cv.position >= 95 else "閉" if cv.position <= 5 else f"{cv.position}%"
-                home_parts.append(f"  カーテン: {name} {status}")
-
-            if hd.switches:
-                on_switches = [k.split(".")[-1] if "." in k else k for k, v in hd.switches.items() if v]
-                off_switches = [k.split(".")[-1] if "." in k else k for k, v in hd.switches.items() if not v]
-                if on_switches:
-                    home_parts.append(f"  スイッチ: {', '.join(on_switches)} ON")
-                if off_switches:
-                    home_parts.append(f"  スイッチ: {', '.join(off_switches)} OFF")
-
-            # Binary sensors
-            _DEVICE_CLASS_JA = {
-                "door": "ドア",
-                "window": "窓",
-                "moisture": "水漏れ",
-                "vibration": "振動",
-                "motion": "モーション",
-                "occupancy": "在室",
-            }
-            for bs in hd.binary_sensors.values():
-                if bs.device_class == "moisture":
-                    name = bs.entity_id.split(".")[-1] if "." in bs.entity_id else bs.entity_id
-                    status = "検知" if bs.state else "正常"
-                    prefix = "⚠ " if bs.state else ""
-                    dc_ja = _DEVICE_CLASS_JA.get(bs.device_class, bs.device_class)
-                    home_parts.append(f"  {prefix}{dc_ja}: {name} {status}")
-                elif bs.state:
-                    name = bs.entity_id.split(".")[-1] if "." in bs.entity_id else bs.entity_id
-                    dc_ja = _DEVICE_CLASS_JA.get(bs.device_class, bs.device_class)
-                    home_parts.append(f"  {dc_ja}: {name} 検知中")
-
-            # HA sensors (power, air quality)
-            for s in hd.sensors.values():
-                name = s.entity_id.split(".")[-1] if "." in s.entity_id else s.entity_id
-                if s.device_class == "power" and s.value > 0:
-                    home_parts.append(f"  電力: {name} {s.value:.0f}{s.unit or 'W'}")
-                elif s.device_class in ("carbon_dioxide", "pm25", "voc"):
-                    dc_labels = {"carbon_dioxide": "CO2", "pm25": "PM2.5", "voc": "VOC"}
-                    label = dc_labels.get(s.device_class, s.device_class)
-                    home_parts.append(f"  {label}: {name} {s.value:.0f}{s.unit or ''}")
-
-            if not hd.bridge_connected:
-                home_parts.append("  ⚠ HAブリッジ: 切断中")
-            lines.append("\n".join(home_parts))
+        home_section = self._build_home_devices_section()
+        if home_section is not None:
+            lines.append(home_section)
 
         # Weather (weather-bridge)
-        w = self.weather
-        if w.last_update > 0 or w.alerts:
-            weather_parts = ["### 天気"]
-            if w.last_update > 0:
-                weather_parts.append(
-                    f"  現在: {w.condition} {w.temperature:.0f}°C 湿度{w.humidity:.0f}% 風速{w.wind_speed:.1f}m/s"
-                )
-            if w.alerts:
-                _SEV_JA = {
-                    "extreme": "最大",
-                    "severe": "重大",
-                    "moderate": "中程度",
-                    "minor": "軽微",
-                    "unknown": "",
-                }
-                for a in w.alerts[:5]:
-                    sev = _SEV_JA.get(a.severity, a.severity)
-                    prefix = "⚠ " if a.severity in ("extreme", "severe") else ""
-                    title = a.title or "天気警報"
-                    label = f"{prefix}警報[{sev}]" if sev else f"{prefix}警報"
-                    suffix = f" ({a.area})" if a.area else ""
-                    line = f"  {label}: {title}{suffix}"
-                    if len(line) > 140:
-                        line = line[:139] + "…"
-                    weather_parts.append(line)
-            lines.append("\n".join(weather_parts))
+        weather_section = self._build_weather_section()
+        if weather_section is not None:
+            lines.append(weather_section)
 
         return "\n\n".join(lines)
 
