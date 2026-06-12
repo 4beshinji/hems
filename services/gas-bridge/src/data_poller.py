@@ -6,8 +6,8 @@ import asyncio
 import time
 
 from gas_client import GASClient
+from hems_common import MqttPublisher, publish_bridge_status
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 
 import config
 
@@ -15,7 +15,7 @@ import config
 class DataPoller:
     """Manages periodic polling of GAS data and MQTT publishing."""
 
-    def __init__(self, gas_client: GASClient, mqtt_pub: MQTTPublisher):
+    def __init__(self, gas_client: GASClient, mqtt_pub: MqttPublisher):
         self.gas = gas_client
         self.mqtt = mqtt_pub
 
@@ -161,13 +161,11 @@ class DataPoller:
     def _update_bridge_status(self):
         """Publish bridge connection status."""
         self._connected = True
-        self.mqtt.publish(
-            "hems/gas/bridge/status",
-            {
-                "connected": True,
-                "last_updates": self._last_update,
-                "timestamp": time.time(),
-            },
+        publish_bridge_status(
+            self.mqtt,
+            "gas",
+            last_updates=self._last_update,
+            timestamp=time.time(),
         )
 
     def get_status(self) -> dict:

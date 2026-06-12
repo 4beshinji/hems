@@ -5,6 +5,7 @@ Configuration for HEMS GAS Bridge service.
 import os
 
 from dotenv import load_dotenv
+from hems_common import load_mqtt_config
 
 load_dotenv()
 
@@ -12,11 +13,12 @@ load_dotenv()
 GAS_WEBAPP_URL = os.getenv("GAS_WEBAPP_URL", "")
 GAS_API_KEY = os.getenv("GAS_API_KEY", "")
 
-# MQTT
-MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER = os.getenv("MQTT_USER", "")
-MQTT_PASS = os.getenv("MQTT_PASS", "")
+# MQTT — module-level constants kept for backward compat; loaded via hems_common
+_mqtt = load_mqtt_config()
+MQTT_BROKER = _mqtt.broker
+MQTT_PORT = _mqtt.port
+MQTT_USER = _mqtt.user
+MQTT_PASS = _mqtt.password
 
 # Polling intervals (seconds)
 CALENDAR_INTERVAL = int(os.getenv("HEMS_GAS_CALENDAR_INTERVAL", "120"))

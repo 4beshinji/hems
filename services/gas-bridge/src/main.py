@@ -2,22 +2,20 @@
 HEMS GAS Bridge — FastAPI service that polls GAS Web App and publishes to MQTT.
 """
 
-import asyncio
 from contextlib import asynccontextmanager
 
 from data_poller import DataPoller
 from fastapi import FastAPI, HTTPException
 from gas_client import GASClient
+from hems_common import MqttPublisher, bridge_lifespan
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 
 import config
 
 # Module-level state
 gas_client: GASClient | None = None
-mqtt_pub: MQTTPublisher | None = None
+mqtt_pub: MqttPublisher | None = None
 poller: DataPoller | None = None
-_tasks: list[asyncio.Task] = []
 
 
 @asynccontextmanager
@@ -29,43 +27,55 @@ async def lifespan(app: FastAPI):
     else:
         logger.info(f"GAS Web App URL: {config.GAS_WEBAPP_URL[:60]}...")
 
-    # MQTT
-    mqtt_pub = MQTTPublisher(
+    # MQTT — gas: no retain, debug errors, raise on connect failure, no connection tracking
+    mqtt_pub = MqttPublisher(
         config.MQTT_BROKER,
         config.MQTT_PORT,
         config.MQTT_USER,
         config.MQTT_PASS,
+        default_retain=False,
+        default_qos=0,
+        ensure_ascii=False,
+        error_level="debug",
+        raise_on_connect_error=True,
+        track_connection=False,
+        auto_reconnect=False,
     )
-    mqtt_pub.connect()
 
-    # GAS client
-    gas_client = GASClient(config.GAS_WEBAPP_URL, config.GAS_API_KEY)
-    await gas_client.start()
+    async def _startup():
+        global gas_client, poller
+        gas_client = GASClient(config.GAS_WEBAPP_URL, config.GAS_API_KEY)
+        await gas_client.start()
+        poller = DataPoller(gas_client, mqtt_pub)
 
-    # Data poller
-    poller = DataPoller(gas_client, mqtt_pub)
+    async def _shutdown():
+        if gas_client is not None:
+            await gas_client.stop()
 
-    # Start polling tasks
+    task_factories = []
     if config.GAS_WEBAPP_URL:
-        _tasks.append(asyncio.create_task(poller.poll_calendar()))
-        _tasks.append(asyncio.create_task(poller.poll_tasks()))
-        _tasks.append(asyncio.create_task(poller.poll_gmail()))
-        _tasks.append(asyncio.create_task(poller.poll_sheets()))
-        _tasks.append(asyncio.create_task(poller.poll_drive()))
+        task_factories = [
+            lambda: poller.poll_calendar(),
+            lambda: poller.poll_tasks(),
+            lambda: poller.poll_gmail(),
+            lambda: poller.poll_sheets(),
+            lambda: poller.poll_drive(),
+        ]
         logger.info(
             f"Polling started: calendar={config.CALENDAR_INTERVAL}s, "
             f"tasks={config.TASKS_INTERVAL}s, gmail={config.GMAIL_INTERVAL}s, "
             f"sheets={config.SHEETS_INTERVAL}s, drive={config.DRIVE_INTERVAL}s"
         )
 
-    logger.info("GAS Bridge started")
-    yield
-
-    # Shutdown
-    for t in _tasks:
-        t.cancel()
-    await gas_client.stop()
-    mqtt_pub.disconnect()
+    async with bridge_lifespan(
+        app,
+        mqtt=mqtt_pub,
+        on_startup=_startup,
+        task_factories=task_factories,
+        on_shutdown=_shutdown,
+    ):
+        logger.info("GAS Bridge started")
+        yield
     logger.info("GAS Bridge stopped")
 
 

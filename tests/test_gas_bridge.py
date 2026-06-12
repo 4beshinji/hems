@@ -1,13 +1,24 @@
 """
 Tests for gas-bridge service (GAS client + data poller + REST API).
+
+hems_common migration contract (W3.2):
+1. config.MQTT_* constants are still exported (load_mqtt_config populates them).
+2. MqttPublisher is used with gas profile:
+   retain=False/qos=0/ensure_ascii=False/error_level=debug/
+   raise_on_connect_error=True/track_connection=False/auto_reconnect=False
+3. _update_bridge_status emits via publish_bridge_status → retain=True,
+   topic=hems/gas/bridge/status (unchanged).
 """
 
 import importlib.util
+import json
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import paho.mqtt.client as _mqtt
 import pytest
 from fastapi.testclient import TestClient
 
@@ -206,3 +217,86 @@ class TestGASBridgeAPI:
     def test_status_503_without_startup(self, bridge_client):
         resp = bridge_client.get("/api/gas/status")
         assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# hems_common migration contract tests (W3.2)
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_publisher():
+    """Return a MqttPublisher configured with gas profile (paho client mocked)."""
+    from hems_common import MqttPublisher
+
+    pub = MqttPublisher(
+        "localhost",
+        1883,
+        default_retain=False,
+        default_qos=0,
+        ensure_ascii=False,
+        error_level="debug",
+        raise_on_connect_error=True,
+        track_connection=False,
+        auto_reconnect=False,
+    )
+    pub.client = MagicMock()
+    pub.client.publish.return_value = MagicMock(rc=_mqtt.MQTT_ERR_SUCCESS)
+    return pub
+
+
+def _last_publish_args(mock_pub):
+    """Return (topic, json_payload_str, retain, qos) from the last client.publish call."""
+    args, kwargs = mock_pub.client.publish.call_args
+    topic = args[0]
+    payload_str = args[1]
+    return topic, payload_str, kwargs.get("retain"), kwargs.get("qos")
+
+
+def test_config_mqtt_constants_exported():
+    """config.MQTT_BROKER/PORT/USER/PASS are still exported after load_mqtt_config migration."""
+    mod = _gas_import("config")
+    assert hasattr(mod, "MQTT_BROKER")
+    assert hasattr(mod, "MQTT_PORT")
+    assert hasattr(mod, "MQTT_USER")
+    assert hasattr(mod, "MQTT_PASS")
+    assert isinstance(mod.MQTT_PORT, int)
+
+
+def test_update_bridge_status_topic_and_retain():
+    """_update_bridge_status publishes to hems/gas/bridge/status with retain=True."""
+    dp_mod = _gas_import("data_poller")
+    DataPoller = dp_mod.DataPoller
+
+    mock_pub = _make_mock_publisher()
+    gas = AsyncMock()
+    poller = DataPoller(gas, mock_pub)
+
+    poller._last_update["calendar"] = time.time()
+    poller._update_bridge_status()
+
+    topic, payload_str, retain, _qos = _last_publish_args(mock_pub)
+    assert topic == "hems/gas/bridge/status"
+    payload = json.loads(payload_str)
+    assert payload["connected"] is True
+    assert "last_updates" in payload
+    assert "timestamp" in payload
+    assert retain is True  # publish_bridge_status always retains
+
+
+def test_publish_uses_ensure_ascii_false():
+    """Payloads with Japanese strings are emitted as UTF-8, not \\uXXXX sequences."""
+    mock_pub = _make_mock_publisher()
+    mock_pub.publish("hems/gas/gmail/summary", {"subject": "件名：テスト"})
+    _, payload_str, _, _ = _last_publish_args(mock_pub)
+    assert "テスト" in payload_str
+    assert "\\u" not in payload_str
+
+
+def test_regular_publish_no_retain():
+    """Regular data topics are published without retain (gas profile default)."""
+    mock_pub = _make_mock_publisher()
+    mock_pub.publish("hems/gas/calendar/upcoming", {"events": []})
+    topic, _, retain, qos = _last_publish_args(mock_pub)
+    assert topic == "hems/gas/calendar/upcoming"
+    assert retain is False
+    assert qos == 0
