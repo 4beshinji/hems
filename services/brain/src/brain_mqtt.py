@@ -76,7 +76,32 @@ class MqttSyncMixin:
             self._loop.call_soon_threadsafe(self._process_mqtt, msg.topic, payload)
 
     def _process_mqtt(self, topic: str, payload):
-        # Enrich Z2M payloads with zone from Device Registry
+        # Thin orchestrator: each step is an extracted method. The recorded order
+        # below IS the execution order and preserves the three mandatory ordering
+        # invariants (see docs/refactor/2026-06-11/W2.6-design-note.md §2):
+        #   (1) S0 enrich must run before S1 update_from_mqtt.
+        #   (2) wake_up_fired aggregate → sunrise stop (stop stays here, not in S7).
+        #   (3) _maybe_trigger_cycle must run last, after all world_model mutations.
+        parts = topic.split("/")
+
+        self._enrich_payload(topic, payload)  # S0 (must precede S1)
+        self.world_model.update_from_mqtt(topic, payload)  # S1
+        self._feed_shopping_classifier(topic, payload)  # S2
+        self._trigger_timeline_on_event(topic, parts)  # S3
+        self._mark_intervention(topic, parts)  # S4
+        self._feed_schedule_learner_occupancy(topic, payload, parts)  # S5
+        self._feed_schedule_learner_sleep(topic, payload)  # S6
+        woke = self._detect_wake_up(topic, payload, parts)  # S7
+        # Sunrise alarm: cancel ramp + turn off light on wake_up. Aggregated flag
+        # from S7 is evaluated here so multi-path detection stops sunrise once.
+        if woke and self.sunrise_alarm and self.sunrise_alarm.is_active:
+            self.sunrise_alarm.stop(self.client)
+        self._record_to_event_store(topic, payload, parts)  # S8
+        self._update_device_registry(topic, payload, parts)  # S9a
+        self._maybe_trigger_cycle()  # S9b (must be last)
+
+    def _enrich_payload(self, topic: str, payload) -> None:
+        """S0: enrich Z2M payloads with zone from Device Registry (in-place)."""
         if (
             isinstance(payload, dict)
             and topic.startswith("zigbee2mqtt/")
@@ -87,76 +112,90 @@ class MqttSyncMixin:
             if zone and "zone" not in payload:
                 payload["zone"] = zone
 
-        self.world_model.update_from_mqtt(topic, payload)
-
+    def _feed_shopping_classifier(self, topic: str, payload) -> None:
+        """S2: feed shopping add/purchase events to the classifier coroutine."""
         if topic == "hems/shopping/added" and self.shopping_classifier and self._loop:
             asyncio.run_coroutine_threadsafe(self.shopping_classifier.handle_added_event(payload), self._loop)
         elif topic == "hems/shopping/purchased" and self.shopping_classifier and self._loop:
             asyncio.run_coroutine_threadsafe(self.shopping_classifier.handle_purchased_event(payload), self._loop)
 
+    def _trigger_timeline_on_event(self, topic: str, parts: list[str]) -> None:
+        """S3: trigger timeline regeneration on calendar / task lifecycle events."""
         if self.timeline_generator and self._loop:
             if topic == "hems/gas/calendar/upcoming":
                 self._loop.call_soon_threadsafe(self._trigger_timeline_regen, "calendar_update")
             elif topic.startswith("hems/task/"):
-                parts = topic.split("/")
                 if len(parts) >= 3 and parts[2] in ("created", "dismissed", "completed", "locked"):
                     self._loop.call_soon_threadsafe(self._trigger_timeline_regen, f"task_{parts[2]}")
 
-        # Intervention efficacy: mark a tracked task completed (Group D). Plain
-        # thread-safe append, so it runs regardless of timeline_generator.
+    def _mark_intervention(self, topic: str, parts: list[str]) -> None:
+        """S4: mark a tracked task completed (intervention efficacy, Group D).
+
+        Plain thread-safe append, so it runs regardless of timeline_generator.
+        """
         if self.event_writer and topic.startswith("hems/task/completed/"):
-            tparts = topic.split("/")
-            if len(tparts) >= 4:
-                self.event_writer.mark_intervention_completed(tparts[3])
+            if len(parts) >= 4:
+                self.event_writer.mark_intervention_completed(parts[3])
 
-        # Feed occupancy changes to schedule learner.
-        # We unify transitions across camera, PIR/presence binary sensors, and
-        # biometric HR so the learner gets arrivals/departures even when the
-        # camera is offline or the zone has no camera at all.
-        if self.schedule_learner:
-            parts = topic.split("/")
-            # None until a presence-bearing topic matches below, so reconcile_presence
-            # only runs for occupancy-relevant messages rather than every MQTT message.
-            inferred = None
+    def _feed_schedule_learner_occupancy(self, topic: str, payload, parts: list[str]) -> None:
+        """S5: feed occupancy changes to schedule learner.
 
-            # Camera person count (office/{zone}/camera/{cam}/status)
-            if len(parts) >= 5 and parts[0] == "office" and parts[2] == "camera":
-                inferred = int(payload.get("person_count", payload.get("count", 0)))
+        We unify transitions across camera, PIR/presence binary sensors, and
+        biometric HR so the learner gets arrivals/departures even when the
+        camera is offline or the zone has no camera at all.
+        """
+        if not self.schedule_learner:
+            return
+        # None until a presence-bearing topic matches below, so reconcile_presence
+        # only runs for occupancy-relevant messages rather than every MQTT message.
+        inferred = None
 
-            # HA/SwitchBot/Zigbee-via-HA binary_sensor presence/occupancy/motion
-            elif len(parts) >= 6 and parts[0] == "hems" and parts[1] == "home" and parts[3] == "binary_sensor":
-                dc = payload.get("device_class", "")
-                if dc in ("motion", "occupancy", "presence"):
-                    raw = payload.get("state", "off")
-                    inferred = 1 if raw in ("on", "detected", "open") else 0
+        # Camera person count (office/{zone}/camera/{cam}/status)
+        if len(parts) >= 5 and parts[0] == "office" and parts[2] == "camera":
+            inferred = int(payload.get("person_count", payload.get("count", 0)))
 
-            # Biometric HR arrival: a fresh HR reading implies the user is home.
-            # Only a 0→1 flip is meaningful; the learner debounces on its side.
-            elif (
-                len(parts) >= 4
-                and parts[0] == "hems"
-                and parts[1] == "personal"
-                and parts[2] == "biometrics"
-                and topic.endswith("/heart_rate")
-                and payload.get("bpm")
-            ):
-                inferred = 1
+        # HA/SwitchBot/Zigbee-via-HA binary_sensor presence/occupancy/motion
+        elif len(parts) >= 6 and parts[0] == "hems" and parts[1] == "home" and parts[3] == "binary_sensor":
+            dc = payload.get("device_class", "")
+            if dc in ("motion", "occupancy", "presence"):
+                raw = payload.get("state", "off")
+                inferred = 1 if raw in ("on", "detected", "open") else 0
 
-            if inferred is not None:
-                # Use reconciled presence as the authoritative signal so individual
-                # sensor flaps don't generate spurious arrivals/departures.
-                self.world_model.reconcile_presence()
-                aggregated = 1 if self.world_model.is_anyone_home() else 0
-                self.schedule_learner.update_occupancy(aggregated)
+        # Biometric HR arrival: a fresh HR reading implies the user is home.
+        # Only a 0→1 flip is meaningful; the learner debounces on its side.
+        elif (
+            len(parts) >= 4
+            and parts[0] == "hems"
+            and parts[1] == "personal"
+            and parts[2] == "biometrics"
+            and topic.endswith("/heart_rate")
+            and payload.get("bpm")
+        ):
+            inferred = 1
 
-        # Feed biometric sleep data to schedule learner
+        if inferred is not None:
+            # Use reconciled presence as the authoritative signal so individual
+            # sensor flaps don't generate spurious arrivals/departures.
+            self.world_model.reconcile_presence()
+            aggregated = 1 if self.world_model.is_anyone_home() else 0
+            self.schedule_learner.update_occupancy(aggregated)
+
+    def _feed_schedule_learner_sleep(self, topic: str, payload) -> None:
+        """S6: feed biometric sleep data to schedule learner."""
         if self.schedule_learner and "biometrics" in topic and "/sleep" in topic:
             sleep_end = payload.get("sleep_end_ts", 0)
             sleep_start = payload.get("sleep_start_ts", 0)
             if sleep_end > 0:
                 self.schedule_learner.record_sleep_from_biometrics(sleep_start, sleep_end)
 
-        # Wake-up detection for EventAutomation + SunriseAlarm
+    def _detect_wake_up(self, topic: str, payload, parts: list[str]) -> bool:
+        """S7: wake-up detection for EventAutomation. Returns aggregated wake flag.
+
+        Both the biometric sleep-end path and the morning-camera path are
+        independent ``if`` branches (either may fire for a given message). The
+        sunrise-alarm stop is intentionally NOT performed here: the caller
+        aggregates the returned flag and stops sunrise once (design note §2-2).
+        """
         wake_up_fired = False
         if self.event_automation:
             # Biometric sleep end → wake_up
@@ -172,7 +211,6 @@ class MqttSyncMixin:
                             )
 
             # Camera: person detected in morning hours (env-configurable)
-            parts = topic.split("/")
             hour = datetime.now().hour
             if (
                 WAKE_DETECT_HOUR_START <= hour < WAKE_DETECT_HOUR_END
@@ -190,95 +228,96 @@ class MqttSyncMixin:
                                 self.automation_engine.trigger_event("wake_up"), self._loop
                             )
 
-        # Sunrise alarm: cancel ramp + turn off light on wake_up
-        if wake_up_fired and self.sunrise_alarm and self.sunrise_alarm.is_active:
-            self.sunrise_alarm.stop(self.client)
+        return wake_up_fired
 
-        if self.event_writer:
-            parts = topic.split("/")
-            if len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
-                channel = parts[4]
-                value = payload.get(channel) or payload.get("value")
-                if value is not None:
-                    # Input trust boundary: validate analog telemetry before it
-                    # is persisted to the event-store data mart (skews hourly
-                    # aggregates otherwise). EVENT/STATE channels carry
-                    # non-numeric payloads legitimately and are stored as-is.
-                    if classify_channel(channel) == ChannelType.ANALOG:
-                        ok, coerced = validate_sensor_value(channel, value)
-                        if not ok:
-                            logger.warning(
-                                "Rejected sensor value (not persisted): topic={} device={} raw={!r}",
-                                topic,
-                                parts[3],
-                                value,
-                            )
-                            value = None
-                        else:
-                            value = coerced
-                    if value is not None:
-                        self.event_writer.record_sensor(
-                            zone=parts[1],
-                            channel=channel,
-                            value=value,
-                            device_id=parts[3],
-                            topic=topic,
+    def _record_to_event_store(self, topic: str, payload, parts: list[str]) -> None:
+        """S8: persist sensor telemetry + out-of-zone world events to event store."""
+        if not self.event_writer:
+            return
+        if len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
+            channel = parts[4]
+            value = payload.get(channel) or payload.get("value")
+            if value is not None:
+                # Input trust boundary: validate analog telemetry before it
+                # is persisted to the event-store data mart (skews hourly
+                # aggregates otherwise). EVENT/STATE channels carry
+                # non-numeric payloads legitimately and are stored as-is.
+                if classify_channel(channel) == ChannelType.ANALOG:
+                    ok, coerced = validate_sensor_value(channel, value)
+                    if not ok:
+                        logger.warning(
+                            "Rejected sensor value (not persisted): topic={} device={} raw={!r}",
+                            topic,
+                            parts[3],
+                            value,
                         )
-
-            # Out-of-zone world events: shopping / gas / weather alerts / urgent news.
-            # record_world_event dedupes on payload digest (5min), so retained
-            # MQTT messages and repeat polls do not bloat the store.
-            if len(parts) >= 3 and parts[0] == "hems":
-                domain = parts[1]
-                if (
-                    domain == "shopping"
-                    and len(parts) >= 3
-                    and parts[2]
-                    in (
-                        "added",
-                        "updated",
-                        "purchased",
-                    )
-                ):
-                    subject = None
-                    if isinstance(payload, dict):
-                        subject = payload.get("name") or payload.get("item") or payload.get("id")
-                    self.event_writer.record_world_event(
-                        source_type=f"shopping_{parts[2]}",
+                        value = None
+                    else:
+                        value = coerced
+                if value is not None:
+                    self.event_writer.record_sensor(
+                        zone=parts[1],
+                        channel=channel,
+                        value=value,
+                        device_id=parts[3],
                         topic=topic,
-                        payload=payload,
-                        subject_ref=str(subject) if subject is not None else None,
-                    )
-                elif domain == "gas" and len(parts) >= 3 and parts[2] != "bridge":
-                    subject = parts[2] if len(parts) >= 3 else None
-                    if len(parts) >= 4:
-                        subject = f"{parts[2]}/{parts[3]}"
-                    self.event_writer.record_world_event(
-                        source_type="gas",
-                        topic=topic,
-                        payload=payload,
-                        subject_ref=subject,
-                    )
-                elif domain == "weather" and len(parts) >= 3 and parts[2] == "alerts":
-                    self.event_writer.record_world_event(
-                        source_type="weather_alert",
-                        topic=topic,
-                        payload=payload,
-                        subject_ref=None,
-                    )
-                elif domain == "news" and len(parts) >= 3 and parts[2] == "urgent":
-                    subject = None
-                    if isinstance(payload, dict):
-                        subject = payload.get("title") or payload.get("url")
-                    self.event_writer.record_world_event(
-                        source_type="news_urgent",
-                        topic=topic,
-                        payload=payload,
-                        subject_ref=str(subject)[:200] if subject else None,
                     )
 
+        # Out-of-zone world events: shopping / gas / weather alerts / urgent news.
+        # record_world_event dedupes on payload digest (5min), so retained
+        # MQTT messages and repeat polls do not bloat the store.
+        if len(parts) >= 3 and parts[0] == "hems":
+            domain = parts[1]
+            if (
+                domain == "shopping"
+                and len(parts) >= 3
+                and parts[2]
+                in (
+                    "added",
+                    "updated",
+                    "purchased",
+                )
+            ):
+                subject = None
+                if isinstance(payload, dict):
+                    subject = payload.get("name") or payload.get("item") or payload.get("id")
+                self.event_writer.record_world_event(
+                    source_type=f"shopping_{parts[2]}",
+                    topic=topic,
+                    payload=payload,
+                    subject_ref=str(subject) if subject is not None else None,
+                )
+            elif domain == "gas" and len(parts) >= 3 and parts[2] != "bridge":
+                subject = parts[2] if len(parts) >= 3 else None
+                if len(parts) >= 4:
+                    subject = f"{parts[2]}/{parts[3]}"
+                self.event_writer.record_world_event(
+                    source_type="gas",
+                    topic=topic,
+                    payload=payload,
+                    subject_ref=subject,
+                )
+            elif domain == "weather" and len(parts) >= 3 and parts[2] == "alerts":
+                self.event_writer.record_world_event(
+                    source_type="weather_alert",
+                    topic=topic,
+                    payload=payload,
+                    subject_ref=None,
+                )
+            elif domain == "news" and len(parts) >= 3 and parts[2] == "urgent":
+                subject = None
+                if isinstance(payload, dict):
+                    subject = payload.get("title") or payload.get("url")
+                self.event_writer.record_world_event(
+                    source_type="news_urgent",
+                    topic=topic,
+                    payload=payload,
+                    subject_ref=str(subject)[:200] if subject else None,
+                )
+
+    def _update_device_registry(self, topic: str, payload, parts: list[str]) -> None:
+        """S9a: heartbeat update, Z2M bridge annotation, device auto-registration."""
         if "/heartbeat" in topic:
-            parts = topic.split("/")
             if len(parts) >= 4:
                 self.device_registry.update_from_heartbeat(parts[3], payload)
 
@@ -299,6 +338,12 @@ class MqttSyncMixin:
                 self._heartbeat_debounce[observation.device_id] = now
                 asyncio.run_coroutine_threadsafe(self.dashboard.push_device_heartbeat(observation), self._loop)
 
+    def _maybe_trigger_cycle(self) -> None:
+        """S9b: trigger a cognitive cycle when world_model event counts changed.
+
+        Must run AFTER all world_model mutations (S1/S5) — the comparison is a
+        length diff over zone/domain event lists (design note §2-3).
+        """
         current = {zid: len(z.events) for zid, z in self.world_model.zones.items()}
         if OPENCLAW_ENABLED:
             current["__pc__"] = len(self.world_model.pc_state.events)
