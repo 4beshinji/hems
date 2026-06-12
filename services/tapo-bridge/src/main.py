@@ -5,13 +5,12 @@ Polling: periodically reads device status → MQTT publish (hems/tapo/{ref}/stat
 REST: accepts control commands from Brain → python-kasa → device
 """
 
-import asyncio
 from contextlib import asynccontextmanager
 
 from device_mapper import DeviceMapper
 from fastapi import FastAPI, HTTPException
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 from tapo_client import TapoClient
 
@@ -19,12 +18,13 @@ import config
 
 cfg: config.Config | None = None
 device_mapper: DeviceMapper | None = None
-mqtt_pub: MQTTPublisher | None = None
+mqtt_pub: MqttPublisher | None = None
 tapo: TapoClient | None = None
-_tasks: list[asyncio.Task] = []
 
 
 async def _poll_loop():
+    import asyncio
+
     assert cfg and device_mapper and mqtt_pub and tapo
     while True:
         try:
@@ -52,15 +52,15 @@ async def _poll_loop():
 
 
 async def _status_loop():
+    import asyncio
+
     assert cfg and mqtt_pub and device_mapper
     while True:
         try:
-            mqtt_pub.publish(
-                "hems/tapo/bridge/status",
-                {
-                    "connected": True,
-                    "device_count": len(device_mapper.all_refs()),
-                },
+            publish_bridge_status(
+                mqtt_pub,
+                "tapo",
+                device_count=len(device_mapper.all_refs()),
             )
         except Exception as e:
             logger.debug(f"Status loop error: {e}")
@@ -72,30 +72,38 @@ async def lifespan(app: FastAPI):
     global cfg, device_mapper, mqtt_pub, tapo
     cfg = config.load_config()
     device_mapper = DeviceMapper(cfg)
-    mqtt_pub = MQTTPublisher(
+
+    # MQTT — tapo: retain=True, error-level error, no connection tracking (unconditional publish)
+    mqtt_pub = MqttPublisher(
         cfg.mqtt_broker,
         cfg.mqtt_port,
         cfg.mqtt_user,
         cfg.mqtt_pass,
+        default_retain=True,
+        default_qos=0,
+        ensure_ascii=False,
+        error_level="error",
+        raise_on_connect_error=False,
+        track_connection=False,
+        auto_reconnect=True,
     )
-    mqtt_pub.connect()
 
-    if not cfg.tapo_username or not cfg.tapo_password:
-        logger.warning("TAPO_USERNAME / TAPO_PASSWORD not set — Tapo devices will fail")
-    tapo = TapoClient(cfg.tapo_username, cfg.tapo_password)
+    async def _startup():
+        global tapo
+        if not cfg.tapo_username or not cfg.tapo_password:
+            logger.warning("TAPO_USERNAME / TAPO_PASSWORD not set — Tapo devices will fail")
+        tapo = TapoClient(cfg.tapo_username, cfg.tapo_password)
+        if not cfg.devices:
+            logger.warning("TAPO_DEVICES empty — no devices will be polled")
 
-    if not cfg.devices:
-        logger.warning("TAPO_DEVICES empty — no devices will be polled")
-
-    _tasks.append(asyncio.create_task(_poll_loop()))
-    _tasks.append(asyncio.create_task(_status_loop()))
-    logger.info(f"tapo-bridge started with {len(cfg.devices)} devices")
-
-    yield
-
-    for t in _tasks:
-        t.cancel()
-    mqtt_pub.disconnect()
+    async with bridge_lifespan(
+        app,
+        mqtt=mqtt_pub,
+        on_startup=_startup,
+        task_factories=[_poll_loop, _status_loop],
+    ):
+        logger.info(f"tapo-bridge started with {len(cfg.devices)} devices")
+        yield
 
 
 app = FastAPI(title="HEMS Tapo Bridge", lifespan=lifespan)

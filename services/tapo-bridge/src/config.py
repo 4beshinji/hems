@@ -1,8 +1,9 @@
 """Environment-based config loader for tapo-bridge."""
 
-import json
 import os
 from dataclasses import dataclass
+
+from hems_common import load_json_env
 
 
 @dataclass
@@ -24,23 +25,13 @@ class Config:
     mqtt_pass: str
 
 
-def _load_json_env(key: str, default: str = "{}") -> dict:
-    raw = os.getenv(key, default)
-    if not raw.strip():
-        return {}
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-
-
 def load_config() -> Config:
     return Config(
         tapo_username=os.getenv("TAPO_USERNAME", ""),
         tapo_password=os.getenv("TAPO_PASSWORD", ""),
-        devices=_load_json_env("TAPO_DEVICES"),
-        zones=_load_json_env("TAPO_ZONES"),
-        names=_load_json_env("TAPO_NAMES"),
+        devices=load_json_env("TAPO_DEVICES"),
+        zones=load_json_env("TAPO_ZONES"),
+        names=load_json_env("TAPO_NAMES"),
         poll_interval_sec=int(os.getenv("TAPO_POLL_INTERVAL", "30")),
         mqtt_broker=os.getenv("MQTT_BROKER", "mosquitto"),
         mqtt_port=int(os.getenv("MQTT_PORT", "1883")),
