@@ -9,8 +9,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 from news_fetcher import NewsFetcher
 from news_summarizer import NewsSummarizer, OllamaClient, split_by_category
 from urgency import UrgencyDetector
@@ -18,11 +18,10 @@ from urgency import UrgencyDetector
 import config
 
 # Module-level state
-mqtt_pub: MQTTPublisher | None = None
+mqtt_pub: MqttPublisher | None = None
 fetcher: NewsFetcher | None = None
 summarizer: NewsSummarizer | None = None
 urgency_detector: UrgencyDetector | None = None
-_tasks: list[asyncio.Task] = []
 
 # Cached latest summary
 _latest_summary: dict = {}
@@ -89,18 +88,6 @@ async def _check_urgent_news():
         logger.error(f"Urgent news check failed: {e}")
 
 
-async def _publish_bridge_status():
-    """Publish bridge status to MQTT."""
-    mqtt_pub.publish(
-        "hems/news/bridge/status",
-        {
-            "connected": True,
-            "last_fetch": _latest_summary.get("timestamp", 0),
-            "articles_count": _latest_summary.get("article_count", 0),
-        },
-    )
-
-
 async def _daily_summary_loop():
     """Scheduled daily summary generation."""
     while True:
@@ -136,7 +123,12 @@ async def _urgent_check_loop():
     while True:
         try:
             await _check_urgent_news()
-            await _publish_bridge_status()
+            publish_bridge_status(
+                mqtt_pub,
+                "news",
+                last_fetch=_latest_summary.get("timestamp", 0),
+                articles_count=_latest_summary.get("article_count", 0),
+            )
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -148,39 +140,46 @@ async def _urgent_check_loop():
 async def lifespan(app: FastAPI):
     global mqtt_pub, fetcher, summarizer, urgency_detector
 
-    # MQTT
-    mqtt_pub = MQTTPublisher(
+    # MQTT — news: no retain, debug errors, raise on connect failure, no connection tracking
+    mqtt_pub = MqttPublisher(
         config.MQTT_BROKER,
         config.MQTT_PORT,
         config.MQTT_USER,
         config.MQTT_PASS,
+        default_retain=False,
+        default_qos=0,
+        ensure_ascii=False,
+        error_level="debug",
+        raise_on_connect_error=True,
+        track_connection=False,
+        auto_reconnect=False,
     )
-    mqtt_pub.connect()
 
-    # Ollama client
-    ollama = OllamaClient(url=config.OLLAMA_URL, model=config.OLLAMA_SUMMARY_MODEL)
+    async def _startup():
+        global fetcher, summarizer, urgency_detector
+        # Ollama client
+        ollama = OllamaClient(url=config.OLLAMA_URL, model=config.OLLAMA_SUMMARY_MODEL)
+        # Components
+        fetcher = NewsFetcher(sources=config.NEWS_SOURCE_LIST)
+        summarizer = NewsSummarizer(ollama)
+        urgency_detector = UrgencyDetector(ollama, threshold=config.NEWS_URGENCY_THRESHOLD)
 
-    # Components
-    fetcher = NewsFetcher(sources=config.NEWS_SOURCE_LIST)
-    summarizer = NewsSummarizer(ollama)
-    urgency_detector = UrgencyDetector(ollama, threshold=config.NEWS_URGENCY_THRESHOLD)
-
-    # Generate initial summary on startup
-    _tasks.append(asyncio.create_task(_initial_summary()))
-    # Start polling loops
-    _tasks.append(asyncio.create_task(_daily_summary_loop()))
-    _tasks.append(asyncio.create_task(_urgent_check_loop()))
-
-    logger.info(
-        f"News Bridge started: sources={config.NEWS_SOURCE_LIST}, "
-        f"daily={config.NEWS_DAILY_HOUR:02d}:{config.NEWS_DAILY_MINUTE:02d}, "
-        f"poll={config.NEWS_POLL_INTERVAL}s"
-    )
-    yield
-
-    for t in _tasks:
-        t.cancel()
-    mqtt_pub.disconnect()
+    async with bridge_lifespan(
+        app,
+        mqtt=mqtt_pub,
+        on_startup=_startup,
+        task_factories=[
+            lambda: _initial_summary(),
+            lambda: _daily_summary_loop(),
+            lambda: _urgent_check_loop(),
+        ],
+    ):
+        logger.info(
+            f"News Bridge started: sources={config.NEWS_SOURCE_LIST}, "
+            f"daily={config.NEWS_DAILY_HOUR:02d}:{config.NEWS_DAILY_MINUTE:02d}, "
+            f"poll={config.NEWS_POLL_INTERVAL}s"
+        )
+        yield
     logger.info("News Bridge stopped")
 
 
