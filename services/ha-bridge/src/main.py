@@ -13,17 +13,16 @@ import aiohttp
 from entity_mapper import EntityMapper
 from fastapi import FastAPI, HTTPException
 from ha_client import HAClient
+from hems_common import MqttPublisher, bridge_lifespan
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 
 import config
 
 # Module-level shared state
 ha_client: HAClient | None = None
-mqtt_pub: MQTTPublisher | None = None
+mqtt_pub: MqttPublisher | None = None
 entity_mapper: EntityMapper | None = None
-_tasks: list[asyncio.Task] = []
 
 # Relevant HA domains for HEMS
 _TRACKED_DOMAINS = {"light", "climate", "cover", "switch", "sensor", "binary_sensor"}
@@ -115,26 +114,47 @@ async def lifespan(app: FastAPI):
     global ha_client, mqtt_pub, entity_mapper
 
     entity_mapper = EntityMapper(config.HEMS_HA_ENTITY_MAP)
-    mqtt_pub = MQTTPublisher(config.MQTT_BROKER, config.MQTT_PORT, config.MQTT_USER, config.MQTT_PASS)
-    mqtt_pub.connect()
+    # ha: retain=True, no connection tracking (unconditional publish),
+    # raise_on_connect_error=False (log and continue on MQTT failure).
+    mqtt_pub = MqttPublisher(
+        config.MQTT_BROKER,
+        config.MQTT_PORT,
+        config.MQTT_USER,
+        config.MQTT_PASS,
+        default_retain=True,
+        track_connection=False,
+        auto_reconnect=False,
+        raise_on_connect_error=False,
+    )
 
     ha_client = HAClient(config.HA_URL, config.HA_TOKEN)
+    _session: aiohttp.ClientSession | None = None
 
-    async with aiohttp.ClientSession() as session:
-        await ha_client.start(session)
-
-        # Start WebSocket event loop with polling fallback
-        _tasks.append(asyncio.create_task(ha_client.reconnect_loop(_on_state_changed, _poll_states)))
-        _tasks.append(asyncio.create_task(_bridge_status_loop()))
-
+    async def _startup():
+        nonlocal _session
+        _session = aiohttp.ClientSession()
+        await ha_client.start(_session)
         logger.info(f"HA Bridge started (HA={config.HA_URL})")
-        yield
 
-        for t in _tasks:
-            t.cancel()
+    async def _shutdown():
         await ha_client.stop()
-        mqtt_pub.disconnect()
+        if _session:
+            await _session.close()
         logger.info("HA Bridge stopped")
+
+    async with bridge_lifespan(
+        app,
+        mqtt=mqtt_pub,
+        on_startup=_startup,
+        # WebSocket reconnect_loop and status loop — ha_client is set before
+        # task factories run (bridge_lifespan calls on_startup first).
+        task_factories=(
+            lambda: ha_client.reconnect_loop(_on_state_changed, _poll_states),
+            _bridge_status_loop,
+        ),
+        on_shutdown=_shutdown,
+    ):
+        yield
 
 
 app = FastAPI(title="HEMS HA Bridge", lifespan=lifespan)

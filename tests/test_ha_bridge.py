@@ -154,8 +154,9 @@ class TestHAClient:
 
 class TestMQTTPublisher:
     def test_publish(self):
-        pub_mod = _ha_import("mqtt_publisher")
-        pub = pub_mod.MQTTPublisher("localhost", 1883)
+        from hems_common import MqttPublisher
+
+        pub = MqttPublisher("localhost", 1883, default_retain=True, track_connection=False)
         pub.client = MagicMock()
         pub.publish("hems/home/test", {"state": "on"})
         pub.client.publish.assert_called_once()
@@ -171,7 +172,6 @@ class TestBridgeAPIEndpoints:
         # Pre-load dependencies
         old_config = sys.modules.pop("config", None)
         old_ha = sys.modules.pop("ha_client", None)
-        old_mqtt = sys.modules.pop("mqtt_publisher", None)
         old_mapper = sys.modules.pop("entity_mapper", None)
         sys.path.insert(0, _ha_src)
         try:
@@ -191,7 +191,6 @@ class TestBridgeAPIEndpoints:
         for name, old in [
             ("config", old_config),
             ("ha_client", old_ha),
-            ("mqtt_publisher", old_mqtt),
             ("entity_mapper", old_mapper),
         ]:
             if old is not None:

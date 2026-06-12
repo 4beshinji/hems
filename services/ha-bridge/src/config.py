@@ -5,6 +5,7 @@ Configuration for HEMS Home Assistant Bridge service.
 import os
 
 from dotenv import load_dotenv
+from hems_common.config import load_mqtt_config
 
 load_dotenv()
 
@@ -12,11 +13,12 @@ load_dotenv()
 HA_URL = os.getenv("HA_URL", "http://localhost:8123")
 HA_TOKEN = os.getenv("HA_TOKEN", "")
 
-# MQTT
-MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER = os.getenv("MQTT_USER", "")
-MQTT_PASS = os.getenv("MQTT_PASS", "")
+# MQTT — loaded via hems_common for consistency with other bridges
+_mqtt = load_mqtt_config()
+MQTT_BROKER = _mqtt.broker
+MQTT_PORT = _mqtt.port
+MQTT_USER = _mqtt.user
+MQTT_PASS = _mqtt.password
 
 # Entity mapping (JSON string: {"entity_id": {"zone": "...", "domain": "..."}})
 HEMS_HA_ENTITY_MAP = os.getenv("HEMS_HA_ENTITY_MAP", "{}")
