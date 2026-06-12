@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from loguru import logger
@@ -33,6 +34,33 @@ from brain_constants import (
 from brain_utils import format_tool_call_blocks, format_tool_result_msg
 from system_prompt import build_system_message
 from tool_registry import get_tools
+
+
+@dataclass
+class _ReactState:
+    """Mutable state carried across ReAct iterations within a single cognitive
+    cycle. Bundled into a dataclass (rather than self.* attributes) because it is
+    cycle-local: storing it on self would risk leaking state between cycles.
+
+    `total_tool_calls` is cycle-wide (it already accumulates rule-path tool calls
+    from the fallback guards before the ReAct loop runs); the loop adds LLM tool
+    calls on top.
+    """
+
+    messages: list
+    tools: list
+    active_tasks: list
+    now: float
+    system_blind: bool
+    total_tool_calls: int = 0
+    low_power_escalation: bool = False
+    tool_call_history: list = field(default_factory=list)
+    speak_count: int = 0
+    consecutive_errors: int = 0
+    iteration: int = 0
+    prompt_tokens_total: int = 0
+    completion_tokens_total: int = 0
+    gpu_util_pct: float | None = None
 
 
 class CognitiveCycleMixin:
@@ -132,7 +160,48 @@ class CognitiveCycleMixin:
         sched.last_update = time.time()
 
     async def cognitive_cycle(self):
+        """ReAct cognitive cycle orchestrator.
+
+        Phases (each extracted to a helper, executed in strict source order):
+          A  preflight        — counters, power eval, presence/schedule, sunrise,
+                                 scheduled-wake fallback, bootload, refresh_devices
+          B  fallback guards   — low-power / VLM-swap / GPU-busy rule-only paths.
+                                 Returns a mode string when it handled the cycle
+                                 (rule path: summary + push already done → return);
+                                 None means continue to the LLM path. `escalation`
+                                 is the single guard→context data dependency.
+          C  build context     — assemble messages/tools → _ReactState, or None for
+                                 the bare-return when llm_context is empty (L272:
+                                 the ONLY return that skips all post-processing).
+          D  ReAct loop        — LLM chat + tool filter + dispatch, in-place on state.
+          E  post-process      — summary, record_decision, prune, push, Obsidian log.
+        """
         cycle_start = time.time()
+
+        total_tool_calls = await self._run_preflight()
+
+        mode, escalation = await self._run_fallback_guards(cycle_start, total_tool_calls)
+        if mode is not None:
+            # B handled the cycle (summary + push already done). Return.
+            return
+        # Carry forward any tool calls the guards executed (critical rules on the
+        # low-power escalate path) so the cycle summary in E accounts for them.
+        total_tool_calls = escalation[1]
+
+        state = await self._build_cycle_context(escalation[0], total_tool_calls)
+        if state is None:
+            # L272 bare-return: llm_context empty → no post-processing, no push.
+            return
+
+        await self._run_react_loop(state)
+        await self._postprocess_cycle(state, cycle_start)
+
+    async def _run_preflight(self) -> int:
+        """Phase A: per-cycle preflight. Runs before any guard because power-mode
+        evaluation is a prerequisite for the low-power guard's `is_low_power`.
+
+        Returns the running `total_tool_calls` (0 here; rule paths add to it).
+        """
         total_tool_calls = 0
 
         if self.task_queue:
@@ -205,8 +274,25 @@ class CognitiveCycleMixin:
         #     • something fires + LLM budget ok → escalate to LLM  (rich response)
         #     • something fires + LLM throttled → execute rule actions directly (fallback)
         # ---------------------------------------------------------------
+        # refresh_devices is shared by every guard and the LLM path, so it lives
+        # at the tail of preflight.
         await self.rule_engine.refresh_devices()
 
+        return total_tool_calls
+
+    async def _run_fallback_guards(self, cycle_start: float, total_tool_calls: int):
+        """Phase B: rule-only fallback guards (low-power / VLM-swap / GPU-busy).
+
+        Returns ``(mode, (low_power_escalation, total_tool_calls))``:
+          - ``mode`` is a rule-path mode string (`rule_low_power_*` / `rule_vlm_swap`
+            / `rule_gpu_busy`) when a guard handled the cycle — in that case the
+            guard has already recorded the summary and pushed snapshots, so the
+            caller must return. ``mode is None`` means fall through to the LLM path.
+          - ``low_power_escalation`` is the single guard→context data dependency:
+            True when the low-power scan fired and an LLM call is allowed.
+          - ``total_tool_calls`` carries forward any tool calls run by the guards
+            (critical rules on the escalate path) for the eventual cycle summary.
+        """
         low_power_escalation = False  # set True when falling through to LLM
         if self.power_mode_manager.is_low_power:
             pm = self.power_mode_manager.get_status()
@@ -242,14 +328,14 @@ class CognitiveCycleMixin:
                 total_tool_calls += await self._run_rule_actions(rule_actions)
                 self._record_rule_cycle_summary(cycle_start, total_tool_calls, mode="rule_low_power_throttled")
                 await self._push_all_snapshots()
-                return
+                return "rule_low_power_throttled", (low_power_escalation, total_tool_calls)
 
             else:
                 # Nothing detected — skip LLM entirely
                 logger.debug("[低消費電力] %sモード: ルール未発火 — LLMスキップ", pm["mode"])
                 self._record_rule_cycle_summary(cycle_start, total_tool_calls, mode="rule_low_power_idle")
                 await self._push_all_snapshots()
-                return
+                return "rule_low_power_idle", (low_power_escalation, total_tool_calls)
 
         # Rule-based fallback when VLM heavy model is using VRAM
         if self.world_model.vlm_model_swap_active:
@@ -257,7 +343,7 @@ class CognitiveCycleMixin:
             total_tool_calls += await self._run_rule_actions(self.rule_engine.evaluate(self.world_model))
             self._record_rule_cycle_summary(cycle_start, total_tool_calls, mode="rule_vlm_swap")
             await self._push_all_snapshots()
-            return
+            return "rule_vlm_swap", (low_power_escalation, total_tool_calls)
 
         # Rule-based fallback when GPU is busy
         if self.rule_engine.should_use_rules():
@@ -265,11 +351,22 @@ class CognitiveCycleMixin:
             total_tool_calls += await self._run_rule_actions(self.rule_engine.evaluate(self.world_model))
             self._record_rule_cycle_summary(cycle_start, total_tool_calls, mode="rule_gpu_busy")
             await self._push_all_snapshots()
-            return
+            return "rule_gpu_busy", (low_power_escalation, total_tool_calls)
 
+        # No guard handled the cycle → continue to the LLM path.
+        return None, (low_power_escalation, total_tool_calls)
+
+    async def _build_cycle_context(self, low_power_escalation: bool, total_tool_calls: int):
+        """Phase C: build the LLM context and return a `_ReactState`, or None when
+        `llm_context` is empty (the L272 bare-return: caller returns without any
+        post-processing, including snapshot push).
+
+        `low_power_escalation` is read here (and only here) to inject the low-power
+        notice into the user prompt — the single guard→context data dependency.
+        """
         llm_context = self.world_model.get_llm_context()
         if not llm_context:
-            return
+            return None
 
         device_summary = self.device_registry.get_status_summary()
         if device_summary:
@@ -410,11 +507,6 @@ class CognitiveCycleMixin:
             tapo_enabled=TAPO_ENABLED,
         )
 
-        tool_call_history = []
-        speak_count = 0
-        consecutive_errors = 0
-        iteration = 0
-
         # Degraded operation: if the whole world view is stale/empty the brain
         # is "blind" — keep observing and speaking, but suppress side-effecting
         # tools so it never actuates the home on a stale view.
@@ -422,11 +514,10 @@ class CognitiveCycleMixin:
         if system_blind:
             logger.warning("[Brain] System blind (all zones stale) — observe-only mode, side-effects suppressed")
 
-        # Cost/energy metering (Group E): accumulate tokens across ReAct
-        # iterations; sample GPU util once at cycle start (best-effort, from
-        # OpenClaw PC metrics — in a single-box HEMS the PC GPU is the LLM GPU).
-        prompt_tokens_total = 0
-        completion_tokens_total = 0
+        # Cost/energy metering (Group E): sample GPU util once at cycle start
+        # (best-effort, from OpenClaw PC metrics — in a single-box HEMS the PC GPU
+        # is the LLM GPU). The sample must be taken before the first LLM chat call,
+        # so it lives here at context-build time, not inside the loop.
         gpu_util_pct = None
         try:
             gpu = self.world_model.pc_state.gpu
@@ -435,64 +526,131 @@ class CognitiveCycleMixin:
         except Exception:
             pass
 
+        return _ReactState(
+            messages=messages,
+            tools=tools,
+            active_tasks=active_tasks,
+            now=now,
+            system_blind=system_blind,
+            total_tool_calls=total_tool_calls,
+            low_power_escalation=low_power_escalation,
+            gpu_util_pct=gpu_util_pct,
+        )
+
+    def _filter_tool_calls(self, state: "_ReactState", tool_calls: list) -> list:
+        """Phase D Guard 0–3: filter the LLM's tool_calls down to the ones to run.
+
+        Mutates `state.speak_count` and `state.tool_call_history` (Guard 2 / Guard 1
+        carry across iterations), so the state is passed by reference and updated.
+        """
+        filtered: list = []
+        for tc in tool_calls:
+            name = tc["function"]["name"]
+            args = tc["function"].get("arguments", {})
+            call_key = (name, json.dumps(args, sort_keys=True))
+
+            # Guard 0: Blind guard — in observe-only mode, drop tools that
+            # would create a task or actuate the home on a stale world view.
+            if state.system_blind and name in BLIND_SUPPRESSED_TOOLS:
+                logger.warning(f"Skipping {name}: system blind (observe-only mode)")
+                continue
+
+            # Guard 1: Skip duplicate tool+args within this cycle
+            if call_key in state.tool_call_history:
+                continue
+
+            # Guard 2: Limit speak calls per cycle
+            if name == "speak" and state.speak_count >= MAX_SPEAK_PER_CYCLE:
+                continue
+            if name == "speak":
+                state.speak_count += 1
+
+            # Guard 3: Skip create_task if similar title exists in active tasks
+            # or was recently attempted (prevents retry loop after rate limit)
+            if name == "create_task":
+                proposed_title = args.get("title", "")
+                # Check against active tasks
+                if state.active_tasks and any(
+                    proposed_title.lower() in t.get("title", "").lower()
+                    or t.get("title", "").lower() in proposed_title.lower()
+                    for t in state.active_tasks
+                    if proposed_title and t.get("title")
+                ):
+                    logger.warning(f"Skipping create_task: similar active task exists for '{proposed_title}'")
+                    continue
+                # Check against recent action history (last 30 min)
+                recent_creates = [
+                    a
+                    for a in self._action_history
+                    if a["tool"] == "create_task" and a["time"] > state.now - RECENT_ACTION_WINDOW_SEC
+                ]
+                if any(
+                    proposed_title.lower() in a.get("summary", "").lower() for a in recent_creates if proposed_title
+                ):
+                    logger.warning(f"Skipping create_task: '{proposed_title}' was already attempted recently")
+                    continue
+
+            filtered.append(tc)
+            state.tool_call_history.append(call_key)
+
+        return filtered
+
+    async def _dispatch_iteration(self, state: "_ReactState", llm_provider: str, filtered: list) -> bool:
+        """Phase D execution: dispatch one iteration's `filtered` tool calls.
+
+        Appends to messages / action history, fires ambient/suppress side effects,
+        and tracks the consecutive-error counter. Returns False when the error
+        threshold is hit (the caller breaks the inner dispatch only — the outer
+        ReAct loop continues to the next iteration), True otherwise.
+        """
+        for tc in filtered:
+            tool_name = tc["function"]["name"]
+            arguments = tc["function"]["arguments"]
+            result = await self.tool_executor.execute(tool_name, arguments)
+
+            self._action_history.append(
+                {
+                    "time": time.time(),
+                    "tool": tool_name,
+                    "summary": summarize_action(tool_name, arguments),
+                    "success": result.get("success", True),
+                }
+            )
+
+            tool_msg = format_tool_result_msg(
+                llm_provider,
+                tool_name,
+                tc["id"],
+                str(result.get("result") or result.get("error", "")),
+            )
+            state.messages.append(tool_msg)
+
+            if not result["success"]:
+                state.consecutive_errors += 1
+                if state.consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                    return False
+            else:
+                state.consecutive_errors = 0
+                if tool_name == "speak" and self.ambient_speaker:
+                    self.ambient_speaker.record_speak(arguments.get("message", ""))
+                if tool_name == "create_task":
+                    self._suppress_alert_for_task(arguments)
+        return True
+
+    async def _run_react_loop(self, state: "_ReactState") -> None:
+        """Phase D: the ReAct loop. LLM chat → filter → dispatch, up to
+        REACT_MAX_ITERATIONS, updating `state` in place (iteration count, token
+        totals, total_tool_calls, message history)."""
         for iteration in range(1, REACT_MAX_ITERATIONS + 1):
-            response = await self.llm.chat(messages, tools)
+            state.iteration = iteration
+            response = await self.llm.chat(state.messages, state.tools)
             if response.usage:
-                prompt_tokens_total += response.usage.get("prompt_tokens") or 0
-                completion_tokens_total += response.usage.get("completion_tokens") or 0
+                state.prompt_tokens_total += response.usage.get("prompt_tokens") or 0
+                state.completion_tokens_total += response.usage.get("completion_tokens") or 0
             if response.error or not response.tool_calls:
                 break
 
-            filtered = []
-            for tc in response.tool_calls:
-                name = tc["function"]["name"]
-                args = tc["function"].get("arguments", {})
-                call_key = (name, json.dumps(args, sort_keys=True))
-
-                # Guard 0: Blind guard — in observe-only mode, drop tools that
-                # would create a task or actuate the home on a stale world view.
-                if system_blind and name in BLIND_SUPPRESSED_TOOLS:
-                    logger.warning(f"Skipping {name}: system blind (observe-only mode)")
-                    continue
-
-                # Guard 1: Skip duplicate tool+args within this cycle
-                if call_key in tool_call_history:
-                    continue
-
-                # Guard 2: Limit speak calls per cycle
-                if name == "speak" and speak_count >= MAX_SPEAK_PER_CYCLE:
-                    continue
-                if name == "speak":
-                    speak_count += 1
-
-                # Guard 3: Skip create_task if similar title exists in active tasks
-                # or was recently attempted (prevents retry loop after rate limit)
-                if name == "create_task":
-                    proposed_title = args.get("title", "")
-                    # Check against active tasks
-                    if active_tasks and any(
-                        proposed_title.lower() in t.get("title", "").lower()
-                        or t.get("title", "").lower() in proposed_title.lower()
-                        for t in active_tasks
-                        if proposed_title and t.get("title")
-                    ):
-                        logger.warning(f"Skipping create_task: similar active task exists for '{proposed_title}'")
-                        continue
-                    # Check against recent action history (last 30 min)
-                    recent_creates = [
-                        a
-                        for a in self._action_history
-                        if a["tool"] == "create_task" and a["time"] > now - RECENT_ACTION_WINDOW_SEC
-                    ]
-                    if any(
-                        proposed_title.lower() in a.get("summary", "").lower() for a in recent_creates if proposed_title
-                    ):
-                        logger.warning(f"Skipping create_task: '{proposed_title}' was already attempted recently")
-                        continue
-
-                filtered.append(tc)
-                tool_call_history.append(call_key)
-
+            filtered = self._filter_tool_calls(state, response.tool_calls)
             if not filtered:
                 break
 
@@ -500,42 +658,17 @@ class CognitiveCycleMixin:
             llm_provider = getattr(self.llm, "provider", "openai")
             assistant_msg = {"role": "assistant", "content": response.content or ""}
             assistant_msg["tool_calls"] = format_tool_call_blocks(llm_provider, filtered)
-            messages.append(assistant_msg)
+            state.messages.append(assistant_msg)
 
-            total_tool_calls += len(filtered)
-            for tc in filtered:
-                tool_name = tc["function"]["name"]
-                arguments = tc["function"]["arguments"]
-                result = await self.tool_executor.execute(tool_name, arguments)
+            state.total_tool_calls += len(filtered)
+            await self._dispatch_iteration(state, llm_provider, filtered)
 
-                self._action_history.append(
-                    {
-                        "time": time.time(),
-                        "tool": tool_name,
-                        "summary": summarize_action(tool_name, arguments),
-                        "success": result.get("success", True),
-                    }
-                )
-
-                tool_msg = format_tool_result_msg(
-                    llm_provider,
-                    tool_name,
-                    tc["id"],
-                    str(result.get("result") or result.get("error", "")),
-                )
-                messages.append(tool_msg)
-
-                if not result["success"]:
-                    consecutive_errors += 1
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                        break
-                else:
-                    consecutive_errors = 0
-                    if tool_name == "speak" and self.ambient_speaker:
-                        self.ambient_speaker.record_speak(arguments.get("message", ""))
-                    if tool_name == "create_task":
-                        self._suppress_alert_for_task(arguments)
-
+    async def _postprocess_cycle(self, state: "_ReactState", cycle_start: float) -> None:
+        """Phase E: LLM-path post-processing — cycle summary, event-store decision
+        record (only when tools ran), action-history prune, snapshot push, and the
+        async Obsidian decision-log writeback."""
+        total_tool_calls = state.total_tool_calls
+        iteration = state.iteration
         # Record to event store
         summary = self._build_cycle_summary(cycle_start, total_tool_calls, mode="llm", iterations=iteration)
         self._last_cycle_summary = summary
@@ -546,9 +679,9 @@ class CognitiveCycleMixin:
                 total_tool_calls=total_tool_calls,
                 trigger_events=summary["trigger_events"],
                 tool_calls=summary["tool_calls"],
-                prompt_tokens=prompt_tokens_total or None,
-                completion_tokens=completion_tokens_total or None,
-                gpu_util_pct=gpu_util_pct,
+                prompt_tokens=state.prompt_tokens_total or None,
+                completion_tokens=state.completion_tokens_total or None,
+                gpu_util_pct=state.gpu_util_pct,
             )
 
         # Prune old history
