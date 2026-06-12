@@ -45,12 +45,13 @@
 `../localcraw/` (Node.js + systeminformation) からビルドする。コンテナ名と DNS alias は
 `hems-openclaw-bridge` / `openclaw-bridge`。`OPENCLAW_BRIDGE_URL` が正、`LOCALCRAW_BRIDGE_URL` は旧 alias。
 
-### 1.2 services/ 配下に存在するが docker-compose に無い (Orphans)
+### 1.2 services/ 配下、および apps/ に存在するが docker-compose に無い (Orphans / 非 Docker)
 
 | Directory | 概要 | 状態 |
 |-----------|------|------|
-| services/data-bridge | Phase 2 placeholder (Strava/Fitbit/Garmin 用 scaffold; `src/bridges/` 空) | **PLACEHOLDER** — 現在は biometric-bridge と gas-bridge が機能を代替 |
-| services/mobile-android | Android コンパニオンアプリ (Gradle プロジェクト) | ALIVE — Docker 化対象外 (apk としてビルド) |
+| services/data-bridge | Phase 2 scaffold (Strava/Fitbit/Garmin 用)、実装予定 W3.1 後 | **実装予定** — 共有ライブラリ W3.1/W3.2 完了後に `_common` ベース新規ブリッジとして実装(2026-08 月以降) |
+| services/mobile-android | Android コンパニオンアプリ (Gradle プロジェクト) | **ALIVE** — Docker 化対象外。apk ビルド、実デバイス配布。詳細: [`services/mobile-android/README.md`](../services/mobile-android/README.md) |
+| apps/healthconnect-companion | Android Health Connect reader (Gradle プロジェクト) | **ALIVE** — Docker 化対象外。apk ビルド、実デバイス配布。biometric-bridge webhook データソース。詳細: [`apps/healthconnect-companion/README.md`](../apps/healthconnect-companion/README.md) |
 
 ### 1.3 Verification
 

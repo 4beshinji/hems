@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  PYTHONPATH: services/brain/src:services/backend
+  PYTHONPATH: services/brain/src:services/backend:services/_common
 
 jobs:
   # ── Python linting ─���───────────────────────────────────────────────
@@ -38,11 +38,13 @@ jobs:
             requirements-dev.txt
             services/brain/requirements.txt
             services/backend/requirements.txt
+            services/_common/pyproject.toml
       - name: Install dependencies
         run: |
           pip install -r services/brain/requirements.txt
           pip install -r services/backend/requirements.txt
           pip install -r requirements-dev.txt
+          pip install -e services/_common
       - name: Run tests with coverage
         run: >
           pytest tests/ services/brain/tests/
@@ -154,3 +156,43 @@ jobs:
             hadolint "$df" || true
             echo "::endgroup::"
           done
+
+  # ── Infra validation (compose syntax + env.example↔compose check) ──
+  validate-infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Docker Compose syntax validation ────────────────────────────
+      # Validates YAML syntax and interpolation references without
+      # starting any containers.  Falls back to pure-Python YAML parse
+      # if the docker CLI is unavailable.
+      - name: Validate docker-compose.yml syntax
+        run: |
+          if command -v docker &>/dev/null; then
+            echo "Using 'docker compose config' for full compose validation"
+            # Supply required vars so :? interpolations don't abort.
+            # Compose config validates syntax; we don't need real values.
+            MQTT_PASS=ci_placeholder \
+            POSTGRES_PASSWORD=ci_placeholder \
+              docker compose -f infra/docker-compose.yml config --quiet
+          else
+            echo "docker not available — falling back to Python YAML syntax check"
+            python3 -c "
+          import yaml, sys
+          with open('infra/docker-compose.yml') as f:
+              doc = yaml.safe_load(f)
+          print(f'YAML OK: {len(doc.get(\"services\", {}))} services parsed')
+          "
+          fi
+
+      # ── env.example ↔ compose variable cross-check ──────────────────
+      # (a) Every \${VAR} used in compose must be documented in env.example.
+      # (b) Every variable in env.example should be used in compose
+      #     (WARNs only — does not fail CI).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: env.example vs compose cross-check
+        # W4.1 cleared the known gaps; this gate now blocks on any new drift.
+        run: python infra/scripts/check_env_compose.py

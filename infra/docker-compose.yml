@@ -68,7 +68,6 @@ services:
       - CHARACTER=${CHARACTER:-}
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}
-      - ROOMS=${ROOMS:-living_room}
       - OPENCLAW_BRIDGE_URL=${OPENCLAW_BRIDGE_URL:-}
       - LOCALCRAW_BRIDGE_URL=${LOCALCRAW_BRIDGE_URL:-}
       - OBSIDIAN_BRIDGE_URL=${OBSIDIAN_BRIDGE_URL:-}
@@ -467,6 +466,8 @@ services:
     profiles: ["ollama"]
     ports:
       - "127.0.0.1:${HEMS_PORT_OLLAMA:-11444}:11434"
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
     volumes:
       - ollama_models:/root/.ollama
     networks:
