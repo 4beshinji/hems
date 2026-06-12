@@ -1,11 +1,11 @@
 import { memo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { ListChecks, Plus } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import TaskCard from '@/components/shared/TaskCard'
 import CreateTaskModal from '@/components/tasks/CreateTaskModal'
-import { fetchTasks } from '@/lib/api'
+import { useTasks, TASKS_KEY } from '@/hooks/queries/use-tasks'
 import { useAppContext } from '@/app/layout'
 
 const ActiveTaskList = memo(function ActiveTaskList() {
@@ -13,11 +13,7 @@ const ActiveTaskList = memo(function ActiveTaskList() {
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
 
-  const { data: tasks } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: fetchTasks,
-    refetchInterval: 5000,
-  })
+  const { data: tasks } = useTasks()
 
   const activeTasks = (tasks ?? [])
     .filter((t) => !t.is_completed && t.proposal_status !== 'dismissed')
@@ -47,7 +43,7 @@ const ActiveTaskList = memo(function ActiveTaskList() {
               <TaskCard
                 key={task.id}
                 task={task}
-                onComplete={() => queryClient.invalidateQueries({ queryKey: ['tasks'] })}
+                onComplete={() => queryClient.invalidateQueries({ queryKey: TASKS_KEY })}
                 enqueueAudio={enqueueAudio}
                 audioEnabled={audioEnabled}
               />

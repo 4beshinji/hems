@@ -14,7 +14,8 @@ import EnergyPanel from '@/components/physical/EnergyPanel'
 import PerceptionPanel from '@/components/physical/PerceptionPanel'
 import DeviceTable from '@/components/devices/DeviceTable'
 import DeviceEditModal from '@/components/devices/DeviceEditModal'
-import { fetchZones, fetchHome, fetchDevices, zigbeePermitJoin } from '@/lib/api'
+import { fetchHome, fetchDevices, zigbeePermitJoin } from '@/lib/api'
+import { useZones } from '@/hooks/queries/use-zones'
 import type { Device, DeviceKind, DeviceVendor, HomeData } from '@/lib/types'
 import { VENDOR_LABELS } from '@/components/devices/SensorCatalog'
 
@@ -22,11 +23,7 @@ type KindFilter = 'all' | DeviceKind
 
 export default function DevicesPage() {
   /* ── Physical Space queries ────────────────────────────────────────── */
-  const zonesQuery = useQuery({
-    queryKey: ['zones'],
-    queryFn: fetchZones,
-    refetchInterval: 5000,
-  })
+  const zonesQuery = useZones()
 
   const homeQuery = useQuery<HomeData>({
     queryKey: ['home'],

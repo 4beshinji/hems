@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { Outlet } from 'react-router'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import AppSidebar from '@/components/layout/AppSidebar'
 import BottomNav from '@/components/layout/BottomNav'
@@ -11,7 +11,9 @@ import { useAvatarMode } from '@/hooks/use-avatar-mode'
 import { useSTTMode } from '@/hooks/use-stt-mode'
 import { usePowerMode } from '@/hooks/use-power-mode'
 import { useAudioQueue, AudioPriority } from '@/audio'
-import { fetchZones, fetchVoiceEvents, fetchTasks } from '@/lib/api'
+import { useVoiceEvents } from '@/hooks/queries/use-voice-events'
+import { useTasks } from '@/hooks/queries/use-tasks'
+import { useZones } from '@/hooks/queries/use-zones'
 import type { VoiceEvent, TaskData } from '@/lib/types'
 import type { STTMode } from '@/hooks/use-server-stt'
 import BatchDialog from '@/components/brain/BatchDialog'
@@ -55,25 +57,11 @@ export default function AppLayout() {
   const playedVoiceIds = useRef(new Set<number>())
   const playedTaskIds = useRef(new Set<number>())
 
-  // Zones query for dark mode sensor
-  const zonesQuery = useQuery({
-    queryKey: ['zones'],
-    queryFn: fetchZones,
-    refetchInterval: 10000,
-  })
-
-  const tasksQuery = useQuery({
-    queryKey: ['tasks'],
-    queryFn: fetchTasks,
-    refetchInterval: 5000,
-  })
-
-  const voiceEventsQuery = useQuery({
-    queryKey: ['voiceEvents'],
-    queryFn: fetchVoiceEvents,
-    refetchInterval: 3000,
-    enabled: isEnabled,
-  })
+  // Shared hooks — TanStack dedup ensures single HTTP per queryKey
+  const zonesQuery = useZones()
+  const tasksQuery = useTasks()
+  // voiceEvents: enabled only when audio is active (avoids unnecessary fetches)
+  const voiceEventsQuery = useVoiceEvents({ enabled: isEnabled })
 
   // Determine primary zone light level for dark mode
   const primaryZone = zonesQuery.data?.[0]

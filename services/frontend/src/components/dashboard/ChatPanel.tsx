@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { MessageCircle, Bot, User, Volume2 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useAppContext } from '@/app/layout'
 import { AudioPriority } from '@/audio'
-import { fetchVoiceEvents, sendChatMessage } from '@/lib/api'
+import { sendChatMessage } from '@/lib/api'
+import { useVoiceEvents } from '@/hooks/queries/use-voice-events'
 import { ZONE_LABELS } from '@/lib/constants'
 import ChatInput from './ChatInput'
 import type { VoiceEvent, ChatMessage } from '@/lib/types'
@@ -30,12 +30,8 @@ export default function ChatPanel() {
   const [error, setError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Poll voice events (same as AIActivityLog)
-  const { data: voiceEvents } = useQuery({
-    queryKey: ['voiceEvents'],
-    queryFn: fetchVoiceEvents,
-    refetchInterval: 3000,
-  })
+  // Poll voice events via shared hook (dedup with AIActivityLog and layout)
+  const { data: voiceEvents } = useVoiceEvents()
 
   // Merge chat messages and voice events into unified timeline
   const timeline = useMemo<TimelineItem[]>(() => {

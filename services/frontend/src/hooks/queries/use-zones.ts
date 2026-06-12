@@ -4,11 +4,20 @@ import type { ZoneData } from '@/lib/types'
 
 export const ZONES_KEY = ['zones'] as const
 
+/**
+ * 共有 zones フック。
+ * 最短 refetchInterval = 5000ms (devices/page が要求する最短値)
+ * layout=10000 / usePsdEventDriven=10000 / EnvTrendCard=30000 も
+ * 同じ queryKey を共有するため、TanStack は最短 5000ms を採用する。
+ * ここで一元管理することで意図を明示し、分散設定の矛盾を解消する。
+ */
+export const ZONES_REFETCH_INTERVAL = 5000
+
 export function useZones() {
   return useQuery<ZoneData[]>({
     queryKey: ZONES_KEY,
     queryFn: fetchZones,
-    refetchInterval: 30000,
+    refetchInterval: ZONES_REFETCH_INTERVAL,
     retry: false,
   })
 }

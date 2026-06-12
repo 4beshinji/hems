@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Plus } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { TASKS_KEY } from '@/hooks/queries/use-tasks'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select } from '@/components/ui/select'
@@ -81,7 +82,7 @@ export default function CreateTaskModal({ open, onOpenChange, defaultSlot = 'any
       await createTask(payload)
       toast.success('タスクを追加しました')
       reset()
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: TASKS_KEY })
       queryClient.invalidateQueries({ queryKey: ['timeline', 'today'] })
       onOpenChange(false)
     } catch (err) {

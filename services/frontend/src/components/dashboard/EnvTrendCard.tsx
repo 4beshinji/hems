@@ -1,10 +1,9 @@
 import { memo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { TrendingUp } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import TimeSeriesChart from '@/components/shared/TimeSeriesChart'
-import { fetchZones } from '@/lib/api'
+import { useZones } from '@/hooks/queries/use-zones'
 import { ZONE_LABELS } from '@/lib/constants'
 
 const WINDOWS: { label: string; hours: number }[] = [
@@ -22,7 +21,7 @@ const METRICS: { key: string; label: string; color: string; unit: string }[] = [
 const EnvTrendCard = memo(function EnvTrendCard() {
   const [hours, setHours] = useState(72)
   const [zoneId, setZoneId] = useState<string | undefined>(undefined)
-  const { data: zones } = useQuery({ queryKey: ['zones'], queryFn: fetchZones, refetchInterval: 30_000 })
+  const { data: zones } = useZones()
 
   const zoneOptions = zones ?? []
 

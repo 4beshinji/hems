@@ -13,7 +13,10 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchVoiceEvents, fetchTasks, fetchZones, fetchBiometric } from '@/lib/api'
+import { fetchBiometric } from '@/lib/api'
+import { useVoiceEvents } from '@/hooks/queries/use-voice-events'
+import { useTasks } from '@/hooks/queries/use-tasks'
+import { useZones } from '@/hooks/queries/use-zones'
 import {
   EVENT_STATE_MAP,
   DEFAULT_FX,
@@ -56,10 +59,10 @@ export function usePsdEventDriven(): Partial<PsdAvatarState> {
   const taskFirstLoad  = useRef(true)
   const voiceFirstLoad = useRef(true)
 
-  // ── API ポーリング ─────────────────────────────────────────────────
-  const { data: tasks }   = useQuery({ queryKey: ['tasks'],        queryFn: fetchTasks,        refetchInterval: 5_000 })
-  const { data: zones }   = useQuery({ queryKey: ['zones'],        queryFn: fetchZones,        refetchInterval: 10_000 })
-  const { data: voiceEvs} = useQuery({ queryKey: ['voice-events'], queryFn: fetchVoiceEvents,  refetchInterval: 5_000 })
+  // ── API ポーリング (共有 hook 経由 — TanStack dedup で重複 HTTP なし) ──
+  const { data: tasks }   = useTasks()
+  const { data: zones }   = useZones()
+  const { data: voiceEvs} = useVoiceEvents()  // key='voiceEvents' に統一 (旧: 'voice-events')
   const { data: bio }     = useQuery({ queryKey: ['biometric'],    queryFn: fetchBiometric,    refetchInterval: 15_000 })
 
   // ── スタック合成ロジック ───────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { TASKS_KEY } from '@/hooks/queries/use-tasks'
 import { toast } from 'sonner'
 import { Plus, X, Clock, MapPin, Lock, RefreshCw, Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -276,7 +277,7 @@ export default function TimelinePanel() {
             toast.success('タスクを却下しました')
             setSelected(null)
             queryClient.invalidateQueries({ queryKey: ['timeline'] })
-            queryClient.invalidateQueries({ queryKey: ['tasks'] })
+            queryClient.invalidateQueries({ queryKey: TASKS_KEY })
           } catch {
             toast.error('却下に失敗しました')
           }
@@ -287,7 +288,7 @@ export default function TimelinePanel() {
             toast.success('タスク完了')
             setSelected(null)
             queryClient.invalidateQueries({ queryKey: ['timeline'] })
-            queryClient.invalidateQueries({ queryKey: ['tasks'] })
+            queryClient.invalidateQueries({ queryKey: TASKS_KEY })
           } catch {
             toast.error('完了に失敗しました')
           }

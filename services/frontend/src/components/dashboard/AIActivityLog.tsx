@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { MessageSquare, Brain, ChevronRight, AlertCircle, CheckCircle2, XCircle } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { fetchVoiceEvents, fetchBrainStatus } from '@/lib/api'
+import { fetchBrainStatus } from '@/lib/api'
+import { useVoiceEvents } from '@/hooks/queries/use-voice-events'
 import { ZONE_LABELS } from '@/lib/constants'
 import type { VoiceEvent, BrainCycleSummary } from '@/lib/types'
 
@@ -153,11 +154,7 @@ function VoiceEventRow({ event }: { event: VoiceEvent }) {
 }
 
 const AIActivityLog = memo(function AIActivityLog() {
-  const { data: events } = useQuery({
-    queryKey: ['voiceEvents'],
-    queryFn: fetchVoiceEvents,
-    refetchInterval: 3000,
-  })
+  const { data: events } = useVoiceEvents()
   const { data: brain } = useQuery({
     queryKey: ['brainStatus'],
     queryFn: fetchBrainStatus,
