@@ -4,11 +4,14 @@ import { LayoutDashboard, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, Us
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import type { DarkModePreference } from '@/hooks/use-dark-mode'
-import type { CharacterThemeConfig } from '@/lib/character-themes'
+import { useAudioContext } from '@/contexts/AudioContext'
+import { useAvatarContext } from '@/contexts/AvatarContext'
+import { useSttContext } from '@/contexts/SttContext'
+import { useAppUiContext } from '@/contexts/AppUiContext'
+import { usePowerContext } from '@/contexts/PowerContext'
+import type { PowerMode } from '@/lib/types'
 import type { AvatarMode } from '@/hooks/use-avatar-mode'
 import type { STTMode } from '@/hooks/use-server-stt'
-import type { PowerMode } from '@/lib/types'
 import { IS_PSD } from '@/lib/avatar-type'
 
 const PsdBustUp = IS_PSD
@@ -56,51 +59,23 @@ const POWER_MODE_LABELS: Record<PowerMode, string> = {
 }
 
 interface Props {
-  audioEnabled: boolean
-  onToggleAudio: () => void
-  darkModePreference: DarkModePreference
-  onCycleDarkMode: () => void
-  secretThemeActive?: boolean
-  secretThemeConfig?: CharacterThemeConfig | null
-  onCycleSecretTheme?: () => void
-  avatarMode: AvatarMode
-  onCycleAvatarMode: () => void
-  sttMode: STTMode
-  onCycleSTTMode: () => void
-  sttLanguage: string
-  onSetSTTLanguage: (lang: string) => void
-  powerMode: PowerMode
-  onCyclePowerMode: () => void
-  powerModePending: boolean
   onOpenBatch: () => void
 }
 
-export default function AppSidebar({
-  audioEnabled,
-  onToggleAudio,
-  darkModePreference,
-  onCycleDarkMode,
-  secretThemeActive,
-  secretThemeConfig,
-  onCycleSecretTheme,
-  avatarMode,
-  onCycleAvatarMode,
-  sttMode,
-  onCycleSTTMode,
-  sttLanguage,
-  onSetSTTLanguage,
-  powerMode,
-  onCyclePowerMode,
-  powerModePending,
-  onOpenBatch,
-}: Props) {
+export default function AppSidebar({ onOpenBatch }: Props) {
+  const { audioEnabled, toggleAudio } = useAudioContext()
+  const { avatarMode, cycleAvatarMode } = useAvatarContext()
+  const { sttMode, cycleSTTMode, sttLanguage, setSTTLanguage } = useSttContext()
+  const { darkModePreference, cycleDarkMode, isSecretActive, activeConfig, cycleCharacterTheme } = useAppUiContext()
+  const { powerMode, cyclePowerMode, powerModePending } = usePowerContext()
+
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const handlePointerDown = useCallback(() => {
     longPressTimer.current = setTimeout(() => {
-      onCycleSecretTheme?.()
+      cycleCharacterTheme()
     }, 2000)
-  }, [onCycleSecretTheme])
+  }, [cycleCharacterTheme])
 
   const handlePointerUp = useCallback(() => {
     clearTimeout(longPressTimer.current)
@@ -108,8 +83,8 @@ export default function AppSidebar({
 
   const cycleLang = useCallback(() => {
     const idx = LANG_CYCLE.indexOf(sttLanguage)
-    onSetSTTLanguage(LANG_CYCLE[(idx + 1) % LANG_CYCLE.length])
-  }, [sttLanguage, onSetSTTLanguage])
+    setSTTLanguage(LANG_CYCLE[(idx + 1) % LANG_CYCLE.length])
+  }, [sttLanguage, setSTTLanguage])
 
   const DarkModeIcon = darkModePreference === 'dark' ? Moon :
     darkModePreference === 'light' ? Sun : Gauge
@@ -125,7 +100,7 @@ export default function AppSidebar({
         <div
           className={cn(
             'h-7 w-7 rounded-lg bg-primary flex items-center justify-center select-none',
-            secretThemeActive && 'ring-2 ring-primary/40'
+            isSecretActive && 'ring-2 ring-primary/40'
           )}
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
@@ -134,8 +109,8 @@ export default function AppSidebar({
           <span className="text-primary-foreground text-xs font-bold">H</span>
         </div>
         <span className="font-semibold text-foreground">HEMS</span>
-        {secretThemeActive && secretThemeConfig && (
-          <span className="text-[9px] text-primary/60 leading-none">{secretThemeConfig.accentSymbol}</span>
+        {isSecretActive && activeConfig && (
+          <span className="text-[9px] text-primary/60 leading-none">{activeConfig.accentSymbol}</span>
         )}
       </div>
 
@@ -178,7 +153,7 @@ export default function AppSidebar({
           <Button
             variant="ghost"
             size="icon"
-            onClick={onToggleAudio}
+            onClick={toggleAudio}
             aria-label={audioEnabled ? 'オーディオ OFF' : 'オーディオ ON'}
             className="h-9 w-9"
           >
@@ -187,7 +162,7 @@ export default function AppSidebar({
           <Button
             variant="ghost"
             size="sm"
-            onClick={onCycleDarkMode}
+            onClick={cycleDarkMode}
             aria-label={`テーマ: ${darkModeLabel}`}
             className="h-9 gap-1.5"
           >
@@ -200,7 +175,7 @@ export default function AppSidebar({
           <Button
             variant="ghost"
             size="sm"
-            onClick={onCycleAvatarMode}
+            onClick={cycleAvatarMode}
             aria-label={`アバター: ${AVATAR_MODE_LABELS[avatarMode]}`}
             className="h-9 gap-1.5"
           >
@@ -213,7 +188,7 @@ export default function AppSidebar({
           <Button
             variant="ghost"
             size="sm"
-            onClick={onCycleSTTMode}
+            onClick={cycleSTTMode}
             aria-label={`音声入力: ${STT_MODE_LABELS[sttMode]}`}
             className={cn('h-9 gap-1.5', !sttOff && 'text-primary')}
           >
@@ -238,7 +213,7 @@ export default function AppSidebar({
           <Button
             variant="ghost"
             size="sm"
-            onClick={onCyclePowerMode}
+            onClick={cyclePowerMode}
             disabled={powerModePending}
             aria-label={`電力モード: ${POWER_MODE_LABELS[powerMode]}`}
             className={cn('h-9 gap-1.5', powerMode !== 'normal' && 'text-amber-500')}

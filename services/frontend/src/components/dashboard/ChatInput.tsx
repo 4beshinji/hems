@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { Send, Mic, MicOff, Loader2, Radio, AudioLines, SendHorizonal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { useAppContext } from '@/app/layout'
+import { useSttContext } from '@/contexts/SttContext'
 import { useServerSTT } from '@/hooks/use-server-stt'
 
 interface ChatInputProps {
@@ -21,7 +21,7 @@ const LANG_CYCLE = ['ja', 'en', 'auto']
 export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
   const [input, setInput] = useState('')
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const { sttMode, sttLanguage, setSTTLanguage, sttAutoSend, toggleSTTAutoSend } = useAppContext()
+  const { sttMode, sttLanguage, setSTTLanguage, sttAutoSend, toggleSTTAutoSend } = useSttContext()
 
   // Track whether last input came from voice
   const voiceInputRef = useRef(false)

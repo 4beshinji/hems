@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { MessageCircle, Bot, User, Volume2 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useAppContext } from '@/app/layout'
+import { useAudioContext } from '@/contexts/AudioContext'
 import { AudioPriority } from '@/audio'
 import { sendChatMessage } from '@/lib/api'
 import { useVoiceEvents } from '@/hooks/queries/use-voice-events'
@@ -23,7 +23,7 @@ type TimelineItem =
   | { type: 'voice'; data: VoiceEvent }
 
 export default function ChatPanel() {
-  const { audioEnabled, enqueueAudio } = useAppContext()
+  const { audioEnabled, enqueueAudio } = useAudioContext()
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)

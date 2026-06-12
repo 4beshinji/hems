@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button'
 import TaskCard from '@/components/shared/TaskCard'
 import CreateTaskModal from '@/components/tasks/CreateTaskModal'
 import { useTasks, TASKS_KEY } from '@/hooks/queries/use-tasks'
-import { useAppContext } from '@/app/layout'
+import { useAudioContext } from '@/contexts/AudioContext'
 
 const ActiveTaskList = memo(function ActiveTaskList() {
-  const { audioEnabled, enqueueAudio } = useAppContext()
+  const { audioEnabled, enqueueAudio } = useAudioContext()
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
 
