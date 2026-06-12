@@ -181,3 +181,102 @@ class TestBridgeStatusRoutingW33:
             {"connected": False, "provider": ""},
         )
         assert world_model.biometric_state.bridge_connected is False
+
+
+# ---------------------------------------------------------------------------
+# W3.8a: hems/sensors/* concurrent read (migration compatibility)
+# ---------------------------------------------------------------------------
+
+
+class TestSensorsMigrationW38a:
+    """hems/sensors/* and office/* both route to the same reducers.
+
+    Both prefixes must produce identical world_model updates so the brain
+    works correctly regardless of which prefix a device uses during the
+    migration window (W3.8b flash).
+    """
+
+    # --- sensor/analog ---
+
+    def test_new_prefix_temperature_updates_zone_environment(self, world_model):
+        """hems/sensors/{zone}/sensor/{id}/{ch} updates zone environment."""
+        world_model.update_from_mqtt(
+            "hems/sensors/living/sensor/esp32_001/temperature",
+            {"temperature": 24.5},
+        )
+        assert world_model.zones["living"].environment.temperature == 24.5
+
+    def test_legacy_prefix_temperature_updates_zone_environment(self, world_model):
+        """office/{zone}/sensor/{id}/{ch} still updates zone environment."""
+        world_model.update_from_mqtt(
+            "office/living/sensor/esp32_001/temperature",
+            {"temperature": 24.5},
+        )
+        assert world_model.zones["living"].environment.temperature == 24.5
+
+    def test_new_and_legacy_prefix_produce_identical_state(self, world_model):
+        """New and old prefixes write the same value to the same zone field."""
+        world_model.update_from_mqtt(
+            "office/bedroom/sensor/esp32_002/humidity",
+            {"humidity": 55.0},
+        )
+        humidity_via_legacy = world_model.zones["bedroom"].environment.humidity
+
+        # Reset
+        world_model.zones["bedroom"].environment.humidity = 0.0
+
+        world_model.update_from_mqtt(
+            "hems/sensors/bedroom/sensor/esp32_002/humidity",
+            {"humidity": 55.0},
+        )
+        humidity_via_new = world_model.zones["bedroom"].environment.humidity
+
+        assert humidity_via_legacy == humidity_via_new == 55.0
+
+    def test_new_prefix_invalid_value_rejected(self, world_model):
+        """hems/sensors/* enforces the same input-trust-boundary as office/*."""
+        world_model.update_from_mqtt(
+            "hems/sensors/living/sensor/esp32_001/temperature",
+            {"temperature": "DROP TABLE"},
+        )
+        # Validation rejects the value early (return before zone auto-create).
+        # Zone should NOT be created by a rejected message.
+        assert "living" not in world_model.zones
+
+    # --- sensor/camera (occupancy) ---
+
+    def test_new_prefix_camera_updates_occupancy_count(self, world_model):
+        """hems/sensors/{zone}/camera/{id}/status updates occupancy count."""
+        world_model.update_from_mqtt(
+            "hems/sensors/living/camera/cam_01/status",
+            {"person_count": 2},
+        )
+        assert world_model.zones["living"].occupancy.count == 2
+
+    def test_legacy_prefix_camera_updates_occupancy_count(self, world_model):
+        """office/{zone}/camera/{id}/status still updates occupancy count."""
+        world_model.update_from_mqtt(
+            "office/living/camera/cam_01/status",
+            {"person_count": 2},
+        )
+        assert world_model.zones["living"].occupancy.count == 2
+
+    # --- sensor/activity ---
+
+    def test_new_prefix_activity_class_updates_occupancy(self, world_model):
+        """hems/sensors/{zone}/activity/{id} updates occupancy activity_class."""
+        world_model.update_from_mqtt(
+            "hems/sensors/living/activity/monitor_01",
+            {"activity_class": "working", "posture": "sitting"},
+        )
+        assert world_model.zones["living"].occupancy.activity_class == "working"
+        assert world_model.zones["living"].occupancy.posture == "sitting"
+
+    def test_legacy_prefix_activity_class_updates_occupancy(self, world_model):
+        """office/{zone}/activity/{id} still updates occupancy activity_class."""
+        world_model.update_from_mqtt(
+            "office/living/activity/monitor_01",
+            {"activity_class": "working", "posture": "sitting"},
+        )
+        assert world_model.zones["living"].occupancy.activity_class == "working"
+        assert world_model.zones["living"].occupancy.posture == "sitting"

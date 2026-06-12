@@ -399,9 +399,12 @@ zigbee2mqtt/#
 
 | Publisher | Topic | Payload 概要 |
 |-----------|-------|--------------|
-| MCP / ESP32 sensors | `office/{zone}/sensor/{device_id}/{channel}` | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / motion / motion_count / vibration / door / presence |
-| perception (camera) | `office/{zone}/camera/{cam_id}/status` | person_count, count |
-| perception (activity) | `office/{zone}/activity/{monitor_id}` | activity_level / activity_class / posture / posture_duration_sec / posture_status |
+| MCP / ESP32 sensors | `hems/sensors/{zone}/sensor/{device_id}/{channel}` *(新 canonical — W3.8a)* | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / motion / motion_count / vibration / door / presence |
+| MCP / ESP32 sensors | ~~`office/{zone}/sensor/{device_id}/{channel}`~~ *(旧 prefix — 互換 window、brain は新旧両方を受信)* | 同上 |
+| perception (camera) | `hems/sensors/{zone}/camera/{cam_id}/status` *(新 canonical — W3.8a)* | person_count, count |
+| perception (camera) | ~~`office/{zone}/camera/{cam_id}/status`~~ *(旧 prefix — 互換 window)* | 同上 |
+| perception (activity) | `hems/sensors/{zone}/activity/{monitor_id}` *(新 canonical — W3.8a)* | activity_level / activity_class / posture / posture_duration_sec / posture_status |
+| perception (activity) | ~~`office/{zone}/activity/{monitor_id}`~~ *(旧 prefix — 互換 window)* | 同上 |
 | perception (VLM) | `hems/perception/vlm/{zone}` | scene_description / objects / scene_type / anomalies |
 | perception (VLM mgmt) | `hems/perception/vlm/status` | service status |
 | perception (VLM mgmt) | `hems/perception/vlm/model_swap` | swap event |
@@ -455,9 +458,12 @@ zigbee2mqtt/#
 
 | Topic Pattern | Handler | 反映先 |
 |---------------|---------|--------|
-| `office/{zone}/sensor/{dev}/{ch}` | `_update_sensor` / `_update_event_channel` / `_update_state_channel` | `zones[zone].environment` / `.occupancy.motion_*` / `.occupancy.door_states` |
-| `office/{zone}/camera/{cam}/status` | inline | `zones[zone].occupancy.count` |
-| `office/{zone}/activity/{mon}` | inline | `zones[zone].occupancy.activity_*` / `.posture` |
+| `hems/sensors/{zone}/sensor/{dev}/{ch}` *(新 canonical — W3.8a)* | `_update_sensor` / `_update_event_channel` / `_update_state_channel` | `zones[zone].environment` / `.occupancy.motion_*` / `.occupancy.door_states` |
+| ~~`office/{zone}/sensor/{dev}/{ch}`~~ *(旧 prefix — 互換 window)* | 同上 | 同上 |
+| `hems/sensors/{zone}/camera/{cam}/status` *(新 canonical — W3.8a)* | inline | `zones[zone].occupancy.count` |
+| ~~`office/{zone}/camera/{cam}/status`~~ *(旧 prefix — 互換 window)* | 同上 | 同上 |
+| `hems/sensors/{zone}/activity/{mon}` *(新 canonical — W3.8a)* | inline | `zones[zone].occupancy.activity_*` / `.posture` |
+| ~~`office/{zone}/activity/{mon}`~~ *(旧 prefix — 互換 window)* | 同上 | 同上 |
 | `office/{zone}/task_report/{id}` | inline | `zones[zone].events` (task_report) |
 | `hems/pc/*` | `_update_pc_state` | `digital.pc_state` |
 | `hems/services/{name}/{status,event}` | `_update_service_state` | `digital.services_state` |
@@ -503,8 +509,8 @@ grep -nE 'parts\[0\] == |parts\[1\] == ' services/brain/src/world_model/mqtt_rou
 
 | 領域 | クラス | 主要フィールド | データソース |
 |------|--------|----------------|--------------|
-| Physical | ZoneState | environment / occupancy / devices / events | office/+/sensor / camera / activity |
-| Physical | EnvironmentData | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / trends | office/+/sensor |
+| Physical | ZoneState | environment / occupancy / devices / events | `hems/sensors/+/sensor` / `camera` / `activity` *(新 canonical)* + `office/+/sensor` / `camera` / `activity` *(互換 window)* |
+| Physical | EnvironmentData | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / trends | `hems/sensors/+/sensor` *(新)* + `office/+/sensor` *(旧互換)* |
 | Physical | OccupancyData | count / activity_* / posture / motion_* / door_states / inferred_occupied / scene_* / vlm_history | camera + activity + VLM + sensor |
 | Physical | HomeDevicesState | lights / climate / covers / switches / binary_sensors / sensors / events | hems/home + hems/tapo + zigbee2mqtt |
 | Physical | WeatherState | condition / temperature / humidity / wind_speed / forecast / alerts | hems/weather/* |

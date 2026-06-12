@@ -146,7 +146,8 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 
 プレフィックス規約のみ(全トピックツリーは [`docs/IMPLEMENTATION_MAP.md`](docs/IMPLEMENTATION_MAP.md) §4.0、ブリッジ別の詳細は [`docs/CLAUDE-bridges.md`](docs/CLAUDE-bridges.md)):
 
-- `office/{zone}/{device_type}/{device_id}/{channel}` — 物理センサ telemetry + camera/activity(perception)
+- `hems/sensors/{zone}/{device_type}/{device_id}/{channel}` — 物理センサ telemetry + camera/activity(perception) **[新 canonical — W3.8a]**
+- ~~`office/{zone}/{device_type}/{device_id}/{channel}`~~ — 旧 prefix(互換 window — brain は新旧両方を受信; W3.8b デバイス flash 完了後に廃止予定)
 - `hems/pc/*` ・ `hems/services/{name}/*` — PC メトリクス / サービスモニタ(OpenClaw)
 - `hems/home/{zone}/{domain}/{entity_id}/state` — smart home(HA)
 - `hems/personal/{notes,biometrics,knowledge}/*` — Obsidian / biometric / knowledge

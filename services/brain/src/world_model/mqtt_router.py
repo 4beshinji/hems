@@ -8,8 +8,76 @@ class MqttRouterMixin:
         """Parse MQTT topic and update world state."""
         parts = topic.split("/")
 
+        # W3.8a: hems/sensors/{zone}/{device_type}/{device_id}/{channel}
+        # New canonical prefix (phase-in).  Re-map to the same reducers as
+        # office/* so both prefixes produce identical world_model updates.
+        # Dedup note: during the migration window a single physical sensor may
+        # publish on BOTH prefixes simultaneously.  Because each message
+        # carries the same value, the second write is idempotent for
+        # EnvironmentData/OccupancyData fields.  event_store writes
+        # (_update_event_channel / zone.add_event) would double-count if both
+        # topics fired; however the flash migration (W3.8b) is done device by
+        # device, so at any point a device publishes on only ONE prefix.
+        # No dedup guard is therefore needed, but if double-publishing is ever
+        # observed the fix is to key on (zone, device_id, channel, value) with
+        # a short TTL cache in _update_event_channel.
+        if len(parts) >= 5 and parts[0] == "hems" and parts[1] == "sensors":
+            # Remap: parts[2]=zone, parts[3]=device_type, parts[4]=device_id
+            # parts[5]=channel (sensor/camera only; activity has no channel part)
+            zone_id = parts[2]
+            device_type = parts[3]
+            device_id = parts[4]
+            channel = parts[5] if len(parts) >= 6 else ""
+            value = payload.get(channel) or payload.get("value")
+            if device_type == "sensor":
+                if len(parts) < 6:
+                    return  # channel part required for sensor topics
+                if value is not None:
+                    ch_type = _world_model.classify_channel(channel)
+                    if ch_type == _world_model.ChannelType.ANALOG:
+                        ok, coerced = _world_model.validate_sensor_value(channel, value)
+                        if not ok:
+                            _world_model.logger.warning(
+                                f"Rejected sensor value (not fused): topic={topic} channel={channel} raw={value!r}"
+                            )
+                            return
+                        self._update_sensor(zone_id, channel, coerced)
+                    elif ch_type == _world_model.ChannelType.EVENT:
+                        self._update_event_channel(zone_id, channel, value, device_id)
+                    elif ch_type == _world_model.ChannelType.STATE:
+                        self._update_state_channel(zone_id, channel, value, device_id)
+            elif device_type == "camera" and len(parts) >= 6:
+                count = payload.get("person_count", payload.get("count", 0))
+                zone = self._get_zone(zone_id)
+                zone.occupancy = _world_model.OccupancyData(count=int(count), last_update=_world_model.time.time())
+            elif device_type == "activity":
+                zone = self._get_zone(zone_id)
+                activity = payload.get("activity_level", "")
+                if isinstance(activity, float):
+                    zone.occupancy.activity_level = activity
+                if "activity_class" in payload:
+                    zone.occupancy.activity_class = payload["activity_class"]
+                if "posture" in payload:
+                    zone.occupancy.posture = payload["posture"]
+                if "posture_duration_sec" in payload:
+                    zone.occupancy.posture_duration_sec = payload["posture_duration_sec"]
+                if "posture_status" in payload:
+                    zone.occupancy.posture_status = payload["posture_status"]
+                if activity == "sedentary":
+                    duration = payload.get("duration_minutes", 0)
+                    if duration >= self.thresholds.sedentary_minutes:
+                        zone.add_event(
+                            _world_model.Event(
+                                event_type="sedentary_alert",
+                                description=f"長時間着座検知: {duration}分",
+                                severity=1,
+                                zone=zone_id,
+                                data={"duration_minutes": duration},
+                            )
+                        )
+
         # office/{zone}/sensor/{device_id}/{channel}
-        if len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
+        elif len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
             zone_id = parts[1]
             device_id = parts[3]
             channel = parts[4]
