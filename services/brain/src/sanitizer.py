@@ -53,6 +53,10 @@ _INJECTION_PATTERNS = [
 ]
 _INJECTION_RE = re.compile("|".join(_INJECTION_PATTERNS), re.IGNORECASE)
 
+# Allowed browser actions for control_browser tool.
+# Blocks arbitrary code execution via 'eval' action.
+_ALLOWED_BROWSER_ACTIONS = {"navigate", "get_url", "get_title"}
+
 
 def sanitize_llm_text(text: str) -> str:
     """Remove/escape patterns that could inject into LLM context.
@@ -417,15 +421,14 @@ class Sanitizer:
         to prevent LLM-generated code from running unvetted in the browser.
         """
         action = args.get("action", "")
-        _ALLOWED_ACTIONS = {"navigate", "get_url", "get_title"}
 
-        if action not in _ALLOWED_ACTIONS:
+        if action not in _ALLOWED_BROWSER_ACTIONS:
             logger.warning(f"REJECTED: control_browser action '{action}' not allowed")
             return {
                 "allowed": False,
                 "reason": (
                     f"Browser action '{action}' is not permitted. "
-                    f"Allowed: {_ALLOWED_ACTIONS}. "
+                    f"Allowed: {_ALLOWED_BROWSER_ACTIONS}. "
                     f"The 'eval' action is disabled to prevent arbitrary JS execution."
                 ),
             }
