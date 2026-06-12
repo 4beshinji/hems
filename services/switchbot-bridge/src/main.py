@@ -12,8 +12,8 @@ from contextlib import asynccontextmanager
 import aiohttp
 from device_mapper import DeviceMapper
 from fastapi import FastAPI, HTTPException, Request
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 from switchbot_client import SwitchBotClient
 
@@ -21,9 +21,8 @@ import config
 
 # Module-level shared state
 sb_client: SwitchBotClient | None = None
-mqtt_pub: MQTTPublisher | None = None
+mqtt_pub: MqttPublisher | None = None
 device_mapper: DeviceMapper | None = None
-_tasks: list[asyncio.Task] = []
 
 # Domains that publish sensor sub-entities (temperature, humidity from Meter/Hub)
 _SENSOR_DOMAINS = {"sensor"}
@@ -125,25 +124,18 @@ async def _poll_all_devices():
                     _publish_device_state(device_id, parsed)
 
             # Publish bridge status
-            mqtt_pub.publish(
-                "hems/switchbot/bridge/status",
-                {
-                    "connected": sb_client.connected,
-                    "device_count": len(physical),
-                    "ir_device_count": len(infrared),
-                },
+            publish_bridge_status(
+                mqtt_pub,
+                "switchbot",
+                device_count=len(physical),
+                ir_device_count=len(infrared),
             )
 
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"Poll error: {e}")
-            mqtt_pub.publish(
-                "hems/switchbot/bridge/status",
-                {
-                    "connected": False,
-                },
-            )
+            publish_bridge_status(mqtt_pub, "switchbot", connected=False)
 
         await asyncio.sleep(config.POLL_INTERVAL)
 
@@ -151,12 +143,7 @@ async def _poll_all_devices():
 async def _bridge_status_loop():
     """Periodically publish bridge connection status."""
     while True:
-        mqtt_pub.publish(
-            "hems/switchbot/bridge/status",
-            {
-                "connected": sb_client.connected,
-            },
-        )
+        publish_bridge_status(mqtt_pub, "switchbot")
         await asyncio.sleep(30)
 
 
@@ -165,23 +152,34 @@ async def lifespan(app: FastAPI):
     global sb_client, mqtt_pub, device_mapper
 
     device_mapper = DeviceMapper(config.SWITCHBOT_DEVICE_MAP)
-    mqtt_pub = MQTTPublisher(config.MQTT_BROKER, config.MQTT_PORT, config.MQTT_USER, config.MQTT_PASS)
-    mqtt_pub.connect()
+
+    # MQTT — switchbot profile: retain=True, error level=error, no connection tracking,
+    # unconditional publish (track_connection=False), ensure_ascii=False
+    mqtt_pub = MqttPublisher(
+        config.MQTT_BROKER,
+        config.MQTT_PORT,
+        config.MQTT_USER,
+        config.MQTT_PASS,
+        default_retain=True,
+        default_qos=0,
+        ensure_ascii=False,
+        error_level="error",
+        raise_on_connect_error=False,
+        track_connection=False,
+        auto_reconnect=True,
+    )
 
     sb_client = SwitchBotClient(config.SWITCHBOT_TOKEN, config.SWITCHBOT_SECRET)
+    _session: aiohttp.ClientSession | None = None
 
-    async with aiohttp.ClientSession() as session:
-        await sb_client.start(session)
+    async def _startup():
+        nonlocal _session
+        _session = aiohttp.ClientSession()
+        await sb_client.start(_session)
 
-        # Initial device fetch
         physical, infrared = await sb_client.get_devices()
         logger.info(f"SwitchBot devices: {len(physical)} physical, {len(infrared)} IR")
 
-        # Start polling loop
-        _tasks.append(asyncio.create_task(_poll_all_devices()))
-        _tasks.append(asyncio.create_task(_bridge_status_loop()))
-
-        # Setup webhook if configured
         if config.WEBHOOK_URL:
             result = await sb_client._api_post(
                 "/webhook/setupWebhook",
@@ -194,14 +192,21 @@ async def lifespan(app: FastAPI):
             if result:
                 logger.info(f"SwitchBot webhook registered: {config.WEBHOOK_URL}")
 
+    async def _shutdown():
+        await sb_client.stop()
+        if _session is not None:
+            await _session.close()
+
+    async with bridge_lifespan(
+        app,
+        mqtt=mqtt_pub,
+        on_startup=_startup,
+        task_factories=[_poll_all_devices, _bridge_status_loop],
+        on_shutdown=_shutdown,
+    ):
         logger.info("SwitchBot Bridge started")
         yield
-
-        for t in _tasks:
-            t.cancel()
-        await sb_client.stop()
-        mqtt_pub.disconnect()
-        logger.info("SwitchBot Bridge stopped")
+    logger.info("SwitchBot Bridge stopped")
 
 
 app = FastAPI(title="HEMS SwitchBot Bridge", lifespan=lifespan)
