@@ -1,5 +1,93 @@
 name: hems
 
+# =============================================================================
+# YAML Anchors — W4.2
+# =============================================================================
+
+# --- Healthcheck anchors ---
+
+# HTTP /health endpoint (urllib — no curl dep). Used by Python bridges & services.
+x-healthcheck-http-health: &healthcheck-http-health
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 10s
+
+# HTTP /docs endpoint (urllib). Used by backend, voice-service, mock-llm.
+x-healthcheck-http-docs: &healthcheck-http-docs
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 15s
+
+# MQTT socket reachability (brain → mosquitto). Used by brain.
+x-healthcheck-socket-mqtt: &healthcheck-socket-mqtt
+  test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('mosquitto',1883),5); s.close()"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 15s
+
+# --- Resource limit anchors ---
+# 実測後に調整すること。OOM kill を避けるため初期値は緩め設定。
+# docker stats で 24h ピーク使用量を確認し適宜絞る。
+
+# Brain (LLM + rule dual-mode + world model): 2 GB
+x-limits-brain: &limits-brain
+  deploy:
+    resources:
+      limits:
+        memory: 2G
+      reservations:
+        memory: 256M
+
+# Ollama (Local LLM inference): 8 GB (モデルサイズに応じて要調整)
+x-limits-ollama: &limits-ollama
+  deploy:
+    resources:
+      limits:
+        memory: 8G
+      reservations:
+        memory: 512M
+
+# Perception (YOLOv11s-pose + VLM): 4 GB
+x-limits-perception: &limits-perception
+  deploy:
+    resources:
+      limits:
+        memory: 4G
+      reservations:
+        memory: 512M
+
+# STT (Whisper large-v3-turbo): 3 GB
+x-limits-stt: &limits-stt
+  deploy:
+    resources:
+      limits:
+        memory: 3G
+      reservations:
+        memory: 256M
+
+# Lightweight Python bridges: 512 MB
+x-limits-bridge: &limits-bridge
+  deploy:
+    resources:
+      limits:
+        memory: 512M
+      reservations:
+        memory: 64M
+
+# Backend (FastAPI + SQLAlchemy + MQTT): 512 MB
+x-limits-backend: &limits-backend
+  deploy:
+    resources:
+      limits:
+        memory: 512M
+      reservations:
+        memory: 64M
+
 services:
   # --- Shared Python base image (bootstrap) ---
   # Build first via:  docker compose --profile bootstrap build base
@@ -103,11 +191,8 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('mosquitto',1883),5); s.close()"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+      <<: *healthcheck-socket-mqtt
+    <<: *limits-brain
 
   # --- Backend (API + DataMart) ---
   backend:
@@ -142,11 +227,8 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+      <<: *healthcheck-http-docs
+    <<: *limits-backend
 
   # --- Frontend (React SPA + nginx) ---
   frontend:
@@ -207,11 +289,7 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+      <<: *healthcheck-http-docs
 
   # --- Mock LLM (Development, profile: mock) ---
   mock-llm:
@@ -224,10 +302,7 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-http-docs
       start_period: 10s
 
   # ========== Optional Services (profiles) ==========
@@ -279,6 +354,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    <<: *limits-bridge
 
   # --- Obsidian Bridge (Knowledge store integration) ---
   obsidian-bridge:
@@ -305,11 +381,8 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      <<: *healthcheck-http-health
+    <<: *limits-bridge
 
   # --- GAS Bridge (Google Apps Script integration) ---
   gas-bridge:
@@ -341,11 +414,8 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      <<: *healthcheck-http-health
+    <<: *limits-bridge
 
   # --- Home Assistant (Smart home hub) ---
   homeassistant:
@@ -358,6 +428,13 @@ services:
     network_mode: host
     privileged: true
     restart: unless-stopped
+    healthcheck:
+      # network_mode:host — HA HTTP API port 8123 を TCP で確認
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8123' 2>/dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # --- Matter Server (Matter fabric for HA) ---
   matter-server:
@@ -371,6 +448,13 @@ services:
     privileged: true
     restart: unless-stopped
     command: --storage-path /data --port 5580
+    healthcheck:
+      # network_mode:host — Matter WebSocket port 5580 を TCP で確認
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/5580' 2>/dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   # --- HA Bridge (Home Assistant integration) ---
   ha-bridge:
@@ -400,11 +484,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      <<: *healthcheck-http-health
+    <<: *limits-bridge
 
   # --- Biometric Bridge (Smartband / Gadgetbridge integration) ---
   biometric-bridge:
@@ -432,11 +513,8 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      <<: *healthcheck-http-health
+    <<: *limits-bridge
 
   # --- VOICEVOX Engine ---
   voicevox:
@@ -478,6 +556,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    <<: *limits-ollama
 
   # Pulls LLM_MODEL on startup (one-shot). Re-run after changing LLM_MODEL.
   # VRAM-based model selection: run `python infra/scripts/gpu_setup.py --auto-select`
@@ -566,11 +645,9 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-http-health
       start_period: 30s
+    <<: *limits-perception
 
   # --- SwitchBot Bridge (Direct SwitchBot API v1.1 integration) ---
   switchbot-bridge:
@@ -599,11 +676,8 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      <<: *healthcheck-http-health
+    <<: *limits-bridge
 
   # --- Tapo Bridge (python-kasa direct LAN integration) ---
   tapo-bridge:
@@ -633,11 +707,8 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      <<: *healthcheck-http-health
+    <<: *limits-bridge
 
   # --- Zigbee2MQTT (official image, needs USB coordinator stick) ---
   zigbee2mqtt:
@@ -666,6 +737,13 @@ services:
       - ZIGBEE2MQTT_CONFIG_MQTT_PASSWORD=${MQTT_PASS:?Set MQTT_PASS in .env}
     networks:
       - hems-net
+    healthcheck:
+      # z2m Admin UI が応答するまでの間、ポート到達確認で代用
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' 2>/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # --- Weather Bridge (JMA / OpenWeatherMap → MQTT, always-on) ---
   weather-bridge:
@@ -697,11 +775,9 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-http-health
       start_period: 15s
+    <<: *limits-bridge
 
   # --- News Bridge (RSS + Ollama summarizer) ---
   news-bridge:
@@ -733,11 +809,8 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      <<: *healthcheck-http-health
+    <<: *limits-bridge
 
   # --- Knowledge Bridge (Multi-format document ingestion, read-only) ---
   knowledge-bridge:
@@ -771,11 +844,9 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-http-health
       start_period: 15s
+    <<: *limits-bridge
 
   # --- STT Service (Plugin-based Speech-to-Text) ---
   stt-service:
@@ -808,11 +879,9 @@ services:
     networks:
       - hems-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-http-health
       start_period: 90s
+    <<: *limits-stt
 
 volumes:
   hems_mqtt_data:
