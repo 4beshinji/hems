@@ -118,8 +118,189 @@ class UserUpdatesMixin:
             if payload.get("connected") is not None:
                 w.last_update = w.last_update or now
 
+    # -------------------------------------------------------------------------
+    # Biometric metric handlers (one per metric)
+    # -------------------------------------------------------------------------
+
+    def _handle_biometric_heart_rate(self, bio, payload: dict, now: float) -> None:
+        """Update heart_rate sub-object and fire threshold events."""
+        bpm = payload.get("bpm")
+        if bpm is not None:
+            prev_bpm = bio.heart_rate.bpm
+            bio.heart_rate.bpm = int(bpm)
+            bio.heart_rate.zone = _world_model.HeartRateData.classify_zone(int(bpm))
+            bio.heart_rate.last_update = now
+            if "resting_bpm" in payload:
+                bio.heart_rate.resting_bpm = int(payload["resting_bpm"])
+            bio.bridge_connected = True
+            bio.record_history("heart_rate", float(bpm), now)
+            self._check_biometric_thresholds(
+                "heart_rate", float(bpm), float(prev_bpm) if prev_bpm is not None else None
+            )
+
+    def _handle_biometric_spo2(self, bio, payload: dict, now: float) -> None:
+        """Update spo2 sub-object and fire threshold events."""
+        pct = payload.get("percent")
+        if pct is not None:
+            prev_pct = bio.spo2.percent
+            bio.spo2.percent = int(pct)
+            bio.spo2.last_update = now
+            bio.bridge_connected = True
+            bio.record_history("spo2", float(pct), now)
+            self._check_biometric_thresholds("spo2", float(pct), float(prev_pct) if prev_pct is not None else None)
+
+    def _handle_biometric_sleep(self, bio, payload: dict, now: float) -> None:
+        """Update sleep sub-object (no threshold events)."""
+        bio.sleep.stage = payload.get("stage", bio.sleep.stage)
+        if "duration_minutes" in payload:
+            bio.sleep.duration_minutes = int(payload["duration_minutes"])
+            bio.record_history("sleep_duration", float(payload["duration_minutes"]), now)
+        if "deep_minutes" in payload:
+            bio.sleep.deep_minutes = int(payload["deep_minutes"])
+        if "rem_minutes" in payload:
+            bio.sleep.rem_minutes = int(payload["rem_minutes"])
+        if "light_minutes" in payload:
+            bio.sleep.light_minutes = int(payload["light_minutes"])
+        if "quality_score" in payload:
+            bio.sleep.quality_score = int(payload["quality_score"])
+            bio.record_history("sleep_quality", float(payload["quality_score"]), now)
+        if "sleep_start_ts" in payload:
+            bio.sleep.sleep_start_ts = float(payload["sleep_start_ts"])
+        if "sleep_end_ts" in payload:
+            bio.sleep.sleep_end_ts = float(payload["sleep_end_ts"])
+        bio.sleep.last_update = now
+        bio.bridge_connected = True
+
+    def _handle_biometric_activity(self, bio, payload: dict, now: float) -> None:
+        """Update activity sub-object (no threshold events)."""
+        if "steps" in payload:
+            bio.activity.steps = int(payload["steps"])
+            bio.record_history("steps", float(payload["steps"]), now)
+        if "steps_goal" in payload:
+            bio.activity.steps_goal = int(payload["steps_goal"])
+        if "calories" in payload:
+            bio.activity.calories = int(payload["calories"])
+        if "active_minutes" in payload:
+            bio.activity.active_minutes = int(payload["active_minutes"])
+        if "level" in payload:
+            bio.activity.level = payload["level"]
+        bio.activity.last_update = now
+        bio.bridge_connected = True
+
+    def _handle_biometric_stress(self, bio, payload: dict, now: float) -> None:
+        """Update stress sub-object and fire threshold events."""
+        level = payload.get("level")
+        if level is not None:
+            prev_level = bio.stress.level
+            bio.stress.level = int(level)
+            bio.stress.category = _world_model.StressData.classify_category(int(level))
+            bio.stress.last_update = now
+            bio.bridge_connected = True
+            bio.record_history("stress", float(level), now)
+            self._check_biometric_thresholds(
+                "stress", float(level), float(prev_level) if prev_level is not None else None
+            )
+
+    def _handle_biometric_fatigue(self, bio, payload: dict, now: float) -> None:
+        """Update fatigue sub-object (no threshold events)."""
+        if "score" in payload:
+            bio.fatigue.score = int(payload["score"])
+            bio.record_history("fatigue", float(payload["score"]), now)
+        if "factors" in payload:
+            bio.fatigue.factors = payload["factors"]
+        bio.fatigue.last_update = now
+        bio.bridge_connected = True
+
+    def _handle_biometric_hrv(self, bio, payload: dict, now: float) -> None:
+        """Update hrv sub-object and fire threshold events (inline — not via _check_biometric_thresholds)."""
+        rmssd = payload.get("rmssd_ms")
+        if rmssd is not None:
+            prev_rmssd = bio.hrv.rmssd_ms
+            bio.hrv.rmssd_ms = int(rmssd)
+            bio.hrv.last_update = now
+            bio.bridge_connected = True
+            bio.record_history("hrv", float(rmssd), now)
+            if int(rmssd) < self.thresholds.hrv_low and (prev_rmssd is None or prev_rmssd >= self.thresholds.hrv_low):
+                bio.add_event(
+                    _world_model.Event(
+                        event_type="hrv_low",
+                        description=f"HRV低下: {int(rmssd)}ms",
+                        severity=1,
+                        data={"rmssd_ms": int(rmssd)},
+                    )
+                )
+
+    def _handle_biometric_body_temperature(self, bio, payload: dict, now: float) -> None:
+        """Update body_temperature sub-object and fire threshold events (inline)."""
+        celsius = payload.get("celsius")
+        if celsius is not None:
+            prev_temp = bio.body_temperature.celsius
+            bio.body_temperature.celsius = float(celsius)
+            bio.body_temperature.last_update = now
+            bio.bridge_connected = True
+            bio.record_history("body_temperature", float(celsius), now)
+            if float(celsius) > self.thresholds.body_temp_high and (
+                prev_temp is None or prev_temp <= self.thresholds.body_temp_high
+            ):
+                bio.add_event(
+                    _world_model.Event(
+                        event_type="body_temp_high",
+                        description=f"体温上昇: {float(celsius):.1f}°C",
+                        severity=1,
+                        data={"celsius": float(celsius)},
+                    )
+                )
+
+    def _handle_biometric_respiratory_rate(self, bio, payload: dict, now: float) -> None:
+        """Update respiratory_rate sub-object and fire threshold events (inline)."""
+        rate = payload.get("breaths_per_minute")
+        if rate is not None:
+            prev_rate = bio.respiratory_rate.breaths_per_minute
+            bio.respiratory_rate.breaths_per_minute = int(rate)
+            bio.respiratory_rate.last_update = now
+            bio.bridge_connected = True
+            bio.record_history("respiratory_rate", float(rate), now)
+            if int(rate) > self.thresholds.respiratory_rate_high and (
+                prev_rate is None or prev_rate <= self.thresholds.respiratory_rate_high
+            ):
+                bio.add_event(
+                    _world_model.Event(
+                        event_type="respiratory_rate_high",
+                        description=f"呼吸数上昇: {int(rate)}回/分",
+                        severity=1,
+                        data={"breaths_per_minute": int(rate)},
+                    )
+                )
+
+    def _handle_biometric_steps(self, bio, payload: dict, now: float) -> None:
+        """Alternative topic: hems/personal/biometrics/{provider}/steps — updates activity."""
+        if "count" in payload:
+            bio.activity.steps = int(payload["count"])
+        if "daily_goal" in payload:
+            bio.activity.steps_goal = int(payload["daily_goal"])
+        bio.activity.last_update = now
+        bio.bridge_connected = True
+
+    # Dispatch table: metric name → handler method name
+    _BIOMETRIC_HANDLERS: dict[str, str] = {
+        "heart_rate": "_handle_biometric_heart_rate",
+        "spo2": "_handle_biometric_spo2",
+        "sleep": "_handle_biometric_sleep",
+        "activity": "_handle_biometric_activity",
+        "stress": "_handle_biometric_stress",
+        "fatigue": "_handle_biometric_fatigue",
+        "hrv": "_handle_biometric_hrv",
+        "body_temperature": "_handle_biometric_body_temperature",
+        "respiratory_rate": "_handle_biometric_respiratory_rate",
+        "steps": "_handle_biometric_steps",
+    }
+
     def _update_biometric_state(self, path_parts: list[str], payload: dict):
-        """Handle hems/personal/biometrics/* topics from biometric bridge."""
+        """Handle hems/personal/biometrics/* topics from biometric bridge.
+
+        Thin dispatcher: bridge/status handled first, then metric routed via
+        _BIOMETRIC_HANDLERS table to individual helper methods.
+        """
         if not path_parts:
             return
 
@@ -137,158 +318,9 @@ class UserUpdatesMixin:
             return
 
         metric = path_parts[1]
-
-        if metric == "heart_rate":
-            bpm = payload.get("bpm")
-            if bpm is not None:
-                prev_bpm = bio.heart_rate.bpm
-                bio.heart_rate.bpm = int(bpm)
-                bio.heart_rate.zone = _world_model.HeartRateData.classify_zone(int(bpm))
-                bio.heart_rate.last_update = now
-                if "resting_bpm" in payload:
-                    bio.heart_rate.resting_bpm = int(payload["resting_bpm"])
-                bio.bridge_connected = True
-                bio.record_history("heart_rate", float(bpm), now)
-                self._check_biometric_thresholds(
-                    "heart_rate", float(bpm), float(prev_bpm) if prev_bpm is not None else None
-                )
-
-        elif metric == "spo2":
-            pct = payload.get("percent")
-            if pct is not None:
-                prev_pct = bio.spo2.percent
-                bio.spo2.percent = int(pct)
-                bio.spo2.last_update = now
-                bio.bridge_connected = True
-                bio.record_history("spo2", float(pct), now)
-                self._check_biometric_thresholds("spo2", float(pct), float(prev_pct) if prev_pct is not None else None)
-
-        elif metric == "sleep":
-            bio.sleep.stage = payload.get("stage", bio.sleep.stage)
-            if "duration_minutes" in payload:
-                bio.sleep.duration_minutes = int(payload["duration_minutes"])
-                bio.record_history("sleep_duration", float(payload["duration_minutes"]), now)
-            if "deep_minutes" in payload:
-                bio.sleep.deep_minutes = int(payload["deep_minutes"])
-            if "rem_minutes" in payload:
-                bio.sleep.rem_minutes = int(payload["rem_minutes"])
-            if "light_minutes" in payload:
-                bio.sleep.light_minutes = int(payload["light_minutes"])
-            if "quality_score" in payload:
-                bio.sleep.quality_score = int(payload["quality_score"])
-                bio.record_history("sleep_quality", float(payload["quality_score"]), now)
-            if "sleep_start_ts" in payload:
-                bio.sleep.sleep_start_ts = float(payload["sleep_start_ts"])
-            if "sleep_end_ts" in payload:
-                bio.sleep.sleep_end_ts = float(payload["sleep_end_ts"])
-            bio.sleep.last_update = now
-            bio.bridge_connected = True
-
-        elif metric == "activity":
-            if "steps" in payload:
-                bio.activity.steps = int(payload["steps"])
-                bio.record_history("steps", float(payload["steps"]), now)
-            if "steps_goal" in payload:
-                bio.activity.steps_goal = int(payload["steps_goal"])
-            if "calories" in payload:
-                bio.activity.calories = int(payload["calories"])
-            if "active_minutes" in payload:
-                bio.activity.active_minutes = int(payload["active_minutes"])
-            if "level" in payload:
-                bio.activity.level = payload["level"]
-            bio.activity.last_update = now
-            bio.bridge_connected = True
-
-        elif metric == "stress":
-            level = payload.get("level")
-            if level is not None:
-                prev_level = bio.stress.level
-                bio.stress.level = int(level)
-                bio.stress.category = _world_model.StressData.classify_category(int(level))
-                bio.stress.last_update = now
-                bio.bridge_connected = True
-                bio.record_history("stress", float(level), now)
-                self._check_biometric_thresholds(
-                    "stress", float(level), float(prev_level) if prev_level is not None else None
-                )
-
-        elif metric == "fatigue":
-            if "score" in payload:
-                bio.fatigue.score = int(payload["score"])
-                bio.record_history("fatigue", float(payload["score"]), now)
-            if "factors" in payload:
-                bio.fatigue.factors = payload["factors"]
-            bio.fatigue.last_update = now
-            bio.bridge_connected = True
-
-        elif metric == "hrv":
-            rmssd = payload.get("rmssd_ms")
-            if rmssd is not None:
-                prev_rmssd = bio.hrv.rmssd_ms
-                bio.hrv.rmssd_ms = int(rmssd)
-                bio.hrv.last_update = now
-                bio.bridge_connected = True
-                bio.record_history("hrv", float(rmssd), now)
-                if int(rmssd) < self.thresholds.hrv_low and (
-                    prev_rmssd is None or prev_rmssd >= self.thresholds.hrv_low
-                ):
-                    bio.add_event(
-                        _world_model.Event(
-                            event_type="hrv_low",
-                            description=f"HRV低下: {int(rmssd)}ms",
-                            severity=1,
-                            data={"rmssd_ms": int(rmssd)},
-                        )
-                    )
-
-        elif metric == "body_temperature":
-            celsius = payload.get("celsius")
-            if celsius is not None:
-                prev_temp = bio.body_temperature.celsius
-                bio.body_temperature.celsius = float(celsius)
-                bio.body_temperature.last_update = now
-                bio.bridge_connected = True
-                bio.record_history("body_temperature", float(celsius), now)
-                if float(celsius) > self.thresholds.body_temp_high and (
-                    prev_temp is None or prev_temp <= self.thresholds.body_temp_high
-                ):
-                    bio.add_event(
-                        _world_model.Event(
-                            event_type="body_temp_high",
-                            description=f"体温上昇: {float(celsius):.1f}°C",
-                            severity=1,
-                            data={"celsius": float(celsius)},
-                        )
-                    )
-
-        elif metric == "respiratory_rate":
-            rate = payload.get("breaths_per_minute")
-            if rate is not None:
-                prev_rate = bio.respiratory_rate.breaths_per_minute
-                bio.respiratory_rate.breaths_per_minute = int(rate)
-                bio.respiratory_rate.last_update = now
-                bio.bridge_connected = True
-                bio.record_history("respiratory_rate", float(rate), now)
-                if int(rate) > self.thresholds.respiratory_rate_high and (
-                    prev_rate is None or prev_rate <= self.thresholds.respiratory_rate_high
-                ):
-                    bio.add_event(
-                        _world_model.Event(
-                            event_type="respiratory_rate_high",
-                            description=f"呼吸数上昇: {int(rate)}回/分",
-                            severity=1,
-                            data={"breaths_per_minute": int(rate)},
-                        )
-                    )
-
-        elif metric == "steps":
-            # Alternative topic: hems/personal/biometrics/{provider}/steps
-            if "count" in payload:
-                bio.activity.steps = int(payload["count"])
-            if "daily_goal" in payload:
-                bio.activity.steps_goal = int(payload["daily_goal"])
-            bio.activity.last_update = now
-            bio.bridge_connected = True
+        handler_name = self._BIOMETRIC_HANDLERS.get(metric)
+        if handler_name is not None:
+            getattr(self, handler_name)(bio, payload, now)
 
     def _check_biometric_thresholds(self, metric: str, value: float, prev: float | None):
         """Generate events from biometric threshold crossings."""
