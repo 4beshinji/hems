@@ -3,14 +3,13 @@ Obsidian Bridge — connects Obsidian vault to HEMS via MQTT + REST.
 Indexes vault notes, watches for changes, provides search API.
 """
 
-import asyncio
 import sys
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 from note_writer import NoteWriter
 from pydantic import BaseModel
 from vault_index import VaultIndex
@@ -31,34 +30,47 @@ logger.configure(handlers=[{"sink": sys.stderr, "level": LOG_LEVEL}])
 
 # Shared state
 vault_index = VaultIndex(VAULT_PATH)
-mqtt_pub = MQTTPublisher(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS)
+# obsidian profile: no retain, debug errors, raise on connect failure, no connection tracking
+mqtt_pub = MqttPublisher(
+    MQTT_BROKER,
+    MQTT_PORT,
+    MQTT_USER,
+    MQTT_PASS,
+    default_retain=False,
+    default_qos=0,
+    ensure_ascii=False,
+    error_level="debug",
+    raise_on_connect_error=True,
+    track_connection=False,
+    auto_reconnect=False,
+)
 watcher = VaultWatcher(vault_index, mqtt_pub, debounce=WATCHER_DEBOUNCE)
 note_writer = NoteWriter(VAULT_PATH)
 start_time = time.time()
 
 
+async def _startup():
+    vault_index.build_full_index()
+    watcher.start()
+    publish_bridge_status(mqtt_pub, "obsidian")
+
+
+async def _shutdown():
+    watcher.stop()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Connect MQTT
-    mqtt_pub.connect()
-
-    # Build initial index
-    vault_index.build_full_index()
-
-    # Start filesystem watcher
-    watcher.start()
-
-    # Background tasks
-    tasks = [
-        asyncio.create_task(watcher.process_loop()),
-        asyncio.create_task(watcher.publish_stats_loop()),
-    ]
-    logger.info(f"Obsidian Bridge started (vault={VAULT_PATH})")
-    yield
-    for t in tasks:
-        t.cancel()
-    watcher.stop()
-    mqtt_pub.disconnect()
+    async with bridge_lifespan(
+        app,
+        mqtt=mqtt_pub,
+        on_startup=_startup,
+        task_factories=[watcher.process_loop, watcher.publish_stats_loop],
+        on_shutdown=_shutdown,
+    ):
+        logger.info(f"Obsidian Bridge started (vault={VAULT_PATH})")
+        yield
+    logger.info("Obsidian Bridge stopped")
 
 
 app = FastAPI(title="Obsidian Bridge", lifespan=lifespan)
