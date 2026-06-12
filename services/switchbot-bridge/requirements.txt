@@ -1,6 +1,2 @@
-fastapi
-uvicorn[standard]
-aiohttp
-paho-mqtt>=2.0
-loguru
-python-dotenv
+# All common deps inherited from hems-base:py3.11
+# (fastapi, uvicorn, aiohttp, paho-mqtt, pydantic, python-dotenv, loguru)

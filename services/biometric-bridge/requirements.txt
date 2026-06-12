@@ -1,7 +1,5 @@
-fastapi>=0.115.5
-uvicorn[standard]>=0.32.0
-paho-mqtt>=2.1.0
-loguru>=0.7.3
-python-dotenv>=1.0.1
-aiohttp>=3.13.0
+# Common deps inherited from hems-base:py3.11
+# (fastapi, uvicorn, aiohttp, paho-mqtt, pydantic, python-dotenv, loguru)
+
+# Biometric-specific
 aiosqlite>=0.20.0

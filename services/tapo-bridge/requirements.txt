@@ -1,7 +1,5 @@
-fastapi
-uvicorn[standard]
-aiohttp
-paho-mqtt>=2.0
-loguru
-python-dotenv
+# Common deps inherited from hems-base:py3.11
+# (fastapi, uvicorn, aiohttp, paho-mqtt, pydantic, python-dotenv, loguru)
+
+# Tapo-specific
 python-kasa>=0.7.0

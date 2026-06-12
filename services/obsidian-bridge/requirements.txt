@@ -1,6 +1,5 @@
-fastapi>=0.115.0
-uvicorn[standard]>=0.32.0
-paho-mqtt>=2.1.0
-loguru>=0.7.3
-python-dotenv>=1.0.1
+# Common deps inherited from hems-base:py3.11
+# (fastapi, uvicorn, aiohttp, paho-mqtt, pydantic, python-dotenv, loguru)
+
+# Obsidian-specific (file watching)
 watchdog>=6.0.0
