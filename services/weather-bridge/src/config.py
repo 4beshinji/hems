@@ -5,6 +5,7 @@ Configuration for HEMS Weather Bridge service.
 import os
 
 from dotenv import load_dotenv
+from hems_common import load_mqtt_config
 
 load_dotenv()
 
@@ -25,11 +26,12 @@ OWM_LON = os.getenv("OWM_LON", "139.6503")
 OWM_UNITS = os.getenv("OWM_UNITS", "metric")
 OWM_LANG = os.getenv("OWM_LANG", "ja")
 
-# MQTT
-MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER = os.getenv("MQTT_USER", "")
-MQTT_PASS = os.getenv("MQTT_PASS", "")
+# MQTT — module-level constants kept for backward compat; loaded via hems_common
+_mqtt = load_mqtt_config()
+MQTT_BROKER = _mqtt.broker
+MQTT_PORT = _mqtt.port
+MQTT_USER = _mqtt.user
+MQTT_PASS = _mqtt.password
 
 # Polling intervals (seconds)
 CURRENT_INTERVAL = int(os.getenv("HEMS_WEATHER_CURRENT_INTERVAL", "600"))
