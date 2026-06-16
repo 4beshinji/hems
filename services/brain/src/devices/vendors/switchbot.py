@@ -9,6 +9,7 @@ import aiohttp
 from devices.actions import _switchbot_cmd_for
 from devices.base import DispatchContext, VendorParser
 from devices.observation import DeviceObservation, _extract_sensor_values
+from tool_http import internal_headers
 
 
 def _infer_switchbot_class(payload: dict) -> str:
@@ -101,6 +102,7 @@ class SwitchBotParser(VendorParser):
         async with ctx.session.post(
             f"{ctx.switchbot_url}/api/devices/{device_ref}/command",
             json={"command": cmd, "parameter": parameter, "command_type": cmd_type},
+            headers=internal_headers(),
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             data = await resp.json()

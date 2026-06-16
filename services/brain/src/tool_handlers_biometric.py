@@ -5,6 +5,8 @@ from typing import Any
 import aiohttp
 from loguru import logger
 
+from tool_http import internal_headers
+
 
 class BiometricToolHandlers:
     async def _handle_get_biometrics(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -50,6 +52,7 @@ class BiometricToolHandlers:
             try:
                 async with self._session.get(
                     f"{self.biometric_url}/api/biometric/sleep",
+                    headers=internal_headers(),
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     data = await resp.json()

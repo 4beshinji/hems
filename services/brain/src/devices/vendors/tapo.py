@@ -8,6 +8,7 @@ import aiohttp
 
 from devices.base import DispatchContext, VendorParser
 from devices.observation import DeviceObservation
+from tool_http import internal_headers
 
 
 class TapoParser(VendorParser):
@@ -64,6 +65,7 @@ class TapoParser(VendorParser):
             async with ctx.session.post(
                 f"{ctx.tapo_url}/api/devices/{device_ref}/command",
                 json={"command": command},
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 data = await resp.json()

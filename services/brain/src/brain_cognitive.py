@@ -33,6 +33,7 @@ from brain_constants import (
 )
 from brain_utils import format_tool_call_blocks, format_tool_result_msg
 from system_prompt import build_system_message
+from tool_http import internal_headers
 from tool_registry import get_tools
 
 
@@ -792,6 +793,7 @@ class CognitiveCycleMixin:
                         "action": f"{action['tool']}({action.get('summary', '')})",
                         "context": f"success={action.get('success', True)}",
                     },
+                    headers=internal_headers(),
                     timeout=5,
                 ) as resp:
                     if resp.status != 200:

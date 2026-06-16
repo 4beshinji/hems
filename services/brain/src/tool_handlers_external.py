@@ -5,6 +5,8 @@ from typing import Any
 
 import aiohttp
 
+from tool_http import internal_headers
+
 
 class ExternalToolHandlers:
     async def _handle_search_notes(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -19,6 +21,7 @@ class ExternalToolHandlers:
                     "path_prefix": args.get("path_prefix"),
                     "max_results": args.get("max_results", 5),
                 },
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json()
@@ -40,6 +43,7 @@ class ExternalToolHandlers:
                     "tags": args.get("tags"),
                     "category": args.get("category"),
                 },
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json()
@@ -56,6 +60,7 @@ class ExternalToolHandlers:
             async with self._session.get(
                 f"{self.obsidian_url}/api/notes/recent",
                 params={"limit": args.get("limit", 5)},
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json()
@@ -246,6 +251,7 @@ class ExternalToolHandlers:
                     "tags": args.get("tags"),
                     "max_results": args.get("max_results", 5),
                 },
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json()
@@ -261,6 +267,7 @@ class ExternalToolHandlers:
         try:
             async with self._session.get(
                 f"{self.knowledge_url}/api/knowledge/sources",
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json()
@@ -277,6 +284,7 @@ class ExternalToolHandlers:
             async with self._session.get(
                 f"{self.knowledge_url}/api/knowledge/read",
                 params={"source": args.get("source", ""), "path": args.get("path", "")},
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json()
@@ -297,6 +305,7 @@ class ExternalToolHandlers:
             async with self._session.get(
                 f"{self.knowledge_url}/api/knowledge/recent",
                 params=params,
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json()

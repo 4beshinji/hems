@@ -9,6 +9,7 @@ import aiohttp
 from devices.actions import _ha_service_for
 from devices.base import DispatchContext, VendorParser
 from devices.observation import DeviceObservation, _extract_sensor_values
+from tool_http import internal_headers
 
 
 def _infer_ha_kind(domain: str) -> str:
@@ -110,6 +111,7 @@ class HAParser(VendorParser):
         async with ctx.session.post(
             f"{ctx.ha_url}/api/device/control",
             json={"entity_id": entity_id, "service": service, "data": data or {}},
+            headers=internal_headers(),
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             result = await resp.json()
@@ -131,6 +133,7 @@ class HAParser(VendorParser):
                         "service": "light/turn_on",
                         "data": {"hs_color": [hue, 100], "brightness": 254},
                     },
+                    headers=internal_headers(),
                     timeout=aiohttp.ClientTimeout(total=5),
                 ) as resp:
                     await resp.read()
@@ -142,6 +145,7 @@ class HAParser(VendorParser):
             async with ctx.session.post(
                 f"{ctx.ha_url}/api/device/control",
                 json={"entity_id": entity_id, "service": "light/turn_on", "data": {"color_temp": 350}},
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 await resp.read()

@@ -4,6 +4,8 @@ from typing import Any
 
 import aiohttp
 
+from tool_http import internal_headers
+
 
 class HomeToolHandlers:
     async def _handle_control_light(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -126,6 +128,7 @@ class HomeToolHandlers:
         try:
             async with self._session.get(
                 f"{self.ha_url}/api/device/{entity_id}",
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status == 200:
@@ -147,6 +150,7 @@ class HomeToolHandlers:
                 vendor_ref = device_id.removeprefix("tapo.")
                 async with self._session.get(
                     f"{self.tapo_url}/api/devices/{vendor_ref}/status",
+                    headers=internal_headers(),
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     if resp.status == 200:
@@ -154,6 +158,7 @@ class HomeToolHandlers:
                     return {"success": False, "error": f"HTTP {resp.status}"}
             async with self._session.get(
                 f"{self.tapo_url}/api/devices",
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status != 200:
@@ -167,6 +172,7 @@ class HomeToolHandlers:
                 try:
                     async with self._session.get(
                         f"{self.tapo_url}/api/devices/{vref}/status",
+                        headers=internal_headers(),
                         timeout=aiohttp.ClientTimeout(total=5),
                     ) as r2:
                         if r2.status != 200:
@@ -201,6 +207,7 @@ class HomeToolHandlers:
                     "service": service,
                     "data": data or {},
                 },
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 result = await resp.json()

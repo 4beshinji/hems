@@ -14,6 +14,7 @@ from loguru import logger
 
 from brain_constants import backend_auth_headers
 from brain_utils import SPEAK_CHUNK_LIMIT, split_for_speak
+from tool_http import internal_headers
 
 NEWS_BRIDGE_URL = os.getenv("NEWS_BRIDGE_URL", "")
 BACKEND_URL = os.getenv("DASHBOARD_API_URL", os.getenv("BACKEND_URL", "http://backend:8000"))
@@ -217,6 +218,7 @@ class EventAutomation:
                 try:
                     async with self._session.post(
                         f"{NEWS_BRIDGE_URL}/api/news/refresh",
+                        headers=internal_headers(),
                         timeout=aiohttp.ClientTimeout(total=90),
                     ) as resp:
                         if resp.status != 200:
@@ -230,6 +232,7 @@ class EventAutomation:
             try:
                 async with self._session.get(
                     f"{NEWS_BRIDGE_URL}/api/news/latest",
+                    headers=internal_headers(),
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
                     if resp.status == 200:

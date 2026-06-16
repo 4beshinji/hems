@@ -2,6 +2,8 @@ from typing import Any
 
 import aiohttp
 
+from tool_http import internal_headers
+
 
 class SwitchBotToolHandlers:
     async def _handle_get_switchbot_devices(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -11,6 +13,7 @@ class SwitchBotToolHandlers:
         try:
             async with self._session.get(
                 f"{self.switchbot_url}/api/devices",
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 data = await resp.json()
@@ -51,6 +54,7 @@ class SwitchBotToolHandlers:
                     "parameter": parameter,
                     "command_type": "command",
                 },
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 data = await resp.json()
@@ -75,6 +79,7 @@ class SwitchBotToolHandlers:
                     "parameter": parameter,
                     "command_type": "customize",
                 },
+                headers=internal_headers(),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 data = await resp.json()

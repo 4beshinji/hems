@@ -13,6 +13,13 @@ router = APIRouter(prefix="/home", tags=["home"])
 
 HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 
+
+def _internal_headers() -> dict:
+    """Bearer token for backend → ha-bridge internal calls."""
+    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 _home_store: dict = {}
 
 
@@ -130,7 +137,10 @@ async def get_home_devices():
 
     async with httpx.AsyncClient(timeout=10) as client:
         try:
-            resp = await client.get(f"{HA_BRIDGE_URL}/api/devices")
+            resp = await client.get(
+                f"{HA_BRIDGE_URL}/api/devices",
+                headers=_internal_headers(),
+            )
             return resp.json()
         except (httpx.HTTPError, ValueError) as e:
             raise HTTPException(status_code=502, detail=str(e))
@@ -143,6 +153,7 @@ async def _ha_proxy_call(entity_id: str, service: str, data: dict | None = None)
             resp = await client.post(
                 f"{HA_BRIDGE_URL}/api/device/control",
                 json={"entity_id": entity_id, "service": service, "data": data or {}},
+                headers=_internal_headers(),
             )
             if resp.status_code == 200:
                 return {"success": True, "result": f"{service} -> {entity_id}"}
