@@ -8,8 +8,8 @@ REST: accepts control commands from Brain → python-kasa → device
 from contextlib import asynccontextmanager
 
 from device_mapper import DeviceMapper
-from fastapi import FastAPI, HTTPException
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from pydantic import BaseModel
 from tapo_client import TapoClient
@@ -20,6 +20,11 @@ cfg: config.Config | None = None
 device_mapper: DeviceMapper | None = None
 mqtt_pub: MqttPublisher | None = None
 tapo: TapoClient | None = None
+
+# Routers: /health stays public for Docker healthchecks; all other REST routes
+# require the internal bearer token when HEMS_INTERNAL_TOKEN is configured.
+public_router = APIRouter()
+private_router = APIRouter(dependencies=[Depends(verify_internal_token)])
 
 
 async def _poll_loop():
@@ -109,7 +114,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="HEMS Tapo Bridge", lifespan=lifespan)
 
 
-@app.get("/health")
+@public_router.get("/health")
 async def health():
     return {
         "status": "ok",
@@ -117,7 +122,7 @@ async def health():
     }
 
 
-@app.get("/api/devices")
+@private_router.get("/api/devices")
 async def list_devices():
     if not device_mapper:
         return {"devices": []}
@@ -135,7 +140,7 @@ async def list_devices():
     return {"devices": items}
 
 
-@app.get("/api/devices/{vendor_ref}/status")
+@private_router.get("/api/devices/{vendor_ref}/status")
 async def device_status(vendor_ref: str):
     if not device_mapper or not tapo:
         raise HTTPException(status_code=503, detail="bridge not initialized")
@@ -156,7 +161,7 @@ class CommandRequest(BaseModel):
 _ALLOWED_COMMANDS = {"turnOn", "turnOff", "toggle"}
 
 
-@app.post("/api/devices/{vendor_ref}/command")
+@private_router.post("/api/devices/{vendor_ref}/command")
 async def device_command(vendor_ref: str, body: CommandRequest):
     if not device_mapper or not tapo:
         raise HTTPException(status_code=503, detail="bridge not initialized")
@@ -198,3 +203,7 @@ async def device_command(vendor_ref: str, body: CommandRequest):
         )
 
     return {"success": True, "command": body.command, "vendor_ref": vendor_ref}
+
+
+app.include_router(public_router)
+app.include_router(private_router)

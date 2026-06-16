@@ -208,3 +208,76 @@ def test_track_connection_false_publishes_unconditionally():
     result = mock_pub.publish("hems/tapo/plug_desk/state", {"on": True})
     assert result is True
     assert mock_pub.client.publish.called
+
+
+# ---------------------------------------------------------------------------
+# W3.9 internal-token auth regression tests
+# ---------------------------------------------------------------------------
+
+from fastapi.testclient import TestClient
+
+
+def _load_main_fresh():
+    """Reload tapo-bridge main.py so auth tests see a clean module state."""
+    kasa_stub = MagicMock()
+    kasa_stub.Credentials = MagicMock()
+    kasa_stub.Device = MagicMock()
+    kasa_stub.Discover = MagicMock()
+    sys.modules.setdefault("kasa", kasa_stub)
+
+    for key in ("tapo_bridge.main", "main"):
+        sys.modules.pop(key, None)
+
+    return _load_tapo_module("main")
+
+
+def test_health_public_no_token(monkeypatch):
+    """/health must be reachable without an Authorization header."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    mod = _load_main_fresh()
+    client = TestClient(mod.app)
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_private_endpoint_reachable_in_dev_mode(monkeypatch):
+    """When HEMS_INTERNAL_TOKEN is unset, private endpoints skip auth (dev mode)."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    mod = _load_main_fresh()
+    client = TestClient(mod.app)
+    response = client.get("/api/devices")
+    assert response.status_code == 200
+
+
+def test_private_endpoint_requires_auth_when_token_set_no_header(monkeypatch):
+    """With HEMS_INTERNAL_TOKEN configured, missing Authorization header returns 401."""
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    mod = _load_main_fresh()
+    client = TestClient(mod.app)
+    response = client.get("/api/devices")
+    assert response.status_code == 401
+
+
+def test_private_endpoint_requires_auth_when_token_set_wrong_bearer(monkeypatch):
+    """With HEMS_INTERNAL_TOKEN configured, an invalid bearer token returns 401."""
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    mod = _load_main_fresh()
+    client = TestClient(mod.app)
+    response = client.get("/api/devices", headers={"Authorization": "Bearer wrong"})
+    assert response.status_code == 401
+
+
+def test_private_endpoint_allows_valid_bearer(monkeypatch):
+    """With HEMS_INTERNAL_TOKEN configured, the correct bearer token is accepted."""
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    mod = _load_main_fresh()
+    client = TestClient(mod.app)
+
+    # Mock device_mapper so the endpoint returns 200 rather than 503.
+    mod.device_mapper = MagicMock()
+    mod.device_mapper.all_refs.return_value = []
+
+    response = client.get("/api/devices", headers={"Authorization": "Bearer secret"})
+    assert response.status_code == 200
+    assert response.json() == {"devices": []}
