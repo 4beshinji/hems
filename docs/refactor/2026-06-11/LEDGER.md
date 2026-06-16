@@ -13,7 +13,7 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 | W1.5 | 5 | chat エンドポイントの rate limit（in-memory token bucket） | backend `routers/chat.py`, `tests/test_chat_rate_limit.py` | PLAN.md W1.5 | done | 27f357c |
 | W1.6 | 6 | nginx に Content-Security-Policy ヘッダ追加 | `services/frontend/nginx.conf` | PLAN.md W1.6 | done | 015a4a4 |
 | W1.7 | 7 | `tests/security/` 拡充: MQTT ACL 拒否 poc 復元、無認証アクセス網羅、W1.2 injection test | `tests/security/` | PLAN.md W1.7 | done | 578a1ba |
-| **W1.8** | **8** | **(メタ監査追加分) `device_id` / `vendor_ref` 検証の backend/brain 統一 + パスパラメータ検証。連続ドット・先頭/末尾ドットを共通化し、`services/_common/hems_common/validation.py` へ集約** | `services/_common/hems_common/validation.py`, `backend/schemas.py`, `brain/device_id_validator.py`, `backend/routers/devices.py`, `backend/main.py` | W1.2-unified-device-id-validation-design-note | pending |  |
+| **W1.8** | **8** | **(メタ監査追加分) `device_id` / `vendor_ref` 検証の backend/brain 統一 + パスパラメータ検証。連続ドット・先頭/末尾ドットを共通化し、`services/_common/hems_common/validation.py` へ集約** | `services/_common/hems_common/validation.py`, `backend/schemas.py`, `brain/device_id_validator.py`, `backend/routers/devices.py`, `backend/main.py` | W1.2-unified-device-id-validation-design-note | done | 819587e |
 | W3.9 | 1 | weather-bridge に `verify_internal_token` 配線（/health 無認証維持）+ `HEMS_INTERNAL_TOKEN` env 追加 + 認証 test | `services/_common/hems_common/auth.py`, `services/weather-bridge/src/main.py`, `infra/docker-compose.yml:weather-bridge`, `tests/test_weather_bridge.py` | W3.9-bridge-http-auth-design-note | done | d5b9907 |
 | W3.9 | 2 | news-bridge に `verify_internal_token` 配線 | `services/news-bridge/src/main.py`, `infra/docker-compose.yml:news-bridge`, `tests/test_news_bridge.py` | W3.9-bridge-http-auth-design-note | done | 7bd9553 |
 | W3.9 | 3 | knowledge-bridge に `verify_internal_token` 配線 | `services/knowledge-bridge/src/main.py`, `infra/docker-compose.yml:knowledge-bridge`, tests | W3.9-bridge-http-auth-design-note | done | 0d90119 |
@@ -31,5 +31,7 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 > 横断 commit:
 > - `fe5e294` infra(compose): pass HEMS_INTERNAL_TOKEN to all 9 bridges
 > - `18fcc5b` feat(brain,backend): pass HEMS_INTERNAL_TOKEN to internal bridge HTTP calls（backend→ha-bridge + brain→news/knowledge/biometric/obsidian/ha/tapo/switchbot）
+>
+> W1.8 ゲート結果 (2026-06-16): `make lint` clean / pytest `2169 passed, 8 skipped, 44 deselected, 3 failed`。失敗 3 件は引き続き `test_backend_home_router` の 503 系（HA_BRIDGE_URL 未設定時の挙動）。
 
-**残 pending:** W1.8。W1.1–W1.7 は main 上で先行実装済みのため追記。
+**残 pending:** W1 完了。次: W4.6（PLAN.md 上で唯一未実施の row）。W1.1–W1.7 / W2 / W3 / W4.1–W4.5' / W5 は main 上で先行実装済みのため本 LEDGER には未追記。
