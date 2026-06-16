@@ -9,8 +9,8 @@ from contextlib import asynccontextmanager
 
 from document_index import DocumentIndex
 from embedding import EmbeddingClient
-from fastapi import FastAPI, HTTPException
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from pydantic import BaseModel
 from source_watcher import SourceWatcher
@@ -109,6 +109,11 @@ async def lifespan(app: FastAPI):
     logger.info("Knowledge Bridge stopped")
 
 
+# Routers: /health stays public for Docker healthchecks; all other REST routes
+# require the internal bearer token when HEMS_INTERNAL_TOKEN is configured.
+public_router = APIRouter()
+private_router = APIRouter(dependencies=[Depends(verify_internal_token)])
+
 app = FastAPI(title="Knowledge Bridge", lifespan=lifespan)
 
 
@@ -127,7 +132,7 @@ class SearchRequest(BaseModel):
 # --- REST endpoints ---
 
 
-@app.get("/health")
+@public_router.get("/health")
 async def health():
     stats = doc_index.get_source_stats()
     return {
@@ -140,7 +145,7 @@ async def health():
     }
 
 
-@app.post("/api/knowledge/search")
+@private_router.post("/api/knowledge/search")
 async def search_documents(req: SearchRequest):
     """Hybrid search across all knowledge sources."""
     max_r = min(req.max_results, MAX_SEARCH_RESULTS)
@@ -155,7 +160,7 @@ async def search_documents(req: SearchRequest):
     return {"results": results, "count": len(results)}
 
 
-@app.get("/api/knowledge/read")
+@private_router.get("/api/knowledge/read")
 async def read_document(source: str, path: str):
     """Read a specific document by source name and path."""
     if ".." in path or path.startswith("/"):
@@ -179,14 +184,14 @@ async def read_document(source: str, path: str):
     }
 
 
-@app.get("/api/knowledge/sources")
+@private_router.get("/api/knowledge/sources")
 async def list_sources():
     """List all configured knowledge sources with statistics."""
     stats = doc_index.get_source_stats()
     return {"sources": stats, "total_docs": doc_index.get_total_docs()}
 
 
-@app.get("/api/knowledge/recent")
+@private_router.get("/api/knowledge/recent")
 async def get_recent(limit: int = 10, source: str | None = None):
     """Get recently modified documents."""
     limit = min(limit, 50)
@@ -194,7 +199,7 @@ async def get_recent(limit: int = 10, source: str | None = None):
     return {"documents": docs, "count": len(docs)}
 
 
-@app.post("/api/knowledge/reindex")
+@private_router.post("/api/knowledge/reindex")
 async def reindex(source: str | None = None):
     """Manually trigger re-indexing (BM25 + vectors)."""
     if source:
@@ -208,3 +213,7 @@ async def reindex(source: str | None = None):
         "total_docs": doc_index.get_total_docs(),
         "sources": doc_index.get_source_stats(),
     }
+
+
+app.include_router(public_router)
+app.include_router(private_router)

@@ -22,6 +22,8 @@ from types import ModuleType
 from unittest.mock import MagicMock
 
 import paho.mqtt.client as _mqtt
+import pytest
+from fastapi.testclient import TestClient
 
 _KNOWLEDGE_SRC = Path(__file__).resolve().parent.parent / "services" / "knowledge-bridge" / "src"
 
@@ -253,3 +255,66 @@ def test_source_watcher_publish_stats_topic():
     pub.publish("hems/personal/knowledge/stats", payload)
     topic, _, _, _ = _last_publish_args(pub)
     assert topic == "hems/personal/knowledge/stats"
+
+
+# ---------------------------------------------------------------------------
+# W3.9 internal-token auth
+# ---------------------------------------------------------------------------
+
+
+def _load_main_app_or_skip():
+    """Load knowledge-bridge main.py; skip the test if a dependency is missing."""
+    ns_key = "knowledge_bridge.main"
+    # Clear any partial module left by a previous failed import attempt.
+    sys.modules.pop(ns_key, None)
+    try:
+        return _load_knowledge_module("main")
+    except ModuleNotFoundError as exc:
+        sys.modules.pop(ns_key, None)
+        pytest.importorskip(exc.name)
+
+
+def test_auth_health_public_no_token():
+    """/health is reachable without an Authorization header."""
+    m = _load_main_app_or_skip()
+    client = TestClient(m.app)
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+
+
+def test_auth_private_dev_mode_no_token_required(monkeypatch):
+    """With HEMS_INTERNAL_TOKEN unset, private endpoints are reachable (dev mode)."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    m = _load_main_app_or_skip()
+    client = TestClient(m.app)
+    response = client.get("/api/knowledge/sources")
+    assert response.status_code == 200
+
+
+def test_auth_private_unauthorized_no_header(monkeypatch):
+    """With HEMS_INTERNAL_TOKEN set, missing Authorization header returns 401."""
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    m = _load_main_app_or_skip()
+    client = TestClient(m.app)
+    response = client.get("/api/knowledge/sources")
+    assert response.status_code == 401
+
+
+def test_auth_private_unauthorized_wrong_token(monkeypatch):
+    """With HEMS_INTERNAL_TOKEN set, a wrong Bearer token returns 401."""
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    m = _load_main_app_or_skip()
+    client = TestClient(m.app)
+    response = client.get("/api/knowledge/sources", headers={"Authorization": "Bearer wrong"})
+    assert response.status_code == 401
+
+
+def test_auth_private_authorized_with_token(monkeypatch):
+    """With HEMS_INTERNAL_TOKEN set, the correct Bearer token returns 200."""
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    m = _load_main_app_or_skip()
+    client = TestClient(m.app)
+    response = client.get("/api/knowledge/sources", headers={"Authorization": "Bearer secret"})
+    assert response.status_code == 200
