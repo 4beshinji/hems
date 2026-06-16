@@ -16,4 +16,7 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 | W3.9 | 8 | ha-bridge に `verify_internal_token` 配線 + backend→ha-bridge 呼び出しに Authorization 付与 | `services/ha-bridge/src/main.py`, `services/backend/routers/home.py`, compose, tests | W3.9-bridge-http-auth-design-note | pending | — |
 | W3.9 | 9 | biometric-bridge に `verify_internal_token` 配線（/webhook/{vendor} は対象外） | `services/biometric-bridge/src/main.py`, `infra/docker-compose.yml:biometric-bridge`, tests | W3.9-bridge-http-auth-design-note | pending | — |
 
-**残 pending:** W3.9.1–W3.9.9 全 9 row。
+> W3.9.1 ゲート結果 (2026-06-16): `make lint` clean / pytest `2105 passed, 2 skipped, 44 deselected, 7 failed`。
+> 失敗 7 件は本 row 変更前から存在する `test_backend_home_router` の 503 系 3 件 + `test_knowledge_bridge` / `test_news_bridge` / `test_obsidian_bridge` の import 系 4 件で、weather-bridge には影響なし。
+
+**残 pending:** W3.9.2–W3.9.9 の 8 row。
