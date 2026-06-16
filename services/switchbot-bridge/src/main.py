@@ -11,8 +11,8 @@ from contextlib import asynccontextmanager
 
 import aiohttp
 from device_mapper import DeviceMapper
-from fastapi import FastAPI, HTTPException, Request
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from pydantic import BaseModel
 from switchbot_client import SwitchBotClient
@@ -23,6 +23,12 @@ import config
 sb_client: SwitchBotClient | None = None
 mqtt_pub: MqttPublisher | None = None
 device_mapper: DeviceMapper | None = None
+
+# Routers: /health stays public for Docker healthchecks; /api/webhook stays public
+# because SwitchBot Cloud pushes to it. All other REST routes require the internal
+# bearer token when HEMS_INTERNAL_TOKEN is configured.
+public_router = APIRouter()
+private_router = APIRouter(dependencies=[Depends(verify_internal_token)])
 
 # Domains that publish sensor sub-entities (temperature, humidity from Meter/Hub)
 _SENSOR_DOMAINS = {"sensor"}
@@ -283,12 +289,12 @@ class CommandRequest(BaseModel):
     command_type: str = "command"
 
 
-@app.get("/health")
+@public_router.get("/health")
 async def health():
     return {"status": "ok", "connected": sb_client.connected if sb_client else False}
 
 
-@app.get("/api/devices")
+@private_router.get("/api/devices")
 async def get_devices():
     """List all SwitchBot devices with current cached info."""
     if not sb_client:
@@ -328,7 +334,7 @@ async def get_devices():
     return {"devices": devices, "ir_devices": ir_devices}
 
 
-@app.get("/api/devices/{device_id}/status")
+@private_router.get("/api/devices/{device_id}/status")
 async def get_device_status(device_id: str):
     """Fetch current status of a single device."""
     if not sb_client:
@@ -342,7 +348,7 @@ async def get_device_status(device_id: str):
     return {"raw": status, "parsed": parsed}
 
 
-@app.post("/api/devices/{device_id}/command")
+@private_router.post("/api/devices/{device_id}/command")
 async def send_command(device_id: str, req: CommandRequest):
     """Send command to a SwitchBot device."""
     if not sb_client:
@@ -370,7 +376,7 @@ async def send_command(device_id: str, req: CommandRequest):
     raise HTTPException(502, f"SwitchBot command failed: {req.command}")
 
 
-@app.post("/api/webhook")
+@public_router.post("/api/webhook")
 async def webhook_receiver(request: Request):
     """Receive SwitchBot webhook push events."""
     try:
@@ -392,3 +398,7 @@ async def webhook_receiver(request: Request):
             logger.debug(f"Webhook: {device_type} {device_id} → {parsed.get('state')}")
 
     return {"message": "ok"}
+
+
+app.include_router(public_router)
+app.include_router(private_router)

@@ -20,9 +20,11 @@ import json
 import sys
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import paho.mqtt.client as _mqtt
+import pytest
+from fastapi.testclient import TestClient
 
 _SB_SRC = Path(__file__).resolve().parent.parent / "services" / "switchbot-bridge" / "src"
 
@@ -206,3 +208,72 @@ def test_publish_uses_ensure_ascii_false():
     _, payload_str, _, _ = _last_publish_args(pub)
     assert "リビングライト" in payload_str
     assert "\\u" not in payload_str
+
+
+# ---------------------------------------------------------------------------
+# W3.9 auth: HEMS_INTERNAL_TOKEN
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sb_main():
+    """Load the switchbot-bridge main module without running lifespan/MQTT."""
+    return _load_sb_module("main")
+
+
+def test_health_public_no_token(sb_main):
+    """/health must remain public so Docker healthchecks work without a token."""
+    client = TestClient(sb_main.app)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
+def test_webhook_public_no_token(sb_main):
+    """/api/webhook must remain public because SwitchBot Cloud pushes to it."""
+    client = TestClient(sb_main.app)
+    resp = client.post("/api/webhook", json={"eventType": "unknown"})
+    # Receives and acks the event without auth; unknown eventType still returns 200.
+    assert resp.status_code == 200
+
+
+def test_private_endpoint_reachable_when_token_unset(sb_main, monkeypatch):
+    """When HEMS_INTERNAL_TOKEN is not configured, auth is skipped (dev mode)."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    client = TestClient(sb_main.app)
+    resp = client.get("/api/devices")
+    # Without the client initialized the endpoint still returns 503, proving auth passed.
+    assert resp.status_code == 503
+
+
+def test_private_endpoint_401_without_header_when_token_set(sb_main, monkeypatch):
+    """With a token configured, missing Authorization header returns 401."""
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    client = TestClient(sb_main.app)
+    resp = client.get("/api/devices")
+    assert resp.status_code == 401
+
+
+def test_private_endpoint_401_with_wrong_token(sb_main, monkeypatch):
+    """With a token configured, an incorrect Bearer token returns 401."""
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    client = TestClient(sb_main.app)
+    resp = client.get("/api/devices", headers={"Authorization": "Bearer wrong"})
+    assert resp.status_code == 401
+
+
+def test_private_endpoint_200_with_valid_token(sb_main, monkeypatch):
+    """With a token configured, the correct Bearer token reaches the endpoint."""
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    sb_main.sb_client = MagicMock()
+    sb_main.sb_client.get_device_status = AsyncMock(return_value={"deviceType": "Plug Mini (US)", "power": "ON"})
+    sb_main.sb_client.parse_status.return_value = {"state": "on", "domain": "switch"}
+
+    client = TestClient(sb_main.app)
+    resp = client.get(
+        "/api/devices/DUMMY/status",
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["parsed"]["state"] == "on"
