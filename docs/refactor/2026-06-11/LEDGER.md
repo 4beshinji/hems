@@ -6,7 +6,7 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 
 | Wave | # | row(変更) | 対象 file:symbol | 出所 unit | status | commit |
 |---|---|---|---|---|---|---|
-| W3.9 | 1 | weather-bridge に `verify_internal_token` 配線（/health 無認証維持）+ `HEMS_INTERNAL_TOKEN` env 追加 + 認証 test | `services/_common/hems_common/auth.py`, `services/weather-bridge/src/main.py`, `infra/docker-compose.yml:weather-bridge`, `tests/test_weather_bridge.py` | W3.9-bridge-http-auth-design-note | done | 079bfea |
+| W3.9 | 1 | weather-bridge に `verify_internal_token` 配線（/health 無認証維持）+ `HEMS_INTERNAL_TOKEN` env 追加 + 認証 test | `services/_common/hems_common/auth.py`, `services/weather-bridge/src/main.py`, `infra/docker-compose.yml:weather-bridge`, `tests/test_weather_bridge.py` | W3.9-bridge-http-auth-design-note | done | d5b9907 |
 | W3.9 | 2 | news-bridge に `verify_internal_token` 配線 | `services/news-bridge/src/main.py`, `infra/docker-compose.yml:news-bridge`, `tests/test_news_bridge.py` | W3.9-bridge-http-auth-design-note | pending | — |
 | W3.9 | 3 | knowledge-bridge に `verify_internal_token` 配線 | `services/knowledge-bridge/src/main.py`, `infra/docker-compose.yml:knowledge-bridge`, tests | W3.9-bridge-http-auth-design-note | pending | — |
 | W3.9 | 4 | gas-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/gas-bridge/src/main.py`, `infra/docker-compose.yml:gas-bridge`, tests | W3.9-bridge-http-auth-design-note | pending | — |
