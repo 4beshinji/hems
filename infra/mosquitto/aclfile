@@ -84,9 +84,12 @@ user hems-z2m
 topic readwrite zigbee2mqtt/#
 
 # --- Perception service ---
-# Publishes camera/activity data to office/+/camera/# and office/+/activity/#.
+# Publishes camera/activity data to hems/sensors/{zone}/camera/# and
+# hems/sensors/{zone}/activity/#.  office/# retained during W3.8 migration.
 # VLM results published to hems/perception/vlm/#.
 user hems-perception
+topic write  hems/sensors/+/camera/#
+topic write  hems/sensors/+/activity/#
 topic write  office/+/camera/#
 topic write  office/+/activity/#
 topic write  hems/perception/#
@@ -98,9 +101,10 @@ user hems-news
 topic write  hems/news/#
 
 # --- IoT sensor devices (zone sensors, MCP agents) ---
-# Sensors publish to office/{zone}/sensor/# and respond on mcp/+/response/#.
-# Use a shared credential for all IoT devices.
+# Sensors publish to hems/sensors/{zone}/{device_type}/{device_id}/{channel}
+# and respond on mcp/+/response/#.  office/# is retained during W3.8 migration.
 user hems-iot
+topic write  hems/sensors/#
 topic write  office/#
 topic write  mcp/+/response/#
 topic read   mcp/#

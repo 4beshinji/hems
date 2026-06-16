@@ -76,7 +76,7 @@ pio device monitor
 
 ### ステータス送信
 
-**トピック**: `office/camera/camera_node_01/status`
+**トピック**: `hems/sensors/camera/camera_node_01/status` (旧 `office/camera/...` は W3.8 互換 window 中)
 
 **ペイロード**:
 ```json
@@ -100,7 +100,7 @@ mosquitto -v
 ### 2. ステータス確認
 
 ```bash
-mosquitto_sub -h localhost -t 'office/camera/+/status' -v
+mosquitto_sub -h localhost -t 'hems/sensors/+/camera/+/status' -v
 ```
 
 ### 3. 画像リクエスト送信

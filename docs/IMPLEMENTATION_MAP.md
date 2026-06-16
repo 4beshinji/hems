@@ -294,7 +294,8 @@ PY
 
 ```
 # Sensor telemetry
-office/{zone}/{device_type}/{device_id}/{channel}
+hems/sensors/{zone}/{device_type}/{device_id}/{channel}   # canonical (W3.8b)
+office/{zone}/{device_type}/{device_id}/{channel}           # deprecated compat window
 
 # PC metrics (OpenClaw bridge)
 hems/pc/metrics/{cpu|memory|gpu|disk}
@@ -337,8 +338,10 @@ hems/biometric/bridge/status       # canonical (W3.3)
 hems/personal/biometrics/bridge/status  # legacy compat (互換 window)
 
 # Perception (camera detection + activity tracking + VLM)
-office/{zone}/camera/{camera_id}/status
-office/{zone}/activity/{monitor_id}
+hems/sensors/{zone}/camera/{camera_id}/status   # canonical (W3.8b)
+hems/sensors/{zone}/activity/{monitor_id}       # canonical (W3.8b)
+office/{zone}/camera/{camera_id}/status         # deprecated compat window
+office/{zone}/activity/{monitor_id}             # deprecated compat window
 hems/perception/bridge/status
 hems/perception/vlm/{zone}
 hems/perception/vlm/status
@@ -400,12 +403,12 @@ zigbee2mqtt/#
 
 | Publisher | Topic | Payload 概要 |
 |-----------|-------|--------------|
-| MCP / ESP32 sensors | `hems/sensors/{zone}/sensor/{device_id}/{channel}` *(新 canonical — W3.8a)* | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / motion / motion_count / vibration / door / presence |
-| MCP / ESP32 sensors | ~~`office/{zone}/sensor/{device_id}/{channel}`~~ *(旧 prefix — 互換 window、brain は新旧両方を受信)* | 同上 |
-| perception (camera) | `hems/sensors/{zone}/camera/{cam_id}/status` *(新 canonical — W3.8a)* | person_count, count |
-| perception (camera) | ~~`office/{zone}/camera/{cam_id}/status`~~ *(旧 prefix — 互換 window)* | 同上 |
-| perception (activity) | `hems/sensors/{zone}/activity/{monitor_id}` *(新 canonical — W3.8a)* | activity_level / activity_class / posture / posture_duration_sec / posture_status |
-| perception (activity) | ~~`office/{zone}/activity/{monitor_id}`~~ *(旧 prefix — 互換 window)* | 同上 |
+| MCP / ESP32 sensors | `hems/sensors/{zone}/sensor/{device_id}/{channel}` *(canonical — W3.8b でファームウェア移行済)* | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / motion / motion_count / vibration / door / presence |
+| MCP / ESP32 sensors | ~~`office/{zone}/sensor/{device_id}/{channel}`~~ *(旧 prefix — 互換 window、brain は新旧両方を受信。W3.8c で削除予定)* | 同上 |
+| perception (camera) | `hems/sensors/{zone}/camera/{cam_id}/status` *(canonical — W3.8b)* | person_count, count |
+| perception (camera) | ~~`office/{zone}/camera/{cam_id}/status`~~ *(旧 prefix — 互換 window、W3.8c で削除予定)* | 同上 |
+| perception (activity) | `hems/sensors/{zone}/activity/{monitor_id}` *(canonical — W3.8b)* | activity_level / activity_class / posture / posture_duration_sec / posture_status |
+| perception (activity) | ~~`office/{zone}/activity/{monitor_id}`~~ *(旧 prefix — 互換 window、W3.8c で削除予定)* | 同上 |
 | perception (VLM) | `hems/perception/vlm/{zone}` | scene_description / objects / scene_type / anomalies |
 | perception (VLM mgmt) | `hems/perception/vlm/status` | service status |
 | perception (VLM mgmt) | `hems/perception/vlm/model_swap` | swap event |

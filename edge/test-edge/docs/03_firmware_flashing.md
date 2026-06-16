@@ -281,16 +281,17 @@ sudo usermod -a -G dialout $USER
 別のターミナルで以下を実行：
 
 ```bash
-mosquitto_sub -h localhost -t 'office/#' -v
+mosquitto_sub -h localhost -t 'hems/sensors/#' -v
 ```
 
 **期待される出力:**
 ```
-office/meeting_room_a/sensor/sensor_node_01/temperature 24.56
-office/meeting_room_a/sensor/sensor_node_01/humidity 45.23
-office/meeting_room_a/sensor/sensor_node_01/pressure 1013.25
-office/meeting_room_a/sensor/sensor_node_01/gas 123.45
+hems/sensors/meeting_room_a/sensor/sensor_node_01/temperature 24.56
+hems/sensors/meeting_room_a/sensor/sensor_node_01/humidity 45.23
+hems/sensors/meeting_room_a/sensor/sensor_node_01/pressure 1013.25
+hems/sensors/meeting_room_a/sensor/sensor_node_01/gas 123.45
 ```
+(旧 prefix `office/...` は W3.8 互換 window 中)
 
 ### 5.2 カメラへのコマンド送信
 

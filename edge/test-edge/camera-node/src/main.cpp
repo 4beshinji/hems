@@ -25,7 +25,9 @@ const char* DEVICE_ID = "camera_node_01";
 
 // MCP topic (JSON-RPC 2.0 standard)
 #define TOPIC_MCP_REQUEST "mcp/camera_node_01/request/call_tool"
-#define TOPIC_STATUS "office/camera/camera_node_01/status"
+// W3.8b: canonical prefix is hems/sensors/{zone}/camera/{device_id}/status
+#define ZONE "camera"
+#define TOPIC_STATUS "hems/sensors/" ZONE "/camera/camera_node_01/status"
 
 // Camera pins (Freenove ESP32 WROVER v3.0)
 #define PWDN_GPIO_NUM     32

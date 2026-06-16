@@ -28,8 +28,9 @@ Codec: `edge/lib/swarm/message.py` (pure Python, MicroPython compatible)
 
 Hub publishes Leaf data in existing per-channel format:
 ```
-office/{zone}/sensor/{hub_id}.{leaf_name}/{channel} → {"value": X}
+hems/sensors/{zone}/sensor/{hub_id}.{leaf_name}/{channel} → {"value": X}
 ```
+(旧 prefix `office/{zone}/...` は W3.8 互換 window 中)
 
 MCP commands to Hub control Leaves:
 ```json
@@ -67,7 +68,7 @@ automatically starts a SwarmHub with 3 leaves (env, PIR, door sensor).
 
 Verify:
 ```bash
-mosquitto_sub -t "office/main/sensor/swarm_hub_01.#" -v
+mosquitto_sub -t "hems/sensors/main/sensor/swarm_hub_01.#" -v
 ```
 
 ## Transports

@@ -24,7 +24,8 @@ devices = []
 
 class SensorNode(VirtualDevice):
     def __init__(self, client):
-        super().__init__("sensor_01", "office/main/sensor/sensor_01", client)
+        # W3.8b: canonical prefix is hems/sensors/{zone}/{device_type}/{device_id}
+        super().__init__("sensor_01", "hems/sensors/main/sensor/sensor_01", client)
         self.state = {"temperature": 22.0, "humidity": 50.0}
         self.register_tool("get_status", self.get_status)
 

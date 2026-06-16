@@ -405,9 +405,10 @@ def test_brain_e2e():
     before_count = len(tasks_before) if isinstance(tasks_before, list) else 0
 
     # Publish sensor data to trigger brain
-    mqtt_pub("office/living_room/sensor/env_01/co2", {"value": 1800})
-    mqtt_pub("office/living_room/sensor/env_01/temperature", {"value": 26.0})
-    mqtt_pub("office/living_room/sensor/env_01/humidity", {"value": 45.0})
+    # W3.8b: canonical sensor prefix is hems/sensors/{zone}/{device_type}/{device_id}/{channel}
+    mqtt_pub("hems/sensors/living_room/sensor/env_01/co2", {"value": 1800})
+    mqtt_pub("hems/sensors/living_room/sensor/env_01/temperature", {"value": 26.0})
+    mqtt_pub("hems/sensors/living_room/sensor/env_01/humidity", {"value": 45.0})
     test("Published sensor data to MQTT", True)
 
     # Wait for brain cognitive cycle (30s interval + 3s batch + processing)

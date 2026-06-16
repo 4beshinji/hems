@@ -45,10 +45,11 @@ class MCPDevice:
         self.mqtt_pass = cfg.get("mqtt_pass", None)
         self.report_interval = cfg.get("report_interval", 30)
 
-        # Derive MQTT topic prefix: office/{zone}/sensor/{device_id}
+        # Derive MQTT topic prefix: hems/sensors/{zone}/sensor/{device_id}
+        # (W3.8b: office/* prefix is deprecated; kept overridable for rollback.)
         self.topic_prefix = cfg.get(
             "topic_prefix",
-            f"office/{self.zone}/sensor/{self.device_id}",
+            f"hems/sensors/{self.zone}/sensor/{self.device_id}",
         )
 
         self.client = None

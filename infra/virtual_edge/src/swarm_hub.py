@@ -36,7 +36,8 @@ class VirtualSwarmHub(VirtualDevice):
     """
 
     def __init__(self, hub_id, zone, mqtt_client, transport, leaves=None):
-        topic_prefix = f"office/{zone}/sensor/{hub_id}"
+        # W3.8b: canonical prefix is hems/sensors/{zone}/{device_type}/{device_id}
+        topic_prefix = f"hems/sensors/{zone}/sensor/{hub_id}"
         super().__init__(hub_id, topic_prefix, mqtt_client)
         self.zone = zone
         self.transport = transport
@@ -124,7 +125,8 @@ class VirtualSwarmHub(VirtualDevice):
         device_id = f"{self.device_id}.{leaf_name}"
 
         for channel, value in channels.items():
-            topic = f"office/{self.zone}/sensor/{device_id}/{channel}"
+            # W3.8b: canonical prefix is hems/sensors/{zone}/{device_type}/{device_id}/{channel}
+            topic = f"hems/sensors/{self.zone}/sensor/{device_id}/{channel}"
             self.client.publish(topic, json.dumps({"value": value}))
 
         # Update last_seen

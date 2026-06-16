@@ -132,9 +132,9 @@ class SwarmHub:
         leaf_name = self._leaf_name(leaf_id)
         device_id = "%s.%s" % (self.device.device_id, leaf_name)
 
-        # Publish each channel as per-channel MQTT
+        # Publish each channel as per-channel MQTT (W3.8b: hems/sensors prefix)
         for channel, value in channels.items():
-            topic = "office/%s/sensor/%s/%s" % (self.device.zone, device_id, channel)
+            topic = "hems/sensors/%s/sensor/%s/%s" % (self.device.zone, device_id, channel)
             self.device.client.publish(topic, json.dumps({"value": value}))
 
         if leaf_id in self._leafs:

@@ -13,8 +13,9 @@ from PIL import Image
 import io
 
 class CameraNodeSimulator:
-    def __init__(self, device_id="camera_node_01", broker="localhost", port=1883):
+    def __init__(self, device_id="camera_node_01", broker="localhost", port=1883, zone="camera"):
         self.device_id = device_id
+        self.zone = zone
         self.broker = broker
         self.port = port
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -110,7 +111,8 @@ class CameraNodeSimulator:
             "wifi_rssi": -45
         }
         
-        status_topic = f"office/camera/{self.device_id}/status"
+        # W3.8b: canonical prefix is hems/sensors/{zone}/camera/{device_id}/status
+        status_topic = f"hems/sensors/{self.zone}/camera/{self.device_id}/status"
         self.client.publish(status_topic, json.dumps(status))
         print(f"[STATUS] Published to: {status_topic}")
     

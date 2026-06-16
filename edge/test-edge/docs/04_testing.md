@@ -45,11 +45,11 @@ mosquitto_sub -h localhost -t '#' -v
 
 **期待される出力（10秒ごと）:**
 ```
-office/meeting_room_a/sensor/sensor_node_01/temperature 24.56
-office/meeting_room_a/sensor/sensor_node_01/humidity 45.23
-office/meeting_room_a/sensor/sensor_node_01/pressure 1013.25
-office/meeting_room_a/sensor/sensor_node_01/gas 123.45
-office/sensor/sensor_node_01/status {"device_id":"sensor_node_01",...}
+hems/sensors/meeting_room_a/sensor/sensor_node_01/temperature 24.56
+hems/sensors/meeting_room_a/sensor/sensor_node_01/humidity 45.23
+hems/sensors/meeting_room_a/sensor/sensor_node_01/pressure 1013.25
+hems/sensors/meeting_room_a/sensor/sensor_node_01/gas 123.45
+hems/sensors/meeting_room_a/sensor/sensor_node_01/heartbeat {"device_id":"sensor_node_01",...}
 ```
 
 ✅ **合格基準**: 10秒ごとにデータが更新される
@@ -58,7 +58,7 @@ office/sensor/sensor_node_01/status {"device_id":"sensor_node_01",...}
 
 **期待される出力（30秒ごと）:**
 ```
-office/camera/camera_node_01/status {"device_id":"camera_node_01","status":"online",...}
+hems/sensors/camera/camera/camera_node_01/status {"device_id":"camera_node_01","status":"online",...}
 ```
 
 ✅ **合格基準**: 30秒ごとにステータスメッセージが届く
@@ -72,7 +72,7 @@ office/camera/camera_node_01/status {"device_id":"camera_node_01","status":"onli
 センサーノードの周囲温度を温度計で測定し、MQTTで受信した値と比較：
 
 ```bash
-mosquitto_sub -h localhost -t 'office/meeting_room_a/sensor/+/temperature'
+mosquitto_sub -h localhost -t 'hems/sensors/meeting_room_a/sensor/+/temperature'
 ```
 
 ✅ **合格基準**: 実測値との誤差が ±2°C 以内
@@ -82,7 +82,7 @@ mosquitto_sub -h localhost -t 'office/meeting_room_a/sensor/+/temperature'
 センサーに息を吹きかけて、温度・湿度の変化を観察：
 
 ```bash
-mosquitto_sub -h localhost -t 'office/meeting_room_a/sensor/+/temperature' -t 'office/meeting_room_a/sensor/+/humidity'
+mosquitto_sub -h localhost -t 'hems/sensors/meeting_room_a/sensor/+/temperature' -t 'hems/sensors/meeting_room_a/sensor/+/humidity'
 ```
 
 ✅ **合格基準**: 10秒以内に変化が反映される
@@ -184,7 +184,7 @@ def on_message(client, userdata, msg):
 client = mqtt.Client()
 client.on_message = on_message
 client.connect("localhost", 1883, 60)
-client.subscribe("office/+/sensor/+/temperature")
+client.subscribe("hems/sensors/+/sensor/+/temperature")
 client.loop_forever()
 ```
 
@@ -221,7 +221,7 @@ docker run -d -p 8086:8086 influxdb:2.7
 # telegraf.confに以下を追加:
 # [[inputs.mqtt_consumer]]
 #   servers = ["tcp://localhost:1883"]
-#   topics = ["office/#"]
+#   topics = ["hems/sensors/#"]
 
 # Grafana
 docker run -d -p 3000:3000 grafana/grafana

@@ -25,7 +25,8 @@ const int MQTT_PORT = 1883;
 const char* DEVICE_ID = "sensor_node_01";
 
 // MQTT topics (per-channel for WorldModel compatibility)
-const char* TOPIC_PREFIX = "office/meeting_room_a/sensor/sensor_node_01";
+// W3.8b: canonical prefix is hems/sensors/{zone}/{device_type}/{device_id}
+const char* TOPIC_PREFIX = "hems/sensors/meeting_room_a/sensor/sensor_node_01";
 const char* TOPIC_MCP_REQUEST = "mcp/sensor_node_01/request/call_tool";
 
 // I2C pins (XIAO ESP32-S3)
