@@ -7,16 +7,21 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 | Wave | # | row(変更) | 対象 file:symbol | 出所 unit | status | commit |
 |---|---|---|---|---|---|---|
 | W3.9 | 1 | weather-bridge に `verify_internal_token` 配線（/health 無認証維持）+ `HEMS_INTERNAL_TOKEN` env 追加 + 認証 test | `services/_common/hems_common/auth.py`, `services/weather-bridge/src/main.py`, `infra/docker-compose.yml:weather-bridge`, `tests/test_weather_bridge.py` | W3.9-bridge-http-auth-design-note | done | d5b9907 |
-| W3.9 | 2 | news-bridge に `verify_internal_token` 配線 | `services/news-bridge/src/main.py`, `infra/docker-compose.yml:news-bridge`, `tests/test_news_bridge.py` | W3.9-bridge-http-auth-design-note | pending | — |
-| W3.9 | 3 | knowledge-bridge に `verify_internal_token` 配線 | `services/knowledge-bridge/src/main.py`, `infra/docker-compose.yml:knowledge-bridge`, tests | W3.9-bridge-http-auth-design-note | pending | — |
-| W3.9 | 4 | gas-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/gas-bridge/src/main.py`, `infra/docker-compose.yml:gas-bridge`, tests | W3.9-bridge-http-auth-design-note | pending | — |
-| W3.9 | 5 | tapo-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/tapo-bridge/src/main.py`, `infra/docker-compose.yml:tapo-bridge`, tests | W3.9-bridge-http-auth-design-note | pending | — |
-| W3.9 | 6 | switchbot-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/switchbot-bridge/src/main.py`, `infra/docker-compose.yml:switchbot-bridge`, tests | W3.9-bridge-http-auth-design-note | pending | — |
-| W3.9 | 7 | obsidian-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/obsidian-bridge/src/main.py`, `infra/docker-compose.yml:obsidian-bridge`, tests | W3.9-bridge-http-auth-design-note | pending | — |
-| W3.9 | 8 | ha-bridge に `verify_internal_token` 配線 + backend→ha-bridge 呼び出しに Authorization 付与 | `services/ha-bridge/src/main.py`, `services/backend/routers/home.py`, compose, tests | W3.9-bridge-http-auth-design-note | pending | — |
-| W3.9 | 9 | biometric-bridge に `verify_internal_token` 配線（/webhook/{vendor} は対象外） | `services/biometric-bridge/src/main.py`, `infra/docker-compose.yml:biometric-bridge`, tests | W3.9-bridge-http-auth-design-note | pending | — |
+| W3.9 | 2 | news-bridge に `verify_internal_token` 配線 | `services/news-bridge/src/main.py`, `infra/docker-compose.yml:news-bridge`, `tests/test_news_bridge.py` | W3.9-bridge-http-auth-design-note | done | 7bd9553 |
+| W3.9 | 3 | knowledge-bridge に `verify_internal_token` 配線 | `services/knowledge-bridge/src/main.py`, `infra/docker-compose.yml:knowledge-bridge`, tests | W3.9-bridge-http-auth-design-note | done | 0d90119 |
+| W3.9 | 4 | gas-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/gas-bridge/src/main.py`, `infra/docker-compose.yml:gas-bridge`, tests | W3.9-bridge-http-auth-design-note | done | 5eb6273 |
+| W3.9 | 5 | tapo-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/tapo-bridge/src/main.py`, `infra/docker-compose.yml:tapo-bridge`, tests | W3.9-bridge-http-auth-design-note | done | db9c473 |
+| W3.9 | 6 | switchbot-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/switchbot-bridge/src/main.py`, `infra/docker-compose.yml:switchbot-bridge`, tests | W3.9-bridge-http-auth-design-note | done | f3b578d |
+| W3.9 | 7 | obsidian-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/obsidian-bridge/src/main.py`, `infra/docker-compose.yml:obsidian-bridge`, tests | W3.9-bridge-http-auth-design-note | done | c8b9acb |
+| W3.9 | 8 | ha-bridge に `verify_internal_token` 配線 + backend→ha-bridge 呼び出しに Authorization 付与 | `services/ha-bridge/src/main.py`, `services/backend/routers/home.py`, compose, tests | W3.9-bridge-http-auth-design-note | done | 4a46df5 |
+| W3.9 | 9 | biometric-bridge に `verify_internal_token` 配線（/webhook/{vendor} は対象外） | `services/biometric-bridge/src/main.py`, `infra/docker-compose.yml:biometric-bridge`, tests | W3.9-bridge-http-auth-design-note | done | e3d3780 |
 
-> W3.9.1 ゲート結果 (2026-06-16): `make lint` clean / pytest `2105 passed, 2 skipped, 44 deselected, 7 failed`。
-> 失敗 7 件は本 row 変更前から存在する `test_backend_home_router` の 503 系 3 件 + `test_knowledge_bridge` / `test_news_bridge` / `test_obsidian_bridge` の import 系 4 件で、weather-bridge には影響なし。
+> W3.9.1 ゲート結果 (2026-06-16): `make lint` clean / pytest `2105 passed, 2 skipped, 44 deselected, 7 failed`。失敗 7 件は本 row 変更前から存在する `test_backend_home_router` の 503 系 3 件 + `test_knowledge_bridge` / `test_news_bridge` / `test_obsidian_bridge` の import 系 4 件。
+>
+> W3.9.2–W3.9.9 一括ゲート結果 (2026-06-16): `make lint` clean / pytest `2153 passed, 8 skipped, 44 deselected, 3 failed`。失敗 3 件は引き続き `test_backend_home_router` の 503 系（HA_BRIDGE_URL 未設定時の挙動）。
+>
+> 横断 commit:
+> - `fe5e294` infra(compose): pass HEMS_INTERNAL_TOKEN to all 9 bridges
+> - `18fcc5b` feat(brain,backend): pass HEMS_INTERNAL_TOKEN to internal bridge HTTP calls（backend→ha-bridge + brain→news/knowledge/biometric/obsidian/ha/tapo/switchbot）
 
-**残 pending:** W3.9.2–W3.9.9 の 8 row。
+**残 pending:** W3.9 完了。
