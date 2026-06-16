@@ -24,6 +24,7 @@ from types import ModuleType
 from unittest.mock import MagicMock
 
 import paho.mqtt.client as _mqtt
+from fastapi.testclient import TestClient
 
 _WEATHER_SRC = Path(__file__).resolve().parent.parent / "services" / "weather-bridge" / "src"
 
@@ -207,3 +208,63 @@ def test_publish_uses_ensure_ascii_false():
     _, payload_str, _, _ = _last_publish_args(mock_pub)
     assert "晴れ" in payload_str
     assert "\\u" not in payload_str
+
+
+# ---------------------------------------------------------------------------
+# HEMS_INTERNAL_TOKEN auth (W3.9)
+# ---------------------------------------------------------------------------
+
+
+def _weather_test_client(token: str | None) -> tuple[ModuleType, TestClient]:
+    """Load weather-bridge main and return (module, TestClient) with poller reset."""
+    m = _load_weather_module("main")
+    m.poller = None
+    return m, TestClient(m.app)
+
+
+def test_health_requires_no_auth(monkeypatch):
+    """/health must stay public for Docker healthchecks."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    _m, client = _weather_test_client(None)
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_api_skips_auth_when_token_unset(monkeypatch):
+    """Dev mode: no HEMS_INTERNAL_TOKEN means the dependency is a no-op."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    _m, client = _weather_test_client(None)
+    response = client.get("/api/weather/current")
+    # Auth skipped, so the route handler runs and reports not-ready.
+    assert response.status_code == 503
+
+
+def test_api_requires_auth_when_token_configured(monkeypatch):
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    _m, client = _weather_test_client("secret")
+    response = client.get("/api/weather/current")
+    assert response.status_code == 401
+
+
+def test_api_rejects_wrong_token(monkeypatch):
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    _m, client = _weather_test_client("secret")
+    response = client.get(
+        "/api/weather/current",
+        headers={"Authorization": "Bearer wrong"},
+    )
+    assert response.status_code == 401
+
+
+def test_api_accepts_valid_token(monkeypatch):
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    m, client = _weather_test_client("secret")
+    m.poller = MagicMock()
+    m.poller.current_data = {"temperature": 20.0, "weather_main": "Clear"}
+    response = client.get(
+        "/api/weather/current",
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert response.status_code == 200
+    assert response.json()["temperature"] == 20.0

@@ -6,8 +6,8 @@ Supports JMA (気象庁, free) and OpenWeatherMap providers.
 from contextlib import asynccontextmanager
 
 from data_poller import DataPoller
-from fastapi import FastAPI, HTTPException
-from hems_common import MqttPublisher, bridge_lifespan
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from hems_common import MqttPublisher, bridge_lifespan, verify_internal_token
 from loguru import logger
 from weather_client import JMAClient, OWMClient
 
@@ -17,6 +17,11 @@ import config
 weather_client: JMAClient | OWMClient | None = None
 mqtt_pub: MqttPublisher | None = None
 poller: DataPoller | None = None
+
+# Routers: /health stays public for Docker healthchecks; all other REST routes
+# require the internal bearer token when HEMS_INTERNAL_TOKEN is configured.
+public_router = APIRouter()
+private_router = APIRouter(dependencies=[Depends(verify_internal_token)])
 
 
 @asynccontextmanager
@@ -90,7 +95,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="HEMS Weather Bridge", lifespan=lifespan)
 
 
-@app.get("/health")
+@public_router.get("/health")
 async def health():
     return {
         "status": "ok",
@@ -99,7 +104,7 @@ async def health():
     }
 
 
-@app.get("/api/weather/current")
+@private_router.get("/api/weather/current")
 async def get_current():
     if not poller:
         raise HTTPException(503, "Service not ready")
@@ -108,7 +113,7 @@ async def get_current():
     return poller.current_data
 
 
-@app.get("/api/weather/forecast")
+@private_router.get("/api/weather/forecast")
 async def get_forecast():
     if not poller:
         raise HTTPException(503, "Service not ready")
@@ -117,7 +122,7 @@ async def get_forecast():
     }
 
 
-@app.get("/api/weather/alerts")
+@private_router.get("/api/weather/alerts")
 async def get_alerts():
     if not poller:
         raise HTTPException(503, "Service not ready")
@@ -126,8 +131,12 @@ async def get_alerts():
     }
 
 
-@app.get("/api/weather/status")
+@private_router.get("/api/weather/status")
 async def get_status():
     if not poller:
         raise HTTPException(503, "Service not ready")
     return poller.get_status()
+
+
+app.include_router(public_router)
+app.include_router(private_router)
