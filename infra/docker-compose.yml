@@ -377,6 +377,7 @@ services:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=hems-obsidian
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -411,6 +412,7 @@ services:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=hems-gas
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -479,6 +481,7 @@ services:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=hems-ha
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -506,6 +509,7 @@ services:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=hems-biometric
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
       - BIOMETRIC_WEBHOOK_SECRET=${BIOMETRIC_WEBHOOK_SECRET:-}
       - BIOMETRIC_PROVIDER=${BIOMETRIC_PROVIDER:-gadgetbridge}
       - BIOMETRIC_DB_PATH=/data/send_queue.db
@@ -672,6 +676,7 @@ services:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=hems-switchbot
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -703,6 +708,7 @@ services:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=hems-tapo
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
@@ -798,6 +804,7 @@ services:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=hems-news
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5}
       - OLLAMA_SUMMARY_MODEL=${OLLAMA_SUMMARY_MODEL:-}
@@ -839,6 +846,7 @@ services:
       - MQTT_BROKER=mosquitto
       - MQTT_USER=hems-knowledge
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
+      - HEMS_INTERNAL_TOKEN=${HEMS_INTERNAL_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
