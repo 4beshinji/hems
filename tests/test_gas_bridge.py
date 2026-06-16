@@ -300,3 +300,75 @@ def test_regular_publish_no_retain():
     assert topic == "hems/gas/calendar/upcoming"
     assert retain is False
     assert qos == 0
+
+
+# ---------------------------------------------------------------------------
+# HEMS_INTERNAL_TOKEN auth (W3.9)
+# ---------------------------------------------------------------------------
+
+
+def _gas_main_client():
+    """Load gas-bridge main and return (module, TestClient) with lifespan disabled."""
+    bridge_main_path = Path(__file__).resolve().parent.parent / "services" / "gas-bridge" / "src" / "main.py"
+    old_config = sys.modules.pop("config", None)
+    sys.path.insert(0, _gas_src)
+    try:
+        spec = importlib.util.spec_from_file_location("gas_bridge_main_auth", str(bridge_main_path))
+        bridge_main = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bridge_main)
+    finally:
+        sys.path.remove(_gas_src)
+        sys.modules.pop("config", None)
+        if old_config is not None:
+            sys.modules["config"] = old_config
+
+    @asynccontextmanager
+    async def noop_lifespan(app):
+        yield
+
+    bridge_main.app.router.lifespan_context = noop_lifespan
+    return bridge_main, TestClient(bridge_main.app)
+
+
+class TestGASBridgeAuthW39:
+    """Verify W3.9 internal-token auth wiring."""
+
+    def test_health_requires_no_auth(self, monkeypatch):
+        monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+        _m, client = _gas_main_client()
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.json()["status"] == "starting"
+
+    def test_private_skips_auth_when_token_unset(self, monkeypatch):
+        monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+        _m, client = _gas_main_client()
+        response = client.get("/api/gas/calendar")
+        assert response.status_code == 503
+
+    def test_private_requires_auth_when_token_configured(self, monkeypatch):
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+        _m, client = _gas_main_client()
+        response = client.get("/api/gas/calendar")
+        assert response.status_code == 401
+
+    def test_private_rejects_wrong_token(self, monkeypatch):
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+        _m, client = _gas_main_client()
+        response = client.get(
+            "/api/gas/calendar",
+            headers={"Authorization": "Bearer wrong"},
+        )
+        assert response.status_code == 401
+
+    def test_private_accepts_valid_token(self, monkeypatch):
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+        m, client = _gas_main_client()
+        m.poller = MagicMock()
+        m.poller.get_status.return_value = {"connected": True}
+        response = client.get(
+            "/api/gas/status",
+            headers={"Authorization": "Bearer secret"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"connected": True}

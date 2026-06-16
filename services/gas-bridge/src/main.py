@@ -5,9 +5,9 @@ HEMS GAS Bridge — FastAPI service that polls GAS Web App and publishes to MQTT
 from contextlib import asynccontextmanager
 
 from data_poller import DataPoller
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from gas_client import GASClient
-from hems_common import MqttPublisher, bridge_lifespan
+from hems_common import MqttPublisher, bridge_lifespan, verify_internal_token
 from loguru import logger
 
 import config
@@ -16,6 +16,11 @@ import config
 gas_client: GASClient | None = None
 mqtt_pub: MqttPublisher | None = None
 poller: DataPoller | None = None
+
+# Routers: /health stays public for Docker healthchecks; all other REST routes
+# require the internal bearer token when HEMS_INTERNAL_TOKEN is configured.
+public_router = APIRouter()
+private_router = APIRouter(dependencies=[Depends(verify_internal_token)])
 
 
 @asynccontextmanager
@@ -82,7 +87,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="HEMS GAS Bridge", lifespan=lifespan)
 
 
-@app.get("/health")
+@public_router.get("/health")
 async def health():
     if gas_client:
         health_data = await gas_client.fetch("health")
@@ -94,7 +99,7 @@ async def health():
     return {"status": "starting", "gas_webapp_configured": bool(config.GAS_WEBAPP_URL)}
 
 
-@app.get("/api/gas/calendar")
+@private_router.get("/api/gas/calendar")
 async def get_calendar():
     if not poller:
         raise HTTPException(503, "Service not ready")
@@ -104,7 +109,7 @@ async def get_calendar():
     }
 
 
-@app.get("/api/gas/tasks")
+@private_router.get("/api/gas/tasks")
 async def get_tasks():
     if not poller:
         raise HTTPException(503, "Service not ready")
@@ -114,7 +119,7 @@ async def get_tasks():
     }
 
 
-@app.get("/api/gas/gmail")
+@private_router.get("/api/gas/gmail")
 async def get_gmail():
     if not poller:
         raise HTTPException(503, "Service not ready")
@@ -124,7 +129,7 @@ async def get_gmail():
     }
 
 
-@app.get("/api/gas/sheets/{name}")
+@private_router.get("/api/gas/sheets/{name}")
 async def get_sheet(name: str):
     if not poller:
         raise HTTPException(503, "Service not ready")
@@ -134,15 +139,19 @@ async def get_sheet(name: str):
     return data
 
 
-@app.get("/api/gas/drive")
+@private_router.get("/api/gas/drive")
 async def get_drive():
     if not poller:
         raise HTTPException(503, "Service not ready")
     return poller.drive_data or {}
 
 
-@app.get("/api/gas/status")
+@private_router.get("/api/gas/status")
 async def get_status():
     if not poller:
         raise HTTPException(503, "Service not ready")
     return poller.get_status()
+
+
+app.include_router(public_router)
+app.include_router(private_router)
