@@ -11,9 +11,9 @@ from contextlib import asynccontextmanager
 
 import aiohttp
 from entity_mapper import EntityMapper
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from ha_client import HAClient
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from pydantic import BaseModel
 
@@ -23,6 +23,11 @@ import config
 ha_client: HAClient | None = None
 mqtt_pub: MqttPublisher | None = None
 entity_mapper: EntityMapper | None = None
+
+# Routers: /health stays public for Docker healthchecks; all other REST routes
+# require the internal bearer token when HEMS_INTERNAL_TOKEN is configured.
+public_router = APIRouter()
+private_router = APIRouter(dependencies=[Depends(verify_internal_token)])
 
 # Relevant HA domains for HEMS
 _TRACKED_DOMAINS = {"light", "climate", "cover", "switch", "sensor", "binary_sensor"}
@@ -223,12 +228,12 @@ class DeviceControlRequest(BaseModel):
     data: dict = {}
 
 
-@app.get("/health")
+@public_router.get("/health")
 async def health():
     return {"status": "ok"}
 
 
-@app.post("/api/device/control")
+@private_router.post("/api/device/control")
 async def device_control(req: DeviceControlRequest):
     if not ha_client:
         raise HTTPException(503, "HA client not initialized")
@@ -252,7 +257,7 @@ async def device_control(req: DeviceControlRequest):
     raise HTTPException(502, f"HA service call failed: {domain}/{service}")
 
 
-@app.get("/api/devices")
+@private_router.get("/api/devices")
 async def get_devices():
     if not ha_client:
         raise HTTPException(503, "HA client not initialized")
@@ -267,7 +272,7 @@ async def get_devices():
     return {"devices": devices}
 
 
-@app.get("/api/device/{entity_id}")
+@private_router.get("/api/device/{entity_id}")
 async def get_device(entity_id: str):
     if not ha_client:
         raise HTTPException(503, "HA client not initialized")
@@ -276,3 +281,7 @@ async def get_device(entity_id: str):
     if state is None:
         raise HTTPException(404, f"Entity {entity_id} not found")
     return _parse_ha_state(entity_id, state)
+
+
+app.include_router(public_router)
+app.include_router(private_router)

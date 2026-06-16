@@ -162,42 +162,43 @@ class TestMQTTPublisher:
         pub.client.publish.assert_called_once()
 
 
+@pytest.fixture
+def bridge_app():
+    """Load ha-bridge main.py as a module and create test client."""
+    spec = importlib.util.spec_from_file_location("ha_main", f"{_ha_src}/main.py")
+    mod = importlib.util.module_from_spec(spec)
+
+    # Pre-load dependencies
+    old_config = sys.modules.pop("config", None)
+    old_ha = sys.modules.pop("ha_client", None)
+    old_mapper = sys.modules.pop("entity_mapper", None)
+    sys.path.insert(0, _ha_src)
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.remove(_ha_src)
+
+    # Replace lifespan with noop
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def noop_lifespan(app):
+        yield
+
+    mod.app.router.lifespan_context = noop_lifespan
+    # Restore modules
+    for name, old in [
+        ("config", old_config),
+        ("ha_client", old_ha),
+        ("entity_mapper", old_mapper),
+    ]:
+        if old is not None:
+            sys.modules[name] = old
+
+    return mod
+
+
 class TestBridgeAPIEndpoints:
-    @pytest.fixture
-    def bridge_app(self):
-        """Load ha-bridge main.py as a module and create test client."""
-        spec = importlib.util.spec_from_file_location("ha_main", f"{_ha_src}/main.py")
-        mod = importlib.util.module_from_spec(spec)
-
-        # Pre-load dependencies
-        old_config = sys.modules.pop("config", None)
-        old_ha = sys.modules.pop("ha_client", None)
-        old_mapper = sys.modules.pop("entity_mapper", None)
-        sys.path.insert(0, _ha_src)
-        try:
-            spec.loader.exec_module(mod)
-        finally:
-            sys.path.remove(_ha_src)
-
-        # Replace lifespan with noop
-        from contextlib import asynccontextmanager
-
-        @asynccontextmanager
-        async def noop_lifespan(app):
-            yield
-
-        mod.app.router.lifespan_context = noop_lifespan
-        # Restore modules
-        for name, old in [
-            ("config", old_config),
-            ("ha_client", old_ha),
-            ("entity_mapper", old_mapper),
-        ]:
-            if old is not None:
-                sys.modules[name] = old
-
-        return mod
-
     def test_health_endpoint(self, bridge_app):
         from fastapi.testclient import TestClient
 
@@ -228,3 +229,59 @@ class TestBridgeAPIEndpoints:
             },
         )
         assert resp.status_code == 503
+
+
+class TestInternalTokenAuth:
+    """W3.9: HEMS_INTERNAL_TOKEN protects private REST routes; /health stays public."""
+
+    def test_health_public_without_token(self, bridge_app, monkeypatch):
+        monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+        from fastapi.testclient import TestClient
+
+        client = TestClient(bridge_app.app)
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_private_endpoint_reachable_when_token_unset(self, bridge_app, monkeypatch):
+        """Dev mode: no token configured -> auth is skipped, route logic runs."""
+        monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+        bridge_app.ha_client = None
+        from fastapi.testclient import TestClient
+
+        client = TestClient(bridge_app.app)
+        resp = client.get("/api/devices")
+        assert resp.status_code == 503
+
+    def test_private_endpoint_requires_authorization_when_token_set(self, bridge_app, monkeypatch):
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+        bridge_app.ha_client = None
+        from fastapi.testclient import TestClient
+
+        client = TestClient(bridge_app.app)
+        resp = client.get("/api/devices")
+        assert resp.status_code == 401
+
+    def test_private_endpoint_rejects_wrong_token(self, bridge_app, monkeypatch):
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+        bridge_app.ha_client = None
+        from fastapi.testclient import TestClient
+
+        client = TestClient(bridge_app.app)
+        resp = client.get("/api/devices", headers={"Authorization": "Bearer wrong"})
+        assert resp.status_code == 401
+
+    def test_private_endpoint_accepts_valid_token(self, bridge_app, monkeypatch):
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+        from unittest.mock import AsyncMock
+
+        from fastapi.testclient import TestClient
+
+        mock_client = AsyncMock()
+        mock_client.get_states = AsyncMock(return_value=[{"entity_id": "light.test", "state": "on", "attributes": {}}])
+        bridge_app.ha_client = mock_client
+
+        client = TestClient(bridge_app.app)
+        resp = client.get("/api/devices", headers={"Authorization": "Bearer secret"})
+        assert resp.status_code == 200
+        assert resp.json()["devices"][0]["entity_id"] == "light.test"
