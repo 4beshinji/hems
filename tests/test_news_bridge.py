@@ -21,6 +21,8 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
 
+import pytest
+from fastapi.testclient import TestClient
 from paho.mqtt.client import MQTT_ERR_SUCCESS
 
 _NEWS_SRC = Path(__file__).resolve().parent.parent / "services" / "news-bridge" / "src"
@@ -82,6 +84,7 @@ def test_import_config():
 
 
 def test_import_main():
+    pytest.importorskip("feedparser")
     m = _load_news_module("main")
     assert hasattr(m, "app")
 
@@ -187,3 +190,63 @@ def test_publish_uses_ensure_ascii_false():
     _, payload_str, _, _ = _last_publish_args(mock_pub)
     assert "速報ニュース" in payload_str
     assert "\\u" not in payload_str
+
+
+# ---------------------------------------------------------------------------
+# HEMS_INTERNAL_TOKEN auth (W3.9)
+# ---------------------------------------------------------------------------
+
+
+def _news_test_client() -> tuple[ModuleType, TestClient]:
+    """Load news-bridge main and return (module, TestClient) with state reset."""
+    pytest.importorskip("feedparser")
+    m = _load_news_module("main")
+    m._latest_summary = {}
+    return m, TestClient(m.app)
+
+
+def test_health_requires_no_auth(monkeypatch):
+    """/health must stay public for Docker healthchecks."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    _m, client = _news_test_client()
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_api_skips_auth_when_token_unset(monkeypatch):
+    """Dev mode: no HEMS_INTERNAL_TOKEN means the dependency is a no-op."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    _m, client = _news_test_client()
+    response = client.get("/api/news/latest")
+    # Auth skipped, so the route handler runs and reports no summary yet.
+    assert response.status_code == 404
+
+
+def test_api_requires_auth_when_token_configured(monkeypatch):
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    _m, client = _news_test_client()
+    response = client.get("/api/news/latest")
+    assert response.status_code == 401
+
+
+def test_api_rejects_wrong_token(monkeypatch):
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    _m, client = _news_test_client()
+    response = client.get(
+        "/api/news/latest",
+        headers={"Authorization": "Bearer wrong"},
+    )
+    assert response.status_code == 401
+
+
+def test_api_accepts_valid_token(monkeypatch):
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    m, client = _news_test_client()
+    m._latest_summary = {"summary": "test", "chunks": [], "article_count": 1, "timestamp": 0.0}
+    response = client.get(
+        "/api/news/latest",
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert response.status_code == 200
+    assert response.json()["article_count"] == 1

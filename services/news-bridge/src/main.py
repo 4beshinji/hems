@@ -8,8 +8,8 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from news_fetcher import NewsFetcher
 from news_summarizer import NewsSummarizer, OllamaClient, split_by_category
@@ -26,6 +26,11 @@ urgency_detector: UrgencyDetector | None = None
 # Cached latest summary
 _latest_summary: dict = {}
 _seen_urls: set[str] = set()  # Already-checked URLs for urgency dedup
+
+# Routers: /health stays public for Docker healthchecks; all other REST routes
+# require the internal bearer token when HEMS_INTERNAL_TOKEN is configured.
+public_router = APIRouter()
+private_router = APIRouter(dependencies=[Depends(verify_internal_token)])
 
 
 async def _generate_daily_summary():
@@ -192,7 +197,7 @@ async def _initial_summary():
 app = FastAPI(title="HEMS News Bridge", lifespan=lifespan)
 
 
-@app.get("/health")
+@public_router.get("/health")
 async def health():
     return {
         "status": "ok",
@@ -201,14 +206,18 @@ async def health():
     }
 
 
-@app.get("/api/news/latest")
+@private_router.get("/api/news/latest")
 async def get_latest():
     if not _latest_summary:
         raise HTTPException(404, "No summary generated yet")
     return _latest_summary
 
 
-@app.post("/api/news/refresh")
+@private_router.post("/api/news/refresh")
 async def refresh():
     await _generate_daily_summary()
     return {"status": "ok", "summary_available": bool(_latest_summary)}
+
+
+app.include_router(public_router)
+app.include_router(private_router)
