@@ -18,8 +18,8 @@ from collections import OrderedDict
 from contextlib import asynccontextmanager
 
 from data_processor import BiometricReading, DataProcessor
-from fastapi import FastAPI, HTTPException, Request
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from providers.gadgetbridge import GadgetbridgeProvider
 from providers.huami import HuamiProvider
@@ -197,6 +197,12 @@ processor = DataProcessor()
 gadgetbridge = GadgetbridgeProvider()
 huami: HuamiProvider | None = None
 zepp: ZeppProvider | None = None
+
+# Routers: /health stays public for Docker healthchecks; /api/biometric/webhook stays
+# public because external companion apps push to it. All other REST routes require the
+# internal bearer token when HEMS_INTERNAL_TOKEN is configured.
+public_router = APIRouter()
+private_router = APIRouter(dependencies=[Depends(verify_internal_token)])
 
 
 def _mqtt_publish(topic: str, data: dict, retain: bool = True):
@@ -434,7 +440,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="HEMS Biometric Bridge", lifespan=lifespan)
 
 
-@app.get("/health")
+@public_router.get("/health")
 async def health():
     providers = [BIOMETRIC_PROVIDER]
     if huami and huami._running:
@@ -450,7 +456,7 @@ async def health():
     }
 
 
-@app.post("/api/biometric/webhook")
+@public_router.post("/api/biometric/webhook")
 async def receive_webhook(request: Request):
     """Receive biometric data from Health Connect Companion App or Gadgetbridge.
 
@@ -478,7 +484,7 @@ async def receive_webhook(request: Request):
     return {"received": True, "provider": reading.provider}
 
 
-@app.get("/api/biometric/latest")
+@private_router.get("/api/biometric/latest")
 async def get_latest():
     """Get the latest biometric reading."""
     reading = processor.get_latest()
@@ -506,7 +512,7 @@ async def get_latest():
     return result
 
 
-@app.get("/api/biometric/sleep")
+@private_router.get("/api/biometric/sleep")
 async def get_sleep():
     """Get last night's sleep summary."""
     summary = processor.get_sleep_summary()
@@ -515,7 +521,7 @@ async def get_sleep():
     return summary
 
 
-@app.get("/api/biometric/activity")
+@private_router.get("/api/biometric/activity")
 async def get_activity():
     """Get today's activity summary."""
     reading = processor.get_latest()
@@ -533,3 +539,7 @@ async def get_activity():
     if reading.activity_level is not None:
         result["activity_level"] = reading.activity_level
     return result if result else {"status": "no_data"}
+
+
+app.include_router(public_router)
+app.include_router(private_router)
