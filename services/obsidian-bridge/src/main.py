@@ -7,8 +7,8 @@ import sys
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from note_writer import NoteWriter
 from pydantic import BaseModel
@@ -47,6 +47,11 @@ mqtt_pub = MqttPublisher(
 watcher = VaultWatcher(vault_index, mqtt_pub, debounce=WATCHER_DEBOUNCE)
 note_writer = NoteWriter(VAULT_PATH)
 start_time = time.time()
+
+# Routers: /health stays public for Docker healthchecks; all other REST routes
+# require the internal bearer token when HEMS_INTERNAL_TOKEN is configured.
+public_router = APIRouter()
+private_router = APIRouter(dependencies=[Depends(verify_internal_token)])
 
 
 async def _startup():
@@ -107,7 +112,7 @@ class LearningMemoRequest(BaseModel):
 # --- REST endpoints ---
 
 
-@app.get("/health")
+@public_router.get("/health")
 async def health():
     stats = vault_index.get_stats()
     return {
@@ -119,7 +124,7 @@ async def health():
     }
 
 
-@app.post("/api/notes/search")
+@private_router.post("/api/notes/search")
 async def search_notes(req: SearchRequest):
     """Search vault notes by keyword, tags, or path prefix."""
     max_r = min(req.max_results, MAX_SEARCH_RESULTS)
@@ -132,7 +137,7 @@ async def search_notes(req: SearchRequest):
     return {"results": results, "count": len(results)}
 
 
-@app.get("/api/notes/recent")
+@private_router.get("/api/notes/recent")
 async def get_recent_notes(limit: int = 10):
     """Get most recently modified notes."""
     limit = min(limit, 20)
@@ -140,7 +145,7 @@ async def get_recent_notes(limit: int = 10):
     return {"notes": notes, "count": len(notes)}
 
 
-@app.get("/api/notes/read")
+@private_router.get("/api/notes/read")
 async def read_note(path: str):
     """Read a specific note by its vault-relative path."""
     # Path traversal prevention
@@ -160,7 +165,7 @@ async def read_note(path: str):
     }
 
 
-@app.post("/api/notes/write")
+@private_router.post("/api/notes/write")
 async def write_note(req: WriteNoteRequest):
     """Write a note to the vault (HEMS/ directory only)."""
     if len(req.content) > 10000:
@@ -183,7 +188,7 @@ async def write_note(req: WriteNoteRequest):
     return {"success": True, "path": path}
 
 
-@app.post("/api/notes/decision-log")
+@private_router.post("/api/notes/decision-log")
 async def write_decision_log(req: DecisionLogRequest):
     """Append a decision log entry."""
     path = note_writer.write_decision_log(req.trigger, req.action, req.context)
@@ -191,7 +196,7 @@ async def write_decision_log(req: DecisionLogRequest):
     return {"success": True, "path": path}
 
 
-@app.post("/api/notes/learning-memo")
+@private_router.post("/api/notes/learning-memo")
 async def write_learning_memo(req: LearningMemoRequest):
     """Append a learning memo entry."""
     path = note_writer.write_learning_memo(req.title, req.content)
@@ -199,8 +204,12 @@ async def write_learning_memo(req: LearningMemoRequest):
     return {"success": True, "path": path}
 
 
-@app.get("/api/notes/tags")
+@private_router.get("/api/notes/tags")
 async def get_all_tags():
     """Get all tags with usage counts."""
     tags = vault_index.get_all_tags()
     return {"tags": tags, "count": len(tags)}
+
+
+app.include_router(public_router)
+app.include_router(private_router)

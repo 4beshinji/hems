@@ -14,12 +14,15 @@ pollution from other bridge test files.
 import importlib
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
 
 import paho.mqtt.client as _mqtt
+import pytest
+from fastapi.testclient import TestClient
 
 _OBSIDIAN_SRC = Path(__file__).resolve().parent.parent / "services" / "obsidian-bridge" / "src"
 
@@ -186,3 +189,67 @@ def test_track_connection_false_publishes_unconditionally():
     result = mock_pub.publish("hems/personal/notes/stats", {"total_notes": 42})
     assert result is True
     assert mock_pub.client.publish.called
+
+
+# ---------------------------------------------------------------------------
+# HEMS_INTERNAL_TOKEN auth (W3.9)
+# ---------------------------------------------------------------------------
+
+
+def _obsidian_test_client(tmp_path) -> tuple[ModuleType, TestClient]:
+    """Load obsidian-bridge main with a temp vault and return (module, client)."""
+    pytest.importorskip("watchdog")
+    # Force a fresh config load so OBSIDIAN_VAULT_PATH is honoured.
+    sys.modules.pop("obsidian_bridge.main", None)
+    sys.modules.pop("obsidian_bridge.config", None)
+    sys.modules.pop("config", None)
+    os.environ["OBSIDIAN_VAULT_PATH"] = str(tmp_path)
+    m = _load_obsidian_module("main")
+    return m, TestClient(m.app)
+
+
+def test_health_requires_no_auth(monkeypatch, tmp_path):
+    """/health must stay public for Docker healthchecks."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    _m, client = _obsidian_test_client(tmp_path)
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_api_skips_auth_when_token_unset(monkeypatch, tmp_path):
+    """Dev mode: no HEMS_INTERNAL_TOKEN means the dependency is a no-op."""
+    monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+    _m, client = _obsidian_test_client(tmp_path)
+    response = client.get("/api/notes/recent")
+    # Auth skipped; the empty index returns an empty list.
+    assert response.status_code == 200
+    assert response.json()["notes"] == []
+
+
+def test_api_requires_auth_when_token_configured(monkeypatch, tmp_path):
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    _m, client = _obsidian_test_client(tmp_path)
+    response = client.get("/api/notes/recent")
+    assert response.status_code == 401
+
+
+def test_api_rejects_wrong_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    _m, client = _obsidian_test_client(tmp_path)
+    response = client.get(
+        "/api/notes/recent",
+        headers={"Authorization": "Bearer wrong"},
+    )
+    assert response.status_code == 401
+
+
+def test_api_accepts_valid_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret")
+    _m, client = _obsidian_test_client(tmp_path)
+    response = client.get(
+        "/api/notes/recent",
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert response.status_code == 200
+    assert response.json()["notes"] == []
