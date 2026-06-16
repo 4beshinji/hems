@@ -23,6 +23,7 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 | W3.9 | 7 | obsidian-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/obsidian-bridge/src/main.py`, `infra/docker-compose.yml:obsidian-bridge`, tests | W3.9-bridge-http-auth-design-note | done | c8b9acb |
 | W3.9 | 8 | ha-bridge に `verify_internal_token` 配線 + backend→ha-bridge 呼び出しに Authorization 付与 | `services/ha-bridge/src/main.py`, `services/backend/routers/home.py`, compose, tests | W3.9-bridge-http-auth-design-note | done | 4a46df5 |
 | W3.9 | 9 | biometric-bridge に `verify_internal_token` 配線（/webhook/{vendor} は対象外） | `services/biometric-bridge/src/main.py`, `infra/docker-compose.yml:biometric-bridge`, tests | W3.9-bridge-http-auth-design-note | done | e3d3780 |
+| **W4.6** | **1** | **(メタ監査追加分) PostgreSQL 既定化の zero-config UX。`make quickstart` / `infra/scripts/init_env.py` で安全なランダム値を自動生成。SQLite 軽量オプションを `docker-compose.sqlite-lite.yml` で維持。移行スクリプトの dry-run + サマリ強化** | `Makefile`, `infra/scripts/init_env.py`, `env.example`, `infra/docker-compose.sqlite-lite.yml`, `infra/scripts/migrate_sqlite_to_pg.py`, README/CLAUDE.md/distribution.md/db-improvement-plan.md | W4.6-postgres-zero-config-design-note | pending |  |
 
 > W3.9.1 ゲート結果 (2026-06-16): `make lint` clean / pytest `2105 passed, 2 skipped, 44 deselected, 7 failed`。失敗 7 件は本 row 変更前から存在する `test_backend_home_router` の 503 系 3 件 + `test_knowledge_bridge` / `test_news_bridge` / `test_obsidian_bridge` の import 系 4 件。
 >

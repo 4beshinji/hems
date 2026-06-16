@@ -29,8 +29,12 @@ Forked from SOMS commit `1216952` (2026-02-16).
 All services run via Docker Compose from the `infra/` directory.
 
 ```bash
-# Initial setup
+# Initial setup (recommended — generates .env with random secrets if missing)
+make quickstart
+
+# Manual setup (equivalent)
 cp env.example .env
+python infra/scripts/init_env.py
 cd infra
 docker compose --profile bootstrap build base   # build hems-base:py3.11 (one time, all Python services FROM it)
 docker compose up -d --build
@@ -51,8 +55,10 @@ docker compose --profile ollama up -d --build
 docker exec hems-ollama ollama pull qwen3.5
 # Lighter alternatives: qwen2.5:7b, llama3.2:3b
 
-# PostgreSQL is the default database (core service). To use SQLite instead:
-# DATABASE_URL=sqlite+aiosqlite:///./data/hems.db docker compose up -d --build
+# SQLite lightweight mode (no PostgreSQL)
+make quickstart-sqlite
+# Or manually:
+# cd infra && docker compose -f docker-compose.yml -f docker-compose.sqlite-lite.yml up -d --build
 
 # With OpenClaw (PC metrics + service monitor; legacy localcraw build context)
 docker compose --profile openclaw up -d --build
@@ -189,7 +195,10 @@ VRM avatar / animation の詳細は [`docs/avatar-setup.md`](docs/avatar-setup.m
 ### Database
 
 - Default: PostgreSQL 16 (core service since W4.5')
-- Optional: SQLite (`aiosqlite`) — set `DATABASE_URL=sqlite+aiosqlite:///./data/hems.db`
+- Optional: SQLite (`aiosqlite`) — use `make quickstart-sqlite` or the
+  `docker-compose.sqlite-lite.yml` override for lightweight deployments
+- Migration: `infra/scripts/migrate_sqlite_to_pg.py` supports `--check`,
+  `--dry-run`, and automatic `.bak` backups before executing
 - Backend: Task, User, VoiceEvent, SystemStats, ShoppingItem, PurchaseHistory
 - Brain event_store: raw_events, llm_decisions, hourly_aggregates (SOMS-compatible, `events` schema)
 - Retention: 730 days (2 years) for raw_events and llm_decisions

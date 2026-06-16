@@ -1,0 +1,31 @@
+# SQLite-only override for HEMS.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.sqlite-lite.yml up -d --build
+#
+# This override switches backend and brain to SQLite and prevents the
+# PostgreSQL service from starting. It is the functional equivalent of the
+# `--profile sqlite-lite` lightweight option mentioned in the W4.6 plan.
+#
+# The recommended entry point is:
+#   make quickstart-sqlite
+
+services:
+  brain:
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///app/data/hems.db
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  backend:
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///app/data/hems.db
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  postgres:
+    profiles: ["disabled"]

@@ -8,15 +8,28 @@ AI キャラクターシステムを組み合わせた、個人・家庭向け�
 ## Quick Start
 
 ```bash
-cp env.example .env
-cd infra
-docker compose --profile bootstrap build base   # build hems-base:py3.11 (one-time)
-docker compose up -d --build
+make quickstart   # generates .env with random secrets, builds base image, starts core stack
 ```
 
 - Dashboard: http://localhost:8080
 - Backend API: http://localhost:8010/docs
 - Voice API: http://localhost:8012/docs
+
+### Manual setup (equivalent to `make quickstart`)
+
+```bash
+cp env.example .env
+python infra/scripts/init_env.py   # auto-generate POSTGRES_PASSWORD, MQTT_PASS, etc.
+cd infra
+docker compose --profile bootstrap build base   # build hems-base:py3.11 (one-time)
+docker compose up -d --build
+```
+
+### Lightweight SQLite mode (no PostgreSQL)
+
+```bash
+make quickstart-sqlite
+```
 
 ## Features
 
@@ -227,8 +240,10 @@ docker exec hems-ollama ollama pull qwen3.5   # 初回のみ
 docker compose --profile ollama up -d
 docker exec hems-ollama ollama pull qwen3.5
 
-# SQLite に戻す場合 (PostgreSQL が既定)
-DATABASE_URL=sqlite+aiosqlite:///./data/hems.db docker compose up -d
+# SQLite 軽量モード（PostgreSQL 不要）
+make quickstart-sqlite
+# または手動で:
+# docker compose -f docker-compose.yml -f docker-compose.sqlite-lite.yml up -d
 
 # OpenClaw (PC メトリクス + Gmail/GitHub 監視)
 docker compose --profile openclaw up -d
@@ -262,6 +277,30 @@ docker compose --profile knowledge up -d
 
 # 複数プロファイル組み合わせ
 docker compose --profile ha --profile biometric --profile switchbot --profile knowledge up -d
+```
+
+## SQLite → PostgreSQL 移行
+
+PostgreSQL が既定 DB になったため、既存 SQLite データを移行する場合は:
+
+```bash
+# 事前確認（レコード数のみ表示、書き込みなし）
+python infra/scripts/migrate_sqlite_to_pg.py --check \
+  --backend-sqlite /var/lib/docker/volumes/hems_backend_data/_data/hems.db \
+  --brain-sqlite /var/lib/docker/volumes/hems_brain_data/_data/hems.db \
+  --pg-url postgresql+psycopg2://hems:<POSTGRES_PASSWORD>@localhost:5442/hems
+
+# ドライラン
+python infra/scripts/migrate_sqlite_to_pg.py --dry-run \
+  --backend-sqlite /var/lib/docker/volumes/hems_backend_data/_data/hems.db \
+  --brain-sqlite /var/lib/docker/volumes/hems_brain_data/_data/hems.db \
+  --pg-url postgresql+psycopg2://hems:<POSTGRES_PASSWORD>@localhost:5442/hems
+
+# 実行（実行前に自動で .bak タイムスタンプ付きバックアップを作成）
+python infra/scripts/migrate_sqlite_to_pg.py --execute \
+  --backend-sqlite /var/lib/docker/volumes/hems_backend_data/_data/hems.db \
+  --brain-sqlite /var/lib/docker/volumes/hems_brain_data/_data/hems.db \
+  --pg-url postgresql+psycopg2://hems:<POSTGRES_PASSWORD>@localhost:5442/hems
 ```
 
 ## Frontend

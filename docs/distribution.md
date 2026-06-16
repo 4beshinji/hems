@@ -72,7 +72,7 @@ make dev
 
 | # | 項目 | 工数 | 効果 |
 |---|---|---|---|
-| 1.1 | `infra/scripts/install.sh` + `make quickstart`: docker / compose 存在チェック → `.env` 生成(`MQTT_PASS` / `HEMS_INTERNAL_TOKEN` / `BACKEND_API_KEY` を `python -c "import secrets; print(secrets.token_hex(32))"` で乱数化)→ `docker compose pull` → core `up -d` → health 待ち → dashboard URL 表示 | 2h | F3 解消。clone から約2分で稼働 |
+| 1.1 | `make quickstart`: `.env` 未存在時に `cp env.example .env` → `python infra/scripts/init_env.py` で安全な乱数値を生成(`POSTGRES_PASSWORD` / `MQTT_PASS` / `HEMS_INTERNAL_TOKEN` / `BACKEND_API_KEY`)→ `docker compose up -d --build` → core 起動。SQLite 不要版は `make quickstart-sqlite` | 2h | F3 解消。clone から約2分で稼働 |
 | 1.2 | **既定値3層整合(zero-config = espeak + mock)**。下記 touch-point を1ストーリーに揃える | 1.5h | F4 解消。起動直後にエラーが出ない |
 | 1.3 | `Makefile` に `up` / `down` / `logs` / `ps` を追加(`.PHONY:1` 更新、既存と衝突なし) | 30m | orchestration を make に統一 |
 | 1.4 | `README.md` Quick Start(L8-19)を1コマンドへ書換え。mock 既定の旨とクラウドキー導線を明記 | 30m | 入口を平易化 |
@@ -167,7 +167,7 @@ Phase 0 が全レイヤの前提。1 と 2 は 0 完了後に並行可能。3 �
 ## 6. スコープ外
 
 - `services/mobile-android/` — scaffold のみ(QR 登録 API は `services/backend/routers/mobile.py` で稼働だがアプリ未完成)。配布対象外。
-- PostgreSQL migration — SQLite→PG 移行は [`infra/scripts/migrate_sqlite_to_pg.py`](../infra/scripts/migrate_sqlite_to_pg.py) で対応。alembic 不在の手動 ALTER 運用の本格整備は [`db-improvement-plan.md`](db-improvement-plan.md) 管轄。
+- PostgreSQL migration — SQLite→PG 移行は [`infra/scripts/migrate_sqlite_to_pg.py`](../infra/scripts/migrate_sqlite_to_pg.py) で対応。`--check` / `--dry-run` / `--execute` を使い、実行前に SQLite の自動バックアップを作成。alembic 不在の手動 ALTER 運用の本格整備は [`db-improvement-plan.md`](db-improvement-plan.md) 管轄。
 - `docs/lite/`(lite 版)— 別管理([`lite/refinement-plan.md`](lite/refinement-plan.md))。
 
 ---

@@ -1,10 +1,25 @@
-.PHONY: lint format test test-quick build-frontend docker-build security ci clean help
+.PHONY: lint format test test-quick build-frontend docker-build security ci clean help quickstart quickstart-sqlite
 
 export PYTHONPATH := services/brain/src:services/backend
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
+
+# -- Quick start -------------------------------------------------------------
+
+quickstart: ## Generate .env (if missing) with random secrets and start the core stack
+	@if [ ! -f .env ]; then \
+		cp env.example .env; \
+		python3 infra/scripts/init_env.py; \
+	fi
+	cd infra && docker compose up -d --build
+
+quickstart-sqlite: ## Start the lightweight SQLite variant (no PostgreSQL required)
+	@if [ ! -f .env ]; then \
+		cp env.example .env; \
+	fi
+	cd infra && docker compose -f docker-compose.yml -f docker-compose.sqlite-lite.yml up -d --build
 
 # -- Linting -----------------------------------------------------------------
 

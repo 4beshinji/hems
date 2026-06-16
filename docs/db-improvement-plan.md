@@ -2,7 +2,12 @@
 
 調査日: 2026-04-03
 更新日: 2026-06-16
-ステータス: W4.5' により PostgreSQL を既定 DB に昇格済。SQLite はオプション運用として継続可能。
+ステータス:
+  - W4.5' により PostgreSQL を既定 DB に昇格済。
+  - W4.6 により `make quickstart` / `python infra/scripts/init_env.py` で
+    PostgreSQL/MQTT/dashboard 用の安全な乱数値を自動生成。
+  - SQLite は `make quickstart-sqlite` または
+    `docker-compose.sqlite-lite.yml` オーバーライドで継続利用可能。
 
 ---
 
@@ -21,7 +26,8 @@
 
 - Backend と Brain は同一 `DATABASE_URL` 環境変数。Docker Compose では PostgreSQL がコアサービスとして起動。
 - PostgreSQL 時は同一DB（Brain は `events` スキーマで分離）。
-- SQLite 時は別ファイル（`./data/hems.db` 等）。W4.5' 以降は `DATABASE_URL` で明示的に指定する必要がある。
+- SQLite 時は別ファイル（`/app/data/hems.db` 等）。`make quickstart-sqlite` または
+  `infra/docker-compose.sqlite-lite.yml` オーバーライドで起動する。
 
 ---
 

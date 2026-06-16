@@ -41,9 +41,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sqlite3
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -158,6 +160,31 @@ def convert_bool(value: Any) -> Any:
     if isinstance(value, int):
         return bool(value)
     return value
+
+
+# ---------------------------------------------------------------------------
+# Backup helper
+# ---------------------------------------------------------------------------
+
+
+def backup_sqlite(src: str, *, dry_run: bool = False) -> str | None:
+    """Create a timestamped backup of *src* next to the original file.
+
+    Returns the backup path, or None if *src* does not exist.
+    """
+    path = Path(src)
+    if not path.exists():
+        return None
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    dst = path.with_suffix(f"{path.suffix}.bak.{timestamp}")
+    if dry_run:
+        logger.info(f"[DRY-RUN] Would backup {src} -> {dst}")
+        return str(dst)
+
+    shutil.copy2(src, dst)
+    logger.info(f"Backup created: {dst}")
+    return str(dst)
 
 
 # ---------------------------------------------------------------------------
@@ -710,6 +737,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip migration; only compare row counts between SQLite and PG",
     )
     p.add_argument(
+        "--check",
+        action="store_true",
+        help="Pre-flight check: show SQLite and PostgreSQL row counts without migrating",
+    )
+    p.add_argument(
         "--skip-backend",
         action="store_true",
         help="Skip backend SQLite migration",
@@ -732,8 +764,9 @@ def main() -> int:
     backend_sqlite = args.backend_sqlite if not args.skip_backend else None
     brain_sqlite = args.brain_sqlite if not args.skip_brain else None
 
-    if args.verify_only:
-        logger.info("Verify-only mode — connecting to PostgreSQL...")
+    if args.check or args.verify_only:
+        label = "Pre-flight check" if args.check else "Verify-only mode"
+        logger.info(f"{label} — connecting to PostgreSQL...")
         try:
             pg_conn = pg_connect(args.pg_url)
         except Exception as exc:
@@ -757,6 +790,13 @@ def main() -> int:
         return 1
 
     all_ok = True
+    total_sqlite = 0
+
+    # --- Auto-backup before mutating anything (execute mode only) ---
+    if not args.dry_run:
+        for src in (backend_sqlite, brain_sqlite):
+            if src:
+                backup_sqlite(src, dry_run=False)
 
     # --- Backend ---
     if backend_sqlite:
@@ -771,6 +811,7 @@ def main() -> int:
             if errors:
                 logger.error(f"Backend migration errors in: {errors}")
                 all_ok = False
+            total_sqlite += sum(src for src, _ in backend_results.values())
 
     # --- Brain event_store ---
     if brain_sqlite:
@@ -785,6 +826,16 @@ def main() -> int:
             if errors:
                 logger.error(f"Event-store migration errors in: {errors}")
                 all_ok = False
+            total_sqlite += sum(src for src, _ in brain_results.values())
+
+    # --- Summary ---
+    if args.dry_run:
+        logger.info("\n=== DRY-RUN summary ===")
+        logger.info(f"Total rows available in SQLite: {total_sqlite}")
+        logger.info("No writes were performed. Use --execute to migrate.")
+    elif all_ok:
+        logger.info("\n=== Migration summary ===")
+        logger.info(f"Total rows migrated: {total_sqlite}")
 
     # --- Verify ---
     if not args.dry_run and all_ok:
