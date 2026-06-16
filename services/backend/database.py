@@ -22,10 +22,13 @@ class TZDateTime(TypeDecorator):
         return value
 
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/hems.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://hems:hems@postgres:5432/hems")
 
 _engine_kwargs: dict = {"echo": False}
-if ":memory:" in DATABASE_URL:
+if "postgresql" in DATABASE_URL:
+    # PostgreSQL: bounded pool + pre-ping for container restart resilience.
+    _engine_kwargs.update({"pool_size": 5, "max_overflow": 5, "pool_pre_ping": True})
+elif ":memory:" in DATABASE_URL:
     # In-memory SQLite: force a StaticPool so every AsyncSession shares one
     # underlying connection — otherwise each checkout gets a fresh empty DB.
     from sqlalchemy.pool import StaticPool

@@ -51,8 +51,8 @@ docker compose --profile ollama up -d --build
 docker exec hems-ollama ollama pull qwen3.5
 # Lighter alternatives: qwen2.5:7b, llama3.2:3b
 
-# With PostgreSQL (instead of SQLite)
-docker compose --profile postgres up -d --build
+# PostgreSQL is the default database (core service). To use SQLite instead:
+# DATABASE_URL=sqlite+aiosqlite:///./data/hems.db docker compose up -d --build
 
 # With OpenClaw (PC metrics + service monitor; legacy localcraw build context)
 docker compose --profile openclaw up -d --build
@@ -103,7 +103,7 @@ docker logs -f hems-voice
 ```
 
 Service names (Docker Compose): `mosquitto`, `brain`, `backend`, `frontend`, `voice-service`, `mock-llm`
-Optional profiles: `mock`, `voicevox`, `ollama`, `postgres`, `openclaw`, `localcraw` (legacy alias), `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `tapo`, `zigbee`, `news`, `knowledge`, `stt`
+Optional profiles: `mock`, `voicevox`, `ollama`, `openclaw`, `localcraw` (legacy alias), `obsidian`, `gas`, `ha`, `biometric`, `perception`, `switchbot`, `tapo`, `zigbee`, `news`, `knowledge`, `stt`
 
 ### Frontend Development
 
@@ -188,10 +188,10 @@ VRM avatar / animation の詳細は [`docs/avatar-setup.md`](docs/avatar-setup.m
 
 ### Database
 
-- Default: SQLite (`aiosqlite`) — zero config
-- Optional: PostgreSQL 16 (`--profile postgres`)
+- Default: PostgreSQL 16 (core service since W4.5')
+- Optional: SQLite (`aiosqlite`) — set `DATABASE_URL=sqlite+aiosqlite:///./data/hems.db`
 - Backend: Task, User, VoiceEvent, SystemStats, ShoppingItem, PurchaseHistory
-- Brain event_store: raw_events, llm_decisions, hourly_aggregates (SOMS-compatible)
+- Brain event_store: raw_events, llm_decisions, hourly_aggregates (SOMS-compatible, `events` schema)
 - Retention: 730 days (2 years) for raw_events and llm_decisions
 
 ### Integrations
@@ -257,7 +257,7 @@ For exact mapping between code, docker-compose, MQTT topics, world model fields,
 - **3D Avatar**: Three.js, React Three Fiber, @pixiv/three-vrm
 - **LLM**: OpenAI / Anthropic / Ollama (multi-provider)
 - **TTS**: Plugin-based (espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk)
-- **Infra**: Docker Compose, Mosquitto MQTT, SQLite / PostgreSQL
+- **Infra**: Docker Compose, Mosquitto MQTT, PostgreSQL / SQLite
 
 ## Code Conventions
 
@@ -270,7 +270,7 @@ For exact mapping between code, docker-compose, MQTT topics, world model fields,
 
 | SOMS | HEMS |
 |------|------|
-| PostgreSQL required | SQLite default |
+| PostgreSQL required | PostgreSQL default (SQLite optional) |
 | Wallet (double-entry ledger) | No points system |
 | VOICEVOX only | Plugin TTS (5 backends: voisona / voicevox / espeak / edge-tts / aivoice) |
 | Hardcoded personality | YAML character system (2-stage thinking/output separation) |

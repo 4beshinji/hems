@@ -72,7 +72,7 @@ docker compose up -d --build
 │  (TTS×4)     │                     │      (dev)          │
 └──────────────┴─────────────────────┴─────────────────────┘
 
-Profiles:  voicevox | ollama | postgres | mock | openclaw | obsidian
+Profiles:  voicevox | ollama | mock | openclaw | obsidian
            gas | ha | biometric | perception | switchbot | tapo
            zigbee | news | knowledge | stt
 ```
@@ -227,8 +227,8 @@ docker exec hems-ollama ollama pull qwen3.5   # 初回のみ
 docker compose --profile ollama up -d
 docker exec hems-ollama ollama pull qwen3.5
 
-# PostgreSQL (SQLite の代替)
-docker compose --profile postgres up -d
+# SQLite に戻す場合 (PostgreSQL が既定)
+DATABASE_URL=sqlite+aiosqlite:///./data/hems.db docker compose up -d
 
 # OpenClaw (PC メトリクス + Gmail/GitHub 監視)
 docker compose --profile openclaw up -d
@@ -292,7 +292,7 @@ pnpm build    # tsc -b && vite build
 | LLM | OpenAI / Anthropic / Ollama (マルチプロバイダー) |
 | TTS | espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk |
 | Search | BM25 (rank_bm25) + Vector (Ollama embedding + numpy) + RRF |
-| DB | SQLite (default) / PostgreSQL 16 |
+| DB | PostgreSQL 16 (default) / SQLite |
 | Infra | Docker Compose, Mosquitto MQTT |
 | Edge | MicroPython (ESP32), SensorSwarm バイナリプロトコル |
 

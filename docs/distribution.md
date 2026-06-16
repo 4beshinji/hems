@@ -167,7 +167,7 @@ Phase 0 が全レイヤの前提。1 と 2 は 0 完了後に並行可能。3 �
 ## 6. スコープ外
 
 - `services/mobile-android/` — scaffold のみ(QR 登録 API は `services/backend/routers/mobile.py` で稼働だがアプリ未完成)。配布対象外。
-- PostgreSQL migration — alembic 不在の手動 ALTER 運用は本ロードマップで触らない([`db-improvement-plan.md`](db-improvement-plan.md) 管轄)。
+- PostgreSQL migration — SQLite→PG 移行は [`infra/scripts/migrate_sqlite_to_pg.py`](../infra/scripts/migrate_sqlite_to_pg.py) で対応。alembic 不在の手動 ALTER 運用の本格整備は [`db-improvement-plan.md`](db-improvement-plan.md) 管轄。
 - `docs/lite/`(lite 版)— 別管理([`lite/refinement-plan.md`](lite/refinement-plan.md))。
 
 ---

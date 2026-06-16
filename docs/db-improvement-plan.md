@@ -1,7 +1,8 @@
 # DB構成 改善計画
 
 調査日: 2026-04-03
-ステータス: 検討中
+更新日: 2026-06-16
+ステータス: W4.5' により PostgreSQL を既定 DB に昇格済。SQLite はオプション運用として継続可能。
 
 ---
 
@@ -18,22 +19,23 @@
 
 ### DB接続
 
-- Backend と Brain は同一 `DATABASE_URL` 環境変数だが、Docker volume が別 (`hems_backend_data`, `hems_brain_data`) → SQLite時は物理的に別ファイル
-- PostgreSQL 時は同一DB（Brain は `events` スキーマで分離）
+- Backend と Brain は同一 `DATABASE_URL` 環境変数。Docker Compose では PostgreSQL がコアサービスとして起動。
+- PostgreSQL 時は同一DB（Brain は `events` スキーマで分離）。
+- SQLite 時は別ファイル（`./data/hems.db` 等）。W4.5' 以降は `DATABASE_URL` で明示的に指定する必要がある。
 
 ---
 
 ## 課題一覧
 
-| # | 課題 | 重要度 | 影響 |
-|---|------|--------|------|
-| 1 | SQLite WAL モード未設定 | 高 | 並行書き込みで SQLITE_BUSY |
-| 2 | timeseries テーブルのリテンション欠如 | 高 | 無制限テーブル肥大 |
-| 3 | Backend の pool 設定なし | 中 | PostgreSQL 時の安定性 |
-| 4 | Biometric リテンションの設計問題 | 中 | クリーンアップの信頼性 |
-| 5 | インデックス不足 | 中 | クエリ性能 |
-| 6 | マイグレーション管理の脆弱性 | 低 | 保守性 |
-| 7 | event_store DDL 分割の脆弱性 | 低 | 将来の堅牢性 |
+| # | 課題 | 重要度 | 影響 | 状態 |
+|---|------|--------|------|------|
+| 1 | SQLite WAL モード未設定 | 高 | 並行書き込みで SQLITE_BUSY | SQLite 運用時に該当。PG 既定化で緩和 |
+| 2 | timeseries テーブルのリテンション欠如 | 高 | 無制限テーブル肥大 | 未対応（PG 既定化で優先度維持） |
+| 3 | Backend の pool 設定なし | 中 | PostgreSQL 時の安定性 | **W4.5' で対応済** |
+| 4 | Biometric リテンションの設計問題 | 中 | クリーンアップの信頼性 | 未対応 |
+| 5 | インデックス不足 | 中 | クエリ性能 | 未対応 |
+| 6 | マイグレーション管理の脆弱性 | 低 | 保守性 | 未対応 |
+| 7 | event_store DDL 分割の脆弱性 | 低 | 将来の堅牢性 | 未対応 |
 
 ---
 

@@ -200,7 +200,7 @@ async def init_db() -> AsyncEngine | None:
     """Initialize event store database. Returns engine or None."""
     global _engine
 
-    db_url = os.getenv("DATABASE_URL", "")
+    db_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://hems:hems@postgres:5432/hems")
     if not db_url:
         logger.warning("No DATABASE_URL — event store disabled")
         return None

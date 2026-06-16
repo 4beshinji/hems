@@ -136,6 +136,8 @@ services:
     depends_on:
       mosquitto:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -150,7 +152,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - BACKEND_URL=http://backend:8000
       - VOICE_SERVICE_URL=http://voice-service:8000
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/hems.db}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://hems:${POSTGRES_PASSWORD}@postgres:5432/hems}
       - GPU_TYPE=${GPU_TYPE:-none}
       - GPU_HIGH_LOAD_THRESHOLD=${GPU_HIGH_LOAD_THRESHOLD:-80}
       - CHARACTER=${CHARACTER:-}
@@ -204,8 +206,10 @@ services:
     depends_on:
       mosquitto:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/hems.db}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://hems:${POSTGRES_PASSWORD}@postgres:5432/hems}
       - MQTT_BROKER=mosquitto
       - MQTT_USER=hems-backend
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
@@ -583,15 +587,14 @@ services:
     networks:
       - hems-net
 
-  # --- PostgreSQL (optional, replaces SQLite) ---
+  # --- PostgreSQL (core database since W4.5') ---
   postgres:
     image: postgres:16-alpine
     container_name: hems-postgres
     restart: always
-    profiles: ["postgres"]
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-hems}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (required for --profile postgres)}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       - POSTGRES_DB=hems
     ports:
       - "127.0.0.1:${HEMS_PORT_POSTGRES:-5442}:5432"

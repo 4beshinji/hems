@@ -32,7 +32,7 @@
 | voicevox | hems-voicevox | voicevox | external image | ✓ |
 | ollama | hems-ollama | ollama | external image | ✓ |
 | ollama-pull | hems-ollama-pull | ollama | external image | ✓ |
-| postgres | hems-postgres | postgres | external image | ✓ |
+| postgres | hems-postgres | — (core) | external image | ✓ |
 | perception | hems-perception | perception | services/perception | ✓ |
 | switchbot-bridge | hems-switchbot-bridge | switchbot | services/switchbot-bridge | ✓ |
 | tapo-bridge | hems-tapo-bridge | tapo | services/tapo-bridge | ✓ |
