@@ -130,9 +130,9 @@ async def _processing_loop():
                     # Detect persons + keypoints
                     result = detector.detect(frame)
 
-                    # Publish occupancy — 5-part topic: office/{zone}/camera/{cam_id}/status
+                    # Publish occupancy — canonical: hems/sensors/{zone}/camera/{cam_id}/status
                     mqtt_pub.publish(
-                        f"office/{zone}/camera/{cam_id}/status",
+                        f"hems/sensors/{zone}/camera/{cam_id}/status",
                         {"person_count": result.person_count},
                     )
 
@@ -147,9 +147,9 @@ async def _processing_loop():
 
                     state = tracker.update(primary_kps, result.timestamp)
 
-                    # Publish activity — 4-part topic: office/{zone}/activity/{cam_id}
+                    # Publish activity — canonical: hems/sensors/{zone}/activity/{cam_id}
                     mqtt_pub.publish(
-                        f"office/{zone}/activity/{cam_id}",
+                        f"hems/sensors/{zone}/activity/{cam_id}",
                         {
                             "activity_level": state.activity_level,
                             "activity_class": state.activity_class,

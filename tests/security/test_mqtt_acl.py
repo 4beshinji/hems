@@ -91,7 +91,7 @@ _ACL_DENY_SCENARIOS: list[tuple[str, str, str]] = [
     ("hems-backend", "hems/personal/biometrics/steps", "publish"),
     # hems-voice must NOT publish anywhere (read-only on hems/brain/#)
     ("hems-voice", "hems/brain/speak", "publish"),
-    ("hems-voice", "office/living/sensor/co2/value", "publish"),
+    ("hems-voice", "hems/sensors/living/sensor/co2/value", "publish"),
     # hems-ha-bridge must NOT publish to hems/personal/# or hems/pc/#
     ("hems-ha-bridge", "hems/personal/biometrics/heart_rate", "publish"),
     ("hems-ha-bridge", "hems/pc/cpu", "publish"),
@@ -107,16 +107,16 @@ _ACL_DENY_SCENARIOS: list[tuple[str, str, str]] = [
     # hems-openclaw must NOT publish outside hems/pc/# and hems/services/#
     ("hems-openclaw", "hems/personal/biometrics/steps", "publish"),
     ("hems-openclaw", "hems/home/living/light/bulb/state", "publish"),
-    # hems-switchbot must NOT write to hems/personal/# or office/#
+    # hems-switchbot must NOT write to hems/personal/# or hems/sensors/#
     ("hems-switchbot", "hems/personal/notes/diary", "publish"),
-    ("hems-switchbot", "office/living/sensor/co2/value", "publish"),
+    ("hems-switchbot", "hems/sensors/living/sensor/co2/value", "publish"),
     # hems-tapo-bridge must NOT publish outside hems/tapo/#
     ("hems-tapo-bridge", "hems/home/living/light/bulb/state", "publish"),
     ("hems-tapo-bridge", "hems/personal/biometrics/steps", "publish"),
     # hems-news must NOT publish outside hems/news/#
     ("hems-news", "hems/personal/notes/diary", "publish"),
     ("hems-news", "hems/home/living/light/bulb/state", "publish"),
-    # hems-perception must NOT publish outside office/+/camera|activity/# and hems/perception/#
+    # hems-perception must NOT publish outside hems/sensors/+/camera|activity/# and hems/perception/#
     ("hems-perception", "hems/personal/biometrics/heart_rate", "publish"),
     ("hems-perception", "hems/gas/calendar/upcoming", "publish"),
     # hems-iot (sensor devices) must NOT publish to hems/# directly

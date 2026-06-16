@@ -28,11 +28,11 @@ class McpParser(VendorParser):
     vendor = "mcp"
 
     def matches(self, parts: list[str]) -> bool:
-        # office/{zone}/sensor/{device_id}/{channel}
-        return len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor"
+        # W3.8c: canonical prefix is hems/sensors/{zone}/sensor/{device_id}/{channel}
+        return len(parts) >= 6 and parts[0] == "hems" and parts[1] == "sensors" and parts[3] == "sensor"
 
     def parse(self, parts: list[str], payload: dict) -> DeviceObservation | None:
-        zone_id, device_name, channel = parts[1], parts[3], parts[4]
+        zone_id, device_name, channel = parts[2], parts[4], parts[5]
         device_id = f"mcp.{device_name}"
         value = payload.get(channel) or payload.get("value")
         last_value: dict[str, Any] = {}

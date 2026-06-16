@@ -8,10 +8,10 @@
 # Run infra/mosquitto/setup-users.sh to (re)generate the passwd file.
 
 # --- Brain service ---
-# Needs full read on office/# and hems/# to receive sensor data,
-# and write on mcp/# to send device commands.
+# W3.8c: sensor/camera/activity telemetry is on hems/sensors/#.  office/* is
+# retained only for backend task_report publish (read-only for brain).
 user hems-brain
-topic readwrite office/#
+topic read     office/+/task_report/#
 topic readwrite hems/#
 topic readwrite mcp/#
 topic readwrite zigbee2mqtt/#
@@ -19,8 +19,8 @@ topic readwrite zigbee2mqtt/#
 # --- Backend API service ---
 # Reads sensor/event data, publishes task reports and lifecycle events,
 # and publishes timeline snapshots.
+# W3.8c: task_report still uses office/{zone}/task_report/{id} (backend → brain).
 user hems-backend
-topic read   office/#
 topic read   hems/#
 topic write  office/+/task_report/#
 topic write  hems/task/#
@@ -85,13 +85,11 @@ topic readwrite zigbee2mqtt/#
 
 # --- Perception service ---
 # Publishes camera/activity data to hems/sensors/{zone}/camera/# and
-# hems/sensors/{zone}/activity/#.  office/# retained during W3.8 migration.
+# hems/sensors/{zone}/activity/#.
 # VLM results published to hems/perception/vlm/#.
 user hems-perception
 topic write  hems/sensors/+/camera/#
 topic write  hems/sensors/+/activity/#
-topic write  office/+/camera/#
-topic write  office/+/activity/#
 topic write  hems/perception/#
 topic read   hems/perception/vlm/request
 
@@ -102,9 +100,8 @@ topic write  hems/news/#
 
 # --- IoT sensor devices (zone sensors, MCP agents) ---
 # Sensors publish to hems/sensors/{zone}/{device_type}/{device_id}/{channel}
-# and respond on mcp/+/response/#.  office/# is retained during W3.8 migration.
+# and respond on mcp/+/response/#.
 user hems-iot
 topic write  hems/sensors/#
-topic write  office/#
 topic write  mcp/+/response/#
 topic read   mcp/#

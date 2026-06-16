@@ -322,7 +322,7 @@ class TestS4Intervention:
 class TestS5OccupancyFeed:
     def test_camera_topic_triggers_reconcile_and_update(self, harness, scheduled_coros):
         harness._process_mqtt(
-            "office/living/camera/cam1/status",
+            "hems/sensors/living/camera/cam1/status",
             {"person_count": 2},
         )
         assert hasattr(harness.world_model, "reconcile_presence"), "WorldModel must expose reconcile_presence"
@@ -367,7 +367,7 @@ class TestS5OccupancyFeed:
     def test_no_update_when_learner_none(self, harness, scheduled_coros):
         harness.schedule_learner = None
         harness._process_mqtt(
-            "office/living/camera/cam1/status",
+            "hems/sensors/living/camera/cam1/status",
             {"person_count": 1},
         )
         # Should not raise — absence of learner is guarded
@@ -441,7 +441,7 @@ class TestS7WakeUp:
         with patch("brain_mqtt.datetime") as mock_dt:
             mock_dt.now.return_value.hour = wake_hour
             harness._process_mqtt(
-                "office/living/camera/cam1/status",
+                "hems/sensors/living/camera/cam1/status",
                 {"person_count": 1},
             )
         names = _coro_names(scheduled_coros)
@@ -454,7 +454,7 @@ class TestS7WakeUp:
         with patch("brain_mqtt.datetime") as mock_dt:
             mock_dt.now.return_value.hour = WAKE_DETECT_HOUR_START
             harness._process_mqtt(
-                "office/living/camera/cam1/status",
+                "hems/sensors/living/camera/cam1/status",
                 {"person_count": 2},
             )
         harness.sunrise_alarm.stop.assert_called_once_with(harness.client)
@@ -476,7 +476,7 @@ class TestS7WakeUp:
         with patch("brain_mqtt.datetime") as mock_dt:
             mock_dt.now.return_value.hour = outside_hour
             harness._process_mqtt(
-                "office/living/camera/cam1/status",
+                "hems/sensors/living/camera/cam1/status",
                 {"person_count": 1},
             )
         harness.sunrise_alarm.stop.assert_not_called()
@@ -542,7 +542,7 @@ class TestOrderWakeAggregate:
 class TestS8EventStore:
     def test_sensor_topic_calls_record_sensor(self, harness, scheduled_coros):
         harness._process_mqtt(
-            "office/living/sensor/dev1/temperature",
+            "hems/sensors/living/sensor/dev1/temperature",
             {"temperature": 22.5},
         )
         harness.event_writer.record_sensor.assert_called_once()
@@ -555,7 +555,7 @@ class TestS8EventStore:
     def test_analog_out_of_range_not_persisted(self, harness, scheduled_coros):
         """Sensor value 999 is out of valid range → record_sensor must NOT be called."""
         harness._process_mqtt(
-            "office/living/sensor/dev1/temperature",
+            "hems/sensors/living/sensor/dev1/temperature",
             {"temperature": 999},
         )
         harness.event_writer.record_sensor.assert_not_called()
@@ -599,7 +599,7 @@ class TestS8EventStore:
     def test_no_event_writer_no_crash(self, harness, scheduled_coros):
         harness.event_writer = None
         harness._process_mqtt(
-            "office/living/sensor/dev1/temperature",
+            "hems/sensors/living/sensor/dev1/temperature",
             {"temperature": 22.5},
         )
         # Must not raise
@@ -623,7 +623,7 @@ class TestS8EventStore:
 class TestS9HeartbeatAndCycleTrigger:
     def test_heartbeat_topic_calls_update_from_heartbeat(self, harness, scheduled_coros):
         harness._process_mqtt(
-            "office/living/sensor/dev1/heartbeat",
+            "hems/sensors/living/sensor/dev1/heartbeat",
             {"uptime": 3600},
         )
         harness.device_registry.update_from_heartbeat.assert_called_once_with("dev1", {"uptime": 3600})

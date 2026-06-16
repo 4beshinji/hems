@@ -139,7 +139,7 @@ Brain 側 Device Registry は **in-memory TTL キャッシュ** — Backend の�
   - publish to bridge (ha-bridge / switchbot-bridge / tapo-bridge / zigbee2mqtt)
   
 - **Topic Parsing** (`parse_mqtt`):
-  - `office/{zone}/{device_type}/{device_id}/{channel}` ← sensor telemetry
+  - `hems/sensors/{zone}/{device_type}/{device_id}/{channel}` ← sensor telemetry (canonical, W3.8c)
   - `hems/home/{zone}/{domain}/{entity_id}/state` ← HA
   - `hems/switchbot/{device_id}/state` ← SwitchBot
   - `zigbee2mqtt/{device}` ← Zigbee2MQTT

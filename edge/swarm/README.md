@@ -26,11 +26,10 @@ Codec: `edge/lib/swarm/message.py` (pure Python, MicroPython compatible)
 
 ## MQTT Topics
 
-Hub publishes Leaf data in existing per-channel format:
+Hub publishes Leaf data in canonical per-channel format:
 ```
 hems/sensors/{zone}/sensor/{hub_id}.{leaf_name}/{channel} → {"value": X}
 ```
-(旧 prefix `office/{zone}/...` は W3.8 互換 window 中)
 
 MCP commands to Hub control Leaves:
 ```json

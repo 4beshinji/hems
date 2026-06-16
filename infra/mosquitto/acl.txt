@@ -51,10 +51,9 @@ topic write hems/personal/biometrics/#
 
 user hems-perception
 topic read #
-# W3.8b: canonical sensor prefix; office/# retained during migration
+# W3.8c: canonical sensor prefix
 topic write hems/sensors/+/camera/#
 topic write hems/sensors/+/activity/#
-topic write office/#
 topic write hems/perception/#
 
 user hems-switchbot

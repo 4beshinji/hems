@@ -286,7 +286,7 @@ class TestWorldModelTrends:
     def test_trend_recorded(self, world_model):
         """Temperature updates record trend in EnvironmentData."""
         world_model.update_from_mqtt(
-            "office/living_room/sensor/dev01/temperature",
+            "hems/sensors/living_room/sensor/dev01/temperature",
             {"temperature": 22.0},
         )
         zone = world_model.zones["living_room"]
@@ -300,27 +300,27 @@ class TestWorldModelTrends:
         now = _t.time()
         world_model._trend_detector.record("living_room/temperature", 22.0, now - 310)
         world_model.update_from_mqtt(
-            "office/living_room/sensor/dev01/temperature",
+            "hems/sensors/living_room/sensor/dev01/temperature",
             {"temperature": 23.5},
         )
         context = world_model.get_llm_context()
         assert "↑" in context
 
 
-class TestWorldModelOfficeSensorRouting:
-    def test_office_motion_event(self, world_model):
-        """office/{zone}/sensor/{dev}/motion routes to EventCounter."""
+class TestWorldModelCanonicalSensorRouting:
+    def test_canonical_motion_event(self, world_model):
+        """hems/sensors/{zone}/sensor/{dev}/motion routes to EventCounter."""
         world_model.update_from_mqtt(
-            "office/living_room/sensor/pir01/motion",
+            "hems/sensors/living_room/sensor/pir01/motion",
             {"motion": True},
         )
         zone = world_model.zones["living_room"]
         assert zone.occupancy.motion_event_count_5min >= 1
 
-    def test_office_door_state(self, world_model):
-        """office/{zone}/sensor/{dev}/door routes to StateTracker."""
+    def test_canonical_door_state(self, world_model):
+        """hems/sensors/{zone}/sensor/{dev}/door routes to StateTracker."""
         world_model.update_from_mqtt(
-            "office/entrance/sensor/door01/door",
+            "hems/sensors/entrance/sensor/door01/door",
             {"door": True},
         )
         zone = world_model.zones["entrance"]

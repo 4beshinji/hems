@@ -290,7 +290,7 @@ class TestWorldModelVLM:
     def test_vlm_scene_result_updates_occupancy(self):
         wm = self._get_world_model()
         # Pre-create zone with occupancy
-        wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
+        wm.update_from_mqtt("hems/sensors/living_room/camera/cam01/status", {"person_count": 1})
 
         # VLM scene result
         wm.update_from_mqtt(
@@ -314,7 +314,7 @@ class TestWorldModelVLM:
 
     def test_vlm_anomaly_generates_event(self):
         wm = self._get_world_model()
-        wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
+        wm.update_from_mqtt("hems/sensors/living_room/camera/cam01/status", {"person_count": 1})
 
         wm.update_from_mqtt(
             "hems/perception/vlm/living_room",
@@ -376,7 +376,7 @@ class TestWorldModelVLM:
     def test_vlm_scene_sanitizes_text(self):
         """Prompt injection patterns should be filtered from VLM descriptions."""
         wm = self._get_world_model()
-        wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
+        wm.update_from_mqtt("hems/sensors/living_room/camera/cam01/status", {"person_count": 1})
 
         wm.update_from_mqtt(
             "hems/perception/vlm/living_room",
@@ -395,7 +395,7 @@ class TestWorldModelVLM:
     def test_vlm_scene_in_llm_context(self):
         """VLM scene data should appear in LLM context when recent."""
         wm = self._get_world_model()
-        wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
+        wm.update_from_mqtt("hems/sensors/living_room/camera/cam01/status", {"person_count": 1})
         wm.update_from_mqtt(
             "hems/perception/vlm/living_room",
             {
@@ -458,7 +458,7 @@ class TestRuleEngineVLM:
         re, wm = self._get_rule_engine_and_world_model()
 
         # Set up zone with VLM anomaly
-        wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
+        wm.update_from_mqtt("hems/sensors/living_room/camera/cam01/status", {"person_count": 1})
         zone = wm.zones["living_room"]
         zone.occupancy.scene_anomalies = ["smoke"]
         zone.occupancy.vlm_last_update = time.time()
@@ -474,7 +474,7 @@ class TestRuleEngineVLM:
         """VLM anomalies older than 120s should not trigger rules."""
         re, wm = self._get_rule_engine_and_world_model()
 
-        wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
+        wm.update_from_mqtt("hems/sensors/living_room/camera/cam01/status", {"person_count": 1})
         zone = wm.zones["living_room"]
         zone.occupancy.scene_anomalies = ["smoke"]
         zone.occupancy.vlm_last_update = time.time() - 200  # stale
@@ -487,7 +487,7 @@ class TestRuleEngineVLM:
         """VLM anomaly rule should respect cooldown."""
         re, wm = self._get_rule_engine_and_world_model()
 
-        wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
+        wm.update_from_mqtt("hems/sensors/living_room/camera/cam01/status", {"person_count": 1})
         zone = wm.zones["living_room"]
         zone.occupancy.scene_anomalies = ["smoke"]
         zone.occupancy.vlm_last_update = time.time()

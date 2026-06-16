@@ -55,7 +55,7 @@ class TestSensorFusionAddReading:
     def test_world_model_sensor_update_uses_fusion(self, world_model):
         """WorldModel._update_sensor calls add_reading/get_value without error."""
         world_model.update_from_mqtt(
-            "office/living_room/sensor/env1/temperature",
+            "hems/sensors/living_room/sensor/env1/temperature",
             {
                 "temperature": 25.5,
             },

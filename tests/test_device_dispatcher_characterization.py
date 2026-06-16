@@ -91,7 +91,7 @@ def _err_response(status=422, detail="bad request"):
 
 
 class TestParseMqttMcp:
-    """office/{zone}/sensor/{device_id}/{channel}"""
+    """hems/sensors/{zone}/sensor/{device_id}/{channel}"""
 
     def _parse(self, topic, payload=None):
         from device_dispatcher import parse_mqtt
@@ -100,7 +100,7 @@ class TestParseMqttMcp:
 
     def test_temperature_channel_fields(self):
         obs = self._parse(
-            "office/living/sensor/co2_desk/temperature",
+            "hems/sensors/living/sensor/co2_desk/temperature",
             {"temperature": 23.5},
         )
         assert obs is not None
@@ -116,7 +116,7 @@ class TestParseMqttMcp:
 
     def test_co2_channel_fields(self):
         obs = self._parse(
-            "office/desk/sensor/air_monitor/co2",
+            "hems/sensors/desk/sensor/air_monitor/co2",
             {"co2": 850},
         )
         assert obs is not None
@@ -129,7 +129,7 @@ class TestParseMqttMcp:
     def test_value_key_fallback(self):
         """Payload with generic 'value' key (no channel key)."""
         obs = self._parse(
-            "office/bed/sensor/soil_probe/soil_moisture",
+            "hems/sensors/bed/sensor/soil_probe/soil_moisture",
             {"value": 42.0},
         )
         assert obs is not None
@@ -137,7 +137,7 @@ class TestParseMqttMcp:
 
     def test_unknown_channel_no_unit(self):
         obs = self._parse(
-            "office/hall/sensor/motion1/pir",
+            "hems/sensors/hall/sensor/motion1/pir",
             {"pir": 1},
         )
         assert obs is not None
@@ -146,14 +146,14 @@ class TestParseMqttMcp:
 
     def test_humidity_unit(self):
         obs = self._parse(
-            "office/kitchen/sensor/humidity_wall/humidity",
+            "hems/sensors/kitchen/sensor/humidity_wall/humidity",
             {"humidity": 55.0},
         )
         assert obs.units == {"humidity": "%"}
 
     def test_pm25_no_unit_registered(self):
         obs = self._parse(
-            "office/living/sensor/air_q/pm25",
+            "hems/sensors/living/sensor/air_q/pm25",
             {"pm25": 12},
         )
         # pm25 not in _SENSOR_CHANNEL_UNITS but not in units mapping either → no unit entry

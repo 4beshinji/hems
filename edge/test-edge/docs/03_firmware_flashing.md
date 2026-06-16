@@ -291,7 +291,6 @@ hems/sensors/meeting_room_a/sensor/sensor_node_01/humidity 45.23
 hems/sensors/meeting_room_a/sensor/sensor_node_01/pressure 1013.25
 hems/sensors/meeting_room_a/sensor/sensor_node_01/gas 123.45
 ```
-(旧 prefix `office/...` は W3.8 互換 window 中)
 
 ### 5.2 カメラへのコマンド送信
 

@@ -26,7 +26,9 @@ class MqttSyncMixin:
     def on_connect(self, client, userdata, flags, rc, properties=None):
         logger.info(f"Connected to MQTT Broker (rc={rc})")
         client.subscribe("mcp/+/response/#")
-        client.subscribe("office/#")
+        # W3.8c: sensor/camera/activity プレフィックスは hems/sensors/* に統一済。
+        # office/* は task_report のみ残存（backend → brain）。
+        client.subscribe("office/+/task_report/#")
         client.subscribe("hems/#")
         client.subscribe("zigbee2mqtt/#")
 
@@ -150,8 +152,8 @@ class MqttSyncMixin:
         # only runs for occupancy-relevant messages rather than every MQTT message.
         inferred = None
 
-        # Camera person count (office/{zone}/camera/{cam}/status)
-        if len(parts) >= 5 and parts[0] == "office" and parts[2] == "camera":
+        # Camera person count (hems/sensors/{zone}/camera/{cam}/status)
+        if len(parts) >= 6 and parts[0] == "hems" and parts[1] == "sensors" and parts[3] == "camera":
             inferred = int(payload.get("person_count", payload.get("count", 0)))
 
         # HA/SwitchBot/Zigbee-via-HA binary_sensor presence/occupancy/motion
@@ -214,9 +216,10 @@ class MqttSyncMixin:
             hour = datetime.now().hour
             if (
                 WAKE_DETECT_HOUR_START <= hour < WAKE_DETECT_HOUR_END
-                and len(parts) >= 5
-                and parts[0] == "office"
-                and parts[2] == "camera"
+                and len(parts) >= 6
+                and parts[0] == "hems"
+                and parts[1] == "sensors"
+                and parts[3] == "camera"
             ):
                 count = payload.get("person_count", payload.get("count", 0))
                 if int(count) > 0:
@@ -234,8 +237,8 @@ class MqttSyncMixin:
         """S8: persist sensor telemetry + out-of-zone world events to event store."""
         if not self.event_writer:
             return
-        if len(parts) >= 5 and parts[0] == "office" and parts[2] == "sensor":
-            channel = parts[4]
+        if len(parts) >= 6 and parts[0] == "hems" and parts[1] == "sensors" and parts[3] == "sensor":
+            channel = parts[5]
             value = payload.get(channel) or payload.get("value")
             if value is not None:
                 # Input trust boundary: validate analog telemetry before it
@@ -248,7 +251,7 @@ class MqttSyncMixin:
                         logger.warning(
                             "Rejected sensor value (not persisted): topic={} device={} raw={!r}",
                             topic,
-                            parts[3],
+                            parts[4],
                             value,
                         )
                         value = None
@@ -256,10 +259,10 @@ class MqttSyncMixin:
                         value = coerced
                 if value is not None:
                     self.event_writer.record_sensor(
-                        zone=parts[1],
+                        zone=parts[2],
                         channel=channel,
                         value=value,
-                        device_id=parts[3],
+                        device_id=parts[4],
                         topic=topic,
                     )
 
@@ -318,8 +321,9 @@ class MqttSyncMixin:
     def _update_device_registry(self, topic: str, payload, parts: list[str]) -> None:
         """S9a: heartbeat update, Z2M bridge annotation, device auto-registration."""
         if "/heartbeat" in topic:
-            if len(parts) >= 4:
-                self.device_registry.update_from_heartbeat(parts[3], payload)
+            # Canonical heartbeat: hems/sensors/{zone}/{device_type}/{device_id}/heartbeat
+            if len(parts) >= 6 and parts[0] == "hems" and parts[1] == "sensors":
+                self.device_registry.update_from_heartbeat(parts[4], payload)
 
         # Z2M bridge/devices retained → bulk annotation
         if topic == "zigbee2mqtt/bridge/devices" and isinstance(payload, list):

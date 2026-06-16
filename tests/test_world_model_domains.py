@@ -314,7 +314,7 @@ class TestMQTTUpdatesThroughDomains:
     def test_zone_update_via_occupancy(self, world_model):
         """Camera/occupancy MQTT updates zone visible from both paths."""
         world_model.update_from_mqtt(
-            "office/main/camera/cam01/status",
+            "hems/sensors/main/camera/cam01/status",
             {
                 "person_count": 2,
             },

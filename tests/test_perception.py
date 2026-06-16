@@ -383,28 +383,30 @@ class TestCameraManager:
 class TestMQTTTopicCompliance:
     """Verify topic formats match WorldModel expectations."""
 
-    def test_camera_topic_is_5_parts(self):
-        """office/{zone}/camera/{camera_id}/status — exactly 5 parts."""
+    def test_camera_topic_is_6_parts(self):
+        """hems/sensors/{zone}/camera/{camera_id}/status — exactly 6 parts."""
         zone, cam_id = "living_room", "cam01"
-        topic = f"office/{zone}/camera/{cam_id}/status"
+        topic = f"hems/sensors/{zone}/camera/{cam_id}/status"
+        parts = topic.split("/")
+        assert len(parts) == 6
+        assert parts[0] == "hems"
+        assert parts[1] == "sensors"
+        assert parts[2] == zone
+        assert parts[3] == "camera"
+        assert parts[4] == cam_id
+        assert parts[5] == "status"
+
+    def test_activity_topic_is_5_parts(self):
+        """hems/sensors/{zone}/activity/{monitor_id} — exactly 5 parts."""
+        zone, monitor_id = "living_room", "cam01"
+        topic = f"hems/sensors/{zone}/activity/{monitor_id}"
         parts = topic.split("/")
         assert len(parts) == 5
-        assert parts[0] == "office"
-        assert parts[1] == zone
-        assert parts[2] == "camera"
-        assert parts[3] == cam_id
-        assert parts[4] == "status"
-
-    def test_activity_topic_is_4_parts(self):
-        """office/{zone}/activity/{monitor_id} — exactly 4 parts."""
-        zone, monitor_id = "living_room", "cam01"
-        topic = f"office/{zone}/activity/{monitor_id}"
-        parts = topic.split("/")
-        assert len(parts) == 4
-        assert parts[0] == "office"
-        assert parts[1] == zone
-        assert parts[2] == "activity"
-        assert parts[3] == monitor_id
+        assert parts[0] == "hems"
+        assert parts[1] == "sensors"
+        assert parts[2] == zone
+        assert parts[3] == "activity"
+        assert parts[4] == monitor_id
 
     def test_occupancy_payload_uses_person_count(self):
         """Payload must use 'person_count' (not 'count') — H-1 fix."""
@@ -458,7 +460,7 @@ class TestWorldModelIntegration:
         wm = WorldModel()
 
         # Simulate perception publish
-        topic = "office/living_room/camera/cam01/status"
+        topic = "hems/sensors/living_room/camera/cam01/status"
         payload = {"person_count": 2}
         wm.update_from_mqtt(topic, payload)
 
@@ -471,7 +473,7 @@ class TestWorldModelIntegration:
         WorldModel = self._get_world_model_class()
         wm = WorldModel()
 
-        topic = "office/living_room/activity/cam01"
+        topic = "hems/sensors/living_room/activity/cam01"
         payload = {
             "activity_level": 0.15,
             "activity_class": "low",
@@ -492,7 +494,7 @@ class TestWorldModelIntegration:
         WorldModel = self._get_world_model_class()
         wm = WorldModel()
 
-        topic = "office/living_room/camera/cam01/status"
+        topic = "hems/sensors/living_room/camera/cam01/status"
         payload = {"count": 3}  # legacy field
         wm.update_from_mqtt(topic, payload)
 
@@ -506,11 +508,11 @@ class TestWorldModelIntegration:
         wm = WorldModel()
 
         # Set person present
-        wm.update_from_mqtt("office/living_room/camera/cam01/status", {"person_count": 1})
+        wm.update_from_mqtt("hems/sensors/living_room/camera/cam01/status", {"person_count": 1})
 
         # Set static posture for > SEDENTARY_MINUTES
         wm.update_from_mqtt(
-            "office/living_room/activity/cam01",
+            "hems/sensors/living_room/activity/cam01",
             {
                 "activity_level": 0.02,
                 "activity_class": "idle",

@@ -81,15 +81,15 @@ class TestParseMqttInjectionTopics:
     # --- path traversal in sensor device name ---
 
     def test_path_traversal_in_mcp_device_name_returns_none_or_invalid(self):
-        # office/{zone}/sensor/{device_id}/{channel}
-        # Attacker sends: office/living/sensor/../../../etc/passwd/temperature
-        # NOTE (product bug W1.7-B1): parse_mqtt uses parts[3] without validation.
-        # The topic splits to ['office','living','sensor','..','..','..','etc','passwd','temperature']
-        # and parts[3] == '..' becomes vendor_ref='..' and device_id='mcp..'.
+        # hems/sensors/{zone}/sensor/{device_id}/{channel}
+        # Attacker sends: hems/sensors/living/sensor/../../../etc/passwd/temperature
+        # NOTE (product bug W1.7-B1): parse_mqtt uses parts[4] without validation.
+        # The topic splits to ['hems','sensors','living','sensor','..','..','..','etc','passwd','temperature']
+        # and parts[4] == '..' becomes vendor_ref='..' and device_id='mcp..'.
         # is_valid_device_ref('mcp..') returns True because the regex ^[\w.\-]+$ allows
         # consecutive dots.  A strengthened validator should reject '..' components.
         # See REPORT section at bottom of this file.
-        topic = "office/living/sensor/../../../etc/passwd/temperature"
+        topic = "hems/sensors/living/sensor/../../../etc/passwd/temperature"
         obs = _parse(topic, {"value": 22.0})
         # Either parse_mqtt returns None (topic structure mismatch due to extra parts)
         # or returns an observation whose device_id fails is_valid_device_ref.
@@ -189,7 +189,7 @@ class TestParseMqttInjectionTopics:
     # --- null byte ---
 
     def test_null_byte_in_mcp_device_name(self):
-        topic = "office/living/sensor/device\x00bad/temperature"
+        topic = "hems/sensors/living/sensor/device\x00bad/temperature"
         obs = _parse(topic, {"value": 22.0})
         if obs is not None:
             assert not _is_valid(obs.device_id), f"Null byte in topic produced valid device_id: {obs.device_id!r}"
@@ -197,7 +197,7 @@ class TestParseMqttInjectionTopics:
     # --- space in device name ---
 
     def test_space_in_mcp_device_name(self):
-        topic = "office/living/sensor/device name/temperature"
+        topic = "hems/sensors/living/sensor/device name/temperature"
         obs = _parse(topic, {"value": 22.0})
         if obs is not None:
             assert not _is_valid(obs.device_id), f"Space in topic produced valid device_id: {obs.device_id!r}"
@@ -212,7 +212,7 @@ class TestParseMqttValidTopics:
     """Well-formed topics must produce observations whose device_id passes validation."""
 
     def test_valid_mcp_sensor_topic(self):
-        obs = _parse("office/living/sensor/co2_sensor_desk/co2", {"value": 450})
+        obs = _parse("hems/sensors/living/sensor/co2_sensor_desk/co2", {"value": 450})
         assert obs is not None
         assert _is_valid(obs.device_id), f"Valid MCP sensor produced invalid device_id: {obs.device_id!r}"
         assert obs.vendor == "mcp"
@@ -298,7 +298,7 @@ class TestHeartbeatGateForInjectedIds:
         # PRODUCT BUG W1.7-B1: this currently fails because 'mcp..' passes
         # is_valid_device_ref() — the regex allows consecutive dots.
         # Marking xfail to document the known gap without hiding it.
-        result = self._would_be_forwarded("office/living/sensor/../../../etc/passwd/temperature")
+        result = self._would_be_forwarded("hems/sensors/living/sensor/../../../etc/passwd/temperature")
         # We assert the EXPECTED correct behaviour (not forwarded).
         # If this suddenly passes, it means the bug is fixed — great.
         # If it fails, it confirms the known bug (W1.7-B1).
@@ -318,11 +318,11 @@ class TestHeartbeatGateForInjectedIds:
         assert not self._would_be_forwarded("hems/tapo/../etc/passwd/state")
 
     def test_null_byte_not_forwarded(self):
-        assert not self._would_be_forwarded("office/living/sensor/device\x00bad/temperature")
+        assert not self._would_be_forwarded("hems/sensors/living/sensor/device\x00bad/temperature")
 
     # Valid observations ARE forwarded
     def test_valid_mcp_is_forwarded(self):
-        assert self._would_be_forwarded("office/living/sensor/co2_sensor_desk/co2", {"value": 450})
+        assert self._would_be_forwarded("hems/sensors/living/sensor/co2_sensor_desk/co2", {"value": 450})
 
     def test_valid_switchbot_is_forwarded(self):
         assert self._would_be_forwarded("hems/switchbot/ABC-123/state", {"state": "on"})

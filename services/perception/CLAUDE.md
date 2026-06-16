@@ -12,7 +12,7 @@ with optional VLM (Vision Language Model) integration via Ollama for scene under
   - Single-pass person detection + skeleton keypoint extraction
   - Posture classification (standing/sitting/lying/walking) from COCO 17 keypoints
   - Activity level (0.0-1.0) with EMA smoothing + tiered pose buffer
-  - Publishes to `office/{zone}/camera/{cam_id}/status` and `office/{zone}/activity/{cam_id}`
+  - Publishes to `hems/sensors/{zone}/camera/{cam_id}/status` and `hems/sensors/{zone}/activity/{cam_id}`
 - **VLM integration** (optional, requires `--profile ollama` + `VLM_ENABLED=true`):
   - Default strategy A — single-model unification: both light & heavy tiers reuse the chat brain (`gemma4:e4b-it-q8_0`, vision+thinking-capable). Saves a model swap and ~3 GB of VRAM. `vlm_analyzer` sends `think: false` so Gemma's thinking trace doesn't eat the response budget.
   - Strategy B (separate small VLMs) still supported by overriding `VLM_LIGHT_MODEL` / `VLM_HEAVY_MODEL` (e.g. `moondream` / `minicpm-v`).

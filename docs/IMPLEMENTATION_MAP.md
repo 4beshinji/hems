@@ -294,8 +294,7 @@ PY
 
 ```
 # Sensor telemetry
-hems/sensors/{zone}/{device_type}/{device_id}/{channel}   # canonical (W3.8b)
-office/{zone}/{device_type}/{device_id}/{channel}           # deprecated compat window
+hems/sensors/{zone}/{device_type}/{device_id}/{channel}   # canonical (W3.8c)
 
 # PC metrics (OpenClaw bridge)
 hems/pc/metrics/{cpu|memory|gpu|disk}
@@ -338,10 +337,8 @@ hems/biometric/bridge/status       # canonical (W3.3)
 hems/personal/biometrics/bridge/status  # legacy compat (互換 window)
 
 # Perception (camera detection + activity tracking + VLM)
-hems/sensors/{zone}/camera/{camera_id}/status   # canonical (W3.8b)
-hems/sensors/{zone}/activity/{monitor_id}       # canonical (W3.8b)
-office/{zone}/camera/{camera_id}/status         # deprecated compat window
-office/{zone}/activity/{monitor_id}             # deprecated compat window
+hems/sensors/{zone}/camera/{camera_id}/status   # canonical (W3.8c)
+hems/sensors/{zone}/activity/{monitor_id}       # canonical (W3.8c)
 hems/perception/bridge/status
 hems/perception/vlm/{zone}
 hems/perception/vlm/status
@@ -394,7 +391,7 @@ hems/brain/guest-mode
 
 ```
 mcp/+/response/#
-office/#
+office/+/task_report/#   # backend → brain task reports only (W3.8c)
 hems/#
 zigbee2mqtt/#
 ```
@@ -403,12 +400,9 @@ zigbee2mqtt/#
 
 | Publisher | Topic | Payload 概要 |
 |-----------|-------|--------------|
-| MCP / ESP32 sensors | `hems/sensors/{zone}/sensor/{device_id}/{channel}` *(canonical — W3.8b でファームウェア移行済)* | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / motion / motion_count / vibration / door / presence |
-| MCP / ESP32 sensors | ~~`office/{zone}/sensor/{device_id}/{channel}`~~ *(旧 prefix — 互換 window、brain は新旧両方を受信。W3.8c で削除予定)* | 同上 |
-| perception (camera) | `hems/sensors/{zone}/camera/{cam_id}/status` *(canonical — W3.8b)* | person_count, count |
-| perception (camera) | ~~`office/{zone}/camera/{cam_id}/status`~~ *(旧 prefix — 互換 window、W3.8c で削除予定)* | 同上 |
-| perception (activity) | `hems/sensors/{zone}/activity/{monitor_id}` *(canonical — W3.8b)* | activity_level / activity_class / posture / posture_duration_sec / posture_status |
-| perception (activity) | ~~`office/{zone}/activity/{monitor_id}`~~ *(旧 prefix — 互換 window、W3.8c で削除予定)* | 同上 |
+| MCP / ESP32 sensors | `hems/sensors/{zone}/sensor/{device_id}/{channel}` *(canonical — W3.8c)* | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / motion / motion_count / vibration / door / presence |
+| perception (camera) | `hems/sensors/{zone}/camera/{cam_id}/status` *(canonical — W3.8c)* | person_count, count |
+| perception (activity) | `hems/sensors/{zone}/activity/{monitor_id}` *(canonical — W3.8c)* | activity_level / activity_class / posture / posture_duration_sec / posture_status |
 | perception (VLM) | `hems/perception/vlm/{zone}` | scene_description / objects / scene_type / anomalies |
 | perception (VLM mgmt) | `hems/perception/vlm/status` | service status |
 | perception (VLM mgmt) | `hems/perception/vlm/model_swap` | swap event |
@@ -462,12 +456,9 @@ zigbee2mqtt/#
 
 | Topic Pattern | Handler | 反映先 |
 |---------------|---------|--------|
-| `hems/sensors/{zone}/sensor/{dev}/{ch}` *(新 canonical — W3.8a)* | `_update_sensor` / `_update_event_channel` / `_update_state_channel` | `zones[zone].environment` / `.occupancy.motion_*` / `.occupancy.door_states` |
-| ~~`office/{zone}/sensor/{dev}/{ch}`~~ *(旧 prefix — 互換 window)* | 同上 | 同上 |
-| `hems/sensors/{zone}/camera/{cam}/status` *(新 canonical — W3.8a)* | inline | `zones[zone].occupancy.count` |
-| ~~`office/{zone}/camera/{cam}/status`~~ *(旧 prefix — 互換 window)* | 同上 | 同上 |
-| `hems/sensors/{zone}/activity/{mon}` *(新 canonical — W3.8a)* | inline | `zones[zone].occupancy.activity_*` / `.posture` |
-| ~~`office/{zone}/activity/{mon}`~~ *(旧 prefix — 互換 window)* | 同上 | 同上 |
+| `hems/sensors/{zone}/sensor/{dev}/{ch}` *(canonical — W3.8c)* | `_update_sensor` / `_update_event_channel` / `_update_state_channel` | `zones[zone].environment` / `.occupancy.motion_*` / `.occupancy.door_states` |
+| `hems/sensors/{zone}/camera/{cam}/status` *(canonical — W3.8c)* | inline | `zones[zone].occupancy.count` |
+| `hems/sensors/{zone}/activity/{mon}` *(canonical — W3.8c)* | inline | `zones[zone].occupancy.activity_*` / `.posture` |
 | `office/{zone}/task_report/{id}` | inline | `zones[zone].events` (task_report) |
 | `hems/pc/*` | `_update_pc_state` | `digital.pc_state` |
 | `hems/services/{name}/{status,event}` | `_update_service_state` | `digital.services_state` |
@@ -502,7 +493,7 @@ zigbee2mqtt/#
 
 ```bash
 # Publishers
-grep -rnE '\.publish\("(office|hems|zigbee2mqtt)' services/ --include="*.py"
+grep -rnE '\.publish\("(hems|zigbee2mqtt)' services/ --include="*.py"
 # Subscribers (brain only — ルーティングは mqtt_router.py に分割済)
 grep -nE 'parts\[0\] == |parts\[1\] == ' services/brain/src/world_model/mqtt_router.py
 ```
@@ -513,8 +504,8 @@ grep -nE 'parts\[0\] == |parts\[1\] == ' services/brain/src/world_model/mqtt_rou
 
 | 領域 | クラス | 主要フィールド | データソース |
 |------|--------|----------------|--------------|
-| Physical | ZoneState | environment / occupancy / devices / events | `hems/sensors/+/sensor` / `camera` / `activity` *(新 canonical)* + `office/+/sensor` / `camera` / `activity` *(互換 window)* |
-| Physical | EnvironmentData | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / trends | `hems/sensors/+/sensor` *(新)* + `office/+/sensor` *(旧互換)* |
+| Physical | ZoneState | environment / occupancy / devices / events | `hems/sensors/+/sensor` / `camera` / `activity` *(canonical — W3.8c)* |
+| Physical | EnvironmentData | temperature / humidity / co2 / pressure / light / voc / pm25 / soil_moisture / trends | `hems/sensors/+/sensor` *(canonical — W3.8c)* |
 | Physical | OccupancyData | count / activity_* / posture / motion_* / door_states / inferred_occupied / scene_* / vlm_history | camera + activity + VLM + sensor |
 | Physical | HomeDevicesState | lights / climate / covers / switches / binary_sensors / sensors / events | hems/home + hems/tapo + zigbee2mqtt |
 | Physical | WeatherState | condition / temperature / humidity / wind_speed / forecast / alerts | hems/weather/* |

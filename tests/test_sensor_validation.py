@@ -1,7 +1,7 @@
 """Tests for inbound MQTT sensor payload validation (Group B, ported from SOMS).
 
 Covers the validation primitive plus the two world-model ingestion paths that
-feed sensor fusion (office/sensor topics and zigbee2mqtt direct). The
+feed sensor fusion (hems/sensors/* topics and zigbee2mqtt direct). The
 event-store persistence path lives in main.py::_process_mqtt and gets its
 integration test once the brain mixin split (Wave 5) makes it isolable.
 """
@@ -84,27 +84,27 @@ class TestValidateSensorValue:
 
 
 class TestUpdateFromMqttValidation:
-    """office/{zone}/sensor/{device}/{channel} → world model (LLM context)."""
+    """hems/sensors/{zone}/sensor/{device}/{channel} → world model (LLM context)."""
 
     def test_valid_temperature_applied(self):
         wm = WorldModel()
-        wm.update_from_mqtt("office/kitchen/sensor/env_01/temperature", {"value": 22.5})
+        wm.update_from_mqtt("hems/sensors/kitchen/sensor/env_01/temperature", {"value": 22.5})
         assert wm.zones["kitchen"].environment.temperature == pytest.approx(22.5)
 
     def test_out_of_range_temperature_dropped(self):
         wm = WorldModel()
-        wm.update_from_mqtt("office/kitchen/sensor/env_01/temperature", {"value": 999.0})
+        wm.update_from_mqtt("hems/sensors/kitchen/sensor/env_01/temperature", {"value": 999.0})
         # Routing may create the zone, but the injected value never lands.
         assert "kitchen" not in wm.zones or wm.zones["kitchen"].environment.temperature is None
 
     def test_non_numeric_dropped(self):
         wm = WorldModel()
-        wm.update_from_mqtt("office/kitchen/sensor/env_01/co2", {"value": "DROP TABLE"})
+        wm.update_from_mqtt("hems/sensors/kitchen/sensor/env_01/co2", {"value": "DROP TABLE"})
         assert "kitchen" not in wm.zones or wm.zones["kitchen"].environment.co2 is None
 
     def test_numeric_string_coerced_and_applied(self):
         wm = WorldModel()
-        wm.update_from_mqtt("office/kitchen/sensor/env_01/co2", {"value": "600"})
+        wm.update_from_mqtt("hems/sensors/kitchen/sensor/env_01/co2", {"value": "600"})
         assert wm.zones["kitchen"].environment.co2 == pytest.approx(600.0)
 
 

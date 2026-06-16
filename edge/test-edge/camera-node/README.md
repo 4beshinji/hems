@@ -76,7 +76,7 @@ pio device monitor
 
 ### ステータス送信
 
-**トピック**: `hems/sensors/camera/camera_node_01/status` (旧 `office/camera/...` は W3.8 互換 window 中)
+**トピック**: `hems/sensors/camera/camera/camera_node_01/status`
 
 **ペイロード**:
 ```json
