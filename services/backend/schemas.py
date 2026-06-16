@@ -1,34 +1,12 @@
-import re
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from hems_common.validation import validate_device_ref
+
 # ---------------------------------------------------------------------------
 # Device identifier validation
 # ---------------------------------------------------------------------------
-
-_DEVICE_ID_RE = re.compile(r"^[\w.\-]+$")
-_DEVICE_ID_MAX_LEN = 128
-
-
-def _validate_device_ref(field_name: str, value: str | None) -> str | None:
-    """Validate device_id / vendor_ref against the safe-character allowlist.
-
-    Returns the value unchanged when valid, or raises ValueError.
-    None is passed through (vendor_ref is optional).
-    """
-    if value is None:
-        return value
-    if not value:
-        raise ValueError(f"{field_name} must not be empty")
-    if len(value) > _DEVICE_ID_MAX_LEN:
-        raise ValueError(f"{field_name} must be ≤{_DEVICE_ID_MAX_LEN} chars; got {len(value)}")
-    if not _DEVICE_ID_RE.match(value):
-        raise ValueError(
-            f"{field_name} must match ^[\\w.\\-]+$ (alphanumeric, underscore, dot, hyphen only); got {value!r}"
-        )
-    return value
-
 
 # --- Task ---
 
@@ -407,12 +385,14 @@ class DeviceBase(BaseModel):
     @field_validator("device_id")
     @classmethod
     def _check_device_id(cls, v: str) -> str:
-        return _validate_device_ref("device_id", v)  # type: ignore[return-value]
+        return validate_device_ref(v, "device_id")
 
     @field_validator("vendor_ref")
     @classmethod
     def _check_vendor_ref(cls, v: str | None) -> str | None:
-        return _validate_device_ref("vendor_ref", v)
+        if v is None:
+            return v
+        return validate_device_ref(v, "vendor_ref")
 
 
 class DeviceCreate(DeviceBase):
@@ -442,7 +422,9 @@ class DeviceUpdate(BaseModel):
     @field_validator("vendor_ref")
     @classmethod
     def _check_vendor_ref(cls, v: str | None) -> str | None:
-        return _validate_device_ref("vendor_ref", v)
+        if v is None:
+            return v
+        return validate_device_ref(v, "vendor_ref")
 
 
 class Device(DeviceBase):
@@ -482,12 +464,14 @@ class DeviceHeartbeat(BaseModel):
     @field_validator("device_id")
     @classmethod
     def _check_device_id(cls, v: str) -> str:
-        return _validate_device_ref("device_id", v)  # type: ignore[return-value]
+        return validate_device_ref(v, "device_id")
 
     @field_validator("vendor_ref")
     @classmethod
     def _check_vendor_ref(cls, v: str | None) -> str | None:
-        return _validate_device_ref("vendor_ref", v)
+        if v is None:
+            return v
+        return validate_device_ref(v, "vendor_ref")
 
 
 class DeviceControlRequest(BaseModel):

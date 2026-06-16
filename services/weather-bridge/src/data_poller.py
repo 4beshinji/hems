@@ -5,10 +5,10 @@ Data poller — fetches weather data on configured intervals and publishes to MQ
 import asyncio
 import time
 
-from hems_common import MqttPublisher, publish_bridge_status
 from loguru import logger
 
 import config
+from hems_common import MqttPublisher, publish_bridge_status
 
 
 class DataPoller:

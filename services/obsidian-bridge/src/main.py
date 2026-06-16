@@ -8,7 +8,6 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from note_writer import NoteWriter
 from pydantic import BaseModel
@@ -25,6 +24,7 @@ from config import (
     VAULT_PATH,
     WATCHER_DEBOUNCE,
 )
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 
 logger.configure(handlers=[{"sink": sys.stderr, "level": LOG_LEVEL}])
 

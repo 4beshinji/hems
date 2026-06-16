@@ -83,25 +83,16 @@ async def lifespan(app: FastAPI):
 
 async def _audit_existing_device_ids() -> None:
     """Scan Device table for rows whose device_id or vendor_ref violate the
-    ^[\\w.\\-]+$ allowlist introduced in W1.2.
+    unified identifier rules introduced in W1.2/W1.8.
 
     Existing rows are NOT modified — this is a read-only audit that logs
     warnings so operators can clean up legacy data at their own pace.
     """
-    import re
-
     from sqlalchemy.future import select
 
     import models
     from database import AsyncSessionLocal
-
-    _RE = re.compile(r"^[\w.\-]+$")
-    _MAX = 128
-
-    def _unsafe(v: str | None) -> bool:
-        if v is None:
-            return False
-        return not v or len(v) > _MAX or not _RE.match(v)
+    from hems_common.validation import is_valid_device_ref
 
     try:
         async with AsyncSessionLocal() as session:
@@ -109,21 +100,21 @@ async def _audit_existing_device_ids() -> None:
             devices = result.scalars().all()
         bad: list[str] = []
         for d in devices:
-            if _unsafe(d.device_id):
+            if not is_valid_device_ref(d.device_id):
                 bad.append(f"device_id={d.device_id!r} (id={d.id})")
-            if _unsafe(d.vendor_ref):
+            if not is_valid_device_ref(d.vendor_ref):
                 bad.append(f"vendor_ref={d.vendor_ref!r} for device_id={d.device_id!r} (id={d.id})")
         if bad:
             logger.warning(
-                "W1.2 audit: %d existing Device row(s) contain unsafe identifier(s) — "
+                "W1.8 audit: %d existing Device row(s) contain unsafe identifier(s) — "
                 "these are NOT rejected but should be reviewed: %s",
                 len(bad),
                 "; ".join(bad),
             )
         else:
-            logger.info("W1.2 audit: all existing Device identifiers pass the safe-character check")
+            logger.info("W1.8 audit: all existing Device identifiers pass the safe-character check")
     except Exception as exc:
-        logger.warning("W1.2 audit: could not scan Device table: %s", exc)
+        logger.warning("W1.8 audit: could not scan Device table: %s", exc)
 
 
 app = FastAPI(

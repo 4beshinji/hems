@@ -68,6 +68,7 @@ known-first-party = [
     "models",
     "schemas",
     "routers",
+    "hems_common",
 ]
 
 [tool.ruff.format]

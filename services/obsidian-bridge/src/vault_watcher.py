@@ -7,11 +7,12 @@ import asyncio
 import time
 from pathlib import Path
 
-from hems_common import MqttPublisher
 from loguru import logger
 from vault_index import VaultIndex
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+
+from hems_common import MqttPublisher
 
 
 class _VaultEventHandler(FileSystemEventHandler):

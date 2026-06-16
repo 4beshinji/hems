@@ -13,11 +13,11 @@ import aiohttp
 from entity_mapper import EntityMapper
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from ha_client import HAClient
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from pydantic import BaseModel
 
 import config
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 
 # Module-level shared state
 ha_client: HAClient | None = None

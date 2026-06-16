@@ -1,45 +1,48 @@
-"""
-device_id_validator -- shared validation for device_id and vendor_ref.
+"""device_id_validator -- shared validation for device_id and vendor_ref.
 
-Pattern: ^[\\w.\\-]+$  (alphanumeric, underscore, dot, hyphen only)
-Max length: 128 characters
-Empty string: rejected
-
-Used by:
-  - services/brain/src/device_dispatcher.py  (dispatch-time guard before MQTT/HTTP topic assembly)
-  - services/backend/schemas.py              (Pydantic validator on DeviceBase / DeviceHeartbeat)
+This module is a thin wrapper around :mod:`hems_common.validation` so that
+existing brain imports keep working. The canonical implementation lives in
+``services/_common/hems_common/validation.py`` and is shared with the backend.
 """
 
-import re
+from hems_common.validation import (
+    DEVICE_REF_PATTERN,
+    MAX_DEVICE_REF_LEN,
+)
+from hems_common.validation import (
+    is_valid_device_ref as _common_is_valid_device_ref,
+)
+from hems_common.validation import (
+    validate_device_ref as _common_validate_device_ref,
+)
 
-_DEVICE_ID_RE = re.compile(r"^[\w.\-]+$")
-DEVICE_ID_MAX_LEN = 128
+__all__ = [
+    "DEVICE_REF_PATTERN",
+    "MAX_DEVICE_REF_LEN",
+    "is_valid_device_ref",
+    "validate_device_ref",
+]
+
+# Re-export constants for backward compatibility.
+DEVICE_ID_MAX_LEN = MAX_DEVICE_REF_LEN
 
 
 def is_valid_device_ref(value: str) -> bool:
     """Return True iff *value* is a safe device_id / vendor_ref.
 
-    Rejects empty strings, strings longer than DEVICE_ID_MAX_LEN, any string
-    containing characters outside [A-Za-z0-9_.-], and any dot-separated
-    component that consists solely of dots (e.g. ``mcp..`` from a ``..``
-    path-traversal vendor_ref).
+    Rejects empty strings, strings longer than ``MAX_DEVICE_REF_LEN``, any
+    string containing characters outside ``[A-Za-z0-9_.-]``, and any
+    dot-separated component that is empty (consecutive, leading, or trailing
+    dots).
     """
-    if not value:
-        return False
-    if len(value) > DEVICE_ID_MAX_LEN:
-        return False
-    if not _DEVICE_ID_RE.match(value):
-        return False
-    # Reject empty dot-separated components, which arise from consecutive,
-    # leading, or trailing dots — e.g. "../../etc/passwd" collapsing into "mcp..".
-    return all(value.split("."))
+    return _common_is_valid_device_ref(value)
 
 
 def validate_device_ref(field_name: str, value: str) -> str:
-    """Validate and return *value*; raise ValueError on invalid input.
+    """Validate and return *value*; raise :exc:`ValueError` on invalid input.
 
-    Intended for use inside Pydantic field validators.
+    Intended for use inside Pydantic field validators. The argument order
+    ``(field_name, value)`` is preserved for backward compatibility with
+    existing brain code.
     """
-    if not is_valid_device_ref(value):
-        raise ValueError(f"{field_name} must match ^[\\w.\\-]+$ and be ≤{DEVICE_ID_MAX_LEN} chars; got {value!r}")
-    return value
+    return _common_validate_device_ref(value, field_name)

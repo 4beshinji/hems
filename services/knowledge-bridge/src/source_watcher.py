@@ -8,10 +8,11 @@ import time
 from pathlib import Path
 
 from document_index import DocumentIndex
-from hems_common import MqttPublisher
 from loguru import logger
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+
+from hems_common import MqttPublisher
 
 
 class _SourceEventHandler(FileSystemEventHandler):

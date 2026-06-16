@@ -9,13 +9,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from news_fetcher import NewsFetcher
 from news_summarizer import NewsSummarizer, OllamaClient, split_by_category
 from urgency import UrgencyDetector
 
 import config
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 
 # Module-level state
 mqtt_pub: MqttPublisher | None = None

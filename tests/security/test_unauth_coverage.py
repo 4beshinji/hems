@@ -33,6 +33,7 @@ _root = Path(__file__).resolve().parent.parent.parent
 for _p in (
     _root / "services" / "backend",
     _root / "services" / "brain" / "src",
+    _root / "services" / "_common",
 ):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
@@ -249,6 +250,7 @@ class TestMobileAdminAuth:
 import sys, os
 sys.path.insert(0, {str(_BACKEND_SRC)!r})
 sys.path.insert(0, {str(_root / "services" / "brain" / "src")!r})
+sys.path.insert(0, {str(_root / "services" / "_common")!r})
 
 os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///{db_file}'
 os.environ['BACKEND_API_KEY'] = 'mobile-admin-test-key'

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import paho.mqtt.client as mqtt
 import pytest
+
 from hems_common.lifespan import bridge_lifespan
 from hems_common.mqtt import MqttPublisher
 from hems_common.status import publish_bridge_status

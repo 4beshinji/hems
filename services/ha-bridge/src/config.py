@@ -5,6 +5,7 @@ Configuration for HEMS Home Assistant Bridge service.
 import os
 
 from dotenv import load_dotenv
+
 from hems_common.config import load_mqtt_config
 
 load_dotenv()

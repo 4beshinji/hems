@@ -151,6 +151,26 @@ class TestIsValidDeviceRef:
         # low-level function itself returns False for None.
         assert self.check(None) is False  # type: ignore[arg-type]
 
+    # --- W1.8: dot-segment non-empty rules ---
+
+    def test_consecutive_dots_rejected(self):
+        assert self.check("a..b") is False
+
+    def test_leading_dot_rejected(self):
+        assert self.check(".ab") is False
+
+    def test_trailing_dot_rejected(self):
+        assert self.check("ab.") is False
+
+    def test_multiple_consecutive_dots_rejected(self):
+        assert self.check("foo...bar") is False
+
+    def test_single_dot_between_words_accepted(self):
+        assert self.check("foo.bar") is True
+
+    def test_multiple_single_dots_accepted(self):
+        assert self.check("a.b.c.d") is True
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # (a) Backend POST /devices/ — create
@@ -234,6 +254,38 @@ class TestBackendCreateDevice:
         )
         assert resp.status_code == 200
 
+    def test_consecutive_dots_in_device_id_rejected(self, devices_client):
+        resp = devices_client.post(
+            "/devices/",
+            json={"device_id": "living..room.sensor", "vendor": "zigbee"},
+        )
+        assert resp.status_code == 422
+
+    def test_leading_dot_in_device_id_rejected(self, devices_client):
+        resp = devices_client.post(
+            "/devices/",
+            json={"device_id": ".living_room", "vendor": "zigbee"},
+        )
+        assert resp.status_code == 422
+
+    def test_trailing_dot_in_device_id_rejected(self, devices_client):
+        resp = devices_client.post(
+            "/devices/",
+            json={"device_id": "living_room.", "vendor": "zigbee"},
+        )
+        assert resp.status_code == 422
+
+    def test_consecutive_dots_in_vendor_ref_rejected(self, devices_client):
+        resp = devices_client.post(
+            "/devices/",
+            json={
+                "device_id": "zigbee.safe",
+                "vendor": "zigbee",
+                "vendor_ref": "bad..ref",
+            },
+        )
+        assert resp.status_code == 422
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # (b) Backend POST /devices/heartbeat
@@ -293,6 +345,47 @@ class TestBackendHeartbeat:
                 "vendor_ref": "light.living_room",
             },
         )
+        assert resp.status_code == 200
+
+    def test_consecutive_dots_in_heartbeat_rejected(self, devices_client):
+        resp = devices_client.post(
+            "/devices/heartbeat",
+            json={"device_id": "ha..light", "vendor": "ha"},
+        )
+        assert resp.status_code == 422
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# (b') Backend path-parameter device_id validation
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestBackendPathParameterValidation:
+    def test_get_device_with_consecutive_dots_returns_400(self, devices_client):
+        resp = devices_client.get("/devices/living..room.sensor")
+        assert resp.status_code == 400
+
+    def test_get_device_with_leading_dot_returns_400(self, devices_client):
+        resp = devices_client.get("/devices/.living_room")
+        assert resp.status_code == 400
+
+    def test_get_device_with_trailing_dot_returns_400(self, devices_client):
+        resp = devices_client.get("/devices/living_room.")
+        assert resp.status_code == 400
+
+    def test_control_with_consecutive_dots_returns_400(self, devices_client):
+        resp = devices_client.post(
+            "/devices/living..room.sensor/control",
+            json={"action": "on"},
+        )
+        assert resp.status_code == 400
+
+    def test_valid_path_parameter_accepted(self, devices_client):
+        devices_client.post(
+            "/devices/",
+            json={"device_id": "zigbee.valid", "vendor": "zigbee"},
+        )
+        resp = devices_client.get("/devices/zigbee.valid")
         assert resp.status_code == 200
 
 

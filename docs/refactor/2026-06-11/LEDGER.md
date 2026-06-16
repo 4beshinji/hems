@@ -6,6 +6,14 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 
 | Wave | # | row(変更) | 対象 file:symbol | 出所 unit | status | commit |
 |---|---|---|---|---|---|---|
+| W1.1 | 1 | brain chat server に `HEMS_INTERNAL_TOKEN` Bearer 認証 + backend proxy への Authorization 付与 | `services/brain/src/brain_chat_server.py`, `services/brain/src/brain_startup.py`, backend `routers/chat.py`・`routers/devices.py`・`routers/scenes.py`・`routers/automations.py`, `tests/test_brain_chat_auth.py` | PLAN.md W1.1 | done | 38f5937 |
+| W1.2 | 2 | `device_id` / `vendor_ref` の文字種検証を backend Device 登録/heartbeat と brain dispatch 直前の二層に追加 | backend `routers/devices.py`・`schemas.py`, brain `device_dispatcher.py` | PLAN.md W1.2 | done | 0049d4f |
+| W1.3 | 3 | webhook replay 防御: biometric / mobile の HMAC に timestamp + nonce(±5min window) | `services/biometric-bridge/src/main.py`, backend `routers/mobile.py`, `tests/test_*_webhook*.py` | PLAN.md W1.3 | done | a394e67 |
+| W1.4 | 4 | `/devices/{id}/control` の params schema 検証（sanitizer の検証を REST 経路にも適用） | backend `routers/devices.py`, `services/brain/src/device_control_validator.py` | PLAN.md W1.4 | done | 46230a2 |
+| W1.5 | 5 | chat エンドポイントの rate limit（in-memory token bucket） | backend `routers/chat.py`, `tests/test_chat_rate_limit.py` | PLAN.md W1.5 | done | 27f357c |
+| W1.6 | 6 | nginx に Content-Security-Policy ヘッダ追加 | `services/frontend/nginx.conf` | PLAN.md W1.6 | done | 015a4a4 |
+| W1.7 | 7 | `tests/security/` 拡充: MQTT ACL 拒否 poc 復元、無認証アクセス網羅、W1.2 injection test | `tests/security/` | PLAN.md W1.7 | done | 578a1ba |
+| **W1.8** | **8** | **(メタ監査追加分) `device_id` / `vendor_ref` 検証の backend/brain 統一 + パスパラメータ検証。連続ドット・先頭/末尾ドットを共通化し、`services/_common/hems_common/validation.py` へ集約** | `services/_common/hems_common/validation.py`, `backend/schemas.py`, `brain/device_id_validator.py`, `backend/routers/devices.py`, `backend/main.py` | W1.2-unified-device-id-validation-design-note | pending |  |
 | W3.9 | 1 | weather-bridge に `verify_internal_token` 配線（/health 無認証維持）+ `HEMS_INTERNAL_TOKEN` env 追加 + 認証 test | `services/_common/hems_common/auth.py`, `services/weather-bridge/src/main.py`, `infra/docker-compose.yml:weather-bridge`, `tests/test_weather_bridge.py` | W3.9-bridge-http-auth-design-note | done | d5b9907 |
 | W3.9 | 2 | news-bridge に `verify_internal_token` 配線 | `services/news-bridge/src/main.py`, `infra/docker-compose.yml:news-bridge`, `tests/test_news_bridge.py` | W3.9-bridge-http-auth-design-note | done | 7bd9553 |
 | W3.9 | 3 | knowledge-bridge に `verify_internal_token` 配線 | `services/knowledge-bridge/src/main.py`, `infra/docker-compose.yml:knowledge-bridge`, tests | W3.9-bridge-http-auth-design-note | done | 0d90119 |
@@ -24,4 +32,4 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 > - `fe5e294` infra(compose): pass HEMS_INTERNAL_TOKEN to all 9 bridges
 > - `18fcc5b` feat(brain,backend): pass HEMS_INTERNAL_TOKEN to internal bridge HTTP calls（backend→ha-bridge + brain→news/knowledge/biometric/obsidian/ha/tapo/switchbot）
 
-**残 pending:** W3.9 完了。
+**残 pending:** W1.8。W1.1–W1.7 は main 上で先行実装済みのため追記。

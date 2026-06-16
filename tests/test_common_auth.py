@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi import HTTPException
+
 from hems_common.auth import verify_internal_token
 
 

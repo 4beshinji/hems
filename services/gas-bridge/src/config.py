@@ -5,6 +5,7 @@ Configuration for HEMS GAS Bridge service.
 import os
 
 from dotenv import load_dotenv
+
 from hems_common import load_mqtt_config
 
 load_dotenv()

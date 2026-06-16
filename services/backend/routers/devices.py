@@ -19,12 +19,22 @@ from sqlalchemy.future import select
 import models
 import schemas
 from database import get_db
+from hems_common.validation import validate_device_ref
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
 BRAIN_URL = os.getenv("BRAIN_CHAT_URL", "http://brain:8080")
+
+
+def _ensure_valid_device_id(device_id: str) -> str:
+    """Validate a path-parameter device_id and surface invalid input as 400."""
+    try:
+        return validate_device_ref(device_id, "device_id")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 
 _IEEE_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{16}$")
 
@@ -96,6 +106,7 @@ async def list_devices(
 
 @router.get("/{device_id}", response_model=schemas.Device)
 async def get_device(device_id: str, db: AsyncSession = Depends(get_db)):
+    _ensure_valid_device_id(device_id)
     result = await db.execute(select(models.Device).filter(models.Device.device_id == device_id))
     device = result.scalars().first()
     if not device:
@@ -122,6 +133,7 @@ async def update_device(
     body: schemas.DeviceUpdate,
     db: AsyncSession = Depends(get_db),
 ):
+    _ensure_valid_device_id(device_id)
     result = await db.execute(select(models.Device).filter(models.Device.device_id == device_id))
     device = result.scalars().first()
     if not device:
@@ -149,6 +161,7 @@ async def delete_all_devices(db: AsyncSession = Depends(get_db)):
 
 @router.delete("/{device_id}")
 async def delete_device(device_id: str, db: AsyncSession = Depends(get_db)):
+    _ensure_valid_device_id(device_id)
     result = await db.execute(select(models.Device).filter(models.Device.device_id == device_id))
     device = result.scalars().first()
     if not device:
@@ -291,6 +304,7 @@ async def control_device(
     db: AsyncSession = Depends(get_db),
 ):
     """Proxy a manual control request to Brain (which dispatches to bridge)."""
+    _ensure_valid_device_id(device_id)
     result = await db.execute(select(models.Device).filter(models.Device.device_id == device_id))
     device = result.scalars().first()
     if not device:

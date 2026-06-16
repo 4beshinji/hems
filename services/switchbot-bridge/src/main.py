@@ -12,12 +12,12 @@ from contextlib import asynccontextmanager
 import aiohttp
 from device_mapper import DeviceMapper
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from pydantic import BaseModel
 from switchbot_client import SwitchBotClient
 
 import config
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 
 # Module-level shared state
 sb_client: SwitchBotClient | None = None

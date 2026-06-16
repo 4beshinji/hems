@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 from document_index import DocumentIndex
 from embedding import EmbeddingClient
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 from loguru import logger
 from pydantic import BaseModel
 from source_watcher import SourceWatcher
@@ -30,6 +29,7 @@ from config import (
     MQTT_USER,
     WATCHER_DEBOUNCE,
 )
+from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
 
 logger.configure(handlers=[{"sink": sys.stderr, "level": LOG_LEVEL}])
 

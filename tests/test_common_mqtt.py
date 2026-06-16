@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import paho.mqtt.client as mqtt
 import pytest
+
 from hems_common.mqtt import MqttPublisher
 
 

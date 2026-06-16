@@ -46,8 +46,9 @@ PYTHONPATH=services/brain/src:services/backend timeout 1800s .venv/bin/python -m
 | W1.5 | chat エンドポイントの rate limit(単純な in-memory token bucket で可) | backend `routers/chat.py` | 連打で 429 | 低(独立・定型実装) | Haiku 4.5 |
 | W1.6 | nginx に CSP ヘッダ追加 | `services/frontend/nginx.conf` | dashboard が CSP 違反なしで動作 | 中(ヘッダ追記自体は一瞬だが、three.js/VRM/wasm(VAD)/blob worker の許可リスト調整が試行錯誤になる) | Sonnet 4.6 |
 | W1.7 | `tests/security/` 拡充: MQTT ACL 拒否 poc 復元、無認証アクセス網羅、W1.2 injection test | `tests/security/` | CI で実行可能(integration marker) | 中(テスト対象仕様は W1.1–W1.5 で確定済みのため判断は少ないが、MQTT broker を絡めた fixture 構築あり) | Sonnet 4.6 |
+| **W1.8** | **(メタ監査追加分) `device_id` / `vendor_ref` 検証の backend/brain 統一 + パスパラメータ検証。連続ドット・先頭/末尾ドットを共通化し、`_common.validation` へ集約** | `services/_common/hems_common/validation.py`, `backend/schemas.py`, `brain/device_id_validator.py`, `backend/routers/devices.py` | backend/brain で同一値の受け入れ/拒否が一致。`/devices/{id}/control` のパスパラメータも検証 | 中(共通化場所の決定 + 既存 DB 互換) | Sonnet 4.6 |
 
-deferred 可: TLS/HSTS(LAN 運用前提のため distribution Phase と同期)、ブリッジ HTTP への token 横展開(S3、W3.1 の共通ライブラリに同梱すると一括で入る)。
+deferred 可: TLS/HSTS(LAN 運用前提のため distribution Phase と同期)。
 
 ## Wave 2 — 前回 deferred の高 blast-radius 構造改革(P1、見積 5–8 日)
 
@@ -77,6 +78,7 @@ deferred 可: TLS/HSTS(LAN 運用前提のため distribution Phase と同期)�
 | W3.5 | Device Registry の責務境界を doc 化(backend = 永続 SoT、brain = TTL 付き runtime cache)し、dispatcher の仲介ロジックを registry 側へ寄せる。**統合はしない**(in-memory ビューの存在意義は妥当) | 二重実装の誤解消滅 | 中(主体は doc + 小規模な移動。境界の言語化は W3.4 の設計者が兼ねると一貫する) | Sonnet 4.6 |
 | W3.6 | `dashboard_client.py`(758 行)を transport / cache / domain mapper に分割 | — | 中(内部分割のみで外部 API 不変。既存 test_dashboard_client_* が回帰網) | Sonnet 4.6 |
 | W3.7 | 依存バージョン統一: fastapi / paho-mqtt の下限を `infra/base/requirements.txt` に揃え、ブリッジ個別 requirements は差分のみ | — | 低(機械的な突合と書き換え) | Haiku 4.5 |
+| **W3.9** | **(メタ監査追加分) ブリッジ HTTP エンドポイントへの `HEMS_INTERNAL_TOKEN` Bearer 認証横展開。`verify_internal_token` を 9 ブリッジの REST router に配線し、backend→bridge 呼び出しにも Authorization 付与** | 9 ブリッジの `main.py`/`routers`, `backend/routers/home.py` 等 | token 未設定時は既存挙動維持。設定時に `/health` 以外で 401。biometric webhook は対象外 | 中(9 ブリッジの機械的適用 + backend 呼び出し側修正) | Sonnet 4.6(1 件目パターン確立) → Haiku 4.5(2〜8 件目) → Sonnet 4.6(ha/biometric) |
 
 ## Wave 4 — インフラ・env 整備(P2、見積 2–3 日)
 
@@ -87,6 +89,7 @@ deferred 可: TLS/HSTS(LAN 運用前提のため distribution Phase と同期)�
 | W4.3 | CI に `docker compose config` validation と env.example ↔ compose 突合スクリプトを追加(以後の乖離を機械防止) | 中(スクリプト自体は小品だが false positive の調整が要る) | Sonnet 4.6 |
 | W4.4 | `ext:/` ローカル削除、`services/data-bridge` の README に「存続決定・C1(Strava/Fitbit)として W3.1 後に実装」と明記、Android 2 プロジェクトの位置づけを各 README に明記 | 低(機械的) | Haiku 4.5 |
 | W4.5 | ~~event_store retention の DB 別デフォルト~~ → **2026-06-11 決定により W4.5'(PostgreSQL 既定化)に差し替え**。下記「意思決定記録」セクション参照 | — | — |
+| **W4.6** | **(メタ監査追加分) PostgreSQL 既定化の zero-config UX。`make quickstart` / `infra/scripts/init_env.py` で安全なランダム値を自動生成。SQLite 軽量オプションを `--profile sqlite-lite` で維持。移行スクリプトの dry-run + サマリ強化** | `Makefile`, `infra/scripts/init_env.py`, `env.example`, `infra/docker-compose.yml`(SQLite profile), README/CLAUDE.md/distribution.md | 新規ユーザーが `make quickstart` で安全な .env を生成。既存 SQLite ユーザーが dry-run 付きスクリプトで移行可能 | 中(生成スクリプト + ドキュメント + 移行支援) | Sonnet 4.6 |
 
 ## Wave 5 — Frontend 品質(P2、見積 3–4 日)
 
@@ -121,10 +124,10 @@ deferred 可: TLS/HSTS(LAN 運用前提のため distribution Phase と同期)�
 ## 工数サマリと推奨順序
 
 ```
-W1 (2–3d) → W2 (5–8d) → W3 (5–8d, W3.8a-b 含む) → W4 (4–6d, W4.5' 含む) → W5 (3–4d)   計 19–29 日
+W1 (2.5–4d, W1.8 含む) → W2 (5–8d) → W3 (6–10d, W3.8a-b + W3.9 含む) → W4 (5–8d, W4.5' + W4.6 含む) → W5 (3–4d)   計 21.5–34 日
 ```
 
-W1 と W5 は他 Wave と独立で並行可。W2 → W3.4 は brain を連続で触るため直列推奨。W3.8c は実機移行完了待ちのため非同期(他 Wave をブロックしない)。W4.5' は distribution.md の Phase 計画と整合を取ってから着手。
+W1 と W5 は他 Wave と独立で並行可。W1.8 は W3.9 実施前に完了させるとブリッジ側の device_id 検証も統一できるが、互いに独立でも可。W2 → W3.4 は brain を連続で触るため直列推奨。W3.8c は実機移行完了待ちのため非同期(他 Wave をブロックしない)。W4.5' / W4.6 は distribution.md / README の整合を取ってから着手。
 
 ---
 

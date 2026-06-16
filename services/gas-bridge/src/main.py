@@ -7,10 +7,10 @@ from contextlib import asynccontextmanager
 from data_poller import DataPoller
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from gas_client import GASClient
-from hems_common import MqttPublisher, bridge_lifespan, verify_internal_token
 from loguru import logger
 
 import config
+from hems_common import MqttPublisher, bridge_lifespan, verify_internal_token
 
 # Module-level state
 gas_client: GASClient | None = None
