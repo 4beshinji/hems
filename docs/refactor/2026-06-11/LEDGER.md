@@ -23,7 +23,7 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 | W3.9 | 7 | obsidian-bridge に `verify_internal_token` 配線（/health 無認証維持） | `services/obsidian-bridge/src/main.py`, `infra/docker-compose.yml:obsidian-bridge`, tests | W3.9-bridge-http-auth-design-note | done | c8b9acb |
 | W3.9 | 8 | ha-bridge に `verify_internal_token` 配線 + backend→ha-bridge 呼び出しに Authorization 付与 | `services/ha-bridge/src/main.py`, `services/backend/routers/home.py`, compose, tests | W3.9-bridge-http-auth-design-note | done | 4a46df5 |
 | W3.9 | 9 | biometric-bridge に `verify_internal_token` 配線（/webhook/{vendor} は対象外） | `services/biometric-bridge/src/main.py`, `infra/docker-compose.yml:biometric-bridge`, tests | W3.9-bridge-http-auth-design-note | done | e3d3780 |
-| **W4.6** | **1** | **(メタ監査追加分) PostgreSQL 既定化の zero-config UX。`make quickstart` / `infra/scripts/init_env.py` で安全なランダム値を自動生成。SQLite 軽量オプションを `docker-compose.sqlite-lite.yml` で維持。移行スクリプトの dry-run + サマリ強化** | `Makefile`, `infra/scripts/init_env.py`, `env.example`, `infra/docker-compose.sqlite-lite.yml`, `infra/scripts/migrate_sqlite_to_pg.py`, README/CLAUDE.md/distribution.md/db-improvement-plan.md | W4.6-postgres-zero-config-design-note | pending |  |
+| **W4.6** | **1** | **(メタ監査追加分) PostgreSQL 既定化の zero-config UX。`make quickstart` / `infra/scripts/init_env.py` で安全なランダム値を自動生成。SQLite 軽量オプションを `docker-compose.sqlite-lite.yml` で維持。移行スクリプトの dry-run + サマリ強化** | `Makefile`, `infra/scripts/init_env.py`, `env.example`, `infra/docker-compose.sqlite-lite.yml`, `infra/scripts/migrate_sqlite_to_pg.py`, README/CLAUDE.md/distribution.md/db-improvement-plan.md | W4.6-postgres-zero-config-design-note | done | 7a26322 |
 
 > W3.9.1 ゲート結果 (2026-06-16): `make lint` clean / pytest `2105 passed, 2 skipped, 44 deselected, 7 failed`。失敗 7 件は本 row 変更前から存在する `test_backend_home_router` の 503 系 3 件 + `test_knowledge_bridge` / `test_news_bridge` / `test_obsidian_bridge` の import 系 4 件。
 >
@@ -34,5 +34,7 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 > - `18fcc5b` feat(brain,backend): pass HEMS_INTERNAL_TOKEN to internal bridge HTTP calls（backend→ha-bridge + brain→news/knowledge/biometric/obsidian/ha/tapo/switchbot）
 >
 > W1.8 ゲート結果 (2026-06-16): `make lint` clean / pytest `2169 passed, 8 skipped, 44 deselected, 3 failed`。失敗 3 件は引き続き `test_backend_home_router` の 503 系（HA_BRIDGE_URL 未設定時の挙動）。
+>
+> W4.6 ゲート結果 (2026-06-16): `make lint` clean / pytest `2169 passed, 8 skipped, 44 deselected, 3 failed`。失敗 3 件は同じく `test_backend_home_router` の 503 系。
 
-**残 pending:** W1 完了。次: W4.6（PLAN.md 上で唯一未実施の row）。W1.1–W1.7 / W2 / W3 / W4.1–W4.5' / W5 は main 上で先行実装済みのため本 LEDGER には未追記。
+**残 pending:** なし。PLAN.md 2026-06-11 の全 row 完了。W1.1–W1.7 / W2 / W3 / W4.1–W4.5' / W5 は main 上で先行実装済みのため本 LEDGER には未追記。
