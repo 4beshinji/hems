@@ -552,6 +552,26 @@ class TestS8EventStore:
         assert kwargs["value"] == 22.5
         assert kwargs["device_id"] == "dev1"
 
+    def test_sensor_falsy_value_is_persisted(self, harness, scheduled_coros):
+        """Falsy numeric values like 0 must not be discarded by 'or' fallback."""
+        harness._process_mqtt(
+            "hems/sensors/living/sensor/dev1/temperature",
+            {"temperature": 0},
+        )
+        harness.event_writer.record_sensor.assert_called_once()
+        kwargs = harness.event_writer.record_sensor.call_args.kwargs
+        assert kwargs["value"] == 0
+
+    def test_sensor_falsy_value_fallback_is_persisted(self, harness, scheduled_coros):
+        """Falsy 'value' fallback must also be preserved."""
+        harness._process_mqtt(
+            "hems/sensors/living/sensor/dev1/temperature",
+            {"value": 0},
+        )
+        harness.event_writer.record_sensor.assert_called_once()
+        kwargs = harness.event_writer.record_sensor.call_args.kwargs
+        assert kwargs["value"] == 0
+
     def test_analog_out_of_range_not_persisted(self, harness, scheduled_coros):
         """Sensor value 999 is out of valid range → record_sensor must NOT be called."""
         harness._process_mqtt(

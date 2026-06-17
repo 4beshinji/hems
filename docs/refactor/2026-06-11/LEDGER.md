@@ -60,5 +60,7 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 >
 > ゲート結果: `make lint` clean / pytest `2217 passed, 8 skipped, 47 deselected, 0 failed`。
 > 注: M2 で backend router が `hems_common.auth` を import するようになったため、pytest 実行時の `PYTHONPATH` に `services/_common` を含める必要がある（`tests/conftest.py` および CI でも同様）。
+>
+> W3.8c 追加クリーンアップ (2026-06-17): `brain_mqtt.py` の falsy センサ値破棄を修正、`edge/lib/soms_mcp.py` の旧 `office/*` prefix オーバーライドを削除、`infra/mosquitto/aclfile` に `hems-iot` ユーザーを同期、`tests/security/test_mqtt_acl.py` の `aclfile` 参照を `acl.txt` に統一。非 integration pytest は `2219 passed, 8 skipped, 47 deselected, 0 failed`。integration ACL 許可テスト3件は実行中ブローカーが新 ACL/パスワードを読み込んでいないため失敗し、コンテナ再起動で解消。
 
 **残 pending:** なし。PLAN.md 2026-06-11 の全 row 完了。W1.1–W1.7 / W2.1 / W3 / W4.1–W4.5' / W5 は main 上で先行実装済み。W2.2 / W2.3 は本変更で完了。

@@ -239,7 +239,9 @@ class MqttSyncMixin:
             return
         if len(parts) >= 6 and parts[0] == "hems" and parts[1] == "sensors" and parts[3] == "sensor":
             channel = parts[5]
-            value = payload.get(channel) or payload.get("value")
+            value = payload.get(channel)
+            if value is None:
+                value = payload.get("value")
             if value is not None:
                 # Input trust boundary: validate analog telemetry before it
                 # is persisted to the event-store data mart (skews hourly

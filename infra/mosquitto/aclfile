@@ -93,6 +93,15 @@ topic write  hems/sensors/+/activity/#
 topic write  hems/perception/#
 topic read   hems/perception/vlm/request
 
+# --- IoT / Edge sensor nodes ---
+# W3.8c: edge sensor nodes publish canonical sensor / camera / activity telemetry
+# and MCP response topics.
+user hems-iot
+topic read   #
+topic write  hems/sensors/#
+topic write  mcp/+/response/#
+topic read   mcp/#
+
 # --- News Bridge ---
 # Publishes news summaries and alerts to hems/news/#.
 user hems-news

@@ -7,7 +7,7 @@ set (see infra/mosquitto/acl.txt).  These tests verify that a service user
 rejects unauthorised publishes.
 
 Marker: ``@pytest.mark.integration``
-Requires a live Mosquitto broker configured with the project aclfile and
+Requires a live Mosquitto broker configured with the project acl.txt and
 passwords file.  When the broker is unreachable the test is automatically
 skipped — it is safe to run in a "no-broker" CI environment.
 
@@ -276,7 +276,7 @@ def test_mqtt_acl_rejects_forbidden_publish(username, topic, operation, mqtt_cli
     # rc != 0 or no PUBACK means the broker rejected it — PASS
     assert rc != 0, (
         f"Broker accepted forbidden publish: user={username!r} topic={topic!r} "
-        f"(rc={rc}). Check infra/mosquitto/aclfile — the ACL may be missing or "
+        f"(rc={rc}). Check infra/mosquitto/acl.txt — the ACL may be missing or "
         f"the broker may be running without ACL enforcement."
     )
 
