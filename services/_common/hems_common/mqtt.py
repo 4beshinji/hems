@@ -1,9 +1,12 @@
-"""Unified MQTT publisher for HEMS bridges.
+"""Unified MQTT publisher/subscriber for HEMS bridges.
 
-This single class subsumes the 9 per-bridge ``MQTTPublisher`` copies. The four
+This single class subsumes the per-bridge ``MQTTPublisher`` copies. The four
 axes of divergence (retain default, error policy, connection tracking +
 auto-reconnect, ensure_ascii) are all expressed as constructor knobs, with
 per-call overrides for ``retain``/``qos`` on ``publish``.
+
+Perception-specific additions (subscribe + JSON message callback) are also
+included so the perception service can share the same implementation.
 
 Behaviour matrix (how each legacy bridge maps onto this class):
 
@@ -27,6 +30,7 @@ Compatibility contracts preserved for the migration:
 """
 
 import json
+from collections.abc import Callable
 
 import paho.mqtt.client as mqtt
 from loguru import logger
@@ -71,8 +75,11 @@ class MqttPublisher:
         if track_connection:
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
+        self.client.on_message = self._on_message
         if auto_reconnect:
             self.client.reconnect_delay_set(min_delay=1, max_delay=60)
+
+        self._message_callback: Callable[[str, dict], None] | None = None
 
     # -- connection tracking -------------------------------------------------
 
@@ -151,6 +158,32 @@ class MqttPublisher:
         except Exception as e:
             self._log_error(f"MQTT publish error on {topic}: {e}")
             return False
+
+    # -- helpers -------------------------------------------------------------
+
+    # -- subscribe -------------------------------------------------------------
+
+    def set_message_callback(self, callback: Callable[[str, dict], None]) -> None:
+        """Register a callback for incoming MQTT messages.
+
+        The callback receives ``(topic, payload_dict)`` for each message on a
+        topic subscribed via :meth:`subscribe`.
+        """
+        self._message_callback = callback
+
+    def subscribe(self, topic: str) -> None:
+        """Subscribe to an MQTT topic and route messages to the callback."""
+        self.client.subscribe(topic)
+        logger.debug(f"MQTT subscribed to {topic}")
+
+    def _on_message(self, client, userdata, msg) -> None:
+        if self._message_callback is None:
+            return
+        try:
+            payload = json.loads(msg.payload.decode())
+            self._message_callback(msg.topic, payload)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            logger.warning(f"Failed to parse MQTT message on {msg.topic}: {e}")
 
     # -- helpers -------------------------------------------------------------
 

@@ -10,7 +10,8 @@ from abc import ABC, abstractmethod
 import cv2
 import numpy as np
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
+
+from hems_common.mqtt import MqttPublisher
 
 
 class CameraSource(ABC):
@@ -35,7 +36,7 @@ class CameraSource(ABC):
 class MCPCamera(CameraSource):
     """ESP32 MCP/MQTT camera — request/response via MQTT topics."""
 
-    def __init__(self, camera_id: str, zone: str, mqtt_pub: MQTTPublisher, timeout: float = 10.0):
+    def __init__(self, camera_id: str, zone: str, mqtt_pub: MqttPublisher, timeout: float = 10.0):
         super().__init__(camera_id, zone)
         self._mqtt = mqtt_pub
         self._timeout = timeout
@@ -164,7 +165,7 @@ class StreamCamera(CameraSource):
 class CameraManager:
     """Manages multiple camera sources."""
 
-    def __init__(self, mqtt_pub: MQTTPublisher | None = None):
+    def __init__(self, mqtt_pub: MqttPublisher | None = None):
         self.cameras: dict[str, CameraSource] = {}
         self._mqtt = mqtt_pub
 

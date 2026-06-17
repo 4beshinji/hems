@@ -14,6 +14,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hems_common.mqtt import MqttPublisher
+
 np = pytest.importorskip("numpy", reason="numpy not installed")
 
 # Mock heavy optional dependencies that are NOT installed in the test env.
@@ -41,7 +43,6 @@ def _import_perception_module(name: str):
 
 
 _mod_config = _import_perception_module("config")
-_mod_mqtt = _import_perception_module("mqtt_publisher")
 _mod_detector = _import_perception_module("detector")
 _mod_activity = _import_perception_module("activity_tracker")
 _mod_camera = _import_perception_module("camera_manager")
@@ -56,11 +57,11 @@ CameraManager = _mod_camera.CameraManager
 MCPCamera = _mod_camera.MCPCamera
 StreamCamera = _mod_camera.StreamCamera
 CameraSource = _mod_camera.CameraSource
-MQTTPublisher = _mod_mqtt.MQTTPublisher
+MQTTPublisher = MqttPublisher
 
 # Clean up: remove perception modules from sys.modules so they don't shadow
 # identically-named modules from other services.
-for _name in ("config", "mqtt_publisher", "detector", "activity_tracker", "camera_manager"):
+for _name in ("config", "detector", "activity_tracker", "camera_manager"):
     sys.modules.pop(_name, None)
 
 

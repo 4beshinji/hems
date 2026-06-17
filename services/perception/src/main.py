@@ -18,7 +18,6 @@ from camera_manager import CameraManager
 from detector import Detector
 from fastapi import FastAPI
 from loguru import logger
-from mqtt_publisher import MQTTPublisher
 from pydantic import BaseModel
 
 from config import (
@@ -43,9 +42,10 @@ from config import (
     VLM_OLLAMA_URL,
     VLM_TIMEOUT,
 )
+from hems_common import MqttPublisher, publish_bridge_status
 
 # Module-level state
-mqtt_pub: MQTTPublisher | None = None
+mqtt_pub: MqttPublisher | None = None
 detector: Detector | None = None
 camera_mgr: CameraManager | None = None
 trackers: dict[str, ActivityTracker] = {}
@@ -312,10 +312,10 @@ async def _bridge_status_loop():
             if VLM_ENABLED:
                 status["vlm_enabled"] = True
                 status["vlm_mode"] = vlm_scheduler.mode if vlm_scheduler else "disabled"
-            mqtt_pub.publish(
-                "hems/perception/bridge/status",
-                status,
-                retain=True,
+            publish_bridge_status(
+                mqtt_pub,
+                "perception",
+                **status,
             )
         await asyncio.sleep(60)
 
@@ -325,7 +325,7 @@ async def lifespan(app: FastAPI):
     global mqtt_pub, detector, camera_mgr, vlm_analyzer, vlm_scheduler
 
     # MQTT
-    mqtt_pub = MQTTPublisher(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS)
+    mqtt_pub = MqttPublisher(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS)
     try:
         mqtt_pub.connect()
     except Exception as e:
