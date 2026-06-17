@@ -130,6 +130,46 @@ class TestInvalidActionReturns400:
 
 
 # ---------------------------------------------------------------------------
+# (b') Invalid device_id format → 400
+# ---------------------------------------------------------------------------
+
+
+class TestInvalidDeviceIdReturns400:
+    @pytest.mark.asyncio
+    async def test_slash_in_device_id_rejected(self):
+        brain = _make_mixin_instance()
+        async with TestClient(TestServer(_make_control_app(brain))) as client:
+            resp = await client.post(
+                "/devices/control",
+                json={"device_id": "foo/bar", "action": "on", "params": {}},
+            )
+            assert resp.status == 400
+            body = await resp.json()
+            assert body["success"] is False
+            assert "device_id" in body["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_consecutive_dots_in_device_id_rejected(self):
+        brain = _make_mixin_instance()
+        async with TestClient(TestServer(_make_control_app(brain))) as client:
+            resp = await client.post(
+                "/devices/control",
+                json={"device_id": "a..b", "action": "on", "params": {}},
+            )
+            assert resp.status == 400
+
+    @pytest.mark.asyncio
+    async def test_mqtt_wildcard_in_device_id_rejected(self):
+        brain = _make_mixin_instance()
+        async with TestClient(TestServer(_make_control_app(brain))) as client:
+            resp = await client.post(
+                "/devices/control",
+                json={"device_id": "zigbee.+", "action": "on", "params": {}},
+            )
+            assert resp.status == 400
+
+
+# ---------------------------------------------------------------------------
 # (c) Invalid params → 400
 # ---------------------------------------------------------------------------
 
@@ -288,7 +328,15 @@ class TestSanitizerDelegatesCorrectly:
     def test_sanitizer_rejects_bad_device_id_format(self, sanitizer):
         result = sanitizer.validate_tool_call(
             "control_actuator",
-            {"device_id": "nodot", "action": "on", "params": {}},
+            {"device_id": "bad/device", "action": "on", "params": {}},
+        )
+        assert result["allowed"] is False
+        assert "device_id" in result["reason"].lower()
+
+    def test_sanitizer_rejects_consecutive_dots_in_device_id(self, sanitizer):
+        result = sanitizer.validate_tool_call(
+            "control_actuator",
+            {"device_id": "a..b", "action": "on", "params": {}},
         )
         assert result["allowed"] is False
         assert "device_id" in result["reason"].lower()

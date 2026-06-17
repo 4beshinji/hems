@@ -67,12 +67,19 @@ class ChatServerMixin:
                 status=503,
             )
 
+        from device_id_validator import is_valid_device_ref
+
         device_id = data.get("device_id", "")
         action = data.get("action", "")
         params = data.get("params") or {}
         if not device_id or not action:
             return aio_web.json_response(
                 {"success": False, "error": "device_id and action are required"},
+                status=400,
+            )
+        if not is_valid_device_ref(device_id):
+            return aio_web.json_response(
+                {"success": False, "error": f"Invalid device_id '{device_id}'"},
                 status=400,
             )
 

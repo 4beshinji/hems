@@ -392,10 +392,11 @@ class Sanitizer:
         also covers the REST path (brain_chat_server._handle_device_control).
         """
         from device_control_validator import validate_device_control
+        from device_id_validator import is_valid_device_ref
 
         device_id = args.get("device_id", "")
-        if not device_id or "." not in device_id:
-            return {"allowed": False, "reason": f"Invalid device_id '{device_id}' (expected 'vendor.name')"}
+        if not is_valid_device_ref(device_id):
+            return {"allowed": False, "reason": f"Invalid device_id '{device_id}'"}
 
         action = args.get("action", "")
         params = args.get("params") or {}
