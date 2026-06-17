@@ -10,6 +10,9 @@ export const VOICE_EVENTS_KEY = ['voiceEvents'] as const
  * TanStack Query は同一 queryKey で複数コンポーネントが呼んでも
  * 実 HTTP は 1 系統のみ。interval は最短値が採用される。
  * ここで一元管理することで意図を明示する。
+ *
+ * staleTime は refetchInterval 未満にしておくことで、interval 発火時に
+ * データが確実に stale になり、意図した間隔でポーリングが継続する。
  */
 export const VOICE_EVENTS_REFETCH_INTERVAL = 3000
 
@@ -18,7 +21,7 @@ export function useVoiceEvents(options?: { enabled?: boolean }) {
     queryKey: VOICE_EVENTS_KEY,
     queryFn: fetchVoiceEvents,
     refetchInterval: VOICE_EVENTS_REFETCH_INTERVAL,
-    staleTime: VOICE_EVENTS_REFETCH_INTERVAL,
+    staleTime: VOICE_EVENTS_REFETCH_INTERVAL / 2,
     retry: false,
     enabled: options?.enabled,
   })
