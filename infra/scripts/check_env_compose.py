@@ -45,12 +45,10 @@ COMPOSE_ONLY_OK = frozenset(
         # Internal service URLs wired by compose (not user-exposed)
         "BACKEND_URL",
         "BRAIN_CHAT_URL",
-        "VOICE_SERVICE_URL",
         "OLLAMA_HOST",
         # Hardcoded per-service values
         "MQTT_BROKER",
         "MQTT_PORT",
-        "MQTT_USER",
         "PORT",                        # fixed to 8000 in each service
         # Volume path tokens set inside compose definitions
         "BIOMETRIC_DB_PATH",
@@ -190,6 +188,15 @@ ENV_ONLY_OK = frozenset(
         "BACKEND_PUBLIC_URL",
         "CHARACTER_VERSION",
         "WEBHOOK_REPLAY_STRICT",
+
+        # ── Internal service URLs documented in env.example but wired by compose
+        "VOICE_SERVICE_URL",
+
+        # ── Bridge-internal vars read by Python code but not forwarded via compose
+        "OBSIDIAN_MAX_SEARCH_RESULTS",
+
+        # ── MQTT user (compose hardcodes hems; documented for custom setups)
+        "MQTT_USER",
 
         # ── Rate limiting (read by backend at startup, not in compose yet)
         "CHAT_RATE_LIMIT_CAPACITY",

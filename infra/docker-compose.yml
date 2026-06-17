@@ -88,6 +88,33 @@ x-limits-backend: &limits-backend
       reservations:
         memory: 64M
 
+# Frontend (nginx + static React SPA): 256 MB
+x-limits-frontend: &limits-frontend
+  deploy:
+    resources:
+      limits:
+        memory: 256M
+      reservations:
+        memory: 64M
+
+# PostgreSQL 16: 1 GB
+x-limits-postgres: &limits-postgres
+  deploy:
+    resources:
+      limits:
+        memory: 1G
+      reservations:
+        memory: 256M
+
+# VOICEVOX Engine CPU: 2 GB
+x-limits-voicevox: &limits-voicevox
+  deploy:
+    resources:
+      limits:
+        memory: 2G
+      reservations:
+        memory: 512M
+
 services:
   # --- Shared Python base image (bootstrap) ---
   # Build first via:  docker compose --profile bootstrap build base
@@ -257,6 +284,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    <<: *limits-frontend
 
   # --- Voice Service (Plugin-based TTS) ---
   voice-service:
@@ -540,6 +568,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+    <<: *limits-voicevox
 
   # --- Ollama (Local LLM) ---
   # GPU-agnostic base. Run `python infra/scripts/gpu_setup.py` to generate
@@ -612,6 +641,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    <<: *limits-postgres
 
   # --- Perception (Camera-based person detection + activity tracking) ---
   perception:
