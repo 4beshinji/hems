@@ -46,6 +46,7 @@ def _make_app() -> aio_web.Application:
     app = aio_web.Application(middlewares=[brain_auth_middleware])
     app.router.add_post("/chat", _echo)
     app.router.add_get("/health", _health)
+    app.router.add_get("/health/", _health)
     app.router.add_post("/devices/control", _echo)
     app.router.add_post("/devices/zigbee/permit_join", _echo)
     app.router.add_post("/scenes/execute", _echo)
@@ -237,6 +238,13 @@ class TestHealthEndpointExempt:
         monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "s3cret")
         async with TestClient(TestServer(_make_app())) as client:
             resp = await client.get("/health")
+            assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_health_trailing_slash_no_header_200_when_token_set(self, monkeypatch):
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "s3cret")
+        async with TestClient(TestServer(_make_app())) as client:
+            resp = await client.get("/health/")
             assert resp.status == 200
 
     @pytest.mark.asyncio

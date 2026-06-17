@@ -23,7 +23,7 @@ from system_prompt import build_chat_system_message
 from tool_registry import get_chat_tools
 
 # Endpoints that are always accessible regardless of token configuration.
-_HEALTH_PATHS = frozenset({"/health"})
+_HEALTH_PATHS = frozenset({"/health", "/health/"})
 
 
 @aio_web.middleware
