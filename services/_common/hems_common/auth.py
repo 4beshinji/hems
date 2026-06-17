@@ -12,6 +12,17 @@ import os
 from fastapi import Header, HTTPException
 
 
+def internal_auth_headers(env_var: str = "HEMS_INTERNAL_TOKEN") -> dict:
+    """Return an ``Authorization`` header carrying a Bearer token.
+
+    Reads the token from *env_var* at call time. When the token is unset or
+    empty, returns an empty dict so callers can unconditionally spread the
+    result into their HTTP client kwargs.
+    """
+    token = os.getenv(env_var, "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def verify_internal_token(
     authorization: str | None = Header(None, alias="Authorization"),
     *,

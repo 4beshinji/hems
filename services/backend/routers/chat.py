@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import models
 import schemas
 from database import get_db
+from hems_common.auth import internal_auth_headers
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -33,11 +34,6 @@ BRAIN_CHAT_URL = os.getenv("BRAIN_CHAT_URL", "http://brain:8080")
 VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
 SLIDING_WINDOW = 20  # max messages sent to brain
 TTS_MAX_LENGTH = 100  # auto-synthesize responses shorter than this
-
-
-def _internal_headers() -> dict:
-    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
-    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 # --- Rate Limiting ---
@@ -287,7 +283,7 @@ async def _call_brain(history: list[dict], user_message: str) -> dict:
             resp = await client.post(
                 f"{BRAIN_CHAT_URL}/chat",
                 json={"messages": history, "user_message": user_message},
-                headers=_internal_headers(),
+                headers=internal_auth_headers(),
             )
             if resp.status_code != 200:
                 logger.warning(f"Brain chat error: {resp.status_code} {resp.text[:200]}")
@@ -324,7 +320,7 @@ async def _synth_single(text: str) -> str | None:
             resp = await client.post(
                 f"{VOICE_SERVICE_URL}/api/voice/synthesize",
                 json={"text": text, "tone": "neutral"},
-                headers=_internal_headers(),
+                headers=internal_auth_headers(),
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -372,7 +368,7 @@ async def _synth_chunk(client: httpx.AsyncClient, text: str, index: int) -> tupl
         resp = await client.post(
             f"{VOICE_SERVICE_URL}/api/voice/synthesize",
             json={"text": text, "tone": "neutral", "format": "wav"},
-            headers=_internal_headers(),
+            headers=internal_auth_headers(),
         )
         if resp.status_code != 200:
             logger.debug(f"Chunk {index} synth failed: {resp.status_code}")

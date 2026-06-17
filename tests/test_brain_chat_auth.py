@@ -252,68 +252,80 @@ class TestHealthEndpointExempt:
 # ---------------------------------------------------------------------------
 
 
-class TestBackendBrainAuthHeaders:
-    """Verify each backend router's _brain_auth_headers() function."""
+class TestBackendInternalAuthHeaders:
+    """Verify each backend router's internal_auth_headers() function."""
 
     def _get_helper(self, module_path: str):
         import importlib
 
         mod = importlib.import_module(module_path)
-        return mod._brain_auth_headers
+        return mod.internal_auth_headers
 
     def test_devices_router_empty_when_unset(self, monkeypatch):
         monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
         from routers import devices
 
-        assert devices._brain_auth_headers() == {}
+        assert devices.internal_auth_headers() == {}
 
     def test_devices_router_bearer_when_set(self, monkeypatch):
         monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "tok123")
         from routers import devices
 
-        assert devices._brain_auth_headers() == {"Authorization": "Bearer tok123"}
+        assert devices.internal_auth_headers() == {"Authorization": "Bearer tok123"}
 
     def test_scenes_router_empty_when_unset(self, monkeypatch):
         monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
         from routers import scenes
 
-        assert scenes._brain_auth_headers() == {}
+        assert scenes.internal_auth_headers() == {}
 
     def test_scenes_router_bearer_when_set(self, monkeypatch):
         monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "tok123")
         from routers import scenes
 
-        assert scenes._brain_auth_headers() == {"Authorization": "Bearer tok123"}
+        assert scenes.internal_auth_headers() == {"Authorization": "Bearer tok123"}
 
     def test_automations_router_empty_when_unset(self, monkeypatch):
         monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
         from routers import automations
 
-        assert automations._brain_auth_headers() == {}
+        assert automations.internal_auth_headers() == {}
 
     def test_automations_router_bearer_when_set(self, monkeypatch):
         monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "tok456")
         from routers import automations
 
-        assert automations._brain_auth_headers() == {"Authorization": "Bearer tok456"}
+        assert automations.internal_auth_headers() == {"Authorization": "Bearer tok456"}
 
     def test_chat_router_internal_headers_empty_when_unset(self, monkeypatch):
         monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
         from routers import chat
 
-        assert chat._internal_headers() == {}
+        assert chat.internal_auth_headers() == {}
 
     def test_chat_router_internal_headers_bearer_when_set(self, monkeypatch):
         monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "chattoken")
         from routers import chat
 
-        assert chat._internal_headers() == {"Authorization": "Bearer chattoken"}
+        assert chat.internal_auth_headers() == {"Authorization": "Bearer chattoken"}
+
+    def test_home_router_internal_headers_empty_when_unset(self, monkeypatch):
+        monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+        from routers import home
+
+        assert home.internal_auth_headers() == {}
+
+    def test_home_router_internal_headers_bearer_when_set(self, monkeypatch):
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "hatoken")
+        from routers import home
+
+        assert home.internal_auth_headers() == {"Authorization": "Bearer hatoken"}
 
     def test_reads_env_each_call(self, monkeypatch):
         """No module-level caching — hot-reload friendliness."""
         from routers import devices
 
         monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
-        assert devices._brain_auth_headers() == {}
+        assert devices.internal_auth_headers() == {}
         monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "newval")
-        assert devices._brain_auth_headers() == {"Authorization": "Bearer newval"}
+        assert devices.internal_auth_headers() == {"Authorization": "Bearer newval"}

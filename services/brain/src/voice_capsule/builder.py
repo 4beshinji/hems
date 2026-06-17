@@ -16,20 +16,13 @@ deliberately JSON-shaped so the backend receives it verbatim.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from brain_constants import backend_auth_headers
-
-
-def _internal_headers() -> dict:
-    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
-    return {"Authorization": f"Bearer {token}"} if token else {}
-
+from brain_constants import backend_auth_headers, brain_auth_headers
 
 from .generic_bank import GenericSpec, default_bank
 from .persist import push_manifest
@@ -197,7 +190,7 @@ class CapsuleBuilder:
             async with self.session.post(
                 url,
                 json={"prefix": prefix, "items": items},
-                headers=_internal_headers(),
+                headers=brain_auth_headers(),
                 timeout=120,
             ) as resp:
                 if resp.status != 200:

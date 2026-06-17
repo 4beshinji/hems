@@ -12,16 +12,10 @@ import os
 
 from loguru import logger
 
-from brain_constants import backend_auth_headers
+from brain_constants import backend_auth_headers, brain_auth_headers
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voice-service:8000")
-
-
-def _internal_headers() -> dict:
-    """Bearer token for voice-service / stt gate (HEMS_INTERNAL_TOKEN)."""
-    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
-    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 class DashboardTransport:
@@ -123,7 +117,7 @@ class DashboardTransport:
             async with self.session.post(
                 url,
                 json=voice_payload,
-                headers=_internal_headers(),
+                headers=brain_auth_headers(),
                 timeout=30,
             ) as resp:
                 if resp.status == 200:
@@ -139,7 +133,7 @@ class DashboardTransport:
             async with self.session.post(
                 url,
                 json={"text": text, "tone": tone},
-                headers=_internal_headers(),
+                headers=brain_auth_headers(),
                 timeout=15,
             ) as resp:
                 if resp.status == 200:

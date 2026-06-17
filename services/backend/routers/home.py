@@ -9,15 +9,14 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from hems_common.auth import internal_auth_headers
+
 router = APIRouter(prefix="/home", tags=["home"])
 
-HA_BRIDGE_URL = os.getenv("HA_BRIDGE_URL", "")
 
-
-def _internal_headers() -> dict:
-    """Bearer token for backend → ha-bridge internal calls."""
-    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
-    return {"Authorization": f"Bearer {token}"} if token else {}
+def _ha_bridge_url() -> str:
+    """Read HA_BRIDGE_URL at call time to remain test-isolation friendly."""
+    return os.getenv("HA_BRIDGE_URL", "")
 
 
 _home_store: dict = {}
@@ -66,7 +65,8 @@ async def update_home(data: dict):
 @router.post("/light/control")
 async def control_light(cmd: LightControl):
     """Control a light via ha-bridge proxy."""
-    if not HA_BRIDGE_URL:
+    ha_url = _ha_bridge_url()
+    if not ha_url:
         raise HTTPException(status_code=503, detail="HA bridge not configured")
 
     service = "light/turn_on" if cmd.on else "light/turn_off"
@@ -82,7 +82,8 @@ async def control_light(cmd: LightControl):
 @router.post("/climate/control")
 async def control_climate(cmd: ClimateControl):
     """Control a climate device via ha-bridge proxy."""
-    if not HA_BRIDGE_URL:
+    ha_url = _ha_bridge_url()
+    if not ha_url:
         raise HTTPException(status_code=503, detail="HA bridge not configured")
 
     if cmd.mode == "off":
@@ -114,7 +115,8 @@ async def control_climate(cmd: ClimateControl):
 @router.post("/cover/control")
 async def control_cover(cmd: CoverControl):
     """Control a cover via ha-bridge proxy."""
-    if not HA_BRIDGE_URL:
+    ha_url = _ha_bridge_url()
+    if not ha_url:
         raise HTTPException(status_code=503, detail="HA bridge not configured")
 
     if cmd.position is not None:
@@ -132,14 +134,15 @@ async def control_cover(cmd: CoverControl):
 @router.get("/devices")
 async def get_home_devices():
     """Proxy device list from ha-bridge."""
-    if not HA_BRIDGE_URL:
+    ha_url = _ha_bridge_url()
+    if not ha_url:
         raise HTTPException(status_code=503, detail="HA bridge not configured")
 
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             resp = await client.get(
-                f"{HA_BRIDGE_URL}/api/devices",
-                headers=_internal_headers(),
+                f"{ha_url}/api/devices",
+                headers=internal_auth_headers(),
             )
             return resp.json()
         except (httpx.HTTPError, ValueError) as e:
@@ -148,12 +151,13 @@ async def get_home_devices():
 
 async def _ha_proxy_call(entity_id: str, service: str, data: dict | None = None) -> dict:
     """Forward a service call to ha-bridge."""
+    ha_url = _ha_bridge_url()
     async with httpx.AsyncClient(timeout=15) as client:
         try:
             resp = await client.post(
-                f"{HA_BRIDGE_URL}/api/device/control",
+                f"{ha_url}/api/device/control",
                 json={"entity_id": entity_id, "service": service, "data": data or {}},
-                headers=_internal_headers(),
+                headers=internal_auth_headers(),
             )
             if resp.status_code == 200:
                 return {"success": True, "result": f"{service} -> {entity_id}"}

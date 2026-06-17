@@ -5,12 +5,7 @@ from datetime import UTC, datetime, timedelta
 import aiohttp
 from loguru import logger
 
-from brain_constants import backend_auth_headers
-
-
-def _internal_headers() -> dict:
-    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
-    return {"Authorization": f"Bearer {token}"} if token else {}
+from brain_constants import backend_auth_headers, brain_auth_headers
 
 
 class TaskReminder:
@@ -111,7 +106,7 @@ class TaskReminder:
             async with self._session.post(
                 f"{self.voice_service_url}/api/voice/announce",
                 json=payload,
-                headers=_internal_headers(),
+                headers=brain_auth_headers(),
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status == 200:

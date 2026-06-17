@@ -19,6 +19,7 @@ from sqlalchemy.future import select
 import models
 import schemas
 from database import get_db
+from hems_common.auth import internal_auth_headers
 from hems_common.validation import validate_device_ref
 
 logger = logging.getLogger(__name__)
@@ -37,17 +38,6 @@ def _ensure_valid_device_id(device_id: str) -> str:
 
 
 _IEEE_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{16}$")
-
-
-def _brain_auth_headers() -> dict:
-    """Authorization header for backend → brain chat-server proxied requests.
-
-    Carries ``HEMS_INTERNAL_TOKEN`` as a Bearer token when set; returns ``{}``
-    (no header) in zero-config / dev deployments. Reads env each call so a
-    live-reloaded token takes effect without restarting the backend.
-    """
-    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
-    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def _is_placeholder_name(name: str | None, device_id: str | None = None) -> bool:
@@ -277,7 +267,7 @@ async def zigbee_permit_join(body: schemas.ZigbeePermitJoinRequest):
             session.post(
                 f"{BRAIN_URL}/devices/zigbee/permit_join",
                 json={"enable": body.enable, "duration_s": body.duration_s},
-                headers=_brain_auth_headers(),
+                headers=internal_auth_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp,
         ):
@@ -318,7 +308,7 @@ async def control_device(
             session.post(
                 f"{BRAIN_URL}/devices/control",
                 json={"device_id": device_id, "action": body.action, "params": body.params},
-                headers=_brain_auth_headers(),
+                headers=internal_auth_headers(),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp,
         ):

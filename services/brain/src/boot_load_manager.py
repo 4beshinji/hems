@@ -26,6 +26,7 @@ from pathlib import Path
 import aiohttp
 from loguru import logger
 
+from brain_constants import brain_auth_headers
 from brain_utils import split_for_speak
 
 BOOT_LOAD_WINDOW_SEC = int(os.getenv("BOOT_LOAD_WINDOW_SEC", "2700"))  # 45 min
@@ -34,11 +35,6 @@ BOOT_LOAD_MAX_TOKENS = int(os.getenv("BOOT_LOAD_MAX_TOKENS", "1600"))  # thinkin
 # Cache persistence — survives brain restarts within the same day so a crash
 # right before wake doesn't wipe a freshly synthesized briefing.
 BOOT_LOAD_CACHE_DIR = Path(os.getenv("BOOT_LOAD_CACHE_DIR", "/app/data/boot_load_cache"))
-
-
-def _internal_headers() -> dict:
-    token = os.getenv("HEMS_INTERNAL_TOKEN", "")
-    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 @dataclass
@@ -499,7 +495,7 @@ class BootLoadManager:
                 async with session.post(
                     f"{voice_url}/api/voice/synthesize",
                     json={"text": chunk, "tone": "caring"},
-                    headers=_internal_headers(),
+                    headers=brain_auth_headers(),
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as resp:
                     if resp.status == 200:
