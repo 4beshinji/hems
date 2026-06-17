@@ -179,3 +179,57 @@ def test_username_pw_set_only_when_user_given():
     pub_no = MqttPublisher("localhost", 1883)
     # client is a real paho client here; just ensure construction worked.
     assert pub_no.client is not None
+
+
+def test_subscribe_calls_client_subscribe():
+    pub = _make_pub()
+    pub.subscribe("hems/perception/vlm/+")
+    pub.client.subscribe.assert_called_once_with("hems/perception/vlm/+")
+
+
+def test_set_message_callback_stores_callback():
+    pub = _make_pub()
+
+    def cb(topic, payload):
+        pass
+
+    pub.set_message_callback(cb)
+    assert pub._message_callback is cb
+
+
+def test_on_message_routes_to_callback():
+    pub = _make_pub()
+    received = []
+
+    def cb(topic, payload):
+        received.append((topic, payload))
+
+    pub.set_message_callback(cb)
+    msg = MagicMock()
+    msg.topic = "hems/perception/vlm/living"
+    msg.payload = b'{"objects": ["cat"]}'
+    pub._on_message(None, None, msg)
+    assert received == [("hems/perception/vlm/living", {"objects": ["cat"]})]
+
+
+def test_on_message_ignores_when_no_callback():
+    pub = _make_pub()
+    msg = MagicMock()
+    msg.topic = "hems/x"
+    msg.payload = b'{"a": 1}'
+    pub._on_message(None, None, msg)  # should not raise
+
+
+def test_on_message_warns_on_invalid_json(monkeypatch):
+    from hems_common import mqtt as mqtt_mod
+
+    warnings = []
+    monkeypatch.setattr(mqtt_mod.logger, "warning", lambda msg, *a, **k: warnings.append(msg))
+
+    pub = _make_pub()
+    pub.set_message_callback(lambda t, p: None)
+    msg = MagicMock()
+    msg.topic = "hems/x"
+    msg.payload = b"not-json"
+    pub._on_message(None, None, msg)
+    assert any("Failed to parse" in str(w) for w in warnings)
