@@ -1,5 +1,7 @@
 # 朝ブリーフィング — ブロッカー監査とリファクタ計画
 
+> **HISTORICAL / COMPLETED** — 本計画は 2026-05-03 の朝ブリーフィングパイプライン監査・リファクタ計画です。Wave 1-3 は完了済み。後続のデータ流統合計画は [`../wiring-gap-06-data-flow-consolidation.md`](../wiring-gap-06-data-flow-consolidation.md) / [`../feature-proposals-2026-06-11.md`](../feature-proposals-2026-06-11.md) を参照してください。
+
 2026-05-03 監査。`wake_up` イベント駆動の朝ブリーフィングパイプライン (BootLoad pre-synth → SunriseAlarm → EventAutomation → morning_greeting / news_briefing / weather_report → speak) のブロッカーと技術的負債を、コード突合のうえで列挙する。
 
 対象: `services/brain/src/{main.py, event_automation.py, boot_load_manager.py, sunrise_alarm.py, schedule_learner.py, persona_rewriter.py, world_model/world_model.py, tool_executor.py}`, `services/news-bridge/src/main.py`.

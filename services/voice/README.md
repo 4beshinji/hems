@@ -1,3 +1,5 @@
+> **STALE / HISTORICAL** — このドキュメントは `services/voice` が VOICEVOX 固定設計だった初期の README です。現在は espeak / VOICEVOX / VoiSona Talk / Edge TTS / AIVOICE を切り替え可能なプラグインTTSサービスに再設計済み。最新情報は [`CLAUDE.md`](CLAUDE.md) と `env.example` を参照してください。
+
 # VOICEVOX Voice Notification Service
 
 ナースロボ＿タイプＴの声でタスクを親しみやすく読み上げるサービスです。

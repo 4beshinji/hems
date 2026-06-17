@@ -1,5 +1,7 @@
 # リファクタ計画: 監査所見の実コード反映(自走 /goal の参照 doc)
 
+> **HISTORICAL / COMPLETED** — 本計画は 2026-05-25 のリファクタ計画です。非 deferred 行は全て [`LEDGER.md`](LEDGER.md) で完了し、deferred 9 行は [`../2026-06-11/PLAN.md`](../2026-06-11/PLAN.md) に移管済み。現行の計画は `../2026-06-11/` を参照してください。
+>
 > **この doc の役割**: `/goal` 自走リファクタの **in-repo SoT(参照ドキュメント)**。/clear を跨いで生存させる。
 > 各セッションはまず [`LEDGER.md`](LEDGER.md) を読み、先頭 pending row を 1 つ処理して commit する。
 > 進捗 ledger は [`LEDGER.md`](LEDGER.md)、所見の出所は [`docs/audit/2026-05-25/`](../../audit/2026-05-25/)。

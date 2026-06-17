@@ -1,5 +1,7 @@
 # Technical Debt Refactoring Plan — 2026-05-24
 
+> **HISTORICAL / COMPLETED** — 本計画は 2026-05-24 の技術的負債再監査に基づく実行計画です。Phase 1-4 は完了し、deferred 項目は [`../refactor/2026-06-11/PLAN.md`](../refactor/2026-06-11/PLAN.md) に引き継がれました。最新の計画は `../refactor/2026-06-11/` を参照してください。
+
 Source: `docs/technical-debt-audit-2026-05-24.md`
 
 ## Goal

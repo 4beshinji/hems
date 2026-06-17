@@ -517,11 +517,11 @@
 - **技適**: 認証済み（BLE）
 - **計測項目**: 心拍数、SpO2、睡眠（ステージ分析）、歩数、ストレス
 - **電池寿命**: 最大21日
-- **接続**: Mi Fitness アプリ → Health Connect → Gadgetbridge → biometric-bridge webhook
+- **接続**: Mi Fitness アプリ → Health Connect → HEMS Health Connect コンパニオンアプリ (`apps/healthconnect-companion/`) → biometric-bridge webhook（Gadgetbridge も後方互換）
 - **HEMS実現機能**（`biometric` profile）:
   - `get_biometrics` ツール: リアルタイム心拍数・ストレス取得
   - `get_sleep_summary` ツール: 昨夜の睡眠サマリー
-  - **疲労スコア計算**（HR 30% + 睡眠 40% + ストレス 30%）
+  - **疲労スコア計算**（HR 20% + HRV 15% + 睡眠 35% + ストレス 30%）
   - 高心拍アラート（HR > 120）
   - 低心拍アラート（HR < 45）
   - SpO2低下アラート（SpO2 < 92）

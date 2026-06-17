@@ -1,5 +1,7 @@
 # Wiring Gap 06 — データ流統合リファクタ計画
 
+> **HISTORICAL / MOSTLY IMPLEMENTED** — 本計画は 2026-05-03 のスナップショットです。Wave 計画の大半は 2026-06-11 リファクタ (`docs/refactor/2026-06-11/PLAN.md` / `LEDGER.md`) で実装済みです。未実装項目は `docs/feature-proposals-2026-06-11.md` および `docs/audit/2026-06-11/SUMMARY.md` で管理されています。行番号・ファイルパスは重构築により無効になっています。
+
 2026-05-03 全データソース audit (収集 → WorldModel → LLM context → Rule → Tool → Frontend) の結果に基づく統合リファクタ計画。
 
 **前提ドキュメント** (積み残し統合元):

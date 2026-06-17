@@ -7,6 +7,52 @@
 
 ---
 
+## 2026-06-17
+
+### 🔧 ドキュメント・env 既定値の整備
+
+- README を単独でPJの目的と機能が分かる形にリライト。fork 元言及を削除。
+- `env.example` / `infra/docker-compose.yml` / `services/voice/src/provider_factory.py` の既定値を統一:
+  - TTS 既定値を `voicevox`（speaker 47、fallback `espeak`）に統一（`style-bert-vits2` プレースホルダーを削除）
+  - LLM 既定値を `ollama` + `gemma4:e4b-it-q8_0` に統一
+  - `BRAIN_CHAT_PORT` 既定値を `8080` に統一
+- `style-bert-vits2` の未実装プレースホルダーを `env.example` / `docker-compose.yml` / 各ドキュメントから削除。
+- コアサービスに `weather-bridge` を追加し、関連ドキュメントを更新。
+
+## 2026-06-11
+
+### ⚠️ PostgreSQL が既定 DB に変更 (W4.5' / W4.6)
+
+SQLite から PostgreSQL 16 へ既定 DB を切り替え。既存 SQLite 環境の移行には `infra/scripts/migrate_sqlite_to_pg.py` を使用。
+
+- `make quickstart` で `.env` + ランダムシークレット + PostgreSQL を自動セットアップ
+- SQLite 軽量モードは `make quickstart-sqlite` / `docker-compose.sqlite-lite.yml` で引き続き利用可
+
+### ⚠️ 内部サービス認証 `HEMS_INTERNAL_TOKEN` 導入 (W1.1 / W3.9)
+
+voice-service / stt / 各 bridge の変更系エンドポイントに Bearer 認証を導入。`.env` で `HEMS_INTERNAL_TOKEN` を設定すると、brain/backend からの内部呼び出しと bridge 間呼び出しに `Authorization: Bearer <token>` が必要になる。未設定時はスキップ（dev モード）。
+
+### ⚠️ `BACKEND_API_KEY` による dashboard API 認証再導入 (W1.1)
+
+空の場合は LAN-trusted 動作。設定時は dashboard router 群と brain→backend 呼び出しで Bearer 検証。
+
+### 🆕 `make quickstart` / `make quickstart-sqlite`
+
+`.env` 自動生成 + base image ビルド + core stack 起動を1コマンドで実行。
+
+### 🔧 Brain / Backend / Frontend 大規模リファクタ (W1–W5)
+
+- Brain: `tool_registry` / `tool_schemas` / `tool_handlers_*` 分離、`world_model` mixin 化、ルールエンジン整理
+- Backend: Device Registry 強化、Automation Engine、Scene、Mobile、BridgeStatus、Timeseries/Timeline 等を追加
+- Frontend: vitest + MSW 導入、Context 分割、VRM dispose、環境変数統一
+- Mosquitto: ACL 強化、全内部サービスを `127.0.0.1` バインド
+
+### ⚠️ `get_weather` ツールを HA profile から独立
+
+`get_weather` は `weather-bridge`（常時起動）由来のツールとなった。`ha` profile 非依存。
+
+---
+
 ## 2026-05-01
 
 ### ⚠️ Mosquitto ACL / passwords 変更時は `docker compose restart mosquitto` 必須
@@ -31,7 +77,7 @@ docker compose restart mosquitto
 - env: `WEATHER_PROVIDER` (`jma` デフォルト) / `JMA_AREA_CODE` / `JMA_DETAIL_CODE` / OWM 系
 - これにより `world_model.weather` が常に充填され、`get_weather` ツールおよび EventAutomation の `weather_report` action が実データで動作
 
-詳細は `docs/wiring-gap-05-orphan-cleanup-and-underused-data.md` を参照。
+詳細は `docs/wiring-gap-06-data-flow-consolidation.md` を参照（gap-05 は gap-06 に統合済み）。
 
 ### ⚠️ backend Device テーブルに `link_quality` / `last_seen_reported` 追加 — 既存 DB 要再生成
 

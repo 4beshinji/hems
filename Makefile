@@ -8,18 +8,18 @@ help: ## Show this help
 
 # -- Quick start -------------------------------------------------------------
 
-quickstart: ## Generate .env (if missing) with random secrets and start the core stack
+quickstart: docker-base ## Generate .env (if missing) with random secrets and start the core stack
 	@if [ ! -f .env ]; then \
 		cp env.example .env; \
 		python3 infra/scripts/init_env.py; \
 	fi
-	cd infra && docker compose up -d --build
+	cd infra && docker compose --env-file ../.env up -d --build
 
-quickstart-sqlite: ## Start the lightweight SQLite variant (no PostgreSQL required)
+quickstart-sqlite: docker-base ## Start the lightweight SQLite variant (no PostgreSQL required)
 	@if [ ! -f .env ]; then \
 		cp env.example .env; \
 	fi
-	cd infra && docker compose -f docker-compose.yml -f docker-compose.sqlite-lite.yml up -d --build
+	cd infra && docker compose --env-file ../.env -f docker-compose.yml -f docker-compose.sqlite-lite.yml up -d --build
 
 # -- Linting -----------------------------------------------------------------
 

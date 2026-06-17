@@ -173,13 +173,15 @@ virt-manager --connect qemu:///system --show-domain-console win11-voisona
 
 ## HEMS 統合
 
-`audio_device` モードで動作。VoiSona が VM スピーカー経由で直接再生し、
-HEMS voice service は合成完了を待つだけ（音声バイトは返さない）。
+`audio_device` モードで動作。VoiSona が VM スピーカー経由で直接再生する。
+HEMS voice service は合成結果として空の `audio_data` を返すため、フロントエンドでは
+「既に直接再生済み」として音声キューをスキップする。
 
 ### .env 設定
 
 ```bash
 TTS_PROVIDER=voisona
+TTS_FALLBACK=voicevox        # VoiSona VM 停止時の fallback
 VOISONA_URL=http://192.168.1.173:32766
 VOISONA_USERNAME=user@example.com
 VOISONA_PASSWORD=your_password
@@ -192,17 +194,18 @@ VOISONA_LANGUAGE=ja_JP
 ```
 Brain speak tool → voice-service /api/voice/synthesize
     → VoisonaProvider.synthesize()
-        → POST /api/talk/v1/speech-syntheses (destination=audio_device)
+        → POST /api/talk/v1/speech-syntheses
         → Poll GET /api/talk/v1/speech-syntheses/{uuid}
-        → state=succeeded → return (played_directly=true, duration)
+        → state=succeeded → AudioResult(audio_data=b"", format="wav", duration=duration)
+    → voice-service sets played_directly=true because audio_data is empty
     → VoiSona VM がスピーカーで直接再生 (SPICE → ホスト音声出力)
 ```
 
 ### 注意点
-- `played_directly=true` の場合、フロントエンドでの音声再生はスキップされる
-  （`audio_url=null`なのでenqueueされない）
+- `audio_data` が空のため voice-service が `played_directly=true` を設定し、フロントエンドでの音声再生はスキップされる
 - 音声はVMのSPICE出力経由でホストスピーカーから鳴る
 - virt-manager のコンソール接続が必須（SPICE音声転送のため）
+- `HEMS_INTERNAL_TOKEN` を設定している場合、`/api/voice/synthesize` へ `Authorization: Bearer <token>` が必要
 
 ## キャラクターYAMLとの連携
 
@@ -218,7 +221,7 @@ Brain speak tool → voice-service /api/voice/synthesize
 | `intonation` | 0 – 2 | 1.0 | 抑揚スケール |
 | `huskiness` | -20 – 20 | 0 | ハスキー度（息混じり感） |
 | `alp` | -1 – 1 | 0 | 声の年齢感 (alpha) |
-| `style_weights` | [0–1, ...] | [1,0,0,0,0] | スタイル補間ウェイト |
+| `style_weights` | [0–1, ...] | テンプレート依存 | スタイル補間ウェイト。コード上の固定 default ではなく、キャラクターテンプレートで慣例的に使われる値 |
 
 ### style_weights
 

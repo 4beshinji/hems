@@ -2,6 +2,8 @@
 
 スマートバンド / スマートウォッチを HEMS に接続し、心拍数・SpO2・睡眠・歩数・ストレス等のヘルスデータをリアルタイムで取得するための手順。
 
+HEMS へのデータ送信には、**HEMS Health Connect コンパニオンアプリ（推奨）** または **Gadgetbridge** を使用する。
+
 ## 対応デバイス
 
 | デバイス | コンパニオンアプリ | Health Connect | クラウド API | 備考 |
@@ -38,7 +40,7 @@ HEMS はデュアルパスアーキテクチャでバンドデータを取得す
 
 | パス | 経路 | 遅延 | 必要なもの | 対応デバイス |
 |------|------|------|-----------|-------------|
-| **A: Health Connect** (推奨) | Band → コンパニオンアプリ → Health Connect → HEMS コンパニオン → biometric-bridge | ~15分 | Android 14+ スマホ | 全デバイス |
+| **A: Health Connect** (推奨) | Band → コンパニオンアプリ → Health Connect → HEMS コンパニオン → biometric-bridge | ~15分 | Android 14+ スマホ (必須) | 全デバイス |
 | **B: Huami API** (補助) | Band → Mi Fitness → Huami クラウド → biometric-bridge | ~15分 | huami-token (初回のみ) | Xiaomi / Amazfit のみ |
 
 両パスを同時に有効化可能。重複データは自動的に除去される (5分ウィンドウ)。
@@ -53,8 +55,9 @@ HEMS はデュアルパスアーキテクチャでバンドデータを取得す
 #### 必要なもの
 
 - **Xiaomi Smart Band 10** (Standard Edition: 約6,280円 / Ceramic Edition: 約8,680円)
-- **Android スマートフォン** (Android 14 以上推奨、Health Connect 対応)
+- **Android スマートフォン** (Android 14 以上必須、Health Connect 対応)
 - **Mi Fitness アプリ** (Google Play からインストール)
+- **HEMS Health Connect コンパニオンアプリ** または **Gadgetbridge**
 - **HEMS サーバー** (Docker Compose 稼働中)
 
 #### 1. Mi Fitness アプリのインストール
@@ -72,6 +75,8 @@ Mi Fitness が Health Connect にデータを書き込むよう設定する:
 2. **プロフィール** → **サードパーティ連携** → **Health Connect**
 3. 連携を有効化し、以下の項目を許可:
    - 心拍数 (Heart Rate)
+   - 安静時心拍数 (Resting Heart Rate)
+   - 心拍変動 (Heart Rate Variability / HRV)
    - 血中酸素濃度 (SpO2)
    - 睡眠 (Sleep)
    - 歩数 (Steps)
@@ -100,8 +105,9 @@ Mi Fitness アプリでバンドの自動測定を有効化:
 #### 必要なもの
 
 - **CMF Watch Pro 2** (Nothing サブブランド、約8,800円)
-- **Android スマートフォン** (Android 14 以上推奨、Health Connect 対応)
+- **Android スマートフォン** (Android 14 以上必須、Health Connect 対応)
 - **CMF Watch アプリ** (Google Play からインストール)
+- **HEMS Health Connect コンパニオンアプリ** または **Gadgetbridge**
 - **HEMS サーバー** (Docker Compose 稼働中)
 
 #### 1. CMF Watch アプリのインストール
@@ -119,6 +125,8 @@ CMF Watch アプリが Health Connect にデータを書き込むよう設定す
 2. **プロフィール** → **Health Connect** (または **サードパーティ連携**)
 3. 連携を有効化し、以下の項目を許可:
    - 心拍数 (Heart Rate)
+   - 安静時心拍数 (Resting Heart Rate)
+   - 心拍変動 (Heart Rate Variability / HRV)
    - 血中酸素濃度 (SpO2)
    - 睡眠 (Sleep)
    - 歩数 (Steps)
@@ -152,7 +160,7 @@ CMF Watch アプリ
     ↓ (自動同期)
 Health Connect (Android OS)
     ↓ (15分ごとに読み取り)
-HEMS Health コンパニオンアプリ
+HEMS Health Connect コンパニオンアプリ
     ↓ (HTTPS POST + HMAC署名)
 biometric-bridge webhook
     ↓ (MQTT publish)
@@ -172,6 +180,16 @@ HEMS Brain
 # Webhook 認証シークレット (必須)
 BIOMETRIC_WEBHOOK_SECRET=$(openssl rand -hex 32)
 
+# 内部サービス間通信用トークン (任意)。
+# 設定すると /api/biometric/* の GET 系に Authorization: Bearer <token> が必要になる。
+# 未設定時は認証なし (dev mode)。
+# HEMS_INTERNAL_TOKEN=$(openssl rand -hex 32)
+
+# Webhook replay 攻撃防止を厳格化。
+# 現行 HEMS Health Connect コンパニオンアプリは legacy HMAC 署名のみ対応のため、
+#  true にするとリクエストが拒否される。false (デフォルト) のまま運用すること。
+# WEBHOOK_REPLAY_STRICT=false
+
 # Huami API を使う場合 (Step 3 パスB参照)
 # HUAMI_ENABLED=true
 # HUAMI_AUTH_TOKEN=...
@@ -189,14 +207,14 @@ docker compose --profile biometric up -d --build
 
 ```bash
 curl http://localhost:8017/health
-# → {"status":"ok","provider":"gadgetbridge","active_providers":["gadgetbridge"]}
+# → {"status":"ok","provider":"gadgetbridge","active_providers":["gadgetbridge"],"mqtt_connected":true,"queue_pending":0}
 ```
 
 ## データ取得パスの構成
 
 ### パス A: Health Connect コンパニオンアプリ (推奨)
 
-Android スマホ上のコンパニオンアプリが Health Connect からデータを読み取り、
+Android スマホ上の HEMS Health Connect コンパニオンアプリが Health Connect からデータを読み取り、
 HEMS の biometric-bridge に定期送信する。
 
 #### A.1 アプリのビルドとインストール
@@ -211,12 +229,16 @@ cd apps/healthconnect-companion
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
+> **要件**: `minSdk = 34` なので、**Android 14 以上が必須**。
+
 #### A.2 アプリの設定
 
-1. HEMS Health アプリを起動
+1. HEMS Health Connect コンパニオンアプリを起動
 2. **「Grant Health Connect Permissions」** をタップし、全項目を許可
+   （心拍数、安静時心拍数、HRV、SpO2、睡眠、歩数、消費カロリー等）
 3. 設定を入力:
    - **Bridge URL**: `http://<HEMSサーバーのIP>:8017`
+     （末尾の `/api/biometric/webhook` はアプリが自動付加するので、ベース URL のみ入力）
    - **Webhook Secret**: `.env` の `BIOMETRIC_WEBHOOK_SECRET` の値
    - **Sync Interval**: `15` (分)
 4. **「Save」** をタップ → バックグラウンド同期がスケジュールされる
@@ -231,7 +253,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
     ↓ (自動同期)
 Health Connect (Android OS)
     ↓ (15分ごとに読み取り)
-HEMS Health コンパニオンアプリ
+HEMS Health Connect コンパニオンアプリ
     ↓ (HTTPS POST + HMAC署名)
 biometric-bridge webhook
     ↓ (MQTT publish)
@@ -302,7 +324,7 @@ docker compose --profile biometric up -d --build
 
 ```bash
 curl http://localhost:8017/health
-# → {"status":"ok","provider":"gadgetbridge","active_providers":["gadgetbridge","huami"]}
+# → {"status":"ok","provider":"gadgetbridge","active_providers":["gadgetbridge","huami"],"mqtt_connected":true,"queue_pending":0}
 # "huami" が active_providers に含まれていれば成功
 ```
 
@@ -324,25 +346,40 @@ HEMS Brain
 
 ### ヘルスデータの確認
 
+`/api/biometric/*` の GET 系は `private_router` に属する。
+`.env` で `HEMS_INTERNAL_TOKEN` を設定している場合、`Authorization: Bearer <token>` ヘッダーが必要。
+未設定時は認証不要 (dev mode)。
+
 ```bash
 # 最新のバイオメトリクス
-curl http://localhost:8017/api/biometric/latest
+curl -H "Authorization: Bearer ${HEMS_INTERNAL_TOKEN}" \
+  http://localhost:8017/api/biometric/latest
 # → {"provider":"healthconnect","timestamp":1741186800.0,"heart_rate":72,"steps":4500,...}
 
 # 睡眠サマリー
-curl http://localhost:8017/api/biometric/sleep
+curl -H "Authorization: Bearer ${HEMS_INTERNAL_TOKEN}" \
+  http://localhost:8017/api/biometric/sleep
 # → {"duration_minutes":420,"deep_minutes":90,"rem_minutes":60,...}
 
 # 活動サマリー
-curl http://localhost:8017/api/biometric/activity
+curl -H "Authorization: Bearer ${HEMS_INTERNAL_TOKEN}" \
+  http://localhost:8017/api/biometric/activity
 # → {"steps":8500,"calories":250,...}
 ```
 
 ### MQTT トピックの監視
 
+メトリクスは `hems/personal/biometrics/{provider}/` 配下に publish される。
+bridge 状態は **canonical** として `hems/biometric/bridge/status`、
+legacy 互換として `hems/personal/biometrics/bridge/status` も brain は併読する。
+
 ```bash
-# MQTT メッセージをリアルタイム監視
+# メトリクスをリアルタイム監視
 docker exec hems-mqtt mosquitto_sub -t 'hems/personal/biometrics/#' -v \
+  -u hems-biometric -P <password>
+
+# bridge 状態 (canonical)
+docker exec hems-mqtt mosquitto_sub -t 'hems/biometric/bridge/status' -v \
   -u hems-biometric -P <password>
 ```
 
@@ -352,7 +389,9 @@ docker exec hems-mqtt mosquitto_sub -t 'hems/personal/biometrics/#' -v \
 hems/personal/biometrics/healthconnect/heart_rate {"bpm":72,"resting_bpm":62}
 hems/personal/biometrics/healthconnect/steps {"count":8500,"daily_goal":10000}
 hems/personal/biometrics/healthconnect/sleep {"duration_minutes":420,"deep_minutes":90,...}
+hems/personal/biometrics/healthconnect/hrv {"rmssd_ms":42}
 hems/personal/biometrics/huami/heart_rate {"bpm":72,"resting_bpm":60}
+hems/biometric/bridge/status {"connected":true,"provider":"healthconnect","active_providers":["healthconnect"]}
 ```
 
 ## 取得できるデータ一覧
@@ -400,8 +439,9 @@ hems/personal/biometrics/huami/heart_rate {"bpm":72,"resting_bpm":60}
        ▼               ▼
 ┌────────────┐  ┌──────────────┐
 │ HEMS Health│  │ biometric-   │
-│ Companion  │  │ bridge       │
-│ App        │  │ HuamiProvider│
+│ Connect    │  │ bridge       │
+│ Companion  │  │ HuamiProvider│
+│ App        │  │              │
 └──────┬─────┘  └──────┬───────┘
        │ HTTP POST     │ (内部)
        ▼               ▼
@@ -456,7 +496,7 @@ cd infra && docker compose --profile biometric up -d --build
 
 ### コンパニオンアプリの同期が止まる
 
-- Android のバッテリー最適化で HEMS Health アプリを「制限なし」に
+- Android のバッテリー最適化で HEMS Health Connect コンパニオンアプリを「制限なし」に
 - WorkManager は Android の電力管理下で動作するため、Doze モードでは遅延が発生しうる
 - 最小同期間隔は 15分 (WorkManager の制約)
 
@@ -471,6 +511,23 @@ docker logs -f hems-biometric-bridge
 curl http://localhost:8017/health
 ```
 
+### `/api/biometric/*` が 401 になる
+
+`HEMS_INTERNAL_TOKEN` を設定している場合、リクエストに `Authorization: Bearer <token>` を付ける:
+
+```bash
+curl -H "Authorization: Bearer ${HEMS_INTERNAL_TOKEN}" \
+  http://localhost:8017/api/biometric/latest
+```
+
+未設定時は認証不要 (dev mode)。トークン値は `.env` の `HEMS_INTERNAL_TOKEN` と一致させる。
+
+### Webhook が 401 になる
+
+- `BIOMETRIC_WEBHOOK_SECRET` がアプリ設定と `.env` で一致しているか確認
+- 現行 HEMS Health Connect コンパニオンアプリは **legacy HMAC 署名** のみ対応のため、
+  `WEBHOOK_REPLAY_STRICT=true` にするとリクエストが拒否される。`false` (デフォルト) で運用すること
+
 ## 構成リファレンス
 
 ### .env 変数一覧
@@ -478,17 +535,21 @@ curl http://localhost:8017/health
 | 変数 | デフォルト | 説明 |
 |------|----------|------|
 | `BIOMETRIC_WEBHOOK_SECRET` | (なし) | Webhook HMAC 認証シークレット。未設定時は認証無効 |
-| `BIOMETRIC_PROVIDER` | `gadgetbridge` | デフォルトプロバイダ名 |
+| `HEMS_INTERNAL_TOKEN` | (なし) | 内部サービス間 Bearer トークン。設定時は `/api/biometric/*` GET 系に `Authorization: Bearer` が必要 |
+| `BIOMETRIC_PROVIDER` | `gadgetbridge` | デフォルトプロバイダ名。Health Connect コンパニオンアプリから送信される `provider` フィールドで上書きされる |
 | `HUAMI_ENABLED` | `false` | Huami クラウド API ポーリングの有効化 |
 | `HUAMI_AUTH_TOKEN` | (なし) | Huami API 認証トークン |
 | `HUAMI_USER_ID` | (なし) | Huami ユーザー ID |
 | `HUAMI_SERVER_REGION` | `us` | API サーバーリージョン (us/cn/eu/sg/ru) |
 | `HUAMI_POLL_INTERVAL` | `900` | ポーリング間隔 (秒) |
 | `BIOMETRIC_DEDUP_WINDOW` | `300` | 重複排除ウィンドウ (秒) |
+| `WEBHOOK_REPLAY_STRICT` | `false` | `true` の場合、 webhook は `X-Timestamp` + `X-Nonce` ヘッダーを必須にする。現行コンパニオンアプリは未対応なので `false` を維持 |
 
 ### MQTT トピック
 
-すべて `hems/personal/biometrics/{provider}/` 配下:
+生体メトリクスは `hems/personal/biometrics/{provider}/` 配下に publish される。
+bridge 状態は **canonical** で `hems/biometric/bridge/status`、
+legacy 互換として `hems/personal/biometrics/bridge/status` も brain が併読する。
 
 | サブトピック | ペイロード例 |
 |------------|------------|
@@ -500,11 +561,42 @@ curl http://localhost:8017/health
 | `activity` | `{"calories": 250, "active_minutes": 45, "steps": 8500}` |
 | `hrv` | `{"rmssd_ms": 42}` |
 | `fatigue` | `{"score": 35, "factors": ["poor_sleep"]}` |
-| `bridge/status` | `{"connected": true, "provider": "gadgetbridge", "active_providers": ["gadgetbridge", "huami"]}` |
+| `bridge/status` (canonical) | `{"connected": true, "provider": "healthconnect", "active_providers": ["healthconnect"]}` |
+| `bridge/status` (legacy) | `hems/personal/biometrics/bridge/status` も互換 window で受信 |
 
 ### Webhook ペイロード形式
 
-コンパニオンアプリが biometric-bridge に POST するデータ形式:
+コンパニオンアプリが biometric-bridge に POST するデータ形式。
+エンドポイントは `/api/biometric/webhook`。
+
+#### 新プロトコル (replay 防止対応アプリ)
+
+```json
+POST /api/biometric/webhook
+Content-Type: application/json
+X-HEMS-Signature: sha256=<hmac_sha256_hex>
+X-Timestamp: 1741186800
+X-Nonce: <unique_opaque_string>
+
+{
+  "provider": "healthconnect",
+  "timestamp": 1741186800.0,
+  "heart_rate": 72,
+  "resting_heart_rate": 62,
+  "spo2": 98,
+  "steps": 8500,
+  "calories": 250,
+  "hrv": 42,
+  "sleep_duration": 420,
+  "sleep_deep": 90,
+  "sleep_rem": 60,
+  "sleep_light": 180,
+  "sleep_start_ts": 1741125000.0,
+  "sleep_end_ts": 1741150200.0
+}
+```
+
+#### Legacy プロトコル (現行 HEMS Health Connect コンパニオンアプリ / Gadgetbridge)
 
 ```json
 POST /api/biometric/webhook
@@ -529,12 +621,18 @@ X-HEMS-Signature: sha256=<hmac_sha256_hex>
 }
 ```
 
+> **注意**: `WEBHOOK_REPLAY_STRICT=true` にすると、legacy プロトコル (X-Timestamp/X-Nonce なし) は
+> **401 で拒否**される。現行 HEMS Health Connect コンパニオンアプリは legacy 署名のみ対応のため、
+> デフォルトの `false` のまま運用すること。
+
 ### Brain ツール
 
 biometric-bridge のデータは Brain の以下のツールからアクセスされる:
 
 - **`get_biometrics`**: 最新のバイオメトリクス (HR, SpO2, Steps, Stress, 疲労スコア)
 - **`get_sleep_summary`**: 直近の睡眠サマリー (総時間, ステージ別, 品質スコア)
+- **`get_biometric_trend`**: 生体メトリックの履歴 (時系列) と傾向 (min/max/avg 等)
+- **`get_sleep_history`**: 直近 N 日分の睡眠品質スコア / 睡眠時間履歴
 
 ### Brain ルール (自動トリガー)
 

@@ -21,6 +21,7 @@
 | backend | hems-backend | (always) | services/backend | ✓ |
 | frontend | hems-frontend | (always) | services/frontend | ✓ |
 | voice-service | hems-voice | (always) | services/voice | ✓ |
+| weather-bridge | hems-weather-bridge | (always) | services/weather-bridge | ✓ |
 | mock-llm | hems-mock-llm | mock | infra/mock_llm | ✓ |
 | localcraw-bridge | hems-openclaw-bridge | openclaw / localcraw | external repo (`../localcraw`) | ✓ ※注 |
 | obsidian-bridge | hems-obsidian-bridge | obsidian | services/obsidian-bridge | ✓ |
@@ -297,7 +298,7 @@ PY
 hems/sensors/{zone}/{device_type}/{device_id}/{channel}   # canonical (W3.8c)
 
 # PC metrics (OpenClaw bridge)
-hems/pc/metrics/{cpu|memory|gpu|disk}
+hems/pc/metrics/{cpu|memory|gpu|disk|temp}
 hems/pc/processes/top
 hems/pc/bridge/status
 
@@ -430,7 +431,7 @@ zigbee2mqtt/#
 | biometric-bridge | `hems/personal/biometrics/{provider}/{metric}` | heart_rate / spo2 / sleep / activity / steps / stress / fatigue / hrv / body_temp / respiratory_rate |
 | biometric-bridge | `hems/biometric/bridge/status` | 健康状態 (canonical W3.3) |
 | biometric-bridge | ~~`hems/personal/biometrics/bridge/status`~~ | 旧トピック(互換 window — brain は新旧両方を受信) |
-| switchbot-bridge | `hems/switchbot/{device_id}/state` | 状態 |
+| switchbot-bridge | `hems/home/{zone}/sensor/switchbot.{device_id}_{temperature,humidity,co2,power}/state` | デバイス状態 |
 | switchbot-bridge | `hems/switchbot/bridge/status` | 健康状態 |
 | tapo-bridge | `hems/tapo/{vendor_ref}/state` | 電力計測 + on/off |
 | news-bridge | `hems/news/daily` | 日次サマリ |
@@ -656,100 +657,32 @@ grep -nE '"[^"]+": "_handle_' services/brain/src/tool_dispatch.py
 
 ---
 
-## 9. 環境変数 — 現状の env.example カバレッジ
+## 9. 環境変数 — env.example との整合性メモ
 
-env.example に **無い / 古い** ものを記載。
+`env.example` は canonical な環境変数テンプレート。以下は過去に不足していたが現在は `env.example` に定義済みの変数群、および注意事項。
 
-### 9.1 News (news-bridge) — 不足
+### 9.1 News / Knowledge / STT / Tapo / Weather / EventAutomation / VLM / BootLoad
 
-```
-NEWS_BRIDGE_URL=http://news-bridge:8000
-HEMS_PORT_NEWS_BRIDGE=8021
-NEWS_SOURCES=nhk_main,nhk_international,bbc_world,guardian_world
-NEWS_DAILY_HOUR=7
-NEWS_DAILY_MINUTE=30
-NEWS_POLL_INTERVAL=300
-NEWS_URGENCY_THRESHOLD=0.8
-OLLAMA_URL=http://ollama:11434
-OLLAMA_MODEL=qwen3.5
-OLLAMA_SUMMARY_MODEL=
-```
+これらの変数は現在 `env.example` で定義されている:
 
-### 9.2 Knowledge (knowledge-bridge) — 不足
+- `NEWS_*`, `HEMS_PORT_NEWS_BRIDGE`, `OLLAMA_URL`, `OLLAMA_MODEL`
+- `KNOWLEDGE_*`, `EMBEDDING_*`, `RRF_K`
+- `STT_*`, `HEMS_PORT_STT`
+- `TAPO_*`, `HEMS_PORT_TAPO_BRIDGE`
+- `WEATHER_PROVIDER`, `JMA_*`, `OWM_*`, `HEMS_WEATHER_*_INTERVAL`
+- `EVENT_AUTOMATIONS`
+- `VLM_*`, `BOOT_LOAD_*`
 
-```
-KNOWLEDGE_BRIDGE_URL=http://knowledge-bridge:8000
-HEMS_PORT_KNOWLEDGE_BRIDGE=8022
-KNOWLEDGE_SOURCES=[]
-KNOWLEDGE_MAX_SEARCH_RESULTS=20
-KNOWLEDGE_WATCHER_DEBOUNCE=3.0
-EMBEDDING_URL=
-EMBEDDING_MODEL=nomic-embed-text
-EMBEDDING_CACHE_DIR=/app/data/embeddings
-EMBEDDING_BATCH_SIZE=32
-RRF_K=60
-```
+詳細は `env.example` を参照。
 
-### 9.3 STT — 不足
+### 9.2 TTS / STT プロバイダー
 
-```
-STT_PROVIDER=whisper
-STT_MODEL=large-v3-turbo
-STT_LANGUAGE=ja
-STT_DEVICE=auto
-STT_COMPUTE_TYPE=auto
-STT_LLM_REWRITE=false
-STT_LLM_MODEL=
-STT_MAX_AUDIO_SECONDS=60
-HEMS_PORT_STT=8023
-```
+| Type | 実装済みプロバイダー | 備考 |
+|------|---------------------|------|
+| TTS | `espeak`, `voicevox`, `voisona`, `edge-tts`, `aivoice` | |
+| STT | `whisper`, `sherpa-onnx`, `qwen3-asr` | |
 
-### 9.4 Tapo — 不足 (CLAUDE.md には記載あり)
-
-```
-TAPO_USERNAME=
-TAPO_PASSWORD=
-TAPO_DEVICES={}
-TAPO_ZONES={}
-TAPO_NAMES={}
-TAPO_BRIDGE_URL=http://tapo-bridge:8000
-HEMS_PORT_TAPO_BRIDGE=8020
-```
-
-### 9.5 Weather (weather-bridge) — 常時起動 (no profile)
-
-```
-WEATHER_PROVIDER=jma  # jma | openweathermap
-JMA_AREA_CODE=130000
-JMA_DETAIL_CODE=130010
-OWM_API_KEY=
-OWM_LAT=35.6762
-OWM_LON=139.6503
-OWM_UNITS=metric
-OWM_LANG=ja
-HEMS_WEATHER_CURRENT_INTERVAL=600
-HEMS_WEATHER_FORECAST_INTERVAL=1800
-```
-
-### 9.6 EventAutomation — 不足
-
-```
-EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_briefing","weather_report"]}]'
-```
-
-### 9.7 VLM (perception) — 不足
-
-```
-VLM_ENABLED=false
-VLM_LIGHT_MODEL=moondream
-VLM_HEAVY_MODEL=minicpm-v
-```
-
-### 9.8 BootLoad — env.example にあるが CLAUDE.md 未記載
-
-(見直しは CLAUDE.md 側で行う)
-
-### 9.9 Verification
+### 9.3 Verification
 
 ```bash
 # サービス側で参照されている env キー一覧
@@ -768,7 +701,7 @@ grep -E "^[A-Z_]+=|^# [A-Z_]+=" env.example | grep -oE "^# ?[A-Z_]+" | sort -u
 - [x] `tool_registry.py` の tool 数 == `tool_dispatch.py` の `TOOL_HANDLERS` 数? — **2026-05-25 検証: 58==58 完全一致**(§3.5)
 - [ ] `world_model/mqtt_router.py:update_from_mqtt` のすべての elif 分岐が公開されているトピックを網羅?(reducer は `{physical,digital,user}_updates.py`)
 - [ ] 各 bridge で `os.getenv` されている環境変数すべてが `env.example` に記載?(未解決: `AUTOMATION_ENGINE_ENABLED` が未記載 — audit/2026-05-25/brain-core-loop.md)
-- [ ] CLAUDE.md の MQTT topic 一覧が §4 と一致?(2026-05-25: SwitchBot は hems/home/* へ publish と判明、§4.0 修正済)
-- [ ] `data-bridge` の orphan 状態(README のみの scaffold、src 無し)— weather-bridge は always-on 化で解消済
+- [x] CLAUDE.md の MQTT topic 一覧が §4 と一致?(2026-06-17: SwitchBot publisher topic を `hems/home/{zone}/sensor/switchbot.{device_id}_*/*` に修正)
+- [x] `data-bridge` の orphan 状態(README のみの scaffold、src 無し)— weather-bridge は always-on 化で解消済
 
-最終更新: 2026-05-25(サービス単位実装監査。詳細 `docs/audit/2026-05-25/`)
+最終更新: 2026-06-17(env/compose 既定値統一、weather-bridge 常時起動化、SwitchBot topic 修正)

@@ -24,7 +24,9 @@ class MqttRouterMixin:
             device_type = parts[3]
             device_id = parts[4]
             channel = parts[5] if len(parts) >= 6 else ""
-            value = payload.get(channel) or payload.get("value")
+            value = payload.get(channel)
+            if value is None:
+                value = payload.get("value")
             if device_type == "sensor":
                 if len(parts) < 6:
                     return  # channel part required for sensor topics

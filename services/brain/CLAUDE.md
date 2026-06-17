@@ -9,7 +9,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
 - ReAct cognitive loop (30s cycle, max 5 iterations)
 - Dual mode: LLM + rule-based fallback (GPU load > threshold, low-power mode, VLM heavy-model swap)
 - Character personality 2-stage separation: Stage 1 thinking on raw model, Stage 2 output via PersonaRewriter
-- Event store data mart (SOMS-compatible schema, 730d retention)
+- Event store data mart (raw_events / llm_decisions / hourly_aggregates, 730d retention)
 - Alert suppression: prevents duplicate tasks while environment slowly responds
   (e.g., AC cooling after task created — 30min for temp, 10min for CO2)
 - Ambient Speaker: generates natural one-line speech every 5 minutes based on sensor data
@@ -33,15 +33,16 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
 - Always-on tools: `create_task`, `speak`, `get_zone_status`, `get_active_tasks`, `get_device_status`, `send_device_command` (legacy MCP), `get_sensor_history`, `add_shopping_item`, `get_shopping_list`
 - Device Registry tools (default-on): `control_actuator`, `list_devices`, `describe_device`, `execute_scene_by_name`, `list_scenes`, `zigbee_permit_join`
 - OpenClaw tools (profile `openclaw`; `localcraw` is a legacy alias): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`, `get_service_status`, `list_processes`
-- Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`
-- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`, `get_entity_status`, `set_guest_mode`, `get_weather`
-- Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`
-- Perception tools (profile `perception`): `get_perception_status`, `describe_scene`, `list_scene_objects`, `get_scene_timeline`
+- Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`, `list_note_tags`
+- HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`, `get_entity_status`, `set_guest_mode`
+- Weather tools (always-on, weather-bridge): `get_weather`
+- Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`, `get_biometric_trend`, `get_sleep_history`
+- Perception tools (profile `perception`): `get_perception_status`, `describe_scene`, `list_scene_objects`, `get_scene_timeline`, `list_cameras`, `get_vlm_status`, `get_activity_history`
 - News tools (profile `news`): `get_news_summary`
-- Knowledge tools (profile `knowledge`): `search_knowledge`, `get_knowledge_sources`, `read_knowledge_document`
+- Knowledge tools (profile `knowledge`): `search_knowledge`, `get_knowledge_sources`, `read_knowledge_document`, `get_recent_knowledge_changes`
 - SwitchBot tools (profile `switchbot`): `get_switchbot_devices`, `control_switchbot`, `send_switchbot_ir`
 - Tapo tools (profile `tapo`): `get_power_consumption`
-- GAS tools (profile `gas`): `get_recent_emails`
+- GAS tools (profile `gas`): `get_recent_emails`, `gas_query_free_slots`, `gas_query_sheet`
 - Chat-only allowlist: `get_chat_tools()` filters to read-only subset (no speak / write_note / control_*)
 - Tool count source-of-truth: `tool_registry.py` JSON Schemas vs `tool_dispatch.py` `TOOL_HANDLERS` (cross-reference must match)
 - Schedule learner (with `ha` / `biometric` / `switchbot`): arrival/departure/wake pattern learning and prediction (+ biometric sleep data)
@@ -69,14 +70,15 @@ Interactive chat with the AI character via the dashboard. Uses agentic RAG with 
 Configurable event→action mapping for automated voice briefings.
 
 - **Events**: `wake_up` (biometric sleep end or morning camera detection), `arrival`, `departure`, `scheduled` (cron-like time)
-- **Actions**: `morning_greeting` (LLM-generated), `news_briefing` (from news-bridge), `weather_report` (from world model)
-- **Default**: wake_up → morning_greeting + news_briefing + weather_report
+- **Actions**: `morning_greeting` (LLM-generated), `news_briefing` (from news-bridge), `weather_report` (from world model), `weather_alert_announce` (weather alert broadcast), `speak_custom` (custom text), `task_planning` (generate tasks), `scene:{name}` (execute named scene)
+- **Default**: wake_up → weather_alert_announce + morning_greeting + news_briefing + weather_report
 - **Configuration**: `EVENT_AUTOMATIONS` env var (JSON array)
+- **Boot Load**: `BOOT_LOAD_ENABLED=true` (default) pre-generates and caches the morning briefing before wake time
 
 Configure in `.env`:
 ```bash
 NEWS_BRIDGE_URL=http://news-bridge:8000
-EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["morning_greeting","news_briefing","weather_report"]},{"event":"scheduled","time":"12:00","actions":["news_briefing"]}]'
+EVENT_AUTOMATIONS='[{"event":"wake_up","actions":["weather_alert_announce","morning_greeting","news_briefing","weather_report"]},{"event":"scheduled","time":"12:00","actions":["news_briefing"]}]'
 ```
 
 ## Device Registry (Runtime LLM Context Cache)
@@ -110,7 +112,7 @@ Brain 側 Device Registry は **in-memory TTL キャッシュ** — Backend の�
 ### MQTT Heartbeat Intake (`update_from_heartbeat`)
 
 **Flow**:
-1. Brain MQTT subscriber: `*/heartbeat` → `_update_device_registry` in `brain_mqtt.py`
+1. Brain MQTT subscriber: `hems/sensors/{zone}/{device_type}/{device_id}/heartbeat` → `_update_device_registry` in `brain_mqtt.py`
 2. `device_registry.update_from_heartbeat(device_id, payload)` ← Backend からではなく、MQTT heartbeat を Brain が parse
 3. DeviceInfo in-memory fields refresh (battery_pct, link_quality, power_mode, device_type, capabilities etc.)
 4. **Async**: dashboard_client → `POST /devices/heartbeat` to Backend で永続化(write-back)
@@ -140,8 +142,7 @@ Brain 側 Device Registry は **in-memory TTL キャッシュ** — Backend の�
   
 - **Topic Parsing** (`parse_mqtt`):
   - `hems/sensors/{zone}/{device_type}/{device_id}/{channel}` ← sensor telemetry (canonical, W3.8c)
-  - `hems/home/{zone}/{domain}/{entity_id}/state` ← HA
-  - `hems/switchbot/{device_id}/state` ← SwitchBot
+  - `hems/home/{zone}/{domain}/{entity_id}/state` ← HA / SwitchBot / Tapo (vendor-specific entity mapping)
   - `zigbee2mqtt/{device}` ← Zigbee2MQTT
   - 各 parser が DeviceObservation emit → dashboard_client.push_device_heartbeat
 

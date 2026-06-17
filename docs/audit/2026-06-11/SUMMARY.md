@@ -1,15 +1,15 @@
 # 技術的負債・設計監査サマリ — 2026-06-11
 
-対象リビジョン: `7e77409`(main, working tree clean)。
+対象リビジョン: `7e77409`(main) — 監査後、2026-06-17 時点で未コミット変更あり。
 調査方式: 6 並列調査(前回監査照合 / セキュリティ / Brain / Backend+ブリッジ / インフラ+ドキュメント / Frontend)+ 主要矛盾点のコードレベル裏取り。
-後続の実行計画: [`../../refactor/2026-06-11/PLAN.md`](../../refactor/2026-06-11/PLAN.md)。
+後続の実行計画: [`../../refactor/2026-06-11/PLAN.md`](../../refactor/2026-06-11/PLAN.md)（全 Wave 完了済み）。
 
 ## 1. 前回監査(2026-05-25)からの差分
 
 - **非 deferred 34 項目は全消化済み**(LEDGER 全 done 行のコミット存在を確認、`git status` clean、1283 tests passed)。
 - **意図的 deferred 9 項目が最大の残存負債**: R3.6(threshold 単一ソース化)、R5.1–R5.6(god-function 分割)、R6.1/R6.2(world_model / rules mixin の namespace 脱結合)。
 - followups doc の P1(worktree / staging / BACKEND_API_KEY 配線トラップ)は全て解決済み。
-- 前回スコープ外のまま残る領域: **frontend(テストゼロ)**、stt、mobile-android、edge/、infra 構成。
+- 前回スコープ外のまま残る領域: **frontend(2026-06-17 時点で vitest + MSW 導入済)**、stt、mobile-android、edge/、infra 構成。
 
 ## 2. セキュリティ所見
 
@@ -52,7 +52,7 @@ P0 群(MQTT 認証/ACL、port の 127.0.0.1 バインド、シークレット排
 
 - **MQTTPublisher のコピペ**: 9 ブリッジがほぼ同一クラスを独立実装(~250 行重複)。retain/エラー処理/connected 追跡が無秩序に分岐。
 - **lifespan ボイラープレート**: 9 ブリッジ × 平均 40 行(~360 行)の同一パターン(env 読込→MQTT connect→polling task→cleanup)。
-- **bridge status topic の不統一**: 規約は `hems/<service>/bridge/status` だが、実装は `hems/home/bridge/status`(ha)等にばらつき、gas/weather/news/knowledge は**未発行**。
+- **bridge status topic の不統一**: 規約は `hems/<service>/bridge/status`。2026-06-17 時点で ha/biometric は W3.3/W3.9 で統一済み。gas/weather/news/knowledge は未発行のまま。
 - **Device Registry 二重実装**: backend `models.Device`(永続 SoT)と brain `device_registry.py`(in-memory ビュー)計 ~630 行。設計意図(SoT vs cache)は妥当だが、責務境界が doc 化されておらず dispatcher が両者を仲介して肥大。
 - **config パターン分裂**: tapo のみ dataclass `load_config()`、他 7 ブリッジは素の `os.getenv`。
 - **依存バージョン不揃い**: fastapi / paho-mqtt の下限指定がブリッジごとにばらばら。

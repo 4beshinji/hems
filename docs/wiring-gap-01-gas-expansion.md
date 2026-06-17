@@ -1,6 +1,6 @@
 # Wiring Gap 01 — GAS Feature Expansion
 
-> **CLOSED 2026-05-03**: 全項目が [`wiring-gap-06-data-flow-consolidation.md`](wiring-gap-06-data-flow-consolidation.md) に統合・解消済み (Wave 2 で gmail_recent/free_slots context、meeting prep、overdue 段階 escalate、新 GAS tool 群を実装)。
+> **HISTORICAL / CLOSED 2026-05-03**: 全項目が [`wiring-gap-06-data-flow-consolidation.md`](wiring-gap-06-data-flow-consolidation.md) に統合・解消済み (Wave 2 で gmail_recent/free_slots context、meeting prep、overdue 段階 escalate、新 GAS tool 群を実装)。
 
 GAS bridge (Calendar / Tasks / Gmail / Sheets / Drive) の publish は揃っているが、LLM 判断に届いているのは Calendar upcoming と Tasks overdue 程度。Sheets / Drive / Gmail recent / free slot 時刻・会議前行動などがブラインドスポットになっている。
 

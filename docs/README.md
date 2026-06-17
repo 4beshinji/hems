@@ -34,7 +34,7 @@
 
 補助(設計メモ、in-dir):
 [`../services/brain/TASK_REMINDER.md`](../services/brain/TASK_REMINDER.md)(task queue/reminder)・
-[`../services/voice/README.md`](../services/voice/README.md)(VOICEVOX 詳細)・
+[`../services/voice/README.md`](../services/voice/README.md)(**stale** — VOICEVOX 固定設計の旧ドキュメント。現在は `services/voice/CLAUDE.md` と `env.example` を参照)・
 [`../services/voice/CONTEXT_AWARE_COMPLETION.md`](../services/voice/CONTEXT_AWARE_COMPLETION.md)(dual voice 設計)・
 [`../services/data-bridge/README.md`](../services/data-bridge/README.md)(**placeholder** — Phase-2 Strava/Fitbit/Garmin intake、compose 未登録)
 
@@ -44,7 +44,7 @@
 |---|---|
 | [`IMPLEMENTATION_MAP.md`](IMPLEMENTATION_MAP.md) | **SoT**。code/compose/MQTT(§4 トピックツリー)/world model/tools/env の正確なマッピング + verification コマンド |
 | [`CLAUDE-bridges.md`](CLAUDE-bridges.md) | 11 ブリッジ統合の canonical(OpenClaw/GAS/Obsidian/HA/biometric/Tapo/Zigbee/SwitchBot/weather/news/knowledge) |
-| [`wiring-gap-06-data-flow-consolidation.md`](wiring-gap-06-data-flow-consolidation.md) | **active ロードマップ**。Wave 計画。gap-01..05 を統合・supersede |
+| [`wiring-gap-06-data-flow-consolidation.md`](wiring-gap-06-data-flow-consolidation.md) | 2026-05-03 データ流統合計画。大半は 2026-06-11 リファクタで実装済み。未実装項目は `feature-proposals-2026-06-11.md` へ |
 
 ## Tier 3 — 人間向け setup / 運用ガイド
 
@@ -65,18 +65,20 @@
 
 | Doc | 状態 |
 |---|---|
-| [`refactor/2026-06-11/PLAN.md`](refactor/2026-06-11/PLAN.md) | **active** — 現行リファクタリング計画(W1 セキュリティ残課題 → W2 構造改革 → W3 ブリッジ共通基盤 → W4 インフラ → W5 frontend)。2026-05-25 deferred 9 行を継承 |
+| [`refactor/2026-06-11/PLAN.md`](refactor/2026-06-11/PLAN.md) | **completed** — 2026-06-11 リファクタ計画(W1–W5)。全 row は `LEDGER.md` で完了宣言 |
+| [`refactor/2026-06-11/LEDGER.md`](refactor/2026-06-11/LEDGER.md) | **completed** — PLAN.md 2026-06-11 の実装進捗台帳。全 row done |
+| [`refactor/2026-06-11/RECOMMENDED_FOLLOW_UPS.md`](refactor/2026-06-11/RECOMMENDED_FOLLOW_UPS.md) | **completed** — 実装後の品質向上・検証作業リスト。全項完了 |
 | [`feature-proposals-2026-06-11.md`](feature-proposals-2026-06-11.md) | **active** — 監査由来の機能提案 12 件(未活用データの機能化・即時トリガ・新データソース・運用)。各提案に前提 Wave と工数を付記 |
 | [`audit/2026-06-11/SUMMARY.md`](audit/2026-06-11/SUMMARY.md) | **active** — 最新の技術的負債・セキュリティ統合監査(誤検知の棄却記録含む) |
-| [`distribution.md`](distribution.md) | active — 配布/オンボーディング Phase 計画(GHCR publish・compose 配布化・quickstart・既定修復・wizard) |
-| [`db-improvement-plan.md`](db-improvement-plan.md) | active(SQLite WAL / retention / schema gaps) |
-| [`morning-briefing-refactor-plan.md`](morning-briefing-refactor-plan.md) | Waves 1-3 完了(gap-06 参照) |
-| [`hardening-audit-2026-04.md`](hardening-audit-2026-04.md) | security hardening 監査。P0 実装済 / P1 残は refactor/2026-06-11 W1 で追跡 |
-| [`../SECURITY_AUDIT.md`](../SECURITY_AUDIT.md) | **historical** — security 監査(2026-03-07、構成変更で一部陳腐化。hardening-audit-2026-04 が後継) |
+| [`distribution.md`](distribution.md) | **active** — 配布/オンボーディング Phase 計画。`make quickstart` / PostgreSQL 既定化 / env 既定値統一は実装済み |
+| [`db-improvement-plan.md`](db-improvement-plan.md) | active(SQLite WAL / retention / schema gaps / index / DDL split) |
+| [`morning-briefing-refactor-plan.md`](morning-briefing-refactor-plan.md) | **historical** — Waves 1-3 完了。後続は gap-06 / feature-proposals-2026-06-11 へ |
+| [`hardening-audit-2026-04.md`](hardening-audit-2026-04.md) | **historical / superseded** — P0/P1 は 2026-06-11 W1 で実装済。未対応 P2/P3 は feature-proposals 等に移管要 |
+| [`../SECURITY_AUDIT.md`](../SECURITY_AUDIT.md) | **historical** — security 監査(2026-03-07、構成変更で一部陳腐化。hardening-audit-2026-04 / audit/2026-06-11 が後継) |
 | [`audit-jisei-roku-2026-05-16.md`](audit-jisei-roku-2026-05-16.md) | 監査メモ(5/16) |
 | [`technical-debt-audit-2026-05-24.md`](technical-debt-audit-2026-05-24.md) → [`technical-debt-refactoring-plan-2026-05-24.md`](technical-debt-refactoring-plan-2026-05-24.md) → [`technical-debt-followups-2026-05-25.md`](technical-debt-followups-2026-05-25.md) | **completed** — 5/24-25 負債監査 → 計画 → followup。followup P1-P3 は全解決済(2026-06-11 監査で確認) |
-| [`audit/2026-05-25/`](audit/2026-05-25/README.md) | サービス単位 実装監査(命名/スコープ/可読性 + doc 乖離是正、全 16 unit)。後続リファクタの起点 |
-| [`refactor/2026-05-25/LEDGER.md`](refactor/2026-05-25/LEDGER.md) | **completed** — R0-R8 リファクタ台帳。非 deferred 34 行消化済、deferred 9 行は refactor/2026-06-11 W2 へ移管 |
+| [`audit/2026-05-25/`](audit/2026-05-25/README.md) | **historical / superseded** — サービス単位実装監査。後継: `audit/2026-06-11/SUMMARY.md` |
+| [`refactor/2026-05-25/LEDGER.md`](refactor/2026-05-25/LEDGER.md) | **historical / completed** — R0-R8 リファクタ台帳。deferred 9 行は refactor/2026-06-11 W2 へ移管済み |
 | [`lite/refinement-plan.md`](lite/refinement-plan.md) | **historical** — lite ブランチ(2026-03-05 凍結)精査計画。再開時の復旧ガイド |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | breaking change / migration / deprecation |
 | `wiring-gap-0{1,2,3,4,5}-*.md` | **CLOSED (2026-05-03)** — gap-06 に統合済。履歴参照用 |

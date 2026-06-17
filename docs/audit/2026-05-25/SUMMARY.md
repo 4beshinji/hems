@@ -1,5 +1,7 @@
 # SUMMARY: サービス単位 実装監査 — 2026-05-25
 
+> **HISTORICAL / SUPERSEDED** — 本監査は 2026-05-25 のスナップショットです。後継の最新監査は [`../2026-06-11/SUMMARY.md`](../2026-06-11/SUMMARY.md) を参照してください。
+
 `refactor/upstream-port` ブランチの全 Python サービス(Brain 4 分割 + backend + perception + voice/stt +
 bridge 9 個)を **命名 / スコープ / 可読性 / doc 乖離** の 4 軸で監査。本パスは **監査 + doc 乖離是正のみ**
 (コード無改変)。命名/スコープ/可読性の所見は各 `docs/audit/2026-05-25/{unit}.md` に refactor-ready 粒度で記録。

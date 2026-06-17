@@ -2,9 +2,7 @@
 
 ## Project Overview
 
-**HEMS (Home Environment Management System)** — a personal life management system for a single occupant, forked from SOMS (Symbiotic Office Management System). Combines an LLM "brain" with IoT sensors, plugin-based voice synthesis, and a VRM 3D avatar system. The AI has a configurable character personality (YAML-based) and makes real-time decisions about the home environment using sensor data, biometrics, and schedule information.
-
-Forked from SOMS commit `1216952` (2026-02-16).
+**HEMS (Home Environment Management System)** — a personal life management system for a single occupant. Combines an LLM "brain" with IoT sensors, plugin-based voice synthesis, and a VRM 3D avatar system. The AI has a configurable character personality (YAML-based) and makes real-time decisions about the home environment using sensor data, biometrics, and schedule information.
 
 ## Documentation Map
 
@@ -124,7 +122,7 @@ pnpm build    # tsc -b && vite build
 
 ### Service Ports
 
-Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from SOMS to allow coexistence.
+Host ports are configurable via `HEMS_PORT_*` env vars.
 
 | Service | Default Port | Env Var | Container |
 |---------|-------------|---------|-----------|
@@ -147,6 +145,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
 | MQTT | 1893 | `HEMS_PORT_MQTT` | hems-mqtt |
+| Weather bridge | — | — | hems-weather-bridge |
 
 ### MQTT Topics
 
@@ -165,7 +164,7 @@ Host ports are configurable via `HEMS_PORT_*` env vars. Defaults are offset from
 
 ### Brain Service
 
-ReAct 認知ループ(30s サイクル, 最大 5 iteration)。LLM + rule-based の dual mode(GPU 高負荷 / low-power / VLM heavy-swap 時に rule-based へ fallback)。Character は 2 段分離(Stage 1 raw 思考 → Stage 2 PersonaRewriter 出力)。Tri-domain world model(Physical / Digital / User State)+ event store data mart(SOMS 互換, 730d retention)。Alert suppression / Ambient Speaker あり。
+ReAct 認知ループ(30s サイクル, 最大 5 iteration)。LLM + rule-based の dual mode(GPU 高負荷 / low-power / VLM heavy-swap 時に rule-based へ fallback)。Character は 2 段分離(Stage 1 raw 思考 → Stage 2 PersonaRewriter 出力)。Tri-domain world model(Physical / Digital / User State)+ event store data mart(raw_events / llm_decisions / hourly_aggregates, 730d retention)。Alert suppression / Ambient Speaker あり。
 
 subsystem 一覧(PowerModeManager / LLMRouter / BootLoadManager / SunriseAlarm / ScheduleLearner / TimelineGenerator / EventAutomation / AutomationEngine / SceneExecutor / DeviceDispatcher / TaskQueueManager / PersonaRewriter / Annotators / MotionRetriever 等)、always-on / profile-gated tool の全一覧、Chat brain server、Event Automation は **canonical: [`services/brain/CLAUDE.md`](services/brain/CLAUDE.md)**(該当 dir で auto-load)。tool 定義 ↔ dispatch の整合は `docs/IMPLEMENTATION_MAP.md` §3。
 
@@ -185,7 +184,7 @@ cp config/character.yaml.example config/character.yaml
 # Hot-reload: mosquitto_pub -t hems/brain/reload-character -m reload
 ```
 
-Templates: `default` (default), `ena`, `tsundere`, `gentle-senpai`, `butler`, `nurserobo-typet`
+Templates: `default` (default), `ena`, `tsundere`, `gentle-senpai`, `butler`, `nurserobo-typet`, `una`, `yukari` plus variants (`una-jinin`, `yukari-jinin`, `yukari-doukyonin`)
 Validator: `python validate_character.py config/character.yaml`
          `python validate_character.py --all`   # validate all templates
          `python validate_character.py --list`  # list available templates
@@ -200,7 +199,7 @@ VRM avatar / animation の詳細は [`docs/avatar-setup.md`](docs/avatar-setup.m
 - Migration: `infra/scripts/migrate_sqlite_to_pg.py` supports `--check`,
   `--dry-run`, and automatic `.bak` backups before executing
 - Backend: Task, User, VoiceEvent, SystemStats, ShoppingItem, PurchaseHistory
-- Brain event_store: raw_events, llm_decisions, hourly_aggregates (SOMS-compatible, `events` schema)
+- Brain event_store: raw_events, llm_decisions, hourly_aggregates (`events` schema)
 - Retention: 730 days (2 years) for raw_events and llm_decisions
 
 ### Integrations
@@ -265,7 +264,7 @@ For exact mapping between code, docker-compose, MQTT topics, world model fields,
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion
 - **3D Avatar**: Three.js, React Three Fiber, @pixiv/three-vrm
 - **LLM**: OpenAI / Anthropic / Ollama (multi-provider)
-- **TTS**: Plugin-based (espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk)
+- **TTS**: Plugin-based (espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk, AIVoice)
 - **Infra**: Docker Compose, Mosquitto MQTT, PostgreSQL / SQLite
 
 ## Code Conventions
@@ -275,16 +274,4 @@ For exact mapping between code, docker-compose, MQTT topics, world model fields,
 - Source code bind-mounted into containers (changes take effect on restart)
 - Bilingual: English code/comments, Japanese UI/voice/docs
 
-## Key Differences from SOMS
 
-| SOMS | HEMS |
-|------|------|
-| PostgreSQL required | PostgreSQL default (SQLite optional) |
-| Wallet (double-entry ledger) | No points system |
-| VOICEVOX only | Plugin TTS (5 backends: voisona / voicevox / espeak / edge-tts / aivoice) |
-| Hardcoded personality | YAML character system (2-stage thinking/output separation) |
-| Ollama only | OpenAI / Anthropic / Ollama (multi-provider via LLMRouter) |
-| 11 services | 5 core (mosquitto/brain/backend/frontend/voice-service) + 16 optional profiles |
-| Office/multi-user | Home/single occupant |
-| No alert suppression | Alert suppression (30min/10min) |
-| npm | pnpm |

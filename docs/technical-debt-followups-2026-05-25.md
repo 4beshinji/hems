@@ -1,5 +1,7 @@
 # Technical Debt Follow-ups — 2026-05-25
 
+> **HISTORICAL / COMPLETED** — 本フォローアップは 2026-05-25 のリファクタ実行後の残作業リストです。記載の項目は後続の [`../refactor/2026-06-11/PLAN.md`](../refactor/2026-06-11/PLAN.md) / [`../audit/2026-06-11/SUMMARY.md`](../audit/2026-06-11/SUMMARY.md) で実装・継承済みです。
+
 Source: follow-up from `docs/technical-debt-refactoring-plan-2026-05-24.md` execution.
 
 ## Summary

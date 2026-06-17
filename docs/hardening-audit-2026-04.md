@@ -1,11 +1,13 @@
 # HEMS 実運用ハーデニング監査 — 2026-04-17
 
+> **HISTORICAL / SUPERSEDED** — 本監査は 2026-04-17 のスナップショットです。P0/P1 は [`../refactor/2026-06-11/PLAN.md`](../refactor/2026-06-11/PLAN.md) Wave 1 で実装済み。最新の監査・計画は [`../audit/2026-06-11/SUMMARY.md`](../audit/2026-06-11/SUMMARY.md) / [`../refactor/2026-06-11/`](../refactor/2026-06-11/) を参照してください。
+>
 > **注**: 既存の `SECURITY_AUDIT.md` (2026-03-07) は `openclaw-bridge` / MQTT ACL 等、
 > その後の構成変更で陳腐化した記述を含む。本書はそれ以後の現状を基にした再監査。
 
 ## Context
 
-HEMS は memory 記載の通り "LAN-trusted" モデルで内部 auth を撤去済み。
+HEMS は `BACKEND_API_KEY` / `HEMS_INTERNAL_TOKEN` による内部認証を再導入済み。
 実運用投入 (常時稼働 + 将来の外出先参照 + 複数ブリッジ統合) に向けて、
 backend/frontend / brain+bridges / infra+ops の 3 領域を並列監査し、
 重要 claim は一次ソースで検証した。

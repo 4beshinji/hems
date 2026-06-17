@@ -24,6 +24,7 @@ add hems-ha
 add hems-weather
 add hems-biometric
 add hems-perception
+add hems-iot
 add hems-switchbot
 add hems-tapo
 add hems-zigbee

@@ -1,3 +1,9 @@
+<!--
+HISTORICAL (2026-06-11): これは 2025 年下期の HEMS 外部説明用スライドです。
+掲載内容は概ね現在の構成と一致するが、UI/UX・サービスセット・性能数字は
+実装進化に伴い変化しています。最新情報は README.md および
+docs/README.md を参照。
+-->
 ---
 marp: true
 theme: uncover

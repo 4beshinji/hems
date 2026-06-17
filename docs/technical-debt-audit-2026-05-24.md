@@ -1,5 +1,7 @@
 # Technical Debt Audit — 2026-05-24 Re-audit
 
+> **HISTORICAL / SUPERSEDED** — 本監査は 2026-05-24 のスナップショットです。内容は [`../refactor/2026-05-25/`](../refactor/2026-05-25/) のリファクタ計画と [`../refactor/2026-06-11/`](../refactor/2026-06-11/) の計画で実装・継承済みです。最新の技術的負債監査は [`../audit/2026-06-11/SUMMARY.md`](../audit/2026-06-11/SUMMARY.md) を参照してください。
+
 対象: HEMS monorepo 全体。初回監査の再確認として、現在のワークツリー、Brain 分割後の配線、active docs / historical docs の混在、追跡済み評価成果物を中心に見直した。
 
 ## Summary

@@ -173,8 +173,8 @@ services:
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
-      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gemma4:e4b-it-q8_0}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - BACKEND_URL=http://backend:8000
@@ -299,17 +299,16 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - TTS_PROVIDER=${TTS_PROVIDER:-espeak}
-      - TTS_FALLBACK=${TTS_FALLBACK:-}
+      - TTS_PROVIDER=${TTS_PROVIDER:-voicevox}
+      - TTS_FALLBACK=${TTS_FALLBACK:-espeak}
       - VOICEVOX_URL=${VOICEVOX_URL:-http://voicevox:50021}
       - VOISONA_URL=${VOISONA_URL:-http://192.168.1.173:32766}
       - VOISONA_USERNAME=${VOISONA_USERNAME:-}
       - VOISONA_PASSWORD=${VOISONA_PASSWORD:-}
       - VOISONA_VOICE_NAME=${VOISONA_VOICE_NAME:-nurse-robot-type-t_ja_JP}
       - VOISONA_LANGUAGE=${VOISONA_LANGUAGE:-ja_JP}
-      - STYLE_BERT_VITS2_URL=${STYLE_BERT_VITS2_URL:-}
       - LLM_API_URL=${LLM_API_URL:-http://ollama:11434/v1}
-      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
+      - LLM_MODEL=${LLM_MODEL:-gemma4:e4b-it-q8_0}
       - CHARACTER=${CHARACTER:-}
       - CHARACTER_FILE=${CHARACTER_FILE:-}
       - TZ=${TZ:-Asia/Tokyo}
@@ -612,7 +611,7 @@ services:
         condition: service_healthy
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - LLM_MODEL=${LLM_MODEL:-gpt-oss:20b}
+      - LLM_MODEL=${LLM_MODEL:-gemma4:e4b-it-q8_0}
     entrypoint: ["/bin/sh", "-c"]
     command: ["ollama pull $${LLM_MODEL}"]
     volumes:

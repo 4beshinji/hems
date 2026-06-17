@@ -47,7 +47,7 @@ HEMS host → ha-bridge → HA (192.168.20.x:8123)
 
 ## どうしても同一ホストで動かす場合のチェックリスト
 
-- [ ] HA を最新バージョンに常時アップデートする (`watchdog` 自動更新 ON)
+- [ ] HA コンテナイメージを定期的に更新する (`docker pull homeassistant/home-assistant:stable` または Watchtower 等で自動化)
 - [ ] Matter-Server / Bluetooth 統合が不要であれば `network_mode: host` を削除し
       `network_mode: bridge` に戻す (ポートマッピングで代替)
 - [ ] `/run/dbus` は Bluetooth 統合が不要なら外す

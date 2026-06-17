@@ -4,14 +4,14 @@
 
 ## Project Overview
 
-**HEMS (Home Environment Management System)** is a personal, single-occupant home automation platform. It combines an LLM "brain" with IoT sensors, plugin-based text-to-speech, a VRM 3D avatar, and a React dashboard. It was forked from SOMS (Symbiotic Office Management System) commit `1216952`.
+**HEMS (Home Environment Management System)** is a personal, single-occupant home automation platform. It combines an LLM "brain" with IoT sensors, plugin-based text-to-speech, a VRM 3D avatar, and a React dashboard.
 
 Core design:
 
 - **Brain** (`services/brain/src`): ReAct cognitive loop (30s cycle, max 5 iterations) with LLM + rule-based fallback. Maintains a tri-domain world model (Physical / Digital / User State), device registry, event store, and chat server.
 - **Backend** (`services/backend`): FastAPI service that is the persistent source-of-truth for tasks, devices, shopping, chat, voice events, and user data.
 - **Frontend** (`services/frontend`): React 19 + TypeScript dashboard with AI chat, device/scene/automation UI, and VRM avatar.
-- **Voice** (`services/voice`): Plugin TTS service (espeak / VOICEVOX / Edge TTS / VoiSona Talk / Style-Bert-VITS2 / AIVoice).
+- **Voice** (`services/voice`): Plugin TTS service (espeak / VOICEVOX / Edge TTS / VoiSona Talk / AIVoice).
 - **Bridges** (`services/*-bridge`): Optional adapters for Home Assistant, SwitchBot, Tapo, biometric wearables, weather, news, knowledge ingestion, Google Apps Script, Obsidian, and PC/service monitoring.
 - **Edge** (`edge/`): MicroPython/ESP32 firmware for sensor and camera nodes, plus a SensorSwarm hub/leaf network.
 - **Android companions**: `services/mobile-android/` (HEMS mobile companion) and `apps/healthconnect-companion/` (Health Connect biometric sync). These are **not** Dockerized.
@@ -24,13 +24,13 @@ License: [PolyForm Noncommercial License 1.0.0](LICENSE). Non-commercial persona
 |-------|------|
 | Language | Python 3.11 |
 | Web framework | FastAPI, Uvicorn, aiohttp |
-| ORM / DB | SQLAlchemy 2.x (async), SQLite default, optional PostgreSQL 16 |
+| ORM / DB | SQLAlchemy 2.x (async), PostgreSQL 16 default, optional SQLite |
 | Messaging | Mosquitto MQTT (paho-mqtt) |
 | Validation / config | Pydantic 2.x, python-dotenv, YAML |
 | LLM | OpenAI / Anthropic / Ollama (routed via `LLMRouter`) |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Framer Motion, pnpm |
 | 3D Avatar | Three.js, React Three Fiber, @pixiv/three-vrm |
-| TTS | espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk, Style-Bert-VITS2, AIVoice |
+| TTS | espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk, AIVoice |
 | Search | BM25 (rank_bm25) + vector (Ollama embeddings) + title boost, 3-way RRF |
 | Perception | YOLOv11s-pose, moondream / minicpm-v VLM |
 | STT | Whisper large-v3-turbo |
@@ -205,6 +205,7 @@ python validate_character.py config/character.yaml
 | Backend | hems-backend | 8010 | FastAPI REST API + persistence |
 | Frontend | hems-frontend | 8080 | React dashboard (nginx) |
 | Voice service | hems-voice | 8012 | TTS + STT |
+| Weather bridge | hems-weather-bridge | — | JMA/OpenWeatherMap weather (always-on) |
 
 ### Optional bridge / heavy services
 

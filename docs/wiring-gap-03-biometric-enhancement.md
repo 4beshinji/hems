@@ -1,6 +1,6 @@
 # Wiring Gap 03 — Biometric Enhancement
 
-> **CLOSED 2026-05-03**: 全項目が [`wiring-gap-06-data-flow-consolidation.md`](wiring-gap-06-data-flow-consolidation.md) に統合・解消済み (Wave 1 で steps dedup + stale 段階ラベル、Wave 3 で history deque + trend rules + trend tools、Wave 4 で HRV fatigue 計算式 + fatigue→schedule_learner / stress→VLM)。
+> **HISTORICAL / CLOSED 2026-05-03**: 全項目が [`wiring-gap-06-data-flow-consolidation.md`](wiring-gap-06-data-flow-consolidation.md) に統合・解消済み (Wave 1 で steps dedup + stale 段階ラベル、Wave 3 で history deque + trend rules + trend tools、Wave 4 で HRV fatigue 計算式 + fatigue→schedule_learner / stress→VLM)。
 
 Biometric bridge は HR / SpO2 / sleep / activity / steps / stress / fatigue / HRV / body_temp / respiratory_rate を publish。Brain 側に単発閾値 rule はあるが、**トレンド活用と LLM への能動露出が無い**。steps は二重 publish。
 

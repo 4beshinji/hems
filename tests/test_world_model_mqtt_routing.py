@@ -223,6 +223,22 @@ class TestSensorsCanonicalW38c:
         # Zone should NOT be created by a rejected message.
         assert "living" not in world_model.zones
 
+    def test_canonical_prefix_falsy_sensor_value_is_processed(self, world_model):
+        """Falsy values like 0 must not be discarded by 'or' fallback."""
+        world_model.update_from_mqtt(
+            "hems/sensors/living/sensor/esp32_001/temperature",
+            {"temperature": 0},
+        )
+        assert world_model.zones["living"].environment.temperature == 0
+
+    def test_canonical_prefix_falsy_value_fallback_is_processed(self, world_model):
+        """Falsy 'value' fallback must not be discarded by 'or' fallback."""
+        world_model.update_from_mqtt(
+            "hems/sensors/living/sensor/esp32_001/temperature",
+            {"value": 0},
+        )
+        assert world_model.zones["living"].environment.temperature == 0
+
     # --- sensor/camera (occupancy) ---
 
     def test_canonical_prefix_camera_updates_occupancy_count(self, world_model):

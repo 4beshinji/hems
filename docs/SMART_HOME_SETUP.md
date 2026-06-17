@@ -1,7 +1,9 @@
 # スマートホーム連携ガイド
 
-HEMS は Home Assistant (HA) を統合レイヤーとして、各社のスマートホームデバイスを制御する。
+HEMS は Home Assistant (HA) を統合レイヤーとして、各社のスマートホームデバイスを制御できる。
 デバイスメーカー固有のコードは持たず、HA エンティティとして統一的に扱う。
+
+> **補足**: HEMS では HA 経由以外に、`switchbot`、`tapo`、`zigbee` などのデバイスを直接扱う Docker Compose プロファイルも用意されている。本ドキュメントは HA 統合 (`--profile ha`) に焦点を当てたガイドである。
 
 ```
 スマートホームデバイス
@@ -60,14 +62,18 @@ HA_BRIDGE_URL=http://ha-bridge:8000       # Brain → ha-bridge 内部通信（�
 
 ```bash
 cd infra
-docker compose --profile ha up -d --build
+docker compose --env-file ../.env --profile ha up -d --build
 ```
+
+> `--env-file ../.env` は必須。`.env` はリポジトリルートにあり、`infra/` ディレクトリからの相対パスを指定する。
 
 HA も Docker で動かす場合:
 
 ```bash
-HEMS_HA_CONFIG_PATH=/path/to/ha-config docker compose --profile ha up -d --build
+HEMS_HA_CONFIG_PATH=/path/to/ha-config docker compose --env-file ../.env --profile ha up -d --build
 ```
+
+> `--profile ha` は `homeassistant`、`matter-server`、`ha-bridge` を含む。Matter デバイスを利用しない場合でも `matter-server` は無害に待機する。
 
 ### 1.5 対応ドメイン
 
@@ -271,6 +277,9 @@ curl -s -H "Authorization: Bearer YOUR_HA_TOKEN" \
 
 # ha-bridge 経由（HEMS 起動後）
 curl -s http://localhost:8016/api/devices | python3 -m json.tool
+
+# `HEMS_INTERNAL_TOKEN` を設定している場合は Bearer ヘッダーが必要:
+# curl -s -H "Authorization: Bearer <HEMS_INTERNAL_TOKEN>" http://localhost:8016/api/devices | python3 -m json.tool
 ```
 
 ---
@@ -279,14 +288,14 @@ curl -s http://localhost:8016/api/devices | python3 -m json.tool
 
 エンティティが認識されると、以下のルールが自動発動する:
 
-| ルール | 条件 | アクション |
-|---|---|---|
-| 睡眠検知 → 消灯 | 23:00-05:00、在室、アイドル+姿勢固定 >10分 | 全 `light` OFF + 「おやすみなさい」 |
-| 帰宅前 HVAC | 不在、帰宅予測 ≤30分 | 全 `climate` ON（季節対応: 夏=冷房26°C, 冬=暖房22°C） |
-| 起床前カーテン | 起床予測60分前、カーテン閉 | 全 `cover` 全開 |
-| 起床検知 → 点灯 | 05:00-10:00、活動開始 | 全 `light` ON (brightness=255) + 「おはようございます」 |
-| 疲労時減光 | 21:00-23:00、疲労スコア >60 | `light` brightness=80, color_temp=400 (暖色) |
-| 生体睡眠検知 | 睡眠ステージ deep/light/rem | 全 `light` OFF |
+| ルール | 条件 | アクション | 備考 |
+|---|---|---|---|
+| 睡眠検知 → 消灯 | 23:00-05:00、在室、アイドル+姿勢固定 >10分 | 全 `light` OFF + 「おやすみなさい」 | biometric-bridge またはカメラ姿勢推定連携時のみ有効 |
+| 帰宅前 HVAC | 不在、帰宅予測 ≤30分 | 全 `climate` ON（季節対応: 夏=冷房26°C, 冬=暖房22°C） | — |
+| 起床前カーテン | 起床予測60分前、カーテン閉 | 全 `cover` 全開 | biometric-bridge 連携時のみ有効 |
+| 起床検知 → 点灯 | 05:00-10:00、活動開始 | 全 `light` ON (brightness=255, 必要に応じ color_temp 指定可) + 「おはようございます」 | biometric-bridge またはカメラ姿勢推定連携時のみ有効 |
+| 疲労時減光 | 21:00-23:00、疲労スコア >60 | `light` brightness=80, color_temp=400 (暖色) | biometric-bridge 連携時のみ有効 |
+| 生体睡眠検知 | 睡眠ステージ deep/light/rem | 全 `light` OFF | biometric-bridge 連携時のみ有効 |
 
 > **デバイス選択**: ルールは HA ドメイン単位で発動する。SwitchBot 照明も Nature Remo 照明も `light` ドメインなら同時に制御される。
 
@@ -319,10 +328,12 @@ curl http://localhost:8016/health
 curl http://localhost:8016/api/devices | python3 -m json.tool
 ```
 
+> `HEMS_INTERNAL_TOKEN` を設定している場合、上記 `/api/*` 呼び出しに `-H "Authorization: Bearer <HEMS_INTERNAL_TOKEN>"` が必要。
+
 ### 8.2 MQTT 監視
 
 ```bash
-docker exec hems-mqtt mosquitto_sub -u hems -P hems_dev_mqtt -t 'hems/home/#' -v
+docker exec hems-mqtt mosquitto_sub -u hems -P "${MQTT_PASS}" -t 'hems/home/#' -v
 ```
 
 デバイスの状態変更で `hems/home/{zone}/{domain}/{entity_id}/state` にメッセージが流れることを確認。
@@ -345,6 +356,8 @@ curl -X POST http://localhost:8016/api/device/control \
   -H "Content-Type: application/json" \
   -d '{"entity_id":"cover.switchbot_curtain_zzzz","service":"cover/open_cover","data":{}}'
 ```
+
+> `HEMS_INTERNAL_TOKEN` を設定している場合、各リクエストに `-H "Authorization: Bearer <HEMS_INTERNAL_TOKEN>"` を追加する。
 
 ### 8.4 Brain ログ
 

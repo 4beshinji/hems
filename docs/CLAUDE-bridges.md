@@ -93,7 +93,7 @@ Connects Home Assistant to HEMS for smart home device control and life automatio
 - **Deploy**: HA running on host or via Docker, configure `HA_URL` + `HA_TOKEN`
 - **Profile**: `docker compose --profile ha up -d --build`
 - **Brain tools**: `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`, `get_entity_status` (単一エンティティ状態)
-- **System tools** (always with HA): `set_guest_mode`, `get_weather`
+- **System tools** (always with HA): `set_guest_mode`
 - **Schedule learner**: learns arrival/departure/wake patterns from occupancy data
 - **Automation rules**: sleep detection → lights off, pre-arrival HVAC, wake-up curtains, circadian lighting, guest mode filtering
 - **Supported devices**: SwitchBot (via HA), Nature Remo (via HA), any HA integration
@@ -112,12 +112,12 @@ HA_BRIDGE_URL=http://ha-bridge:8000
 
 Tracks heart rate, sleep, activity, stress, and fatigue via smartband/smartwatch (Xiaomi Smart Band, Amazfit, CMF Watch Pro 2) via Health Connect or Huami cloud API.
 
-- **biometric-bridge**: Docker service receiving webhook data from Gadgetbridge app
+- **biometric-bridge**: Docker service receiving webhook data from the Health Connect Companion app (`apps/healthconnect-companion/`) or Gadgetbridge
   - POST webhook endpoint normalizes device data → MQTT publish
-  - Fatigue score computation (weighted: HR 30%, sleep 40%, stress 30%)
+  - Fatigue score computation (weighted: HR 20%, HRV 15%, sleep 35%, stress 30%)
   - Sleep session caching for daily summaries
   - Publishes to `hems/personal/biometrics/*` MQTT topics; bridge status: `hems/biometric/bridge/status` (canonical W3.3; legacy `hems/personal/biometrics/bridge/status` も互換 window で brain が受信)
-- **Deploy**: Install Gadgetbridge on phone, configure webhook to `http://<host>:8017/api/biometric/webhook`
+- **Deploy**: Install the HEMS Health Connect companion app or Gadgetbridge on phone, configure webhook to `http://<host>:8017/api/biometric/webhook`
 - **Profile**: `docker compose --profile biometric up -d --build`
 - **Brain tools**: `get_biometrics` (current readings), `get_sleep_summary` (last night's sleep), `get_biometric_trend` (履歴トレンド), `get_sleep_history` (睡眠履歴)
 - **Brain rules**: 7 rules (high HR/stress/fatigue alerts, sleep quality notification, step goal, sleep detection lights off, fatigue-linked dimming)
@@ -271,3 +271,9 @@ KNOWLEDGE_SOURCES=[{"name":"pws","path":"/sources/pws","extensions":[".md",".py"
 EMBEDDING_URL=http://ollama:11434
 EMBEDDING_MODEL=nomic-embed-text
 ```
+
+---
+
+## Data Bridge (Placeholder)
+
+`services/data-bridge/` is a Phase-2 scaffold for Strava / Fitbit / Garmin / Intervals.icu intake. It is **not wired** in the current compose stack and has no running service. Existing use cases are covered by `biometric-bridge` (Health Connect/Gadgetbridge) and `gas-bridge` (Google Calendar). Implementation will resume after the shared `_common` bridge foundation is complete.

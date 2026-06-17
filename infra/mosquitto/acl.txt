@@ -56,6 +56,13 @@ topic write hems/sensors/+/camera/#
 topic write hems/sensors/+/activity/#
 topic write hems/perception/#
 
+user hems-iot
+topic read #
+# W3.8c: edge sensor nodes publish canonical sensor / camera / activity telemetry
+topic write hems/sensors/#
+topic write mcp/+/response/#
+topic read mcp/#
+
 user hems-switchbot
 topic read #
 topic write hems/switchbot/#
