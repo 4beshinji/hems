@@ -41,4 +41,24 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 >
 > W2.2–W2.3 ゲート結果 (2026-06-17): `make lint` clean / pytest `2173 passed, 8 skipped, 44 deselected, 3 failed`。失敗 3 件は引き続き `test_backend_home_router` の 503 系（full-suite 実行時のみ発生する既存の test isolation 問題）。`test_rule_engine_environment.py` の datetime patch 対象を `rule_engine` から各 rules モジュールに修正し、40 件すべてパス。
 
+> 推奨フォローアップ作業結果 (2026-06-17): [`RECOMMENDED_FOLLOW_UPS.md`](RECOMMENDED_FOLLOW_UPS.md) の全 row を実施。
+>
+> | # | row | status | commit |
+> |---|---|---|---|
+> | H1 | LLM/chat/REST 経路の device_id 検証を統一 | done | `3e19318` |
+> | M1 | backend → ha-bridge Authorization ヘッダー付与テスト | done | `631795f` |
+> | M2 | 内部 HTTP caller 用 Bearer ヘルパー集約 | done | `42a43b2` |
+> | M3 | frontend API クライアントの二重実装と VITE_BACKEND_URL 対応 | done | `27d50a5` |
+> | M4 | staleTime = refetchInterval の挙動確認 | done | `379644d` |
+> | M5 | W2.2 脱結合の軽微クリーンアップ | done | `5e43428` |
+> | L1 | コメント・ドキュメントの陳腐化修正 | done | `753bdd4` |
+> | L2 | brain chat server health path trailing slash 対応 | done | `b467fd6` |
+> | L3 | 移行スクリプトの恒真 assertion 修正 | done | `1e95797` |
+> | L4 | init_env.py のユニットテスト追加 | done | `3fad1a8` |
+> | L5 | bridge_lifespan startup 失敗時の disconnect 保証 | done | `626e7c3` |
+> | L6 | MqttPublisher.subscribe / set_message_callback の単体テスト追加 | done | `6aa5f8f` |
+>
+> ゲート結果: `make lint` clean / pytest `2217 passed, 8 skipped, 47 deselected, 0 failed`。
+> 注: M2 で backend router が `hems_common.auth` を import するようになったため、pytest 実行時の `PYTHONPATH` に `services/_common` を含める必要がある（`tests/conftest.py` および CI でも同様）。
+
 **残 pending:** なし。PLAN.md 2026-06-11 の全 row 完了。W1.1–W1.7 / W2.1 / W3 / W4.1–W4.5' / W5 は main 上で先行実装済み。W2.2 / W2.3 は本変更で完了。
