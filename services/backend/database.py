@@ -2,7 +2,7 @@ import os
 from datetime import UTC
 
 from sqlalchemy import DateTime as _SADateTime
-from sqlalchemy import TypeDecorator
+from sqlalchemy import TypeDecorator, event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -39,6 +39,17 @@ elif ":memory:" in DATABASE_URL:
 engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, connection_record):
+    """Enable WAL mode and a busy timeout for SQLite backends."""
+    if "sqlite" not in DATABASE_URL:
+        return
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.close()
 
 
 async def get_db():

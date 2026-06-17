@@ -1,13 +1,17 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import delete
 
 from auth import verify_api_key
-from database import Base, engine
+from database import AsyncSessionLocal, Base, engine
+from models import BiometricReading, PurchaseHistory, Task, TimeSeriesPoint, VoiceEvent
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +82,82 @@ async def lifespan(app: FastAPI):
     # a warning is emitted so operators can review and manually correct them.
     await _audit_existing_device_ids()
 
-    yield
+    # Background retention cleanup for tables without natural deletion.
+    cleanup_task = asyncio.create_task(_retention_cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+
+
+# Retention policies: (model, datetime_column, days_to_keep)
+RETENTION_POLICIES: list[tuple[type, str, int]] = [
+    (TimeSeriesPoint, "recorded_at", 30),
+    (VoiceEvent, "created_at", 90),
+    (BiometricReading, "recorded_at", 90),
+    (PurchaseHistory, "purchased_at", 365),
+]
+
+# Task retention: only completed tasks older than N days.
+TASK_RETENTION_DAYS = 365
+
+
+async def _run_retention_cleanup(session) -> dict[str, int]:
+    """Delete old records according to RETENTION_POLICIES.
+
+    Returns a mapping of table name -> deleted row count.
+    """
+    cutoff_base = datetime.now(UTC) - timedelta(days=1)
+    deleted: dict[str, int] = {}
+
+    for model, col_name, days in RETENTION_POLICIES:
+        cutoff = cutoff_base - timedelta(days=days - 1)
+        col = getattr(model, col_name)
+        result = await session.execute(delete(model).where(col < cutoff))
+        deleted[model.__tablename__] = result.rowcount
+        if result.rowcount:
+            logger.info(
+                "Retention cleanup: deleted %d row(s) from %s older than %s",
+                result.rowcount,
+                model.__tablename__,
+                cutoff.isoformat(),
+            )
+
+    # Completed tasks
+    task_cutoff = cutoff_base - timedelta(days=TASK_RETENTION_DAYS - 1)
+    result = await session.execute(
+        delete(Task).where(
+            Task.is_completed.is_(True),
+            Task.completed_at < task_cutoff,
+        )
+    )
+    deleted[Task.__tablename__] = result.rowcount
+    if result.rowcount:
+        logger.info(
+            "Retention cleanup: deleted %d completed task(s) older than %s",
+            result.rowcount,
+            task_cutoff.isoformat(),
+        )
+
+    return deleted
+
+
+async def _retention_cleanup_loop() -> None:
+    """Periodically delete old records according to RETENTION_POLICIES."""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # run once per hour
+            async with AsyncSessionLocal() as session:
+                await _run_retention_cleanup(session)
+                await session.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Retention cleanup loop iteration failed: %s", exc)
 
 
 async def _audit_existing_device_ids() -> None:

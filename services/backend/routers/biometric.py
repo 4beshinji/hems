@@ -2,22 +2,16 @@
 Biometric data — persisted to DB, updated by Brain snapshots (biometric-bridge integration).
 """
 
-import random
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import delete, desc, select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import BiometricReading
 
 router = APIRouter(prefix="/biometric", tags=["biometric"])
-
-# Run retention cleanup roughly every 100 writes
-_write_count = 0
-_RETENTION_DAYS = 90
-_CLEANUP_INTERVAL = 100
 
 
 @router.get("/")
@@ -65,15 +59,6 @@ async def update_biometric(data: dict, db: AsyncSession = Depends(get_db)):
     )
     db.add(reading)
     await db.commit()
-
-    # Periodic retention cleanup
-    global _write_count
-    _write_count += 1
-    if _write_count >= _CLEANUP_INTERVAL:
-        _write_count = random.randint(0, 10)  # jitter to avoid thundering herd
-        cutoff = datetime.now(UTC) - timedelta(days=_RETENTION_DAYS)
-        await db.execute(delete(BiometricReading).where(BiometricReading.recorded_at < cutoff))
-        await db.commit()
 
     return {"updated": True}
 

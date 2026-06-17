@@ -8,7 +8,7 @@ Tables are created with IF NOT EXISTS for idempotent startup.
 import os
 
 from loguru import logger
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 _engine: AsyncEngine | None = None
@@ -217,6 +217,14 @@ async def init_db() -> AsyncEngine | None:
         )
     else:
         _engine = create_async_engine(db_url, echo=False)
+
+        @event.listens_for(_engine.sync_engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, connection_record):
+            """Enable WAL mode and a busy timeout for SQLite backends."""
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.close()
 
     ddl = DDL_POSTGRES if is_postgres else DDL_SQLITE
 
