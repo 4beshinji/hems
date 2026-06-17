@@ -3,7 +3,7 @@
  * These pin the URL construction, header injection, and error path
  * so W5.2/W5.4 refactors can't silently break the contract.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/server'
 import { apiFetch, ApiError } from '@/lib/api-client'
@@ -81,6 +81,23 @@ describe('apiFetch', () => {
     })
     expect(result).toEqual({ created: true })
     expect(receivedBody).toEqual({ name: 'test' })
+  })
+})
+
+describe('VITE_BACKEND_URL support', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
+
+  it('uses VITE_BACKEND_URL as base when set', async () => {
+    vi.stubEnv('VITE_BACKEND_URL', 'http://localhost:8010')
+    server.use(
+      http.get('http://localhost:8010/custom-path', () => HttpResponse.json({ ok: true })),
+    )
+    const { apiFetch } = await import('@/lib/api-client')
+    const data = await apiFetch<{ ok: boolean }>('/custom-path')
+    expect(data).toEqual({ ok: true })
   })
 })
 

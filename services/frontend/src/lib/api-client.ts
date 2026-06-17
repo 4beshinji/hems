@@ -1,3 +1,7 @@
+function apiBase(): string {
+  return (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? '/api'
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -9,7 +13,7 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
