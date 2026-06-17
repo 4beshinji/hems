@@ -31,6 +31,32 @@ docker compose up -d --build
 make quickstart-sqlite
 ```
 
+## Repository Layout
+
+```
+├── services/
+│   ├── brain/            # ReAct cognitive loop + world model
+│   ├── backend/          # FastAPI REST API + persistence
+│   ├── frontend/         # React dashboard
+│   ├── voice/            # TTS + STT service
+│   ├── _common/          # shared `hems_common` bridge infrastructure
+│   ├── *-bridge/         # optional integration bridges
+│   ├── data-bridge/      # Phase-2 placeholder (Strava/Fitbit/Garmin intake)
+│   ├── mobile-android/   # Android companion app (not Dockerized)
+│   └── stt/              # Speech-to-text service
+├── apps/
+│   └── healthconnect-companion/  # Android Health Connect sync (not Dockerized)
+├── edge/                 # ESP32/MicroPython firmware
+├── infra/                # Docker Compose, scripts, MQTT config
+├── scripts/
+│   ├── gas-bridge/       # Google Apps Script (Code.gs)
+│   └── voisona-vm/       # Windows VM helper PowerShell scripts
+├── config/               # character YAML templates, motions
+├── docs/                 # documentation graph
+├── validate_character.py # character YAML validator
+└── env.example           # canonical environment template
+```
+
 ## Features
 
 ### コア機能

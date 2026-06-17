@@ -68,10 +68,15 @@ hems/
 │   └── motions.yaml          # VRM avatar motion definitions
 ├── edge/                     # ESP32/MicroPython edge code
 ├── docs/                     # extensive documentation graph (see docs/README.md)
-├── hems/                     # root-level shared helpers (validate_character.py, bridge_auth.py)
 ├── scripts/                  # seed/extraction/reset utilities
 └── apps/healthconnect-companion/   # Android Health Connect app
 ```
+
+Root-level helpers:
+
+- `validate_character.py` — validate character YAML templates
+- `bridge_auth.py` — removed; internal bridge auth now lives in `services/_common/hems_common/auth.py`
+- `env.example` — canonical environment variable template
 
 ### Key service boundaries
 
