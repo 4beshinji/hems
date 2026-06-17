@@ -3,7 +3,7 @@
 Extracted as a mixin to keep RuleEngine public methods stable.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 
 class GasRulesMixin:
@@ -11,10 +11,7 @@ class GasRulesMixin:
         """Evaluate GAS-related rules. Returns list of tool call actions."""
         actions = []
 
-        try:
-            local_now = datetime.now()
-        except Exception:
-            local_now = datetime.now(UTC)
+        local_now = datetime.now()
         hour = local_now.hour
         weekday = local_now.weekday()  # 0=Monday, 6=Sunday
 

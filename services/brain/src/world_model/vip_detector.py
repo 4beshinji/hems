@@ -37,5 +37,8 @@ def _detect_service_vip(service_name: str, payload: dict) -> bool:
 
 # Backward-compatible module-level aliases (re-exported by world_model.py).
 # Prefer the helper functions above for new code.
+# NOTE: these are evaluated once at import time, whereas the helper functions
+# read the env var on every call. Keep the aliases for existing callers, but
+# prefer the helpers when hot-reloading env changes matters.
 _VIP_GMAIL_SENDERS = _vip_gmail_senders()
 _VIP_GITHUB_REPOS = _vip_github_repos()

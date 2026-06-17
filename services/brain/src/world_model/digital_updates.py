@@ -1,6 +1,7 @@
 """WorldModel mixin extracted from the facade module."""
 
 import time
+from datetime import datetime
 
 from loguru import logger
 
@@ -342,8 +343,6 @@ class DigitalUpdatesMixin:
         if not iso_str:
             return 0
         try:
-            from datetime import datetime
-
             # Handle Z suffix and various formats
             s = iso_str.replace("Z", "+00:00")
             dt = datetime.fromisoformat(s)

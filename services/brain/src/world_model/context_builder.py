@@ -100,7 +100,7 @@ class ContextBuilderMixin:
         #   aged  (<1800s)  → prefix with "約N分前の観測" so LLM knows staleness
         #   stale (≥1800s)  → only keep minimal summary, and only if zone is occupied
         if occ.vlm_last_update > 0:
-            age_sec = time.time() - occ.vlm_last_update
+            age_sec = now - occ.vlm_last_update
             age_min = int(age_sec / 60)
             occ_now = occ.count > 0 or occ.inferred_occupied
 
@@ -135,7 +135,7 @@ class ContextBuilderMixin:
                     if o not in obj_union:
                         obj_union.append(o)
             latest = history[-1]
-            hist_age_min = int((time.time() - history[0].timestamp) / 60)
+            hist_age_min = int((now - history[0].timestamp) / 60)
             obj_str = f"[{', '.join(obj_union[:8])}]" if obj_union else ""
             parts.append(
                 f"  VLM履歴 (過去{hist_age_min}分, {len(history)}観測): "
