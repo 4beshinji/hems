@@ -2,7 +2,7 @@
 W1.7 — MQTT ACL rejection tests.
 
 Each service user is allowed to publish/subscribe only to a restricted topic
-set (see infra/mosquitto/aclfile).  These tests verify that a service user
+set (see infra/mosquitto/acl.txt).  These tests verify that a service user
 *cannot* publish to a topic outside its ACL — i.e. that the broker actively
 rejects unauthorised publishes.
 
@@ -122,6 +122,13 @@ _ACL_DENY_SCENARIOS: list[tuple[str, str, str]] = [
     # hems-iot (sensor devices) must NOT publish to hems/# directly
     ("hems-iot", "hems/brain/reload-character", "publish"),
     ("hems-iot", "hems/personal/biometrics/steps", "publish"),
+]
+
+# Scenarios that MUST be allowed by the broker ACL.
+_ACL_ALLOW_SCENARIOS: list[tuple[str, str, str]] = [
+    ("hems-iot", "hems/sensors/living/sensor/esp32_001/temperature", "publish"),
+    ("hems-iot", "hems/sensors/living/camera/cam_01/status", "publish"),
+    ("hems-iot", "hems/sensors/living/activity/monitor_01", "publish"),
 ]
 
 
@@ -270,5 +277,30 @@ def test_mqtt_acl_rejects_forbidden_publish(username, topic, operation, mqtt_cli
     assert rc != 0, (
         f"Broker accepted forbidden publish: user={username!r} topic={topic!r} "
         f"(rc={rc}). Check infra/mosquitto/aclfile — the ACL may be missing or "
+        f"the broker may be running without ACL enforcement."
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("username,topic,operation", _ACL_ALLOW_SCENARIOS)
+def test_mqtt_acl_allows_permitted_publish(username, topic, operation, mqtt_client_factory):
+    """Service user must be able to publish to its own permitted topic."""
+    _skip_if_no_broker()
+
+    if operation != "publish":
+        pytest.skip(f"Subscribe ACL test not implemented yet (scenario: {username}/{topic})")
+
+    password = _DEFAULT_PASSWORDS.get(username)
+    if not password:
+        pytest.skip(f"No password configured for {username}")
+
+    rc = _publish_and_check_rc(mqtt_client_factory, username, password, topic)
+
+    if rc is None:
+        pytest.skip(f"Broker unreachable or timed out while testing {username} → {topic}")
+
+    assert rc == 0, (
+        f"Broker rejected permitted publish: user={username!r} topic={topic!r} "
+        f"(rc={rc}). Check infra/mosquitto/acl.txt — the ACL may be missing or "
         f"the broker may be running without ACL enforcement."
     )

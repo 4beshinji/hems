@@ -15,9 +15,8 @@ additionally requires:
   X-Timestamp: <unix_seconds_integer>
   X-Nonce:     <opaque_string, unique per request>
 
-The signing message is then:  <timestamp>.<nonce>.<body_hex_or_b64> — but
-the simplest compatible approach is to fold timestamp and nonce into the
-HMAC payload: sign(secret, f"{timestamp}:{nonce}:".encode() + body).
+The signing message folds timestamp and nonce into the HMAC payload:
+sign(secret, f"{timestamp}:{nonce}:".encode() + body).
 
 Backward-compat window: while STRICT=false, requests that omit the timestamp/
 nonce headers are accepted with a WARNING log and the legacy body-only HMAC is

@@ -83,12 +83,11 @@ class TestParseMqttInjectionTopics:
     def test_path_traversal_in_mcp_device_name_returns_none_or_invalid(self):
         # hems/sensors/{zone}/sensor/{device_id}/{channel}
         # Attacker sends: hems/sensors/living/sensor/../../../etc/passwd/temperature
-        # NOTE (product bug W1.7-B1): parse_mqtt uses parts[4] without validation.
-        # The topic splits to ['hems','sensors','living','sensor','..','..','..','etc','passwd','temperature']
+        # parse_mqtt uses parts[4] without validation; the topic splits to
+        # ['hems','sensors','living','sensor','..','..','..','etc','passwd','temperature']
         # and parts[4] == '..' becomes vendor_ref='..' and device_id='mcp..'.
-        # is_valid_device_ref('mcp..') returns True because the regex ^[\w.\-]+$ allows
-        # consecutive dots.  A strengthened validator should reject '..' components.
-        # See REPORT section at bottom of this file.
+        # is_valid_device_ref now rejects empty dot-separated components, so 'mcp..'
+        # is refused.
         topic = "hems/sensors/living/sensor/../../../etc/passwd/temperature"
         obs = _parse(topic, {"value": 22.0})
         # Either parse_mqtt returns None (topic structure mismatch due to extra parts)
@@ -97,10 +96,7 @@ class TestParseMqttInjectionTopics:
             assert not _is_valid(obs.device_id), (
                 f"Injection topic produced a device_id that passes validation: "
                 f"{obs.device_id!r} (topic={topic!r}). "
-                f"PRODUCT BUG W1.7-B1: is_valid_device_ref allows consecutive dots "
-                f"so 'mcp..' passes — the validator should reject pure-dot components "
-                f"like '..' (analogous to path traversal). Fix: add a check that "
-                f"no component of the device_id consists solely of dots."
+                f"is_valid_device_ref should reject consecutive dots."
             )
 
     def test_dotdot_in_switchbot_vendor_ref_produces_invalid_id(self):
@@ -123,17 +119,16 @@ class TestParseMqttInjectionTopics:
 
     def test_dotdot_in_zigbee_vendor_ref_produces_invalid_id(self):
         # zigbee2mqtt/../etc/passwd  (traversal after zigbee2mqtt prefix)
-        # NOTE (product bug W1.7-B1): parts[1] == '..' does not start with 'bridge'
-        # so it matches the zigbee catch-all path.  vendor_ref='..' → device_id='zigbee..'
-        # which passes is_valid_device_ref() because dots are allowed in the regex.
+        # parts[1] == '..' does not start with 'bridge' so it matches the zigbee
+        # catch-all path.  vendor_ref='..' → device_id='zigbee..'.
+        # is_valid_device_ref now rejects empty dot-separated components, so
+        # 'zigbee..' is refused.
         topic = "zigbee2mqtt/../etc/passwd"
         obs = _parse(topic, {})
         if obs is not None:
             assert not _is_valid(obs.device_id), (
                 f"Path-traversal zigbee topic produced valid device_id: {obs.device_id!r}. "
-                f"PRODUCT BUG W1.7-B1: same root cause as MCP case — consecutive-dot "
-                f"components (..) pass the validator. Fix: reject device_id values where "
-                f"any dot-separated component consists solely of dots."
+                f"is_valid_device_ref should reject consecutive dots."
             )
 
     # --- MQTT wildcards injected into device position ---
@@ -295,17 +290,11 @@ class TestHeartbeatGateForInjectedIds:
 
     # Injection topics must not be forwarded
     def test_path_traversal_mcp_not_forwarded(self):
-        # PRODUCT BUG W1.7-B1: this currently fails because 'mcp..' passes
-        # is_valid_device_ref() — the regex allows consecutive dots.
-        # Marking xfail to document the known gap without hiding it.
+        # is_valid_device_ref now rejects consecutive dots, so 'mcp..' is refused
+        # and the observation must not be forwarded.
         result = self._would_be_forwarded("hems/sensors/living/sensor/../../../etc/passwd/temperature")
-        # We assert the EXPECTED correct behaviour (not forwarded).
-        # If this suddenly passes, it means the bug is fixed — great.
-        # If it fails, it confirms the known bug (W1.7-B1).
         assert not result, (
-            "PRODUCT BUG W1.7-B1: 'mcp..' passes is_valid_device_ref() and "
-            "would be forwarded to /devices/heartbeat. "
-            "Fix is_valid_device_ref to reject components consisting solely of dots."
+            "'mcp..' should be rejected by is_valid_device_ref() and must not be forwarded to /devices/heartbeat."
         )
 
     def test_wildcard_switchbot_not_forwarded(self):
