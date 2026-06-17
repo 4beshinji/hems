@@ -18,6 +18,7 @@ export function useZones() {
     queryKey: ZONES_KEY,
     queryFn: fetchZones,
     refetchInterval: ZONES_REFETCH_INTERVAL,
+    staleTime: ZONES_REFETCH_INTERVAL,
     retry: false,
   })
 }

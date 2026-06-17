@@ -18,6 +18,7 @@ export function useTasks() {
     queryKey: TASKS_KEY,
     queryFn: fetchTasks,
     refetchInterval: TASKS_REFETCH_INTERVAL,
+    staleTime: TASKS_REFETCH_INTERVAL,
     retry: false,
   })
 }

@@ -18,6 +18,7 @@ export function useVoiceEvents(options?: { enabled?: boolean }) {
     queryKey: VOICE_EVENTS_KEY,
     queryFn: fetchVoiceEvents,
     refetchInterval: VOICE_EVENTS_REFETCH_INTERVAL,
+    staleTime: VOICE_EVENTS_REFETCH_INTERVAL,
     retry: false,
     enabled: options?.enabled,
   })
