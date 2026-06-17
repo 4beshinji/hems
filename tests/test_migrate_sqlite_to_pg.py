@@ -235,8 +235,8 @@ class TestConvertTimestamp:
     def test_passthrough_non_timestamp(self):
         # Non-timestamp strings are passed through unchanged if unrecognised
         result = mig.convert_timestamp("not-a-date")
-        # Should not raise
-        assert result is not None or result is None  # whatever, just no crash
+        # Should not raise and should return the input unchanged
+        assert result == "not-a-date"
 
 
 class TestConvertJson:
