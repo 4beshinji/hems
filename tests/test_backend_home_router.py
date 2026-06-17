@@ -2,15 +2,16 @@
 Tests for backend home (HA control) router — in-memory store + httpx proxy.
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client():
-    """Create a test client for the home router."""
+def client(monkeypatch):
+    """Create a test client for the home router with HA_BRIDGE_URL isolated."""
+    monkeypatch.delenv("HA_BRIDGE_URL", raising=False)
     import sys
     from pathlib import Path
 
@@ -63,9 +64,9 @@ class TestHomeLightControl:
         )
         assert resp.status_code == 503
 
-    @patch("routers.home.HA_BRIDGE_URL", "http://fake-ha:8000")
     @patch("routers.home._ha_proxy_call", new_callable=AsyncMock)
-    def test_light_toggle(self, mock_call, client):
+    def test_light_toggle(self, mock_call, client, monkeypatch):
+        monkeypatch.setenv("HA_BRIDGE_URL", "http://fake-ha:8000")
         mock_call.return_value = {"success": True, "result": "light/turn_on -> light.living_room"}
         resp = client.post(
             "/home/light/control",
@@ -102,3 +103,56 @@ class TestHomeCoverControl:
             },
         )
         assert resp.status_code == 503
+
+
+class TestHomeInternalAuthHeaders:
+    @pytest.mark.asyncio
+    async def test_ha_proxy_call_includes_bearer_token(self, monkeypatch):
+        monkeypatch.setenv("HA_BRIDGE_URL", "http://fake-ha:8000")
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret-token")
+
+        from routers.home import _ha_proxy_call
+
+        mock_resp = AsyncMock()
+        mock_resp.status_code = 200
+        mock_resp.text = "ok"
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
+            result = await _ha_proxy_call("light.living_room", "light/turn_on")
+            assert result["success"] is True
+            mock_post.assert_awaited_once()
+            call_kwargs = mock_post.call_args.kwargs
+            assert call_kwargs["headers"]["Authorization"] == "Bearer secret-token"
+
+    @pytest.mark.asyncio
+    async def test_get_home_devices_includes_bearer_token(self, monkeypatch):
+        monkeypatch.setenv("HA_BRIDGE_URL", "http://fake-ha:8000")
+        monkeypatch.setenv("HEMS_INTERNAL_TOKEN", "secret-token")
+
+        from routers.home import get_home_devices
+
+        mock_resp = AsyncMock()
+        mock_resp.json = Mock(return_value={"devices": []})
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp) as mock_get:
+            result = await get_home_devices()
+            assert result == {"devices": []}
+            mock_get.assert_awaited_once()
+            call_kwargs = mock_get.call_args.kwargs
+            assert call_kwargs["headers"]["Authorization"] == "Bearer secret-token"
+
+    @pytest.mark.asyncio
+    async def test_ha_proxy_call_omits_auth_when_token_unset(self, monkeypatch):
+        monkeypatch.setenv("HA_BRIDGE_URL", "http://fake-ha:8000")
+        monkeypatch.delenv("HEMS_INTERNAL_TOKEN", raising=False)
+
+        from routers.home import _ha_proxy_call
+
+        mock_resp = AsyncMock()
+        mock_resp.status_code = 200
+        mock_resp.text = "ok"
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
+            await _ha_proxy_call("light.living_room", "light/turn_on")
+            call_kwargs = mock_post.call_args.kwargs
+            assert "Authorization" not in call_kwargs.get("headers", {})
