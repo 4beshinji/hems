@@ -42,7 +42,11 @@ async def bridge_lifespan(
     """
     mqtt.connect()
     if on_startup is not None:
-        await on_startup()
+        try:
+            await on_startup()
+        except Exception:
+            mqtt.disconnect()
+            raise
 
     tasks = [asyncio.create_task(factory()) for factory in task_factories]
     try:

@@ -48,6 +48,20 @@ async def test_bridge_lifespan_order_and_tasks():
 
 
 @pytest.mark.asyncio
+async def test_bridge_lifespan_disconnects_even_if_startup_raises():
+    pub = _mock_pub()
+
+    async def bad_startup():
+        raise RuntimeError("startup boom")
+
+    with pytest.raises(RuntimeError, match="startup boom"):
+        async with bridge_lifespan(None, mqtt=pub, on_startup=bad_startup):
+            pass
+
+    pub.client.disconnect.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_bridge_lifespan_disconnects_even_if_shutdown_raises():
     pub = _mock_pub()
 
