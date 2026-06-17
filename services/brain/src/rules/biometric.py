@@ -5,15 +5,13 @@ Extracted as a mixin to keep RuleEngine public methods stable.
 
 from datetime import datetime
 
-import rule_engine as _rule_engine
-
 
 class BiometricRulesMixin:
     def _evaluate_biometric_rules(self, world_model, now: float) -> list[dict]:
         """Evaluate biometric health rules."""
         actions = []
         bio = world_model.biometric_state
-        hour = _rule_engine.datetime.now().hour
+        hour = datetime.now().hour
 
         # 0. Stale biometric data alert
         if (

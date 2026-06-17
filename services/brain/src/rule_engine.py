@@ -4,14 +4,11 @@ Used when GPU load is high or LLM is unavailable.
 Evaluates simple threshold rules and returns tool call actions.
 """
 
-import random  # noqa: F401 - used by extracted rule mixins
 import subprocess
 import time
-from datetime import UTC, datetime  # noqa: F401 - used by extracted rule mixins
 
 from loguru import logger
 
-from brain_utils import parse_iso_ts  # noqa: F401 - used by extracted rule mixins
 from rules.config import RuleThresholds, load_rule_thresholds
 from schedule_learner import ScheduleLearner
 

@@ -3,110 +3,9 @@ WorldModel — maintains unified zone state from MQTT messages.
 Forked from SOMS with HEMS personal topic support.
 """
 
-import os
-import re
 import time
 
 from loguru import logger
-
-from .data_classes import (
-    BinarySensorState,  # noqa: F401 - re-exported for WorldModel mixins
-    BiometricState,
-    CalendarEvent,  # noqa: F401 - re-exported for WorldModel mixins
-    ClimateState,  # noqa: F401 - re-exported for WorldModel mixins
-    CoverState,  # noqa: F401 - re-exported for WorldModel mixins
-    CPUData,  # noqa: F401 - re-exported for WorldModel mixins
-    DigitalSpace,
-    DiskData,  # noqa: F401 - re-exported for WorldModel mixins
-    DiskPartition,  # noqa: F401 - re-exported for WorldModel mixins
-    DriveFile,  # noqa: F401 - re-exported for WorldModel mixins
-    Event,  # noqa: F401 - re-exported for WorldModel mixins
-    FreeSlot,  # noqa: F401 - re-exported for WorldModel mixins
-    GASState,
-    GmailLabel,  # noqa: F401 - re-exported for WorldModel mixins
-    GoogleTask,  # noqa: F401 - re-exported for WorldModel mixins
-    GPUData,  # noqa: F401 - re-exported for WorldModel mixins
-    HASensorState,  # noqa: F401 - re-exported for WorldModel mixins
-    HeartRateData,  # noqa: F401 - re-exported for WorldModel mixins
-    HomeDevicesState,
-    KnowledgeState,
-    LightState,  # noqa: F401 - re-exported for WorldModel mixins
-    MemoryData,  # noqa: F401 - re-exported for WorldModel mixins
-    NewsState,
-    OccupancyData,  # noqa: F401 - re-exported for WorldModel mixins
-    PCState,
-    PhysicalSpace,
-    ProcessInfo,  # noqa: F401 - re-exported for WorldModel mixins
-    ServicesState,
-    ServiceStatusData,  # noqa: F401 - re-exported for WorldModel mixins
-    SheetData,  # noqa: F401 - re-exported for WorldModel mixins
-    ShoppingItemData,  # noqa: F401 - re-exported for WorldModel mixins
-    ShoppingState,
-    StressData,  # noqa: F401 - re-exported for WorldModel mixins
-    UserState,
-    WeatherAlert,  # noqa: F401 - re-exported for WorldModel mixins
-    WeatherForecast,  # noqa: F401 - re-exported for WorldModel mixins
-    WeatherState,
-    ZoneState,
-)
-from .sensor_fusion import (
-    ChannelType,  # noqa: F401 - re-exported for WorldModel mixins
-    EventCounter,
-    SensorFusion,
-    StateTracker,
-    TrendDetector,
-    classify_channel,  # noqa: F401 - re-exported for WorldModel mixins
-)
-from .sensor_validation import validate_sensor_value  # noqa: F401 - re-exported for WorldModel mixins
-
-# B-2: VIP sender / repo identification for service edge events.
-# Comma-separated list. A service event is treated as VIP if its payload's
-# `vip` field is true, OR if any configured VIP token is found in the event
-# summary / details / data.
-_VIP_GMAIL_SENDERS = [s.strip().lower() for s in os.getenv("HEMS_GMAIL_VIP_SENDERS", "").split(",") if s.strip()]
-_VIP_GITHUB_REPOS = [s.strip().lower() for s in os.getenv("HEMS_GITHUB_VIP_REPOS", "").split(",") if s.strip()]
-
-
-def _detect_service_vip(service_name: str, payload: dict) -> bool:
-    """Return True if the service event is from a VIP sender or repo."""
-    if payload.get("vip"):
-        return True
-    haystack = " ".join(
-        str(payload.get(k, "")) for k in ("summary", "details", "subject", "from", "sender", "repo")
-    ).lower()
-    if not haystack:
-        return False
-    if service_name == "gmail":
-        return any(s and s in haystack for s in _VIP_GMAIL_SENDERS)
-    if service_name == "github":
-        return any(s and s in haystack for s in _VIP_GITHUB_REPOS)
-    return False
-
-
-# Prompt injection patterns to strip from MQTT-sourced text before LLM context
-_INJECTION_RE = re.compile(
-    r"\[SYSTEM|<\|system\|>|###\s*(System|Instruction|Override)|"
-    r"Ignore\s+previous\s+instructions|Override\s+(all\s+)?(previous\s+)?instructions|"
-    r"\[INST\]|<\|im_start\|>|<\|im_end\|>",
-    re.IGNORECASE,
-)
-
-
-def _sanitize_text(text: str, max_len: int = 200) -> str:
-    """Sanitize MQTT-sourced text before including it in LLM context.
-
-    - Removes prompt-injection marker patterns
-    - Collapses newlines (prevents multi-line injection)
-    - Truncates to max_len
-    """
-    if not isinstance(text, str):
-        return str(text)[:max_len]
-    cleaned = _INJECTION_RE.sub("[FILTERED]", text)
-    cleaned = " ".join(cleaned.splitlines()).strip()
-    if len(cleaned) > max_len:
-        cleaned = cleaned[:max_len] + "…"
-    return cleaned
-
 
 # Alert/event thresholds are owned by the single source of truth
 # (rules.config.RuleThresholds) and reached via constructor DI
@@ -115,22 +14,68 @@ def _sanitize_text(text: str, max_len: int = 200) -> str:
 # introduces no cycle.
 from rules.config import RuleThresholds, load_rule_thresholds
 
-# Freshness / degraded-operation thresholds (Group C, ported from SOMS).
-# A reading older than ENV_STALE_SEC is annotated as stale in the LLM context.
-# A zone with no update for ZONE_BLIND_SEC counts toward system-wide blindness,
-# which puts the cognitive loop into observe-only mode (side-effects suppressed).
-# These are time-windows, not alert thresholds, and remain env-direct (not in
-# RuleThresholds) per the W2.1 design note.
-ENV_STALE_SEC = int(os.getenv("HEMS_ENV_STALE_SEC", "300"))  # 5 min
-ZONE_BLIND_SEC = int(os.getenv("HEMS_ZONE_BLIND_SEC", "300"))  # 5 min
-
-
+from .constants import ENV_STALE_SEC, ZONE_BLIND_SEC  # noqa: F401 - re-exported for backward compatibility
 from .context_builder import ContextBuilderMixin
+from .data_classes import (
+    BinarySensorState,  # noqa: F401 - re-exported for backward compatibility
+    BiometricState,
+    CalendarEvent,  # noqa: F401 - re-exported for backward compatibility
+    ClimateState,  # noqa: F401 - re-exported for backward compatibility
+    CoverState,  # noqa: F401 - re-exported for backward compatibility
+    CPUData,  # noqa: F401 - re-exported for backward compatibility
+    DigitalSpace,
+    DiskData,  # noqa: F401 - re-exported for backward compatibility
+    DiskPartition,  # noqa: F401 - re-exported for backward compatibility
+    DriveFile,  # noqa: F401 - re-exported for backward compatibility
+    Event,  # noqa: F401 - re-exported for backward compatibility
+    FreeSlot,  # noqa: F401 - re-exported for backward compatibility
+    GASState,
+    GmailLabel,  # noqa: F401 - re-exported for backward compatibility
+    GoogleTask,  # noqa: F401 - re-exported for backward compatibility
+    GPUData,  # noqa: F401 - re-exported for backward compatibility
+    HASensorState,  # noqa: F401 - re-exported for backward compatibility
+    HeartRateData,  # noqa: F401 - re-exported for backward compatibility
+    HomeDevicesState,
+    KnowledgeState,
+    LightState,  # noqa: F401 - re-exported for backward compatibility
+    MemoryData,  # noqa: F401 - re-exported for backward compatibility
+    NewsState,
+    OccupancyData,  # noqa: F401 - re-exported for backward compatibility
+    PCState,
+    PhysicalSpace,
+    ProcessInfo,  # noqa: F401 - re-exported for backward compatibility
+    ServicesState,
+    ServiceStatusData,  # noqa: F401 - re-exported for backward compatibility
+    SheetData,  # noqa: F401 - re-exported for backward compatibility
+    ShoppingItemData,  # noqa: F401 - re-exported for backward compatibility
+    ShoppingState,
+    StressData,  # noqa: F401 - re-exported for backward compatibility
+    UserState,
+    WeatherAlert,  # noqa: F401 - re-exported for backward compatibility
+    WeatherForecast,  # noqa: F401 - re-exported for backward compatibility
+    WeatherState,
+    ZoneState,
+)
 from .digital_updates import DigitalUpdatesMixin
 from .mqtt_router import MqttRouterMixin
 from .physical_updates import PhysicalUpdatesMixin
 from .presence import PresenceMixin
+from .sanitizer import _sanitize_text  # noqa: F401 - re-exported for backward compatibility
+from .sensor_fusion import (
+    ChannelType,  # noqa: F401 - re-exported for backward compatibility
+    EventCounter,
+    SensorFusion,
+    StateTracker,
+    TrendDetector,
+    classify_channel,  # noqa: F401 - re-exported for backward compatibility
+)
+from .sensor_validation import validate_sensor_value  # noqa: F401 - re-exported for backward compatibility
 from .user_updates import UserUpdatesMixin
+from .vip_detector import (  # noqa: F401 - re-exported for backward compatibility
+    _VIP_GITHUB_REPOS,
+    _VIP_GMAIL_SENDERS,
+    _detect_service_vip,
+)
 
 
 class WorldModel(

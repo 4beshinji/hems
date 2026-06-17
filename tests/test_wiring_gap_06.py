@@ -179,15 +179,11 @@ class TestGmailRecentContext:
     """Wave 2.1 — _get_digital_context lists VIP threads first, max 5."""
 
     def test_vip_first_then_truncate(self, world_model, monkeypatch):
-        # Reload module with VIP env so _VIP_GMAIL_SENDERS is non-empty.
-        import importlib
-
+        # VIP senders are read dynamically from env, so set it before creating WorldModel.
         monkeypatch.setenv("HEMS_GMAIL_VIP_SENDERS", "boss@example.com,partner@example.org")
-        import world_model.world_model as wm_mod
+        from world_model.world_model import WorldModel
 
-        importlib.reload(wm_mod)
-
-        wm = wm_mod.WorldModel()
+        wm = WorldModel()
         gs = wm.gas_state
         gs.bridge_connected = True
         gs.gmail_recent = [

@@ -1,6 +1,10 @@
 """WorldModel mixin extracted from the facade module."""
 
-from . import world_model as _world_model
+import time
+
+from .constants import ENV_STALE_SEC, ZONE_BLIND_SEC
+from .sanitizer import _sanitize_text
+from .vip_detector import _is_vip_gmail_sender
 
 # Trend arrows for analog channels (class-level constant, used in zone sections)
 _TREND = {"rising": "↑", "falling": "↓", "stable": ""}
@@ -25,7 +29,7 @@ class ContextBuilderMixin:
 
         return "\n\n".join(sections)
 
-    def is_blind(self, threshold_sec: float = _world_model.ZONE_BLIND_SEC) -> bool:
+    def is_blind(self, threshold_sec: float = ZONE_BLIND_SEC) -> bool:
         """Whether the system has lost fresh perception (degraded operation).
 
         Returns True when there are no zones at all, or every known zone has
@@ -36,7 +40,7 @@ class ContextBuilderMixin:
         """
         if not self.zones:
             return True
-        now = _world_model.time.time()
+        now = time.time()
         return all(
             z.environment.last_update == 0 or (now - z.environment.last_update) > threshold_sec
             for z in self.zones.values()
@@ -48,7 +52,7 @@ class ContextBuilderMixin:
         if ts is None:
             return ""
         age = now - ts
-        if age > _world_model.ENV_STALE_SEC:
+        if age > ENV_STALE_SEC:
             return f"（{int(age / 60)}分前・古い）"
         return ""
 
@@ -96,7 +100,7 @@ class ContextBuilderMixin:
         #   aged  (<1800s)  → prefix with "約N分前の観測" so LLM knows staleness
         #   stale (≥1800s)  → only keep minimal summary, and only if zone is occupied
         if occ.vlm_last_update > 0:
-            age_sec = _world_model.time.time() - occ.vlm_last_update
+            age_sec = time.time() - occ.vlm_last_update
             age_min = int(age_sec / 60)
             occ_now = occ.count > 0 or occ.inferred_occupied
 
@@ -131,7 +135,7 @@ class ContextBuilderMixin:
                     if o not in obj_union:
                         obj_union.append(o)
             latest = history[-1]
-            hist_age_min = int((_world_model.time.time() - history[0].timestamp) / 60)
+            hist_age_min = int((time.time() - history[0].timestamp) / 60)
             obj_str = f"[{', '.join(obj_union[:8])}]" if obj_union else ""
             parts.append(
                 f"  VLM履歴 (過去{hist_age_min}分, {len(history)}観測): "
@@ -148,7 +152,7 @@ class ContextBuilderMixin:
         # Degraded operation: flag a zone whose sensors have gone quiet, so
         # the LLM knows the readings below may be stale (and the blind guard
         # may be suppressing side-effects).
-        if env.last_update > 0 and (now - env.last_update) > _world_model.ENV_STALE_SEC:
+        if env.last_update > 0 and (now - env.last_update) > ENV_STALE_SEC:
             parts.append(f"  ⚠️ データ更新なし（最終更新 {int((now - env.last_update) / 60)}分前・古い）")
 
         def _t(ch: str, env=env) -> str:
@@ -178,17 +182,17 @@ class ContextBuilderMixin:
                 co2_str += " (換気推奨)"
             parts.append(co2_str)
 
-        # Motion event frequency (_world_model.EventCounter)
+        # Motion event frequency (EventCounter)
         if zone.occupancy.motion_event_count_5min > 0:
             parts.append(f"  動体検知: 直近5分で{zone.occupancy.motion_event_count_5min}回")
 
-        # Presence state (_world_model.StateTracker)
+        # Presence state (StateTracker)
         if zone.occupancy.presence_state is not None:
             dur_min = int(zone.occupancy.presence_duration_sec / 60)
             state_str = "在室検知中" if zone.occupancy.presence_state else "不在"
             parts.append(f"  在室センサー: {state_str} ({dur_min}分間)")
 
-        # Door states (_world_model.StateTracker)
+        # Door states (StateTracker)
         for dev_id, door_info in zone.occupancy.door_states.items():
             dur_min = int(door_info["duration_sec"] / 60)
             state_str = "開放中" if door_info["open"] else "閉鎖中"
@@ -333,7 +337,7 @@ class ContextBuilderMixin:
         monolithic implementation.
         """
         lines = []
-        now = _world_model.time.time()
+        now = time.time()
 
         # VLM model swap banner — brain is in rule-based fallback during heavy load
         banner = self._build_vlm_swap_banner()
@@ -409,7 +413,7 @@ class ContextBuilderMixin:
         gs = self.gas_state
         if gs.bridge_connected:
             gas_parts = ["### Google連携"]
-            now_ts = _world_model.time.time()
+            now_ts = time.time()
             upcoming = [e for e in gs.calendar_events if e.start_ts > now_ts][:3]
             if upcoming:
                 gas_parts.append("  予定:")
@@ -434,8 +438,8 @@ class ContextBuilderMixin:
             if gs.gmail_recent:
 
                 def _is_vip(thread):
-                    sender = str(thread.get("from", "") or thread.get("sender", "")).lower()
-                    return any(v and v in sender for v in _world_model._VIP_GMAIL_SENDERS)
+                    sender = str(thread.get("from", "") or thread.get("sender", ""))
+                    return _is_vip_gmail_sender(sender)
 
                 vip = [t for t in gs.gmail_recent if _is_vip(t)]
                 rest = [t for t in gs.gmail_recent if not _is_vip(t)]
@@ -443,8 +447,8 @@ class ContextBuilderMixin:
                 if ordered:
                     gas_parts.append("  最近のGmail:")
                     for t in ordered:
-                        subj = _world_model._sanitize_text(str(t.get("subject", "") or "(件名なし)"), 60)
-                        sender = _world_model._sanitize_text(str(t.get("from", "") or t.get("sender", "")), 40)
+                        subj = _sanitize_text(str(t.get("subject", "") or "(件名なし)"), 60)
+                        sender = _sanitize_text(str(t.get("from", "") or t.get("sender", "")), 40)
                         vip_tag = "★ " if _is_vip(t) else ""
                         gas_parts.append(f"    - {vip_tag}{sender}: {subj}")
 
@@ -509,7 +513,7 @@ class ContextBuilderMixin:
                 ts_str = _dt.fromtimestamp(ns.daily_timestamp).strftime("%H:%M")
                 news_parts.append(f"  最終サマリ: {ts_str} ({len(ns.daily_chunks)}カテゴリ)")
             if ns.urgent_articles:
-                recent = [a for a in ns.urgent_articles if _world_model.time.time() - a.get("timestamp", 0) < 3600]
+                recent = [a for a in ns.urgent_articles if time.time() - a.get("timestamp", 0) < 3600]
                 if recent:
                     news_parts.append(f"  速報: {len(recent)}件 (直近1時間)")
             if not ns.bridge_connected:
@@ -562,7 +566,7 @@ class ContextBuilderMixin:
             from datetime import datetime as _dt
 
             sc_parts = ["### 生活パターン"]
-            now_ts = _world_model.time.time()
+            now_ts = time.time()
             if sched.next_arrival_ts > now_ts:
                 mins = int((sched.next_arrival_ts - now_ts) / 60)
                 ts_str = _dt.fromtimestamp(sched.next_arrival_ts).strftime("%H:%M")
@@ -582,7 +586,7 @@ class ContextBuilderMixin:
         # Biometrics
         bio = self.biometric_state
         if bio.last_update > 0:
-            now_ts = _world_model.time.time()
+            now_ts = time.time()
 
             def _stale_tag(last: float) -> str:
                 """Stage label for biometric data freshness.

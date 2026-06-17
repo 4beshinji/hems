@@ -33,7 +33,7 @@ class TestRuleEngineGASRules:
     @pytest.fixture(autouse=True)
     def _freeze_time(self):
         """Freeze datetime.now() to 14:00 so morning briefing (8-9 AM) never fires."""
-        with patch("rule_engine.datetime", _FakeDatetime):
+        with patch("rules.gas.datetime", _FakeDatetime):
             yield
 
     def _make_engine(self):

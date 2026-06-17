@@ -3,7 +3,7 @@
 Extracted as a mixin to keep RuleEngine public methods stable.
 """
 
-import rule_engine as _rule_engine
+from brain_utils import parse_iso_ts
 
 
 class ServiceRulesMixin:
@@ -99,7 +99,7 @@ class ServiceRulesMixin:
 
             # Staleness (no updates for >24h)
             last_seen_iso = d.get("last_seen")
-            last_seen_ts = _rule_engine.parse_iso_ts(last_seen_iso)
+            last_seen_ts = parse_iso_ts(last_seen_iso)
             if last_seen_ts is not None and (now - last_seen_ts) > stale_threshold_s:
                 if self._check_cooldown_custom(f"dev_stale_{device_id}", now, DAY_S):
                     hours_ago = int((now - last_seen_ts) / 3600)

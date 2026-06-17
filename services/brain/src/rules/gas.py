@@ -3,7 +3,7 @@
 Extracted as a mixin to keep RuleEngine public methods stable.
 """
 
-import rule_engine as _rule_engine
+from datetime import UTC, datetime
 
 
 class GasRulesMixin:
@@ -12,9 +12,9 @@ class GasRulesMixin:
         actions = []
 
         try:
-            local_now = _rule_engine.datetime.now()
+            local_now = datetime.now()
         except Exception:
-            local_now = _rule_engine.datetime.now(_rule_engine.UTC)
+            local_now = datetime.now(UTC)
         hour = local_now.hour
         weekday = local_now.weekday()  # 0=Monday, 6=Sunday
 
@@ -199,7 +199,7 @@ class GasRulesMixin:
                 )
 
             # Stage B/C — per-task escalation based on hours overdue
-            _dt = _rule_engine.datetime
+            _dt = datetime
 
             for task in overdue_tasks:
                 if not task.due or not task.id:

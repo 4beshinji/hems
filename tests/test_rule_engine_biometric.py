@@ -119,7 +119,7 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.fatigue.last_update = time.time()
 
         mock_dt = datetime(2026, 2, 20, 22, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -135,7 +135,7 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.fatigue.last_update = time.time()
 
         mock_dt = datetime(2026, 2, 20, 14, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -174,7 +174,7 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.last_update = time.time()
 
         mock_dt = datetime(2026, 2, 20, 9, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -192,7 +192,7 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.last_update = time.time()
 
         mock_dt = datetime(2026, 2, 20, 14, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -208,7 +208,7 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.last_update = time.time()
 
         mock_dt = datetime(2026, 2, 20, 9, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -223,7 +223,7 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.quality_score = 0
 
         mock_dt = datetime(2026, 2, 20, 9, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -239,7 +239,7 @@ class TestRuleEngineBiometricRules:
         world_model.biometric_state.sleep.last_update = time.time()
 
         mock_dt = datetime(2026, 2, 20, 9, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions1 = engine.evaluate(world_model)
@@ -478,7 +478,7 @@ class TestRuleEngineBiometricRules:
         self._populate_device_cache(engine, {"light.living": (True, 200)})
 
         mock_dt = datetime(2026, 2, 20, 22, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -515,7 +515,7 @@ class TestRuleEngineBiometricRules:
         )
 
         mock_dt = datetime(2026, 2, 20, 21, 30, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -547,7 +547,7 @@ class TestRuleEngineBiometricRules:
         }
 
         mock_dt = datetime(2026, 2, 20, 15, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -568,7 +568,7 @@ class TestRuleEngineBiometricRules:
         }
 
         mock_dt = datetime(2026, 2, 20, 22, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -589,7 +589,7 @@ class TestRuleEngineBiometricRules:
         }
 
         mock_dt = datetime(2026, 2, 20, 22, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)
@@ -610,7 +610,7 @@ class TestRuleEngineBiometricRules:
         }
 
         mock_dt = datetime(2026, 2, 20, 22, 0, 0)
-        with patch("rule_engine.datetime") as mock_datetime:
+        with patch("rules.biometric.datetime") as mock_datetime:
             mock_datetime.now.return_value = mock_dt
             mock_datetime.side_effect = lambda *a, **kw: datetime(*a, **kw)
             actions = engine.evaluate(world_model)

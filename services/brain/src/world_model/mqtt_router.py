@@ -1,6 +1,13 @@
 """WorldModel mixin extracted from the facade module."""
 
-from . import world_model as _world_model
+import time
+
+from loguru import logger
+
+from .data_classes import Event, OccupancyData
+from .sanitizer import _sanitize_text
+from .sensor_fusion import ChannelType, classify_channel
+from .sensor_validation import validate_sensor_value
 
 
 class MqttRouterMixin:
@@ -22,23 +29,23 @@ class MqttRouterMixin:
                 if len(parts) < 6:
                     return  # channel part required for sensor topics
                 if value is not None:
-                    ch_type = _world_model.classify_channel(channel)
-                    if ch_type == _world_model.ChannelType.ANALOG:
-                        ok, coerced = _world_model.validate_sensor_value(channel, value)
+                    ch_type = classify_channel(channel)
+                    if ch_type == ChannelType.ANALOG:
+                        ok, coerced = validate_sensor_value(channel, value)
                         if not ok:
-                            _world_model.logger.warning(
+                            logger.warning(
                                 f"Rejected sensor value (not fused): topic={topic} channel={channel} raw={value!r}"
                             )
                             return
                         self._update_sensor(zone_id, channel, coerced)
-                    elif ch_type == _world_model.ChannelType.EVENT:
+                    elif ch_type == ChannelType.EVENT:
                         self._update_event_channel(zone_id, channel, value, device_id)
-                    elif ch_type == _world_model.ChannelType.STATE:
+                    elif ch_type == ChannelType.STATE:
                         self._update_state_channel(zone_id, channel, value, device_id)
             elif device_type == "camera" and len(parts) >= 6:
                 count = payload.get("person_count", payload.get("count", 0))
                 zone = self._get_zone(zone_id)
-                zone.occupancy = _world_model.OccupancyData(count=int(count), last_update=_world_model.time.time())
+                zone.occupancy = OccupancyData(count=int(count), last_update=time.time())
             elif device_type == "activity":
                 zone = self._get_zone(zone_id)
                 activity = payload.get("activity_level", "")
@@ -56,7 +63,7 @@ class MqttRouterMixin:
                     duration = payload.get("duration_minutes", 0)
                     if duration >= self.thresholds.sedentary_minutes:
                         zone.add_event(
-                            _world_model.Event(
+                            Event(
                                 event_type="sedentary_alert",
                                 description=f"長時間着座検知: {duration}分",
                                 severity=1,
@@ -69,10 +76,10 @@ class MqttRouterMixin:
         elif "task_report" in topic:
             zone_id = parts[1] if len(parts) >= 2 else "unknown"
             zone = self._get_zone(zone_id)
-            safe_title = _world_model._sanitize_text(payload.get("title", ""), 100)
-            safe_status = _world_model._sanitize_text(payload.get("report_status", ""), 30)
+            safe_title = _sanitize_text(payload.get("title", ""), 100)
+            safe_status = _sanitize_text(payload.get("report_status", ""), 30)
             zone.add_event(
-                _world_model.Event(
+                Event(
                     event_type="task_report",
                     description=f"タスク報告: {safe_title} ({safe_status})",
                     severity=1 if payload.get("report_status") in ("needs_followup", "cannot_resolve") else 0,

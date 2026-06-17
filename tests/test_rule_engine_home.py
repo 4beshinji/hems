@@ -80,7 +80,7 @@ class TestSleepDetection:
         world_model.home_devices.bridge_connected = True
         engine._device_cache = [_make_light("light.bedroom", on=True, brightness=200, zone="bedroom")]
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 20, 23, 30)
             actions = engine.evaluate(world_model)
 
@@ -106,7 +106,7 @@ class TestSleepDetection:
             on=True,
         )
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 20, 14, 0)
             actions = engine.evaluate(world_model)
 
@@ -129,7 +129,7 @@ class TestSleepDetection:
             on=False,
         )
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 20, 23, 30)
             actions = engine.evaluate(world_model)
 
@@ -151,7 +151,7 @@ class TestPreArrivalHVAC:
 
         schedule_learner.predict_next_arrival = MagicMock(return_value=now + 20 * 60)
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 15, 17, 40)
             actions = engine.evaluate(world_model)
 
@@ -173,7 +173,7 @@ class TestPreArrivalHVAC:
         engine._device_cache = [_make_climate("climate.living_room", zone="living_room")]
         schedule_learner.predict_next_arrival = MagicMock(return_value=now + 20 * 60)
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 1, 15, 17, 40)
             actions = engine.evaluate(world_model)
 
@@ -196,7 +196,7 @@ class TestPreArrivalHVAC:
         )
         schedule_learner.predict_next_arrival = MagicMock(return_value=time.time() + 20 * 60)
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 15, 17, 40)
             actions = engine.evaluate(world_model)
 
@@ -213,7 +213,7 @@ class TestWakeUpCurtain:
         engine._device_cache = [_make_cover("cover.bedroom", position=0, zone="bedroom")]
         schedule_learner.get_wake_time = MagicMock(return_value=now + 45 * 60)
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 20, 6, 15)
             actions = engine.evaluate(world_model)
 
@@ -236,7 +236,7 @@ class TestWakeUpCurtain:
         )
         schedule_learner.get_wake_time = MagicMock(return_value=now + 45 * 60)
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 20, 6, 15)
             actions = engine.evaluate(world_model)
 
@@ -256,7 +256,7 @@ class TestWakeDetection:
         world_model.home_devices.bridge_connected = True
         engine._device_cache = [_make_light("light.bedroom", on=False, zone="bedroom")]
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 20, 7, 0)
             actions = engine.evaluate(world_model)
 
@@ -277,7 +277,7 @@ class TestWakeDetection:
             on=False,
         )
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 20, 15, 0)
             actions = engine.evaluate(world_model)
 
@@ -302,7 +302,7 @@ class TestCooldownAndBridgeDisconnected:
             on=True,
         )
 
-        with patch("rule_engine.datetime") as mock_dt:
+        with patch("rules.home.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 20, 23, 30)
             actions = engine.evaluate(world_model)
 

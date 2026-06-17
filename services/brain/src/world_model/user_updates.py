@@ -1,6 +1,9 @@
 """WorldModel mixin extracted from the facade module."""
 
-from . import world_model as _world_model
+import time
+
+from .data_classes import Event, HeartRateData, StressData, WeatherAlert, WeatherForecast
+from .sanitizer import _sanitize_text
 
 
 class UserUpdatesMixin:
@@ -29,9 +32,9 @@ class UserUpdatesMixin:
         if sub_topic == "daily":
             ns.daily_summary = payload.get("summary", "")
             ns.daily_chunks = payload.get("chunks", [])
-            ns.daily_timestamp = payload.get("timestamp", _world_model.time.time())
+            ns.daily_timestamp = payload.get("timestamp", time.time())
             ns.add_event(
-                _world_model.Event(
+                Event(
                     event_type="news_daily",
                     description=f"日次ニュースサマリ更新 ({payload.get('article_count', 0)}件)",
                     severity=0,
@@ -40,19 +43,19 @@ class UserUpdatesMixin:
 
         elif sub_topic == "urgent":
             article = {
-                "title": _world_model._sanitize_text(payload.get("title", ""), 100),
-                "summary": _world_model._sanitize_text(payload.get("summary", ""), 300),
+                "title": _sanitize_text(payload.get("title", ""), 100),
+                "summary": _sanitize_text(payload.get("summary", ""), 300),
                 "score": payload.get("score", 0),
                 "source": payload.get("source", ""),
                 "url": payload.get("url", ""),
-                "timestamp": payload.get("timestamp", _world_model.time.time()),
+                "timestamp": payload.get("timestamp", time.time()),
             }
             ns.urgent_articles.append(article)
             # Keep only recent 10 urgent articles
             if len(ns.urgent_articles) > 10:
                 ns.urgent_articles = ns.urgent_articles[-10:]
             ns.add_event(
-                _world_model.Event(
+                Event(
                     event_type="news_urgent",
                     description=f"速報: {article['title'][:50]}",
                     severity=1,
@@ -67,7 +70,7 @@ class UserUpdatesMixin:
     def _update_weather_state(self, sub_topic: str, payload: dict):
         """Handle hems/weather/* topics from weather-bridge."""
         w = self.weather
-        now = _world_model.time.time()
+        now = time.time()
 
         if sub_topic == "current":
             w.condition = payload.get("condition", payload.get("weather_main", w.condition))
@@ -78,12 +81,12 @@ class UserUpdatesMixin:
 
         elif sub_topic == "forecast":
             entries = payload.get("entries", []) if isinstance(payload, dict) else []
-            forecast: list[_world_model.WeatherForecast] = []
+            forecast: list[WeatherForecast] = []
             for f in entries:
                 if not isinstance(f, dict):
                     continue
                 forecast.append(
-                    _world_model.WeatherForecast(
+                    WeatherForecast(
                         datetime=str(f.get("datetime", "")),
                         condition=str(f.get("condition", f.get("weather_main", ""))),
                         temperature=float(f.get("temperature", f.get("temp", 0)) or 0),
@@ -96,16 +99,16 @@ class UserUpdatesMixin:
 
         elif sub_topic == "alerts":
             raw_alerts = payload.get("alerts", []) if isinstance(payload, dict) else []
-            alerts: list[_world_model.WeatherAlert] = []
+            alerts: list[WeatherAlert] = []
             for a in raw_alerts:
                 if not isinstance(a, dict):
                     continue
                 alerts.append(
-                    _world_model.WeatherAlert(
-                        title=_world_model._sanitize_text(a.get("title", a.get("event", "")), 120),
+                    WeatherAlert(
+                        title=_sanitize_text(a.get("title", a.get("event", "")), 120),
                         severity=str(a.get("severity", "unknown")).lower(),
-                        description=_world_model._sanitize_text(a.get("description", a.get("headline", "")), 300),
-                        area=_world_model._sanitize_text(a.get("area", ""), 80),
+                        description=_sanitize_text(a.get("description", a.get("headline", "")), 300),
+                        area=_sanitize_text(a.get("area", ""), 80),
                         issued_at=str(a.get("issued_at", a.get("start", ""))),
                         expires_at=str(a.get("expires_at", a.get("end", ""))),
                     )
@@ -128,7 +131,7 @@ class UserUpdatesMixin:
         if bpm is not None:
             prev_bpm = bio.heart_rate.bpm
             bio.heart_rate.bpm = int(bpm)
-            bio.heart_rate.zone = _world_model.HeartRateData.classify_zone(int(bpm))
+            bio.heart_rate.zone = HeartRateData.classify_zone(int(bpm))
             bio.heart_rate.last_update = now
             if "resting_bpm" in payload:
                 bio.heart_rate.resting_bpm = int(payload["resting_bpm"])
@@ -193,7 +196,7 @@ class UserUpdatesMixin:
         if level is not None:
             prev_level = bio.stress.level
             bio.stress.level = int(level)
-            bio.stress.category = _world_model.StressData.classify_category(int(level))
+            bio.stress.category = StressData.classify_category(int(level))
             bio.stress.last_update = now
             bio.bridge_connected = True
             bio.record_history("stress", float(level), now)
@@ -222,7 +225,7 @@ class UserUpdatesMixin:
             bio.record_history("hrv", float(rmssd), now)
             if int(rmssd) < self.thresholds.hrv_low and (prev_rmssd is None or prev_rmssd >= self.thresholds.hrv_low):
                 bio.add_event(
-                    _world_model.Event(
+                    Event(
                         event_type="hrv_low",
                         description=f"HRV低下: {int(rmssd)}ms",
                         severity=1,
@@ -243,7 +246,7 @@ class UserUpdatesMixin:
                 prev_temp is None or prev_temp <= self.thresholds.body_temp_high
             ):
                 bio.add_event(
-                    _world_model.Event(
+                    Event(
                         event_type="body_temp_high",
                         description=f"体温上昇: {float(celsius):.1f}°C",
                         severity=1,
@@ -264,7 +267,7 @@ class UserUpdatesMixin:
                 prev_rate is None or prev_rate <= self.thresholds.respiratory_rate_high
             ):
                 bio.add_event(
-                    _world_model.Event(
+                    Event(
                         event_type="respiratory_rate_high",
                         description=f"呼吸数上昇: {int(rate)}回/分",
                         severity=1,
@@ -305,7 +308,7 @@ class UserUpdatesMixin:
             return
 
         bio = self.biometric_state
-        now = _world_model.time.time()
+        now = time.time()
 
         # hems/personal/biometrics/bridge/status
         if path_parts[0] == "bridge" and len(path_parts) >= 2 and path_parts[1] == "status":
@@ -329,7 +332,7 @@ class UserUpdatesMixin:
         if metric == "heart_rate":
             if value > self.thresholds.hr_high and (prev is None or prev <= self.thresholds.hr_high):
                 bio.add_event(
-                    _world_model.Event(
+                    Event(
                         event_type="hr_high",
                         description=f"心拍数上昇: {int(value)}bpm",
                         severity=1,
@@ -338,7 +341,7 @@ class UserUpdatesMixin:
                 )
             elif value < self.thresholds.hr_low and (prev is None or prev >= self.thresholds.hr_low):
                 bio.add_event(
-                    _world_model.Event(
+                    Event(
                         event_type="hr_low",
                         description=f"心拍数低下: {int(value)}bpm",
                         severity=1,
@@ -349,7 +352,7 @@ class UserUpdatesMixin:
         elif metric == "spo2":
             if value < self.thresholds.spo2_low and (prev is None or prev >= self.thresholds.spo2_low):
                 bio.add_event(
-                    _world_model.Event(
+                    Event(
                         event_type="spo2_low",
                         description=f"SpO2低下: {int(value)}%",
                         severity=2,
@@ -360,7 +363,7 @@ class UserUpdatesMixin:
         elif metric == "stress":
             if value > self.thresholds.stress_high and (prev is None or prev <= self.thresholds.stress_high):
                 bio.add_event(
-                    _world_model.Event(
+                    Event(
                         event_type="stress_high",
                         description=f"ストレス高: {int(value)}",
                         severity=1,

@@ -1,17 +1,17 @@
 """WorldModel mixin extracted from the facade module."""
 
-from . import world_model as _world_model
+import time
 
 
 class PresenceMixin:
     def reconcile_presence(self) -> dict[str, dict]:
         """Run multi-source presence inference across all zones.
 
-        Populates _world_model.OccupancyData.inferred_occupied / inference_source /
+        Populates OccupancyData.inferred_occupied / inference_source /
         inference_sources for every known zone. Also returns a summary
         dict keyed by zone for callers that want it.
         """
-        now = _world_model.time.time()
+        now = time.time()
         global_signals = self._global_presence_signals(now)
         summary: dict[str, dict] = {}
 

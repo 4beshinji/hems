@@ -132,7 +132,7 @@ class TestLyingDetection:
         zone.occupancy.last_update = time.time()
         world_model.zones["living_room"] = zone
 
-        with patch("rule_engine.datetime", _FakeDatetime):
+        with patch("rules.perception.datetime", _FakeDatetime):
             actions = engine.evaluate(world_model)
         lying_actions = [a for a in actions if "横になって" in a.get("args", {}).get("message", "")]
         assert len(lying_actions) == 1

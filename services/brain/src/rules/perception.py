@@ -3,14 +3,14 @@
 Extracted as a mixin to keep RuleEngine public methods stable.
 """
 
-import rule_engine as _rule_engine
+from datetime import datetime
 
 
 class PerceptionRulesMixin:
     def _evaluate_perception_rules(self, world_model, now: float) -> list[dict]:
         """Evaluate camera/perception-based rules."""
         actions = []
-        hour = _rule_engine.datetime.now().hour
+        hour = datetime.now().hour
         ha_enabled = world_model.home_devices.bridge_connected
 
         for zone_id, zone in world_model.zones.items():

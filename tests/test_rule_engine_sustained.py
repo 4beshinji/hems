@@ -61,7 +61,7 @@ def test_low_light_sustained_creates_maintenance_task(monkeypatch, world_model):
     zone = world_model._get_zone("office")
     zone.environment = EnvironmentData(light=10)
 
-    with patch("rule_engine.datetime") as mock_dt:
+    with patch("rules.environment.datetime") as mock_dt:
         mock_dt.now.return_value = datetime(2026, 5, 24, 12, 0)
         first = engine.evaluate(world_model)
         current_time = 2_000_000.0 + ILLUMINANCE_LOW_SUSTAIN_S + 1
@@ -88,7 +88,7 @@ def test_high_light_sustained_closes_cover(monkeypatch, world_model):
     zone = world_model._get_zone("office")
     zone.environment = EnvironmentData(light=60_000)
 
-    with patch("rule_engine.datetime") as mock_dt:
+    with patch("rules.environment.datetime") as mock_dt:
         mock_dt.now.return_value = datetime(2026, 5, 24, 12, 0)
         first = engine.evaluate(world_model)
         current_time = 2_000_601.0

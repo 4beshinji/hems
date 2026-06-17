@@ -24,6 +24,8 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 | W3.9 | 8 | ha-bridge に `verify_internal_token` 配線 + backend→ha-bridge 呼び出しに Authorization 付与 | `services/ha-bridge/src/main.py`, `services/backend/routers/home.py`, compose, tests | W3.9-bridge-http-auth-design-note | done | 4a46df5 |
 | W3.9 | 9 | biometric-bridge に `verify_internal_token` 配線（/webhook/{vendor} は対象外） | `services/biometric-bridge/src/main.py`, `infra/docker-compose.yml:biometric-bridge`, tests | W3.9-bridge-http-auth-design-note | done | e3d3780 |
 | **W4.6** | **1** | **(メタ監査追加分) PostgreSQL 既定化の zero-config UX。`make quickstart` / `infra/scripts/init_env.py` で安全なランダム値を自動生成。SQLite 軽量オプションを `docker-compose.sqlite-lite.yml` で維持。移行スクリプトの dry-run + サマリ強化** | `Makefile`, `infra/scripts/init_env.py`, `env.example`, `infra/docker-compose.sqlite-lite.yml`, `infra/scripts/migrate_sqlite_to_pg.py`, README/CLAUDE.md/distribution.md/db-improvement-plan.md | W4.6-postgres-zero-config-design-note | done | 7a26322 |
+| **W2.2** | **1** | **world_model mixin の facade 脱結合: stdlib・logger は直接 import、dataclass は `data_classes` から、定数・util は `constants` / `sanitizer` / `vip_detector` から直接参照。準循環 import 解消** | `services/brain/src/world_model/{presence,mqtt_router,physical_updates,user_updates,digital_updates,context_builder}.py`, `services/brain/src/world_model/{constants,sanitizer,vip_detector}.py` | PLAN.md W2.2 | done | — |
+| **W2.3** | **2** | **rules mixin の facade 脱結合: `_rule_engine.datetime` / `random` / `parse_iso_ts` を stdlib / `brain_utils` から直接 import。関連 test の patch 対象も各 rules モジュールに更新** | `services/brain/src/rules/{services,biometric,environment,gas,home,perception}.py`, `rule_engine.py`, `tests/test_rule_engine_*.py` | PLAN.md W2.3 | done | — |
 
 > W3.9.1 ゲート結果 (2026-06-16): `make lint` clean / pytest `2105 passed, 2 skipped, 44 deselected, 7 failed`。失敗 7 件は本 row 変更前から存在する `test_backend_home_router` の 503 系 3 件 + `test_knowledge_bridge` / `test_news_bridge` / `test_obsidian_bridge` の import 系 4 件。
 >
@@ -36,5 +38,7 @@ surface → commit → 当該行を `done <sha>` に更新。baseline: lint clea
 > W1.8 ゲート結果 (2026-06-16): `make lint` clean / pytest `2169 passed, 8 skipped, 44 deselected, 3 failed`。失敗 3 件は引き続き `test_backend_home_router` の 503 系（HA_BRIDGE_URL 未設定時の挙動）。
 >
 > W4.6 ゲート結果 (2026-06-16): `make lint` clean / pytest `2169 passed, 8 skipped, 44 deselected, 3 failed`。失敗 3 件は同じく `test_backend_home_router` の 503 系。
+>
+> W2.2–W2.3 ゲート結果 (2026-06-17): `make lint` clean / pytest `2173 passed, 8 skipped, 44 deselected, 3 failed`。失敗 3 件は引き続き `test_backend_home_router` の 503 系（full-suite 実行時のみ発生する既存の test isolation 問題）。`test_rule_engine_environment.py` の datetime patch 対象を `rule_engine` から各 rules モジュールに修正し、40 件すべてパス。
 
-**残 pending:** なし。PLAN.md 2026-06-11 の全 row 完了。W1.1–W1.7 / W2 / W3 / W4.1–W4.5' / W5 は main 上で先行実装済みのため本 LEDGER には未追記。
+**残 pending:** なし。PLAN.md 2026-06-11 の全 row 完了。W1.1–W1.7 / W2.1 / W3 / W4.1–W4.5' / W5 は main 上で先行実装済み。W2.2 / W2.3 は本変更で完了。

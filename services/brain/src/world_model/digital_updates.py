@@ -1,6 +1,28 @@
 """WorldModel mixin extracted from the facade module."""
 
-from . import world_model as _world_model
+import time
+
+from loguru import logger
+
+from .data_classes import (
+    CalendarEvent,
+    CPUData,
+    DiskData,
+    DiskPartition,
+    DriveFile,
+    Event,
+    FreeSlot,
+    GmailLabel,
+    GoogleTask,
+    GPUData,
+    MemoryData,
+    ProcessInfo,
+    ServiceStatusData,
+    SheetData,
+    ShoppingItemData,
+)
+from .sanitizer import _sanitize_text
+from .vip_detector import _detect_service_vip
 
 
 class DigitalUpdatesMixin:
@@ -14,10 +36,10 @@ class DigitalUpdatesMixin:
 
         if category == "metrics" and len(path_parts) >= 2:
             metric = path_parts[1]
-            now = _world_model.time.time()
+            now = time.time()
             if metric == "cpu":
                 prev_usage = pc.cpu.usage_percent
-                pc.cpu = _world_model.CPUData(
+                pc.cpu = CPUData(
                     usage_percent=payload.get("usage_percent", 0),
                     core_count=payload.get("core_count", 0),
                     freq_mhz=payload.get("freq_mhz", 0),
@@ -27,7 +49,7 @@ class DigitalUpdatesMixin:
                 self._check_pc_thresholds("cpu", pc.cpu.usage_percent, prev_usage)
             elif metric == "memory":
                 prev_pct = pc.memory.percent
-                pc.memory = _world_model.MemoryData(
+                pc.memory = MemoryData(
                     used_gb=payload.get("used_gb", 0),
                     total_gb=payload.get("total_gb", 0),
                     percent=payload.get("percent", 0),
@@ -36,7 +58,7 @@ class DigitalUpdatesMixin:
                 self._check_pc_thresholds("memory", pc.memory.percent, prev_pct)
             elif metric == "gpu":
                 prev_temp = pc.gpu.temp_c
-                pc.gpu = _world_model.GPUData(
+                pc.gpu = GPUData(
                     usage_percent=payload.get("usage_percent", 0),
                     vram_used_gb=payload.get("vram_used_gb", 0),
                     vram_total_gb=payload.get("vram_total_gb", 0),
@@ -46,7 +68,7 @@ class DigitalUpdatesMixin:
                 self._check_pc_thresholds("gpu_temp", pc.gpu.temp_c, prev_temp)
             elif metric == "disk":
                 partitions = [
-                    _world_model.DiskPartition(
+                    DiskPartition(
                         mount=p.get("mount", ""),
                         used_gb=p.get("used_gb", 0),
                         total_gb=p.get("total_gb", 0),
@@ -54,11 +76,11 @@ class DigitalUpdatesMixin:
                     )
                     for p in payload.get("partitions", [])
                 ]
-                pc.disk = _world_model.DiskData(partitions=partitions, last_update=now)
+                pc.disk = DiskData(partitions=partitions, last_update=now)
                 for p in partitions:
                     if p.percent > self.thresholds.pc_disk_high:
                         pc.add_event(
-                            _world_model.Event(
+                            Event(
                                 event_type="pc_disk_high",
                                 description=f"ディスク残量警告: {p.mount} ({p.percent:.0f}%使用)",
                                 severity=1,
@@ -73,7 +95,7 @@ class DigitalUpdatesMixin:
 
         elif category == "processes" and len(path_parts) >= 2 and path_parts[1] == "top":
             pc.top_processes = [
-                _world_model.ProcessInfo(
+                ProcessInfo(
                     pid=p.get("pid", 0),
                     name=p.get("name", ""),
                     cpu_percent=p.get("cpu_percent", 0),
@@ -89,7 +111,7 @@ class DigitalUpdatesMixin:
             # Threshold events from bridge (cpu_high, memory_high, gpu_hot, disk_low)
             event_type = path_parts[1] if len(path_parts) >= 2 else "unknown"
             pc.add_event(
-                _world_model.Event(
+                Event(
                     event_type=f"pc_{event_type}",
                     description=f"PC閾値イベント: {event_type}",
                     severity=1 if "hot" not in event_type else 2,
@@ -127,7 +149,7 @@ class DigitalUpdatesMixin:
         pc = self.pc_state
         if metric == "cpu" and value > self.thresholds.pc_cpu_high and prev <= self.thresholds.pc_cpu_high:
             pc.add_event(
-                _world_model.Event(
+                Event(
                     event_type="pc_cpu_high",
                     description=f"PC CPU使用率高: {value:.0f}%",
                     severity=1,
@@ -136,7 +158,7 @@ class DigitalUpdatesMixin:
             )
         elif metric == "memory" and value > self.thresholds.pc_memory_high and prev <= self.thresholds.pc_memory_high:
             pc.add_event(
-                _world_model.Event(
+                Event(
                     event_type="pc_memory_high",
                     description=f"PCメモリ使用率高: {value:.0f}%",
                     severity=1,
@@ -149,7 +171,7 @@ class DigitalUpdatesMixin:
             and prev <= self.thresholds.pc_gpu_temp_high
         ):
             pc.add_event(
-                _world_model.Event(
+                Event(
                     event_type="pc_gpu_hot",
                     description=f"GPU温度警告: {value:.0f}°C",
                     severity=2,
@@ -165,21 +187,21 @@ class DigitalUpdatesMixin:
             prev = ss.services.get(service_name)
             prev_count = prev.unread_count if prev else 0
 
-            ssd = _world_model.ServiceStatusData(
-                name=_world_model._sanitize_text(payload.get("name", service_name), 50),
+            ssd = ServiceStatusData(
+                name=_sanitize_text(payload.get("name", service_name), 50),
                 available=bool(payload.get("available", True)),
                 unread_count=int(payload.get("unread_count", 0)),
-                summary=_world_model._sanitize_text(payload.get("summary", "")),
+                summary=_sanitize_text(payload.get("summary", "")),
                 details=payload.get("details", {}),
-                last_check=payload.get("last_check", _world_model.time.time()),
-                error=_world_model._sanitize_text(payload.get("error", "") or "", 100) or None,
+                last_check=payload.get("last_check", time.time()),
+                error=_sanitize_text(payload.get("error", "") or "", 100) or None,
             )
             ss.services[service_name] = ssd
 
             # Generate event on unread increase
             if ssd.unread_count > prev_count:
                 ss.add_event(
-                    _world_model.Event(
+                    Event(
                         event_type="service_unread_increase",
                         description=ssd.summary,
                         severity=0,
@@ -188,15 +210,15 @@ class DigitalUpdatesMixin:
                 )
 
         elif msg_type == "event":
-            is_vip = _world_model._detect_service_vip(service_name, payload)
+            is_vip = _detect_service_vip(service_name, payload)
             event_type = "service_vip_event" if is_vip else f"service_{payload.get('type', 'unknown')}"
             data_with_vip = dict(payload)
             data_with_vip["service"] = service_name
             data_with_vip["vip"] = is_vip
             ss.add_event(
-                _world_model.Event(
+                Event(
                     event_type=event_type,
-                    description=_world_model._sanitize_text(payload.get("summary", f"{service_name} event")),
+                    description=_sanitize_text(payload.get("summary", f"{service_name} event")),
                     severity=2 if is_vip else 0,
                     data=data_with_vip,
                 )
@@ -218,7 +240,7 @@ class DigitalUpdatesMixin:
                     start_ts = self._parse_iso_ts(ev.get("start", ""))
                     end_ts = self._parse_iso_ts(ev.get("end", ""))
                     events.append(
-                        _world_model.CalendarEvent(
+                        CalendarEvent(
                             id=ev.get("id", ""),
                             title=ev.get("title", ""),
                             start=ev.get("start", ""),
@@ -232,12 +254,12 @@ class DigitalUpdatesMixin:
                         )
                     )
                 gs.calendar_events = events
-                gs.last_calendar_update = _world_model.time.time()
+                gs.last_calendar_update = time.time()
                 gs.bridge_connected = True
 
             elif sub == "free_slots":
                 gs.free_slots = [
-                    _world_model.FreeSlot(
+                    FreeSlot(
                         start=s.get("start", ""),
                         end=s.get("end", ""),
                         duration_minutes=s.get("duration_minutes", 0),
@@ -252,7 +274,7 @@ class DigitalUpdatesMixin:
                 list_name = tl.get("title", "")
                 for t in tl.get("tasks", []):
                     tasks.append(
-                        _world_model.GoogleTask(
+                        GoogleTask(
                             id=t.get("id", ""),
                             title=t.get("title", ""),
                             notes=t.get("notes", ""),
@@ -264,11 +286,11 @@ class DigitalUpdatesMixin:
                     )
             if sub == "all":
                 gs.tasks = tasks
-                gs.last_tasks_update = _world_model.time.time()
+                gs.last_tasks_update = time.time()
             elif sub == "due_today":
                 # Overwrite tasks list with due_today data (richer with is_overdue)
                 gs.tasks = tasks
-                gs.last_tasks_update = _world_model.time.time()
+                gs.last_tasks_update = time.time()
             gs.bridge_connected = True
 
         elif category == "gmail" and len(path_parts) >= 2:
@@ -276,23 +298,23 @@ class DigitalUpdatesMixin:
             if sub == "summary":
                 gs.gmail_labels = {}
                 for name, data in payload.get("labels", {}).items():
-                    gs.gmail_labels[name] = _world_model.GmailLabel(
+                    gs.gmail_labels[name] = GmailLabel(
                         name=name,
                         unread=data.get("unread", 0),
                         total=data.get("total", 0) or 0,
                     )
-                gs.last_gmail_update = _world_model.time.time()
+                gs.last_gmail_update = time.time()
                 gs.bridge_connected = True
             elif sub == "recent":
                 gs.gmail_recent = payload.get("threads", [])
 
         elif category == "sheets" and len(path_parts) >= 2:
             sheet_name = path_parts[1]
-            gs.sheets[sheet_name] = _world_model.SheetData(
+            gs.sheets[sheet_name] = SheetData(
                 name=sheet_name,
                 values=payload.get("values", []),
                 headers=payload.get("headers", []),
-                last_update=_world_model.time.time(),
+                last_update=time.time(),
             )
             gs.bridge_connected = True
 
@@ -300,7 +322,7 @@ class DigitalUpdatesMixin:
             sub = path_parts[1]
             if sub == "recent":
                 gs.drive_recent = [
-                    _world_model.DriveFile(
+                    DriveFile(
                         name=f.get("name", ""),
                         mime_type=f.get("mimeType", ""),
                         modified_time=f.get("modifiedTime", ""),
@@ -343,24 +365,24 @@ class DigitalUpdatesMixin:
         ):
             zone_id = path_parts[1]
             zone = self._get_zone(zone_id)
-            now = _world_model.time.time()
+            now = time.time()
 
-            description = _world_model._sanitize_text(payload.get("description", ""), 500)
+            description = _sanitize_text(payload.get("description", ""), 500)
             objects = payload.get("objects", [])
             scene_type = payload.get("scene_type", "unknown")
             anomalies = payload.get("anomalies", [])
 
             # Sanitize list items
             if isinstance(objects, list):
-                objects = [_world_model._sanitize_text(str(o), 50) for o in objects[:20]]
+                objects = [_sanitize_text(str(o), 50) for o in objects[:20]]
             else:
                 objects = []
             if isinstance(anomalies, list):
-                anomalies = [_world_model._sanitize_text(str(a), 50) for a in anomalies[:10]]
+                anomalies = [_sanitize_text(str(a), 50) for a in anomalies[:10]]
             else:
                 anomalies = []
 
-            scene_type_clean = _world_model._sanitize_text(str(scene_type), 30)
+            scene_type_clean = _sanitize_text(str(scene_type), 30)
             prev_anomalies = zone.occupancy.scene_anomalies
             zone.occupancy.scene_description = description
             zone.occupancy.scene_objects = objects
@@ -377,8 +399,8 @@ class DigitalUpdatesMixin:
                 objects=list(objects),
                 scene_type=scene_type_clean,
                 anomalies=list(anomalies),
-                tier=_world_model._sanitize_text(str(payload.get("tier", "")), 10),
-                model=_world_model._sanitize_text(str(payload.get("model", "")), 40),
+                tier=_sanitize_text(str(payload.get("tier", "")), 10),
+                model=_sanitize_text(str(payload.get("model", "")), 40),
             )
             hist = zone.occupancy.vlm_history
             hist.append(snapshot)
@@ -401,7 +423,7 @@ class DigitalUpdatesMixin:
             # Generate events for anomalies
             if anomalies:
                 zone.add_event(
-                    _world_model.Event(
+                    Event(
                         event_type="vlm_anomaly",
                         description=f"VLM検知: {', '.join(anomalies[:3])}",
                         severity=1,
@@ -419,11 +441,11 @@ class DigitalUpdatesMixin:
         elif len(path_parts) >= 2 and path_parts[0] == "vlm" and path_parts[1] == "model_swap":
             status = payload.get("status", "")
             stats = self.vlm_swap_stats
-            now_ts = _world_model.time.time()
+            now_ts = time.time()
             if status == "heavy_loading":
                 self.vlm_model_swap_active = True
                 stats["last_swap_start_ts"] = now_ts
-                _world_model.logger.info("VLM model swap: heavy model loading — brain entering rule-only mode")
+                logger.info("VLM model swap: heavy model loading — brain entering rule-only mode")
             elif status == "ready":
                 self.vlm_model_swap_active = False
                 start = stats.get("last_swap_start_ts", 0)
@@ -434,11 +456,11 @@ class DigitalUpdatesMixin:
                     if duration > stats.get("longest_swap_sec", 0):
                         stats["longest_swap_sec"] = duration
                 stats["success_count"] = stats.get("success_count", 0) + 1
-                _world_model.logger.info("VLM model swap: ready — brain resuming LLM mode")
+                logger.info("VLM model swap: ready — brain resuming LLM mode")
             elif status in ("failed", "error"):
                 self.vlm_model_swap_active = False
                 stats["failure_count"] = stats.get("failure_count", 0) + 1
-                _world_model.logger.warning(f"VLM model swap failed: {payload.get('error', '')}")
+                logger.warning(f"VLM model swap failed: {payload.get('error', '')}")
 
     def _update_knowledge_state(self, msg_type: str, payload: dict):
         """Handle hems/personal/notes/stats and hems/personal/notes/changed."""
@@ -452,13 +474,13 @@ class DigitalUpdatesMixin:
         elif msg_type == "changed":
             ks.bridge_connected = True
             change = {
-                "path": _world_model._sanitize_text(payload.get("path", ""), 150),
-                "title": _world_model._sanitize_text(payload.get("title", ""), 100),
-                "action": _world_model._sanitize_text(payload.get("action", ""), 30),
+                "path": _sanitize_text(payload.get("path", ""), 150),
+                "title": _sanitize_text(payload.get("title", ""), 100),
+                "action": _sanitize_text(payload.get("action", ""), 30),
             }
             ks.add_recent_change(change)
             ks.add_event(
-                _world_model.Event(
+                Event(
                     event_type="note_changed",
                     description=f"ノート変更: {change['title']} ({change['action']})",
                     severity=0,
@@ -487,11 +509,11 @@ class DigitalUpdatesMixin:
 
         elif msg_type == "changed":
             ks.external_bridge_connected = True
-            title = _world_model._sanitize_text(payload.get("title", ""), 100)
-            source = _world_model._sanitize_text(payload.get("source", ""), 50)
-            action = _world_model._sanitize_text(payload.get("action", ""), 30)
+            title = _sanitize_text(payload.get("title", ""), 100)
+            source = _sanitize_text(payload.get("source", ""), 50)
+            action = _sanitize_text(payload.get("action", ""), 30)
             ks.add_event(
-                _world_model.Event(
+                Event(
                     event_type="knowledge_changed",
                     description=f"外部ナレッジ変更: {source}/{title} ({action})",
                     severity=0,
@@ -512,26 +534,26 @@ class DigitalUpdatesMixin:
 
         ss = self.shopping_state
         raw_items = payload.get("items", []) if isinstance(payload, dict) else []
-        items: list[_world_model.ShoppingItemData] = []
+        items: list[ShoppingItemData] = []
         for it in raw_items:
             if not isinstance(it, dict):
                 continue
             items.append(
-                _world_model.ShoppingItemData(
+                ShoppingItemData(
                     id=int(it.get("id", 0) or 0),
-                    name=_world_model._sanitize_text(it.get("name", ""), 100),
-                    category=_world_model._sanitize_text(it.get("category", ""), 50),
+                    name=_sanitize_text(it.get("name", ""), 100),
+                    category=_sanitize_text(it.get("category", ""), 50),
                     quantity=int(it.get("quantity", 1) or 1),
-                    unit=_world_model._sanitize_text(it.get("unit", ""), 20),
-                    store=_world_model._sanitize_text(it.get("store", ""), 50),
-                    store_category=_world_model._sanitize_text(it.get("store_category", ""), 30),
+                    unit=_sanitize_text(it.get("unit", ""), 20),
+                    store=_sanitize_text(it.get("store", ""), 50),
+                    store_category=_sanitize_text(it.get("store_category", ""), 30),
                     price=int(it.get("price", 0) or 0),
                     is_recurring=bool(it.get("is_recurring", False)),
                     recurrence_days=int(it.get("recurrence_days", 0) or 0),
                     priority=int(it.get("priority", 1) or 1),
-                    created_by=_world_model._sanitize_text(it.get("created_by", "user"), 30),
+                    created_by=_sanitize_text(it.get("created_by", "user"), 30),
                     next_purchase_at=float(it.get("next_purchase_at", 0) or 0),
                 )
             )
         ss.items = items
-        ss.last_update = _world_model.time.time()
+        ss.last_update = time.time()

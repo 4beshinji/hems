@@ -23,7 +23,7 @@ them in source order is what preserves the firing sequence — type-grouping wou
 reorder Z3/Z4 relative to humidity and break it.
 """
 
-import rule_engine as _rule_engine
+from datetime import datetime
 
 
 class EnvironmentRulesMixin:
@@ -353,7 +353,7 @@ class EnvironmentRulesMixin:
         actions: list[dict] = []
 
         if env.light is not None:
-            hour = _rule_engine.datetime.now().hour
+            hour = datetime.now().hour
             is_night = hour >= 22 or hour < 5
             # Sustained darkness outside sleeping hours → sensor / power fault suspicion
             if not is_night and env.light < self.thresholds.illuminance_low_lx:
@@ -486,7 +486,7 @@ class EnvironmentRulesMixin:
         actions: list[dict] = []
         occ = zone.occupancy
 
-        hour = _rule_engine.datetime.now().hour
+        hour = datetime.now().hour
         if (
             (hour >= 23 or hour < 5)
             and occ.activity_class == "idle"

@@ -81,14 +81,14 @@ class TestRuleEngineOccupancyRules:
         # Mock datetime.now() to return 23:30
         from datetime import datetime as real_datetime
 
-        import rule_engine as re_module
+        import rules.environment as env_module
 
         class FakeDatetime(real_datetime):
             @classmethod
             def now(cls, tz=None):
                 return real_datetime(2026, 2, 20, 23, 30, 0)
 
-        with patch.object(re_module, "datetime", FakeDatetime):
+        with patch.object(env_module, "datetime", FakeDatetime):
             actions = engine.evaluate(world_model)
 
         late_speaks = [a for a in actions if a["tool"] == "speak" and "休みましょう" in a["args"]["message"]]
@@ -107,14 +107,14 @@ class TestRuleEngineOccupancyRules:
 
         from datetime import datetime as real_datetime
 
-        import rule_engine as re_module
+        import rules.environment as env_module
 
         class FakeDatetime(real_datetime):
             @classmethod
             def now(cls, tz=None):
                 return real_datetime(2026, 2, 20, 14, 0, 0)
 
-        with patch.object(re_module, "datetime", FakeDatetime):
+        with patch.object(env_module, "datetime", FakeDatetime):
             actions = engine.evaluate(world_model)
 
         late_speaks = [a for a in actions if a["tool"] == "speak" and "休みましょう" in a["args"]["message"]]
@@ -132,14 +132,14 @@ class TestRuleEngineOccupancyRules:
 
         from datetime import datetime as real_datetime
 
-        import rule_engine as re_module
+        import rules.environment as env_module
 
         class FakeDatetime(real_datetime):
             @classmethod
             def now(cls, tz=None):
                 return real_datetime(2026, 2, 20, 23, 45, 0)
 
-        with patch.object(re_module, "datetime", FakeDatetime):
+        with patch.object(env_module, "datetime", FakeDatetime):
             actions = engine.evaluate(world_model)
 
         late_speaks = [a for a in actions if a["tool"] == "speak" and "休みましょう" in a["args"]["message"]]

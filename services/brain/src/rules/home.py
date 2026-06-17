@@ -3,14 +3,15 @@
 Extracted as a mixin to keep RuleEngine public methods stable.
 """
 
-import rule_engine as _rule_engine
+import random
+from datetime import datetime
 
 
 class HomeRulesMixin:
     def _evaluate_home_rules(self, world_model, now: float) -> list[dict]:
         """Evaluate home automation rules (vendor-agnostic via Device Registry)."""
         actions = []
-        hour = _rule_engine.datetime.now().hour
+        hour = datetime.now().hour
 
         # --- 1. Sleep detection → lights off ---
         if hour >= 23 or hour < 5:
@@ -53,7 +54,7 @@ class HomeRulesMixin:
 
                 if all_away and 0 < minutes_until <= 30:
                     if self._check_cooldown("ha_prearrival_hvac", now):
-                        month = _rule_engine.datetime.now().month
+                        month = datetime.now().month
                         if 6 <= month <= 9:
                             mode, temp = "cool", 26
                         elif month <= 3 or month >= 11:
@@ -134,7 +135,7 @@ class HomeRulesMixin:
         if not lights_on:
             return []
 
-        hour = _rule_engine.datetime.now().hour + _rule_engine.datetime.now().minute / 60.0
+        hour = datetime.now().hour + datetime.now().minute / 60.0
         target_mirek, target_brightness_pct = self._interpolate_circadian(hour)
         target_brightness = int(target_brightness_pct / 100 * 255)
 
@@ -178,7 +179,7 @@ class HomeRulesMixin:
             self._absence_light_state.clear()
             return actions
 
-        hour = _rule_engine.datetime.now().hour
+        hour = datetime.now().hour
         if not (self.thresholds.absence_lighting_start_hour <= hour < self.thresholds.absence_lighting_end_hour):
             return []
 
@@ -187,9 +188,7 @@ class HomeRulesMixin:
         self._cooldowns["absence_lighting"] = (
             now
             - self.COOLDOWN_SECONDS
-            + _rule_engine.random.randint(
-                self.thresholds.absence_lighting_interval // 2, self.thresholds.absence_lighting_interval
-            )
+            + random.randint(self.thresholds.absence_lighting_interval // 2, self.thresholds.absence_lighting_interval)
         )
 
         all_lights = [d["device_id"] for d in self._get_devices(device_class="light")]
@@ -197,16 +196,14 @@ class HomeRulesMixin:
             return []
 
         actions = []
-        targets = _rule_engine.random.sample(all_lights, min(2, len(all_lights)))
+        targets = random.sample(all_lights, min(2, len(all_lights)))
         for did in targets:
             currently_simulated = self._absence_light_state.get(did, False)
             new_state = not currently_simulated
             self._absence_light_state[did] = new_state
             if new_state:
                 actions.append(self._make_action(did, "on"))
-                actions.append(
-                    self._make_action(did, "set_brightness", {"value": _rule_engine.random.randint(100, 200)})
-                )
+                actions.append(self._make_action(did, "set_brightness", {"value": random.randint(100, 200)}))
             else:
                 actions.append(self._make_action(did, "off"))
 

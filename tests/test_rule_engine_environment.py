@@ -26,11 +26,16 @@ detect the regression.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime as real_datetime
 from unittest.mock import patch
 
 import rule_engine as _re_mod
 from rule_engine import RuleEngine
+from rules import biometric as _rules_biometric
+from rules import environment as _rules_environment
+from rules import home as _rules_home
+from rules import perception as _rules_perception
 from world_model.data_classes import (
     EnvironmentData,
     Event,
@@ -61,6 +66,18 @@ class _FakeDatetime(real_datetime):
         return real_datetime(2026, 5, 24, 12, 0, 0)
 
 
+@contextmanager
+def _patch_datetime():
+    """Patch datetime.now() in every rule mixin that imports it directly."""
+    with (
+        patch.object(_rules_environment, "datetime", _FakeDatetime),
+        patch.object(_rules_home, "datetime", _FakeDatetime),
+        patch.object(_rules_biometric, "datetime", _FakeDatetime),
+        patch.object(_rules_perception, "datetime", _FakeDatetime),
+    ):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Z1 — CO2 換気タスク
 # ---------------------------------------------------------------------------
@@ -75,7 +92,7 @@ class TestZ1CO2Task:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(co2=1100)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         task_actions = [a for a in actions if a["tool"] == "create_task" and "換気" in a["args"]["title"]]
@@ -89,7 +106,7 @@ class TestZ1CO2Task:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(co2=1000)  # default threshold — not > 1000
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         task_actions = [a for a in actions if a["tool"] == "create_task" and "換気" in a["args"]["title"]]
@@ -101,7 +118,7 @@ class TestZ1CO2Task:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(co2=1200)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             first = engine.evaluate(world_model)
             second = engine.evaluate(world_model)
 
@@ -123,7 +140,7 @@ class TestZ2TemperatureSpeak:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(temperature=29.0)  # > 28 default
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "エアコン" in a["args"]["message"]]
@@ -137,7 +154,7 @@ class TestZ2TemperatureSpeak:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(temperature=10.0)  # < 16 default
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "暖房" in a["args"]["message"]]
@@ -150,7 +167,7 @@ class TestZ2TemperatureSpeak:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(temperature=22.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         temp_speaks = [
@@ -168,7 +185,7 @@ class TestZ2TemperatureSpeak:
         # Physically impossible but we verify the elif guard: set to high (29)
         zone.environment = EnvironmentData(temperature=29.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         aircon_speaks = [a for a in actions if a["tool"] == "speak" and "エアコン" in a["args"]["message"]]
@@ -183,7 +200,7 @@ class TestZ2TemperatureSpeak:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(temperature=30.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             first = engine.evaluate(world_model)
             second = engine.evaluate(world_model)
 
@@ -205,7 +222,7 @@ class TestZ3SedentaryEvent:
         zone = world_model._get_zone("office")
         zone.events = [Event(event_type="sedentary_alert")]
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "休憩" in a["args"]["message"]]
@@ -219,7 +236,7 @@ class TestZ3SedentaryEvent:
         zone = world_model._get_zone("office")
         zone.events = [Event(event_type="door_opened")]
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "休憩" in a["args"]["message"]]
@@ -231,7 +248,7 @@ class TestZ3SedentaryEvent:
         zone = world_model._get_zone("office")
         zone.events = [Event(event_type="sedentary_alert")]
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             first = engine.evaluate(world_model)
             second = engine.evaluate(world_model)
 
@@ -253,7 +270,7 @@ class TestZ5Z6HumiditySpeak:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(humidity=80.0)  # > 70 default
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "除湿" in a["args"]["message"]]
@@ -267,7 +284,7 @@ class TestZ5Z6HumiditySpeak:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(humidity=20.0)  # < 30 default
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "加湿" in a["args"]["message"]]
@@ -280,7 +297,7 @@ class TestZ5Z6HumiditySpeak:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(humidity=50.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         hum_speaks = [
@@ -296,7 +313,7 @@ class TestZ5Z6HumiditySpeak:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(humidity=80.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             first = engine.evaluate(world_model)
             second = engine.evaluate(world_model)
 
@@ -322,12 +339,12 @@ class TestZ7PressureDrop:
 
         # First call — sets history baseline (no action, no prev pressure)
         zone.environment = EnvironmentData(pressure=1010.0)
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             engine.evaluate(world_model)
 
         # Second call — pressure drops by 6 hPa → triggers
         zone.environment = EnvironmentData(pressure=1004.0)
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             second = engine.evaluate(world_model)
 
         drop_speaks = [a for a in second if a["tool"] == "speak" and "気圧が低下" in a["args"]["message"]]
@@ -343,7 +360,7 @@ class TestZ7PressureDrop:
         zone.environment = EnvironmentData(pressure=1013.0)
 
         assert "office" not in engine._pressure_history
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             engine.evaluate(world_model)
         assert engine._pressure_history.get("office") == 1013.0
 
@@ -354,11 +371,11 @@ class TestZ7PressureDrop:
         zone = world_model._get_zone("office")
 
         zone.environment = EnvironmentData(pressure=1010.0)
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             engine.evaluate(world_model)
 
         zone.environment = EnvironmentData(pressure=1007.0)  # only 3 hPa drop
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         drop_speaks = [a for a in actions if a["tool"] == "speak" and "気圧が低下" in a["args"]["message"]]
@@ -382,7 +399,7 @@ class TestZ8SoilMoisture:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(soil_moisture=10.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         task_actions = [a for a in actions if a["tool"] == "create_task" and "水やり" in a["args"]["title"]]
@@ -398,7 +415,7 @@ class TestZ8SoilMoisture:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(soil_moisture=50.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         soil_actions = [a for a in actions if "水やり" in str(a)]
@@ -431,7 +448,7 @@ class TestZ8SoilMoisture:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(soil_moisture=10.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         actuator_actions = [
@@ -451,7 +468,7 @@ class TestZ8SoilMoisture:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(soil_moisture=10.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             first = engine.evaluate(world_model)
             second = engine.evaluate(world_model)
 
@@ -487,7 +504,7 @@ class TestZ10NativePM25:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(pm25=40.0)  # > 35 default
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "PM2.5" in a["args"]["message"]]
@@ -508,7 +525,7 @@ class TestZ10NativePM25:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(pm25=20.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         pm25_actions = [a for a in actions if "PM2.5" in str(a)]
@@ -525,7 +542,7 @@ class TestZ10NativePM25:
         zone = world_model._get_zone("office")
         zone.environment = EnvironmentData(pm25=40.0)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             first = engine.evaluate(world_model)
             second = engine.evaluate(world_model)
 
@@ -559,7 +576,7 @@ class TestZ10NativePM25:
             device_class="pm25",
         )
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         # Z10 cooldown key
@@ -592,7 +609,7 @@ class TestZ13ScreenTime:
         engine = _make_engine()
         world_model.user.screen_time = ScreenTimeData(total_minutes=130)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "画面" in a["args"]["message"]]
@@ -607,7 +624,7 @@ class TestZ13ScreenTime:
         engine = _make_engine()
         world_model.user.screen_time = ScreenTimeData(total_minutes=120)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "画面" in a["args"]["message"]]
@@ -618,7 +635,7 @@ class TestZ13ScreenTime:
         engine = _make_engine()
         world_model.user.screen_time = ScreenTimeData(total_minutes=60)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "画面" in a["args"]["message"]]
@@ -629,7 +646,7 @@ class TestZ13ScreenTime:
         engine = _make_engine()
         world_model.user.screen_time = ScreenTimeData(total_minutes=130)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             first = engine.evaluate(world_model)
             second = engine.evaluate(world_model)
 
@@ -654,7 +671,7 @@ class TestV1VLMSwapStuck:
             "last_swap_end_ts": 0.0,
         }
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         task_actions = [a for a in actions if a["tool"] == "create_task" and "VLM" in a["args"]["title"]]
@@ -667,7 +684,7 @@ class TestV1VLMSwapStuck:
         engine = _make_engine()
         world_model.vlm_model_swap_active = False
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         task_actions = [
@@ -684,7 +701,7 @@ class TestV1VLMSwapStuck:
             "last_swap_start_ts": _FIXED_NOW - 30,
         }
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         task_actions = [
@@ -699,7 +716,7 @@ class TestV1VLMSwapStuck:
         world_model.vlm_model_swap_active = True
         world_model.vlm_swap_stats = {"last_swap_start_ts": _FIXED_NOW - 120}
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             first = engine.evaluate(world_model)
             second = engine.evaluate(world_model)
 
@@ -725,7 +742,7 @@ class TestP3MemoryBranch:
             ProcessInfo(name="bigapp", cpu_percent=10.0, mem_mb=5000.0)  # 4.88 GB > 4.0
         ]
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [
@@ -744,7 +761,7 @@ class TestP3MemoryBranch:
             ProcessInfo(name="normalapp", cpu_percent=10.0, mem_mb=1024.0)  # 1 GB < 4.0
         ]
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         speaks = [a for a in actions if a["tool"] == "speak" and "メモリ" in a["args"]["message"]]
@@ -760,7 +777,7 @@ class TestP3MemoryBranch:
         # cpu_percent=10 → well below 90% CPU threshold → CPU branch silent
         world_model.pc_state.top_processes = [ProcessInfo(name="memhog", cpu_percent=10.0, mem_mb=6000.0)]
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         cpu_speaks = [a for a in actions if a["tool"] == "speak" and "CPU" in a["args"]["message"]]
@@ -781,7 +798,7 @@ class TestP3MemoryBranch:
             ProcessInfo(name="Chrome", cpu_percent=10.0, mem_mb=8000.0)  # matched by lower()
         ]
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         mem_speaks = [a for a in actions if a["tool"] == "speak" and "メモリ" in a["args"]["message"]]
@@ -845,7 +862,7 @@ class TestOrderingGolden:
         engine = _make_engine()
         self._build_multi_world_model(world_model, _FIXED_NOW)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         # --- Ordering invariants ---
@@ -930,7 +947,7 @@ class TestOrderingGolden:
         engine = _make_engine()
         self._build_multi_world_model(world_model, _FIXED_NOW)
 
-        with patch.object(_re_mod, "datetime", _FakeDatetime):
+        with _patch_datetime():
             actions = engine.evaluate(world_model)
 
         # Zone-loop actions must ALL precede PC-loop actions
