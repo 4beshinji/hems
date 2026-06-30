@@ -44,6 +44,7 @@ class EventWriter:
         # MQTT-thread completion path stays a plain thread-safe append.
         self._interventions_created: list[dict] = []
         self._interventions_completed: list[dict] = []
+        self._interventions_updates: list[dict] = []
         self._lock = asyncio.Lock()
         self._running = False
 
@@ -188,8 +189,13 @@ class EventWriter:
         trigger_metric: str,
         baseline_value: float | None,
         window_sec: int = 1800,
+        approval_id: str | None = None,
     ):
-        """Buffer a pending efficacy row for an environment task (INSERT)."""
+        """Buffer a pending efficacy row for an environment task (INSERT).
+
+        approval_id links the intervention to a HITL approval request so the
+        human decision and rollback state can be correlated with efficacy.
+        """
         self._interventions_created.append(
             {
                 "task_id": str(task_id),
@@ -198,6 +204,7 @@ class EventWriter:
                 "baseline_value": baseline_value,
                 "created_at": datetime.now(UTC).isoformat(),
                 "window_sec": window_sec,
+                "approval_id": approval_id,
             }
         )
 
@@ -207,6 +214,36 @@ class EventWriter:
         Safe to call from the MQTT-dispatch thread — only appends.
         """
         self._interventions_completed.append({"task_id": str(task_id), "completed_at": datetime.now(UTC).isoformat()})
+
+    def record_intervention_decision(self, approval_id: str, human_decision: str):
+        """Buffer a human decision for the efficacy row tied to an approval_id."""
+        self._interventions_updates.append(
+            {
+                "approval_id": approval_id,
+                "human_decision": human_decision,
+                "decided_at": datetime.now(UTC).isoformat(),
+            }
+        )
+
+    def record_intervention_rollback(
+        self,
+        approval_id: str,
+        rolled_back: bool,
+        rollback_success: bool | None,
+    ):
+        """Buffer rollback state for the efficacy row tied to an approval_id."""
+        if rolled_back:
+            rb_success_val = 1 if rollback_success is True else 0 if rollback_success is False else None
+        else:
+            rb_success_val = 0
+        self._interventions_updates.append(
+            {
+                "approval_id": approval_id,
+                "rolled_back": 1 if rolled_back else 0,
+                "rollback_success": rb_success_val,
+                "rolled_back_at": datetime.now(UTC).isoformat(),
+            }
+        )
 
     async def fetch_pending_interventions(self) -> list[dict]:
         """Return completed-but-unverdicted rows whose post-window has elapsed.
@@ -219,7 +256,8 @@ class EventWriter:
             rows = await conn.execute(
                 text(f"""
                     SELECT id, task_id, zone, trigger_metric, baseline_value,
-                           completed_at, window_sec
+                           completed_at, window_sec, approval_id, human_decision,
+                           rolled_back, rollback_success, efficacy_score
                     FROM {tp}intervention_efficacy
                     WHERE verdict IS NULL AND completed_at IS NOT NULL
                     ORDER BY completed_at
@@ -277,18 +315,33 @@ class EventWriter:
                 )
             return row.scalar()
 
-    async def record_intervention_verdict(self, row_id: int, post_value: float | None, verdict: str):
-        """Persist the post value + verdict for one efficacy row (UPDATE)."""
+    async def record_intervention_verdict(
+        self,
+        row_id: int,
+        post_value: float | None,
+        verdict: str,
+        efficacy_score: float | None = None,
+    ):
+        """Persist the post value + verdict (+ optional score) for one efficacy row (UPDATE)."""
         tp = TABLE_PREFIX
         now_str = datetime.now(UTC).isoformat()
         async with self._engine.begin() as conn:
             await conn.execute(
                 text(f"""
                     UPDATE {tp}intervention_efficacy
-                    SET post_value = :post_value, verdict = :verdict, evaluated_at = :evaluated_at
+                    SET post_value = :post_value,
+                        verdict = :verdict,
+                        evaluated_at = :evaluated_at,
+                        efficacy_score = :efficacy_score
                     WHERE id = :row_id
                 """),
-                {"row_id": row_id, "post_value": post_value, "verdict": verdict, "evaluated_at": now_str},
+                {
+                    "row_id": row_id,
+                    "post_value": post_value,
+                    "verdict": verdict,
+                    "evaluated_at": now_str,
+                    "efficacy_score": efficacy_score,
+                },
             )
 
     # ------------------------------------------------------------------
@@ -340,13 +393,15 @@ class EventWriter:
             world_events = self._world_events[:]
             iv_created = self._interventions_created[:]
             iv_completed = self._interventions_completed[:]
+            iv_updates = self._interventions_updates[:]
             self._events.clear()
             self._decisions.clear()
             self._world_events.clear()
             self._interventions_created.clear()
             self._interventions_completed.clear()
+            self._interventions_updates.clear()
 
-        if not events and not decisions and not world_events and not iv_created and not iv_completed:
+        if not events and not decisions and not world_events and not iv_created and not iv_completed and not iv_updates:
             return
 
         tp = TABLE_PREFIX
@@ -408,7 +463,15 @@ class EventWriter:
                     await self._bulk_insert(
                         conn,
                         "intervention_efficacy",
-                        ["task_id", "zone", "trigger_metric", "baseline_value", "created_at", "window_sec"],
+                        [
+                            "task_id",
+                            "zone",
+                            "trigger_metric",
+                            "baseline_value",
+                            "created_at",
+                            "window_sec",
+                            "approval_id",
+                        ],
                         iv_created,
                     )
                     logger.debug("Flushed {} intervention rows", len(iv_created))
@@ -426,6 +489,39 @@ class EventWriter:
                         )
                     logger.debug("Flushed {} intervention completions", len(iv_completed))
 
+                if iv_updates:
+                    # UPDATE the latest row for each approval_id.
+                    for iv in iv_updates:
+                        fields = []
+                        params = {"approval_id": iv["approval_id"]}
+                        for col in ("human_decision", "rolled_back", "rollback_success"):
+                            if col in iv:
+                                fields.append(f"{col} = :{col}")
+                                params[col] = iv[col]
+                        if not fields:
+                            continue
+                        # Backend-agnostic "latest row for approval_id" update.
+                        row = await conn.execute(
+                            text(f"""
+                                SELECT id FROM {tp}intervention_efficacy
+                                WHERE approval_id = :approval_id
+                                ORDER BY created_at DESC
+                                LIMIT 1
+                            """),
+                            {"approval_id": iv["approval_id"]},
+                        )
+                        latest = row.scalar()
+                        if latest is not None:
+                            await conn.execute(
+                                text(f"""
+                                    UPDATE {tp}intervention_efficacy
+                                    SET {", ".join(fields)}
+                                    WHERE id = :row_id
+                                """),
+                                {**params, "row_id": latest},
+                            )
+                    logger.debug("Flushed {} intervention approval updates", len(iv_updates))
+
         except Exception as e:
             logger.error("Event flush failed: {}", e)
             # Re-queue on failure so data is not lost
@@ -435,3 +531,4 @@ class EventWriter:
                 self._world_events = world_events + self._world_events
                 self._interventions_created = iv_created + self._interventions_created
                 self._interventions_completed = iv_completed + self._interventions_completed
+                self._interventions_updates = iv_updates + self._interventions_updates

@@ -70,6 +70,10 @@ async def lifespan(app: FastAPI):
         ("devices", "manufacturer", "VARCHAR"),
         ("devices", "link_quality", "INTEGER"),
         ("devices", "last_seen_reported", "DATETIME"),
+        ("automation_rules", "risk_tier", "VARCHAR"),
+        ("automation_rules", "reversibility", "VARCHAR"),
+        ("automation_rules", "approval_required", "BOOLEAN"),
+        ("automation_rules", "auto_rollback_window_seconds", "INTEGER"),
     ]
     for table, col, col_type in migrations:
         # Per-column transaction so one failure can't abort the rest (Postgres
@@ -216,6 +220,7 @@ app.add_middleware(
 )
 
 from routers import (
+    approvals,
     automations,
     biometric,
     brain,
@@ -273,6 +278,7 @@ app.include_router(brain.router, dependencies=_require_api_key)
 app.include_router(devices.router, dependencies=_require_api_key)
 app.include_router(scenes.router, dependencies=_require_api_key)
 app.include_router(automations.router, dependencies=_require_api_key)
+app.include_router(approvals.router, dependencies=_require_api_key)
 app.include_router(frequent_places.router, dependencies=_require_api_key)
 app.include_router(classifier_cache.router, dependencies=_require_api_key)
 # Mobile admin routes apply verify_api_key themselves; device routes authenticate per-endpoint.

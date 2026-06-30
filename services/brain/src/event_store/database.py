@@ -83,6 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_world_events_digest ON world_events(payload_diges
 
 -- Self-contained intervention efficacy loop (Group D). Each row tracks one
 -- environment task: baseline metric at creation, post-completion metric, verdict.
+-- Phase 0 HITL extension: ties efficacy measurement to approval decisions and rollback.
 CREATE TABLE IF NOT EXISTS intervention_efficacy (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id TEXT NOT NULL,
@@ -94,7 +95,12 @@ CREATE TABLE IF NOT EXISTS intervention_efficacy (
     post_value REAL,
     window_sec INTEGER NOT NULL DEFAULT 1800,
     verdict TEXT,
-    evaluated_at DATETIME
+    evaluated_at DATETIME,
+    approval_id TEXT,
+    human_decision TEXT,
+    rolled_back INTEGER DEFAULT 0,
+    rollback_success INTEGER,
+    efficacy_score REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_pending ON intervention_efficacy(completed_at);
@@ -182,7 +188,12 @@ CREATE TABLE IF NOT EXISTS events.intervention_efficacy (
     post_value      REAL,
     window_sec      INTEGER NOT NULL DEFAULT 1800,
     verdict         TEXT,
-    evaluated_at    TIMESTAMPTZ
+    evaluated_at    TIMESTAMPTZ,
+    approval_id     TEXT,
+    human_decision  TEXT,
+    rolled_back     BOOLEAN DEFAULT FALSE,
+    rollback_success BOOLEAN,
+    efficacy_score  REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_pending
@@ -261,6 +272,19 @@ async def init_db() -> AsyncEngine | None:
                 if _col not in cols:
                     await conn.execute(text(f"ALTER TABLE llm_decisions ADD COLUMN {_col} {_type}"))
                     logger.info(f"Migrated llm_decisions: added {_col}")
+
+            # Phase 0 HITL extension for intervention_efficacy
+            ie_cols = [r[1] for r in await conn.execute(text("PRAGMA table_info(intervention_efficacy)"))]
+            for _col, _type in (
+                ("approval_id", "TEXT"),
+                ("human_decision", "TEXT"),
+                ("rolled_back", "INTEGER DEFAULT 0"),
+                ("rollback_success", "INTEGER"),
+                ("efficacy_score", "REAL"),
+            ):
+                if _col not in ie_cols:
+                    await conn.execute(text(f"ALTER TABLE intervention_efficacy ADD COLUMN {_col} {_type}"))
+                    logger.info(f"Migrated intervention_efficacy: added {_col}")
         else:
             # PostgreSQL: same idempotent ALTER for older deployments
             try:
@@ -278,6 +302,18 @@ async def init_db() -> AsyncEngine | None:
                 ):
                     await conn.execute(
                         text(f"ALTER TABLE events.llm_decisions ADD COLUMN IF NOT EXISTS {_col} {_type}")
+                    )
+
+                # Phase 0 HITL extension for intervention_efficacy
+                for _col, _type in (
+                    ("approval_id", "TEXT"),
+                    ("human_decision", "TEXT"),
+                    ("rolled_back", "BOOLEAN DEFAULT FALSE"),
+                    ("rollback_success", "BOOLEAN"),
+                    ("efficacy_score", "REAL"),
+                ):
+                    await conn.execute(
+                        text(f"ALTER TABLE events.intervention_efficacy ADD COLUMN IF NOT EXISTS {_col} {_type}")
                     )
             except Exception:
                 pass

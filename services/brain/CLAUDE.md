@@ -30,6 +30,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - **Annotators** (`annotator/`): EventClassifier / RulePromoter / ShoppingClassifier / ClassifierCache
   - **AckLearner** (`voice_capsule/ack_learner.py`): mobile companion ack pattern learning
   - **MotionRetriever** (`motion_retriever.py`): VRM motion via BM25 + tone affinity + usage decay + novelty, loaded from `config/motions.yaml`
+  - **Approval subsystem** (`approval/`): HITL gate for high-risk / irreversible actions. `ApprovalGate` → `ApprovalClient` → backend `/approvals`; `ActionRiskClassifier`; `RollbackPlanner` / `RollbackExecutor` / `VerificationWatcher`; `ApprovalAuditLogger`
 - Always-on tools: `create_task`, `speak`, `get_zone_status`, `get_active_tasks`, `get_device_status`, `send_device_command` (legacy MCP), `get_sensor_history`, `add_shopping_item`, `get_shopping_list`
 - Device Registry tools (default-on): `control_actuator`, `list_devices`, `describe_device`, `execute_scene_by_name`, `list_scenes`, `zigbee_permit_join`
 - OpenClaw tools (profile `openclaw`; `localcraw` is a legacy alias): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`, `get_service_status`, `list_processes`

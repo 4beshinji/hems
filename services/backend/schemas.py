@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -552,6 +553,10 @@ class AutomationRuleBase(BaseModel):
     cooldown_s: int = 600
     mode: str = "direct"  # direct|llm_review
     require_confirm: bool = False
+    risk_tier: str = "low"  # safe|low|medium|high|critical
+    reversibility: str = "reversible"  # reversible|compensatable|irreversible
+    approval_required: bool = False
+    auto_rollback_window_seconds: int = 300
 
 
 class AutomationRuleCreate(AutomationRuleBase):
@@ -568,6 +573,10 @@ class AutomationRuleUpdate(BaseModel):
     cooldown_s: int | None = None
     mode: str | None = None
     require_confirm: bool | None = None
+    risk_tier: str | None = None
+    reversibility: str | None = None
+    approval_required: bool | None = None
+    auto_rollback_window_seconds: int | None = None
 
 
 class AutomationRule(AutomationRuleBase):
@@ -587,6 +596,102 @@ class AutomationRuleFireUpdate(BaseModel):
     last_fired_at: datetime
     fire_count: int
     last_evaluation_ts: float | None = None
+
+
+# --- Approval / HITL ---
+
+
+class ApprovalBase(BaseModel):
+    thread_id: str | None = None
+    rule_id: int | None = None
+    action_type: str  # device_control|scene|rule_promotion|config_change
+    risk_tier: str = "low"  # safe|low|medium|high|critical
+    reversibility: str = "reversible"  # reversible|compensatable|irreversible
+    confidence: float | None = None
+    proposed_payload: dict = Field(default_factory=dict)
+    context: dict = Field(default_factory=dict)
+
+
+class ApprovalCreate(ApprovalBase):
+    pass
+
+
+class ApprovalDecision(BaseModel):
+    decision: str  # approve|reject|modify
+    reason: str | None = None
+    reviewer_id: str | None = None
+    modified_payload: dict | None = None
+
+
+class Approval(ApprovalBase):
+    id: str  # UUID serialized as string
+    status: str = "proposed"  # proposed|pending|approved|rejected|modified|expired|rolled_back
+    reviewer_id: str | None = None
+    decision: str | None = None
+    decision_reason: str | None = None
+    requested_at: datetime | None = None
+    decided_at: datetime | None = None
+    expires_at: datetime | None = None
+    executed_at: datetime | None = None
+    rollback_plan: dict | None = None
+    rollback_status: str | None = "none"
+    audit_log: list = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _uuid_to_str(cls, v):
+        return str(v) if isinstance(v, uuid.UUID) else v
+
+
+class ActionSnapshotBase(BaseModel):
+    approval_id: str
+    entity_type: str  # device|scene|rule|config
+    entity_id: str
+    before_state: dict = Field(default_factory=dict)
+    after_state: dict | None = None
+
+
+class ActionSnapshotCreate(ActionSnapshotBase):
+    pass
+
+
+class ActionSnapshot(ActionSnapshotBase):
+    id: int
+    captured_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("approval_id", mode="before")
+    @classmethod
+    def _uuid_to_str(cls, v):
+        return str(v) if isinstance(v, uuid.UUID) else v
+
+
+class RollbackLogBase(BaseModel):
+    approval_id: str
+    trigger: str  # human_reject|verification_failure|timeout|policy_violation
+    compensation_plan: dict | None = None
+
+
+class RollbackLogCreate(RollbackLogBase):
+    pass
+
+
+class RollbackLog(RollbackLogBase):
+    id: int
+    execution_status: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("approval_id", mode="before")
+    @classmethod
+    def _uuid_to_str(cls, v):
+        return str(v) if isinstance(v, uuid.UUID) else v
 
 
 class ConversationDetail(BaseModel):

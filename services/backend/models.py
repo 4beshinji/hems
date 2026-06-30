@@ -1,4 +1,6 @@
-from sqlalchemy import JSON, Boolean, Column, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+import uuid
+
+from sqlalchemy import JSON, Boolean, Column, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.sql import func
 
 from database import Base, TZDateTime
@@ -246,6 +248,10 @@ class AutomationRule(Base):
     last_fired_at = Column(TZDateTime(timezone=True), nullable=True)
     mode = Column(String, default="direct")  # direct|llm_review
     require_confirm = Column(Boolean, default=False)
+    risk_tier = Column(String, nullable=True, default="low")  # safe|low|medium|high|critical
+    reversibility = Column(String, nullable=True, default="reversible")  # reversible|compensatable|irreversible
+    approval_required = Column(Boolean, default=False)
+    auto_rollback_window_seconds = Column(Integer, nullable=True, default=300)
     fire_count = Column(Integer, default=0)
     last_evaluation_ts = Column(Float, nullable=True)  # for sustain_s tracking
     created_at = Column(TZDateTime(timezone=True), server_default=func.now())
@@ -354,3 +360,56 @@ class DeviceActionLog(Base):
     source = Column(String, nullable=True)  # llm | rule | scene | api | ...
     success = Column(Boolean, default=True)
     timestamp = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class Approval(Base):
+    """Human-in-the-loop approval request and audit trail."""
+
+    __tablename__ = "approvals"
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    thread_id = Column(String, nullable=True, index=True)
+    rule_id = Column(Integer, ForeignKey("automation_rules.id"), nullable=True, index=True)
+    action_type = Column(String, nullable=False)  # device_control|scene|rule_promotion|config_change
+    risk_tier = Column(String, nullable=False, default="low")  # safe|low|medium|high|critical
+    reversibility = Column(String, nullable=False, default="reversible")  # reversible|compensatable|irreversible
+    confidence = Column(Float, nullable=True)
+    proposed_payload = Column(JSON, nullable=False, default=dict)
+    context = Column(JSON, nullable=False, default=dict)
+    status = Column(String, nullable=False, default="proposed", index=True)  # proposed|pending|approved|rejected|modified|expired|rolled_back
+    reviewer_id = Column(String, nullable=True)
+    decision = Column(String, nullable=True)  # approve|reject|modify
+    decision_reason = Column(String, nullable=True)
+    requested_at = Column(TZDateTime(timezone=True), server_default=func.now())
+    decided_at = Column(TZDateTime(timezone=True), nullable=True)
+    expires_at = Column(TZDateTime(timezone=True), nullable=True)
+    executed_at = Column(TZDateTime(timezone=True), nullable=True)
+    rollback_plan = Column(JSON, nullable=True)
+    rollback_status = Column(String, nullable=True, default="none")  # none|pending|success|failed
+    audit_log = Column(JSON, nullable=False, default=list)
+
+
+class ActionSnapshot(Base):
+    """Pre/post state snapshots for actions subject to approval/rollback."""
+
+    __tablename__ = "action_snapshots"
+    id = Column(Integer, primary_key=True)
+    approval_id = Column(Uuid(as_uuid=True), ForeignKey("approvals.id"), nullable=False, index=True)
+    entity_type = Column(String, nullable=False)  # device|scene|rule|config
+    entity_id = Column(String, nullable=False)
+    before_state = Column(JSON, nullable=False, default=dict)
+    after_state = Column(JSON, nullable=True)
+    captured_at = Column(TZDateTime(timezone=True), server_default=func.now())
+
+
+class RollbackLog(Base):
+    """Record of rollback/compensation executions."""
+
+    __tablename__ = "rollback_log"
+    id = Column(Integer, primary_key=True)
+    approval_id = Column(Uuid(as_uuid=True), ForeignKey("approvals.id"), nullable=False, index=True)
+    trigger = Column(String, nullable=False)  # human_reject|verification_failure|timeout|policy_violation
+    compensation_plan = Column(JSON, nullable=True)
+    execution_status = Column(String, nullable=True)  # pending|success|failed
+    started_at = Column(TZDateTime(timezone=True), server_default=func.now())
+    completed_at = Column(TZDateTime(timezone=True), nullable=True)
+    error_message = Column(String, nullable=True)

@@ -121,3 +121,40 @@ class TestEfficacyWriterRoundTrip:
         assert v[0] == "effective"
         assert v[1] == pytest.approx(24.0, abs=0.01)
         await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_created_with_approval_id_and_decision_rollback(self, tmp_path, monkeypatch):
+        from sqlalchemy import text
+
+        monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'eff2.db'}")
+        from event_store import EventWriter, init_db
+
+        engine = await init_db()
+        w = EventWriter(engine)
+
+        w.record_intervention_created(
+            task_id="t2",
+            zone="寝室",
+            trigger_metric="co2",
+            baseline_value=1200.0,
+            approval_id="app-123",
+        )
+        await w._flush()
+
+        w.record_intervention_decision("app-123", "approve")
+        await w._flush()
+
+        w.record_intervention_rollback("app-123", True, True)
+        await w._flush()
+
+        async with engine.begin() as conn:
+            row = (
+                await conn.execute(
+                    text("SELECT approval_id, human_decision, rolled_back, rollback_success FROM intervention_efficacy")
+                )
+            ).fetchone()
+        assert row[0] == "app-123"
+        assert row[1] == "approve"
+        assert row[2] == 1
+        assert row[3] == 1
+        await engine.dispose()

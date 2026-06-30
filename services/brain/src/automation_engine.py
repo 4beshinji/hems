@@ -45,13 +45,23 @@ _OPS = {
 
 
 class AutomationEngine:
-    def __init__(self, dispatcher, scene_executor, dashboard_client, llm_client, world_model, sanitizer):
+    def __init__(
+        self,
+        dispatcher,
+        scene_executor,
+        dashboard_client,
+        llm_client,
+        world_model,
+        sanitizer,
+        approval_gate=None,
+    ):
         self.dispatcher = dispatcher
         self.scenes = scene_executor
         self.dashboard = dashboard_client
         self.llm_client = llm_client
         self.world_model = world_model
         self.sanitizer = sanitizer
+        self.approval_gate = approval_gate
 
         self._rules: list[dict] = []
         self._sustain_since: dict[int, float] = {}  # rule_id → first time trigger held
@@ -254,15 +264,20 @@ class AutomationEngine:
             logger.debug(f"Rule#{rule_id} fired but has no actions")
             return
 
-        # Execute via scene executor (same action schema)
-        result = await self.scenes.execute(actions)
+        # Phase 0 HITL: route high-risk / require_confirm rules through approval gate
+        if self.approval_gate and (rule.get("require_confirm") or rule.get("approval_required")):
+            result = await self.approval_gate.execute_rule(rule)
+        else:
+            result = await self.scenes.execute(actions)
         self._sustain_since.pop(rule_id, None)
 
-        # Update fire stats via backend
-        await self._record_fire(rule_id)
+        # Update fire stats via backend only when action was actually executed
+        if result.get("success") and result.get("approval_status") not in {"rejected", "expired"}:
+            await self._record_fire(rule_id)
 
         logger.info(
-            f"Rule#{rule_id} '{rule.get('name')}' fired: {result['executed']} actions, errors={result['errors']}"
+            f"Rule#{rule_id} '{rule.get('name')}' fired: {result.get('executed', 0)} actions, "
+            f"errors={result.get('errors', [])}, approval_status={result.get('approval_status', 'direct')}"
         )
 
     async def _llm_review(self, rule: dict) -> tuple[bool, str]:

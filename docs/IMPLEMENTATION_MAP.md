@@ -92,7 +92,14 @@ diff <(ls services/) <(grep -E "build: \.\./services/" infra/docker-compose.yml 
 | TimelineGenerator | timeline/ | startup (常時 instantiate) | 1日のタイムライン生成 (EDF + free window)。calendar 無時は内部 degrade |
 | EventAutomation | event_automation.py | startup (常時 instantiate) | wake_up / arrival / departure / scheduled 連動。action は news/gas 無時 degrade |
 | AmbientSpeaker | ambient_speaker.py | startup | 5分間隔の自然な独り言生成 |
-| AutomationEngine | automation_engine.py | always | sensor_threshold / schedule / device_state / event ルール |
+| AutomationEngine | automation_engine.py | always | sensor_threshold / schedule / device_state / event ルール。`require_confirm=true` / `approval_required=true` 時は ApprovalGate 経由 |
+| ApprovalGate | approval/gate.py | always (backend 接続時) | HITL 承認ゲート: 高リスク/不可逆アクション実行前に人間承認を取得 |
+| ApprovalClient | approval/client.py | ApprovalGate から利用 | backend `/approvals` API 非同期クライアント |
+| ActionRiskClassifier | approval/action_risk_classifier.py | ApprovalGate から利用 | ルール/アクションの risk_tier / reversibility / approval_required 判定 |
+| RollbackPlanner | approval/rollback_planner.py | ApprovalGate から利用 | 実行済みアクションの補償アクション計画 |
+| RollbackExecutor | approval/rollback_executor.py | ApprovalGate から利用 | 補償アクション実行 + backend ロールバックログ記録 |
+| VerificationWatcher | approval/verification_watcher.py | 任意 | ロールバック後のデバイス状態検証 |
+| ApprovalAuditLogger | approval/audit_logger.py | ApprovalGate から利用 | event_store への承認ライフサイクルイベント記録 |
 | SceneExecutor | scene_executor.py | always | 複数デバイスを束ねた named scene 実行 |
 | DeviceDispatcher | device_dispatcher.py | always | vendor (ha/switchbot/tapo/zigbee/mcp) 振り分け |
 | TaskQueueManager | task_scheduling/ | startup | LLM 出力タスクのバッチ化 |
@@ -170,6 +177,26 @@ Device Registry persistent 層。以下を参照: `services/backend/models.py` �
 | `updated_at` | datetime | 最後に更新した時刻 | auto (onupdate) | audit trail |
 
 **重要**: heartbeat 時に display_name が placeholder name (empty / raw IEEE addr / device_id そのまま) なら override、それ以外は保持。
+
+### 2.4 Approval / HITL Persistence
+
+`services/backend/models.py` に定義された承認・ロールバックテーブル。
+
+| Table | 主な役割 | 主要カラム |
+|-------|---------|-----------|
+| `approvals` | 人間承認リクエストと履歴 | `id` (UUID), `rule_id`, `action_type`, `risk_tier`, `reversibility`, `proposed_payload`, `context`, `status`, `decision`, `reviewer_id`, `requested_at`, `decided_at`, `executed_at`, `rollback_status`, `audit_log` |
+| `action_snapshots` | 実行前後のデバイス/シーン状態 | `approval_id`, `entity_type`, `entity_id`, `before_state`, `after_state`, `captured_at` |
+| `rollback_log` | 補償操作の実行記録 | `approval_id`, `trigger`, `compensation_plan`, `execution_status`, `started_at`, `completed_at`, `error_message` |
+| `intervention_efficacy` (events schema) | 介入効果測定 + Phase 0 HITL 紐付け | `approval_id`, `human_decision`, `rolled_back`, `rollback_success`, `efficacy_score` |
+
+Backend API: `services/backend/routers/approvals.py`
+- `POST /approvals` — 承認リクエスト作成
+- `GET /approvals` / `GET /approvals/{id}` — 一覧・詳細
+- `POST /approvals/{id}/decide` — approve / reject / modify
+- `POST /approvals/{id}/execute` — Brain 実行完了マーク
+- `POST /approvals/{id}/rollback` — ロールバック記録
+- `POST /approvals/{id}/snapshots` — 状態スナップショット記録
+- `POST /approvals/cleanup/expired` — 期限切れクリーンアップ
 
 ---
 
@@ -409,6 +436,7 @@ zigbee2mqtt/#
 | perception (VLM mgmt) | `hems/perception/vlm/model_swap` | swap event |
 | perception (bridge) | `hems/perception/bridge/status` | health |
 | brain (request) | `hems/perception/vlm/request` | rule engine からの再スキャン要求 |
+| backend | `hems/approvals/{approval_id}/decide` | 人間承認決定通知 (approve/reject/modify)。Brain ApprovalClient はポーリングでも取得 |
 | OpenClaw bridge | `hems/pc/metrics/{cpu,memory,gpu,disk,temp}` | PC メトリクス |
 | OpenClaw bridge | `hems/pc/processes/top` | top プロセス一覧 |
 | OpenClaw bridge | `hems/pc/bridge/status` | bridge 状態 |

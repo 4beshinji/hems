@@ -160,13 +160,16 @@ Host ports are configurable via `HEMS_PORT_*` env vars.
 - `hems/{weather,news,shopping}/*` ・ `hems/perception/vlm/*` — weather / news / shopping / VLM
 - `hems/{tapo,switchbot}/*` ・ `zigbee2mqtt/*` — direct device bridges
 - `hems/<service>/bridge/status` — 各ブリッジ接続状態
+- `hems/approvals/{approval_id}/decide` — backend から Brain への承認決定通知 (HITL)
 - `hems/brain/{reload-character,guest-mode}` — Brain 制御
 
 ### Brain Service
 
 ReAct 認知ループ(30s サイクル, 最大 5 iteration)。LLM + rule-based の dual mode(GPU 高負荷 / low-power / VLM heavy-swap 時に rule-based へ fallback)。Character は 2 段分離(Stage 1 raw 思考 → Stage 2 PersonaRewriter 出力)。Tri-domain world model(Physical / Digital / User State)+ event store data mart(raw_events / llm_decisions / hourly_aggregates, 730d retention)。Alert suppression / Ambient Speaker あり。
 
-subsystem 一覧(PowerModeManager / LLMRouter / BootLoadManager / SunriseAlarm / ScheduleLearner / TimelineGenerator / EventAutomation / AutomationEngine / SceneExecutor / DeviceDispatcher / TaskQueueManager / PersonaRewriter / Annotators / MotionRetriever 等)、always-on / profile-gated tool の全一覧、Chat brain server、Event Automation は **canonical: [`services/brain/CLAUDE.md`](services/brain/CLAUDE.md)**(該当 dir で auto-load)。tool 定義 ↔ dispatch の整合は `docs/IMPLEMENTATION_MAP.md` §3。
+subsystem 一覧(PowerModeManager / LLMRouter / BootLoadManager / SunriseAlarm / ScheduleLearner / TimelineGenerator / EventAutomation / AutomationEngine / SceneExecutor / DeviceDispatcher / TaskQueueManager / PersonaRewriter / Annotators / MotionRetriever / Approval subsystem 等)、always-on / profile-gated tool の全一覧、Chat brain server、Event Automation は **canonical: [`services/brain/CLAUDE.md`](services/brain/CLAUDE.md)**(該当 dir で auto-load)。tool 定義 ↔ dispatch の整合は `docs/IMPLEMENTATION_MAP.md` §3。
+
+**Approval / HITL (Phase 0)** — 高リスク・不可逆アクションは `AutomationRule.require_confirm=true` / `approval_required=true` で `ApprovalGate` 経由となり、backend `/approvals` API で人間承認を取得してから実行する。詳細は `docs/IMPLEMENTATION_MAP.md` §2.4。
 
 ### AI Character System
 

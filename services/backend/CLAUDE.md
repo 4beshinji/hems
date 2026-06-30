@@ -18,6 +18,12 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - Routers: `routers/devices.py`, `routers/scenes.py`, `routers/automations.py`, `routers/device_actions.py`
   - 責務: デバイス永続化/heartbeat/制御プロキシ、シーン・自動化ルール CRUD、アクション履歴
 
+- **Approvals / HITL (Phase 0)**
+  - Models: `Approval`, `ActionSnapshot`, `RollbackLog` (`models.py`)
+  - Manager: `approval_queue.py`
+  - Router: `routers/approvals.py`
+  - 責務: 人間承認リクエスト作成・決定・タイムアウト、実行前後スナップショット、ロールバック記録
+
 - **Users, Zones, Mobile, Places**
   - Models: `User`, `MobileDevice`, `FrequentPlace` (`models.py`)
   - Routers: `routers/users.py`, `routers/zones.py`, `routers/mobile.py`, `routers/frequent_places.py`
