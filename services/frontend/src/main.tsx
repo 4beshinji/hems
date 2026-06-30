@@ -14,6 +14,7 @@ const DevicesPage = lazy(() => import('./app/devices/page'))
 const ScenesPage = lazy(() => import('./app/devices/scenes/page'))
 const AutomationsPage = lazy(() => import('./app/devices/automations/page'))
 const MobilePage = lazy(() => import('./app/mobile/page'))
+const ApprovalsPage = lazy(() => import('./app/approvals/page'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -104,6 +105,14 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<LoadingState />}>
             <MobilePage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'approvals',
+        element: (
+          <Suspense fallback={<LoadingState />}>
+            <ApprovalsPage />
           </Suspense>
         ),
       },

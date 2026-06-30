@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -117,20 +117,21 @@ class ApprovalQueueManager:
             if decision.modified_payload is not None:
                 approval.proposed_payload = decision.modified_payload
 
-        approval.audit_log.append({
-            "event": f"decided:{decision.decision}",
-            "at": now.isoformat(),
-            "reviewer_id": decision.reviewer_id,
-            "reason": decision.reason,
-        })
+        approval.audit_log.append(
+            {
+                "event": f"decided:{decision.decision}",
+                "at": now.isoformat(),
+                "reviewer_id": decision.reviewer_id,
+                "reason": decision.reason,
+            }
+        )
         await self.session.commit()
         await self.session.refresh(approval)
         return approval
 
     async def mark_executed(self, approval: models.Approval) -> models.Approval:
-        if approval.status != "approved":
+        if approval.status not in {"approved", "modified"}:
             raise ValueError(f"Cannot execute approval in status '{approval.status}'")
-        approval.status = "approved"
         approval.executed_at = _utcnow()
         approval.audit_log.append({"event": "executed", "at": _utcnow().isoformat()})
         await self.session.commit()
@@ -146,12 +147,14 @@ class ApprovalQueueManager:
     ) -> models.RollbackLog:
         approval.status = "rolled_back"
         approval.rollback_status = rollback_status
-        approval.audit_log.append({
-            "event": "rolled_back",
-            "at": _utcnow().isoformat(),
-            "trigger": trigger,
-            "status": rollback_status,
-        })
+        approval.audit_log.append(
+            {
+                "event": "rolled_back",
+                "at": _utcnow().isoformat(),
+                "trigger": trigger,
+                "status": rollback_status,
+            }
+        )
         log = models.RollbackLog(
             approval_id=approval.id,
             trigger=trigger,
@@ -166,7 +169,9 @@ class ApprovalQueueManager:
         await self.session.refresh(log)
         return log
 
-    async def record_snapshot(self, approval_id: str | uuid.UUID, snapshot: schemas.ActionSnapshotCreate) -> models.ActionSnapshot:
+    async def record_snapshot(
+        self, approval_id: str | uuid.UUID, snapshot: schemas.ActionSnapshotCreate
+    ) -> models.ActionSnapshot:
         if isinstance(approval_id, str):
             approval_id = uuid.UUID(approval_id)
         record = models.ActionSnapshot(

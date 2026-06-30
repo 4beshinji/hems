@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Thermometer, Monitor, Heart } from 'lucide-react'
+import { LayoutDashboard, Thermometer, Monitor, Heart, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: '/physical', icon: Thermometer, label: 'Physical' },
   { to: '/digital', icon: Monitor, label: 'Digital' },
   { to: '/user', icon: Heart, label: 'User' },
+  { to: '/approvals', icon: ShieldCheck, label: 'Approval' },
 ] as const
 
 interface Props {

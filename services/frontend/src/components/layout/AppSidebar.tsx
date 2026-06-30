@@ -1,6 +1,6 @@
 import { useRef, useCallback, lazy, Suspense, type ComponentType } from 'react'
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut, Play, Cpu, Smartphone } from 'lucide-react'
+import { LayoutDashboard, Monitor, Heart, Volume2, VolumeX, Sun, Moon, Gauge, User, Mic, MicOff, Zap, LogOut, Play, Cpu, Smartphone, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   { to: '/digital', icon: Monitor, label: 'Digital Space' },
   { to: '/user', icon: Heart, label: 'User State' },
   { to: '/mobile', icon: Smartphone, label: 'Mobile' },
+  { to: '/approvals', icon: ShieldCheck, label: 'Approvals' },
 ] as const
 
 const AVATAR_MODE_LABELS: Record<AvatarMode, string> = {

@@ -187,11 +187,12 @@ class ApprovalGate:
                     await self.client.record_rollback(approval_id, trigger=trigger, status="success")
                 except Exception as e:
                     logger.warning(f"Failed to record rollback for {approval_id}: {e}")
+            rollback_errors = rollback_result.get("errors") if rollback_result else None
             self.audit_logger.rolled_back(
                 approval_id,
                 trigger=trigger,
                 rollback_success=(rollback_result.get("success") if rollback_result else True),
-                error_message=(rollback_result.get("errors", [None])[0] if rollback_result else None),
+                error_message=rollback_errors[0] if rollback_errors else None,
             )
         return {
             "success": False,
