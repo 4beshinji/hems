@@ -29,10 +29,10 @@
 
 | # | 深刻度 | 場所 | 内容 |
 |---|---|---|---|
-| S1 | High | `services/brain/src/brain_chat_server.py` / `brain_startup.py:217` 付近 | brain の aiohttp サーバーの `/devices/control`・`/scenes/execute`・zigbee permit_join 等が**無認証**。127.0.0.1 バインド + Docker 内部 network で緩和されているが、同一ホストの任意プロセスから物理デバイス操作が可能。`HEMS_INTERNAL_TOKEN` Bearer 検証を STT(`_check_auth` 実装済)と同方式で追加する |
-| S2 | Medium | `services/brain/src/device_dispatcher.py:730-741` + backend `models.Device` | `device_id` / `vendor_ref` に文字種検証がなく、MQTT auto-registration 経由で任意文字列が DB に入り `f"zigbee2mqtt/{device_ref}/set"` に流れる。MQTT ACL が最終防壁だが単層。`^[\w.\-]+$` の validation を登録時と dispatch 時の両方に追加 |
+| S1 | High | `services/brain/src/brain_chat_server.py` / `brain_startup.py:217` 付近 | ~~brain の aiohttp サーバーの `/devices/control`・`/scenes/execute`・zigbee permit_join 等が無認証~~ → **2026-06-30 実装済み**。`brain_auth_middleware` で `/health` 以外の全 endpoint を `HEMS_INTERNAL_TOKEN` Bearer 検証。backend proxy(`chat.py`/`scenes.py`/`automations.py`/`devices.py`/`home.py`)も `internal_auth_headers()` で token を送信(commit `38f5937`) |
+| S2 | Medium | `services/brain/src/device_dispatcher.py:730-741` + backend `models.Device` | ~~`device_id` / `vendor_ref` に文字種検証がなく~~ → **2026-06-30 実装済み**。`services/_common/hems_common/validation.py` で `^[\w.\-]+$` 検証を共通化。brain `devices/registry.py` dispatch と `devices/base.py` `DispatchContext.resolve_ref`、backend `routers/devices.py` `_ensure_valid_device_id` で二層検証(commit `3e19318`) |
 | S3 | Medium | 各ブリッジ HTTP API | stt 以外のブリッジの REST endpoint は LAN-trusted 前提の無認証(`verify_bridge_key` が no-op)。127.0.0.1 バインドで外部露出はないが、`HEMS_INTERNAL_TOKEN` の横展開で同一ホスト内も統一可能 |
-| S4 | Medium | hardening-audit-2026-04 P1 群 | 未着手のまま: webhook replay 防御(HMAC に timestamp/nonce なし)、`/devices/{id}/control` params 検証(sanitizer は LLM 経路のみ)、chat rate limit、CSP ヘッダ、TLS/HSTS |
+| S4 | Medium | hardening-audit-2026-04 P1 群 | **部分的実装済み**: `/devices/{id}/control` params 検証は `device_control_validator` へ共通化(commit `46230a2`)、chat rate limit は `chat.py` TokenBucket で実装。**未着手**: webhook replay 防御(HMAC に timestamp/nonce)、CSP ヘッダ、TLS/HSTS |
 | S5 | Low | `tests/security/` | `poc_unauth_api.sh` のみ。MQTT ACL 拒否テスト(doc 記載の poc_mqtt_acl.sh)が実ファイル不在。device_id injection テストもなし |
 
 P0 群(MQTT 認証/ACL、port の 127.0.0.1 バインド、シークレット排除)は**実装済みで健全**。

@@ -742,15 +742,20 @@ grep -nE '"[^"]+": "_handle_' services/brain/src/tool_dispatch.py
 
 ### 9.3 Approval / Feedback
 
-承認・フィードバック機能に新規の環境変数は追加されていない。コードから参照されるのは既存の MQTT 接続情報のみ:
+承認・フィードバック機能に新規の環境変数は追加されていない。コードから参照されるのは既存の MQTT 接続情報と内部 token のみ:
 
 - `MQTT_BROKER`, `MQTT_PORT`, `MQTT_USER`, `MQTT_PASS` — `feedback.py` / `approvals.py` で Brain への通知発行に使用
 - `DASHBOARD_API_URL` / `BACKEND_URL` — `approval/client.py` で Backend `/approvals` API 呼び出しに使用
+- `HEMS_INTERNAL_TOKEN` — brain chat server の `brain_auth_middleware` 認証、backend → brain proxy、voice-service / stt 間認証に使用
 
 ### 9.4 Verification
 
+注意: env 変数は Python サービスだけでなく `infra/docker-compose.yml`、`infra/scripts/*.py`、
+`services/frontend/`(Vite `VITE_*` 変数) からも参照される。以下は Python サービスに限定した
+高速チェック。完全な突合は compose / scripts / frontend も含める。
+
 ```bash
-# サービス側で参照されている env キー一覧（LOG_LEVEL のデフォルト値 "INFO" 等、
+# Python サービス側で参照されている env キー一覧（LOG_LEVEL のデフォルト値 "INFO" 等、
 # 文字列リテラル由来の誤検出があるため要マニュアルレビュー）
 grep -rnE 'os\.(getenv|environ\.get)\(' services/ --include="*.py" \
   | grep -oE "['\"][A-Z_][A-Z0-9_]*['\"]" | tr -d '\"' | sort -u > /tmp/code_env_keys.txt
@@ -761,6 +766,11 @@ grep -rnE 'os\.(getenv|environ\.get)\(' services/ --include="*.py" \
 
 # code にあって env.example に無いもの
 comm -23 /tmp/code_env_keys.txt /tmp/example_env_keys.txt
+
+# compose / scripts / frontend からの参照（env.example only の正当性確認用）
+grep -rnE '\$\{[A-Z_][A-Z0-9_]*(:-|:-)' infra/docker-compose.yml | grep -oE '[A-Z_][A-Z0-9_]*' | sort -u
+grep -rnE 'os\.(getenv|environ\.get)\(' infra/scripts/ --include="*.py" | grep -oE "['\"][A-Z_][A-Z0-9_]*['\"]" | tr -d '\"' | sort -u
+grep -rnE 'import\.meta\.env\.VITE_[A-Z_][A-Z0-9_]*|process\.env\.VITE_' services/frontend/src --include="*.ts" --include="*.tsx" | grep -oE 'VITE_[A-Z_][A-Z0-9_]*' | sort -u
 ```
 
 ---
@@ -772,8 +782,8 @@ comm -23 /tmp/code_env_keys.txt /tmp/example_env_keys.txt
 - [x] `services/` 配下のディレクトリすべてが docker-compose に登録されているか? (orphan 検出) — **2026-06-30 検証: 3 件の orphan を検出したが、いずれも意図的**。`_common`(共有ライブラリ)、`data-bridge`(Phase 2 scaffold)、`mobile-android`(Docker 対象外 Android プロジェクト)。詳細は §1.2。
 - [x] `tool_registry.py` の tool 数 == `tool_dispatch.py` の `TOOL_HANDLERS` 数? — **2026-05-25 検証: 58==58 完全一致**(§3.5)
 - [x] `world_model/mqtt_router.py:update_from_mqtt` のすべての elif 分岐が公開されているトピックを網羅?(reducer は `{physical,digital,user}_updates.py`) — **2026-06-30 検証: 15 分岐すべてが §4.3/§4.4 で網羅済み**。canonical bridge status(`hems/ha/bridge/status` / `hems/biometric/bridge/status`)は個別ハンドル済み、その他 bridge status は §4.4 partial として記載。
-- [x] 各 bridge で `os.getenv` されている環境変数すべてが `env.example` に記載?(未解決: `AUTOMATION_ENGINE_ENABLED` が未記載 — audit/2026-05-25/brain-core-loop.md) — **2026-06-30 検証: `services/` 全体を `env.example` と突合**。`AUTOMATION_ENGINE_ENABLED` は既に記載済み。未記載は 4 件発見(`CONFIG_DIR`、`HEMS_DRIFT_DELTA`、`HEMS_DRIFT_DETECTOR`、`HEMS_DRIFT_MIN_SAMPLES`)し `env.example` へ追記。`INFO` は `LOG_LEVEL` のデフォルト値からの誤検出。
+- [x] 各 bridge で `os.getenv` されている環境変数すべてが `env.example` に記載?(未解決: `AUTOMATION_ENGINE_ENABLED` が未記載 — audit/2026-05-25/brain-core-loop.md) — **2026-06-30 検証: `services/` 全体を `env.example` と突合**。`AUTOMATION_ENGINE_ENABLED` は既に記載済み。未記載は 4 件発見(`CONFIG_DIR`、`HEMS_DRIFT_DELTA`、`HEMS_DRIFT_DETECTOR`、`HEMS_DRIFT_MIN_SAMPLES`)し `env.example` へ追記。`INFO` は `LOG_LEVEL` のデフォルト値からの誤検出。**残存乖離クリーンアップ: `env.example`-only の残りは compose / scripts / frontend / 将来 data-bridge で正当に使用されているため削除対象なし**。
 - [x] CLAUDE.md の MQTT topic 一覧が §4 と一致?(2026-06-17: SwitchBot publisher topic を `hems/home/{zone}/sensor/switchbot.{device_id}_*/*` に修正)
 - [x] `data-bridge` の orphan 状態(README のみの scaffold、src 無し)— weather-bridge は always-on 化で解消済
 
-最終更新: 2026-06-30(Phase 2 adaptive thresholds テーブル・API・MQTT トピック追記、approval/feedback MQTT トピック追記、HITL/学習テーブルの所在明記、§10 ハイレベル整合性チェック 3 項検証完了、env.example へ CONFIG_DIR / HEMS_DRIFT_* 追記)
+最終更新: 2026-06-30(Phase 2 adaptive thresholds テーブル・API・MQTT トピック追記、approval/feedback MQTT トピック追記、HITL/学習テーブルの所在明記、§10 ハイレベル整合性チェック 3 項検証完了、env.example へ CONFIG_DIR / HEMS_DRIFT_* 追記、S1/S2 実装済みを audit/2026-06-11/SUMMARY.md と §9.3 に反映、§9.4 検証コマンドを compose/scripts/frontend 対応に拡張)
