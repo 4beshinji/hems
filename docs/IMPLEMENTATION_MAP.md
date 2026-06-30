@@ -786,4 +786,4 @@ grep -rnE 'import\.meta\.env\.VITE_[A-Z_][A-Z0-9_]*|process\.env\.VITE_' service
 - [x] CLAUDE.md の MQTT topic 一覧が §4 と一致?(2026-06-17: SwitchBot publisher topic を `hems/home/{zone}/sensor/switchbot.{device_id}_*/*` に修正)
 - [x] `data-bridge` の orphan 状態(README のみの scaffold、src 無し)— weather-bridge は always-on 化で解消済
 
-最終更新: 2026-06-30(Phase 2 adaptive thresholds テーブル・API・MQTT トピック追記、approval/feedback MQTT トピック追記、HITL/学習テーブルの所在明記、§10 ハイレベル整合性チェック 3 項検証完了、env.example へ CONFIG_DIR / HEMS_DRIFT_* 追記、S1/S2 実装済みを audit/2026-06-11/SUMMARY.md と §9.3 に反映、§9.4 検証コマンドを compose/scripts/frontend 対応に拡張)
+最終更新: 2026-06-30(Phase 2 adaptive thresholds テーブル・API・MQTT トピック追記、approval/feedback MQTT トピック追記、HITL/学習テーブルの所在明記、§10 ハイレベル整合性チェック 3 項検証完了、env.example へ CONFIG_DIR / HEMS_DRIFT_* 追記、S1/S2 実装済みを audit/2026-06-11/SUMMARY.md と §9.3 に反映、§9.4 検証コマンドを compose/scripts/frontend 対応に拡張、audit/2026-05-25/brain-core-loop.md の P1 リファクタ完了を反映)
