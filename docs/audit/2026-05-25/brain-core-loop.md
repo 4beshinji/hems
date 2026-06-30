@@ -47,8 +47,8 @@
 | P2 | `event_classifier` が startup でのみ生成され `Brain.__init__` に事前宣言が無い(兄弟の shopping_classifier / _rule_promoter は None 宣言あり) | brain_startup.py:94 vs main.py:84-98 | `__init__` に `self.event_classifier = None` を追加し宣言を統一 |
 | P2 | `_bridge_state_cache` / `_bridge_disconnect_history` / `_bridge_outage_alert_sent` を `hasattr` 遅延初期化 | brain_loops.py:56-59 | `Brain.__init__` で宣言し discoverability 向上 |
 | P2 | `_run_batch` が他オブジェクトの private `event_automation._execute_action` を直叩き | brain_cognitive.py:47 | EventAutomation に public メソッドを設けて越境 private 呼出を解消 |
-| P2 | SOMS legacy 残骸(`allowed_devices=["light_01","pump_01","window_01"]` / `swarm_hub` prefix / `set_temperature`/`run_pump`/`pump_duration` safety_limits)が deprecated `send_device_command` に紐づく | sanitizer.py:82-86,238,251-271 | `send_device_command` 廃止時に一括除去 |
-| P2 | sanitizer 読み取り許可リストに canonical/registry 未掲載のツール名(`list_note_tags`/`get_recent_knowledge_changes`/`get_biometric_trend`/`get_sleep_history`/`list_cameras`/`get_vlm_status`/`get_activity_history`/`gas_query_free_slots`/`gas_query_sheet`) | sanitizer.py:124-177 | **unit 4(tools)で要 cross-check** — 未文書化ツールか stale allowlist かを確定 |
+| P2 | ~~SOMS legacy 残骸(`allowed_devices` / `swarm_hub` prefix / `set_temperature`/`run_pump`/`pump_duration` safety_limits)が deprecated `send_device_command` に紐づく~~ → **実装済み** | sanitizer.py | `send_device_command` を廃止し、`control_actuator(action="mcp_call")` へ統合。SOMS legacy を sanitizer から一括除去 |
+| P2 | ~~sanitizer 読み取り許可リストに canonical/registry 未掲載のツール名~~ → **実装済み** | sanitizer.py | cross-check の結果、`control_switchbot` / `send_switchbot_ir` が registry/dispatch には存在するが sanitizer 許可リストに欠落していたため追加。残りは全て registry と一致 |
 | P2 | `AUTOMATION_ENGINE_ENABLED`(default true)が env.example / §9 未記載 | brain_startup.py:229 | §9 + env.example へ追記(SUMMARY/env unit で処理) |
 
 ## 可読性所見(refactor-ready)
@@ -76,8 +76,8 @@
   - `event_classifier` の `Brain.__init__` 事前宣言統一。
   - `_bridge_state_cache` / `_bridge_disconnect_history` / `_bridge_outage_alert_sent` の `hasattr` 遅延初期化を `__init__` 宣言化。
   - `_run_batch` が `event_automation._execute_action` private メソッドを直叩き → public メソッド化。
-  - sanitizer の SOMS legacy(`allowed_devices`/`swarm_hub`/`set_temperature`/`run_pump`/`pump_duration`)は `send_device_command` 廃止時に一括除去。
-  - sanitizer 読み取り許可リストの canonical/registry 未掲載ツール cross-check。
+  - ~~sanitizer の SOMS legacy(`allowed_devices`/`swarm_hub`/`set_temperature`/`run_pump`/`pump_duration`)を `send_device_command` 廃止と同時に一括除去~~ → **実装済み**。
+  - ~~sanitizer 読み取り許可リストの canonical/registry 未掲載ツール cross-check~~ → **実装済み**(`control_switchbot` / `send_switchbot_ir` を追加)。
   - `if inferred is not None` dead-guard の是正(`inferred = None` 初期化 or guard 撤去)。
   - 連続する `if OPENCLAW_ENABLED:` ブロックの統合。
   - `brain_loops.py:126` `except (json.JSONDecodeError, Exception)` の簡潔化。

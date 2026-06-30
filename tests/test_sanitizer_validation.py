@@ -188,110 +188,6 @@ class TestValidateSpeak:
         assert "kitchen" in sanitizer._speak_cooldowns
 
 
-# ── send_device_command validation ───────────────────────────────
-
-
-class TestValidateDeviceCommand:
-    def test_allowed_device(self, sanitizer):
-        result = sanitizer.validate_tool_call(
-            "send_device_command",
-            {
-                "agent_id": "light_01",
-                "tool_name": "toggle",
-            },
-        )
-        assert result["allowed"] is True
-
-    def test_swarm_hub_device_allowed(self, sanitizer):
-        result = sanitizer.validate_tool_call(
-            "send_device_command",
-            {
-                "agent_id": "swarm_hub_zigbee_01",
-                "tool_name": "toggle",
-            },
-        )
-        assert result["allowed"] is True
-
-    def test_unknown_device_blocked(self, sanitizer):
-        result = sanitizer.validate_tool_call(
-            "send_device_command",
-            {
-                "agent_id": "unknown_device",
-                "tool_name": "toggle",
-            },
-        )
-        assert result["allowed"] is False
-        assert "not in the allowed" in result["reason"]
-
-    def test_temperature_in_range(self, sanitizer):
-        result = sanitizer.validate_tool_call(
-            "send_device_command",
-            {
-                "agent_id": "light_01",
-                "tool_name": "set_temperature",
-                "arguments": {"temperature": 22},
-            },
-        )
-        assert result["allowed"] is True
-
-    def test_temperature_too_high(self, sanitizer):
-        result = sanitizer.validate_tool_call(
-            "send_device_command",
-            {
-                "agent_id": "light_01",
-                "tool_name": "set_temperature",
-                "arguments": {"temperature": 35},
-            },
-        )
-        assert result["allowed"] is False
-        assert "Temperature" in result["reason"]
-
-    def test_temperature_too_low(self, sanitizer):
-        result = sanitizer.validate_tool_call(
-            "send_device_command",
-            {
-                "agent_id": "light_01",
-                "tool_name": "set_temperature",
-                "arguments": {"temperature": 10},
-            },
-        )
-        assert result["allowed"] is False
-
-    def test_pump_duration_in_range(self, sanitizer):
-        result = sanitizer.validate_tool_call(
-            "send_device_command",
-            {
-                "agent_id": "pump_01",
-                "tool_name": "run_pump",
-                "arguments": {"duration": 30},
-            },
-        )
-        assert result["allowed"] is True
-
-    def test_pump_duration_exceeded(self, sanitizer):
-        result = sanitizer.validate_tool_call(
-            "send_device_command",
-            {
-                "agent_id": "pump_01",
-                "tool_name": "run_pump",
-                "arguments": {"duration": 120},
-            },
-        )
-        assert result["allowed"] is False
-        assert "Pump duration" in result["reason"]
-
-    def test_arguments_as_json_string(self, sanitizer):
-        result = sanitizer.validate_tool_call(
-            "send_device_command",
-            {
-                "agent_id": "light_01",
-                "tool_name": "set_temperature",
-                "arguments": '{"temperature": 22}',
-            },
-        )
-        assert result["allowed"] is True
-
-
 # ── write_note validation ────────────────────────────────────────
 
 
@@ -562,6 +458,49 @@ class TestValidateControlSwitch:
         )
         assert result["allowed"] is False
         assert "switch." in result["reason"]
+
+
+# ── switchbot validation ─────────────────────────────────────────
+
+
+class TestValidateControlSwitchbot:
+    def test_valid(self, sanitizer):
+        result = sanitizer.validate_tool_call(
+            "control_switchbot",
+            {
+                "device_id": "switchbot.plug.01",
+                "command": "turnOn",
+            },
+        )
+        assert result["allowed"] is True
+
+    def test_missing_device_id(self, sanitizer):
+        result = sanitizer.validate_tool_call("control_switchbot", {"command": "turnOn"})
+        assert result["allowed"] is False
+
+    def test_missing_command(self, sanitizer):
+        result = sanitizer.validate_tool_call("control_switchbot", {"device_id": "switchbot.plug.01"})
+        assert result["allowed"] is False
+
+
+class TestValidateSendSwitchbotIr:
+    def test_valid(self, sanitizer):
+        result = sanitizer.validate_tool_call(
+            "send_switchbot_ir",
+            {
+                "device_id": "ir.ac.living",
+                "command": "turnOn",
+            },
+        )
+        assert result["allowed"] is True
+
+    def test_missing_device_id(self, sanitizer):
+        result = sanitizer.validate_tool_call("send_switchbot_ir", {"command": "turnOn"})
+        assert result["allowed"] is False
+
+    def test_missing_command(self, sanitizer):
+        result = sanitizer.validate_tool_call("send_switchbot_ir", {"device_id": "ir.ac.living"})
+        assert result["allowed"] is False
 
 
 # ── execute_scene validation ─────────────────────────────────────

@@ -99,7 +99,6 @@ SECONDS_PER_DAY = 86400  # 24h windows (bridge outage dedup, efficacy verdict re
 BLIND_SUPPRESSED_TOOLS = frozenset(
     {
         "create_task",
-        "send_device_command",
         "control_actuator",
         "control_light",
         "control_climate",
@@ -123,7 +122,6 @@ _ACTION_SUMMARIZERS = {
     "get_zone_status": lambda a: f"zone={a.get('zone_id', '')}",
     "get_active_tasks": lambda a: "active_tasks",
     "get_device_status": lambda a: f"device={a.get('device_id', 'all')}",
-    "send_device_command": lambda a: f"agent={a.get('agent_id', '')}, tool={a.get('tool_name', '')}",
     "get_sensor_history": lambda a: f"zone={a.get('zone_id', '')}, channel={a.get('channel', '')}",
     "add_shopping_item": lambda a: f"item={a.get('name', '')[:30]}",
     "get_shopping_list": lambda a: "shopping_list",

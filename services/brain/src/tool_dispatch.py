@@ -1,6 +1,5 @@
 TOOL_HANDLERS = {
     "create_task": "_handle_create_task",
-    "send_device_command": "_handle_device_command",
     "get_zone_status": "_handle_get_zone_status",
     "speak": "_handle_speak",
     "get_active_tasks": "_handle_get_active_tasks",

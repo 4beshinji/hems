@@ -10,6 +10,7 @@ Callers:
   - services/brain/src/brain_chat_server.py   (HTTP REST path via /devices/{id}/control)
 """
 
+import json
 from typing import Any
 
 
@@ -81,5 +82,15 @@ def validate_device_control(action: str, params: dict[str, Any]) -> dict[str, An
             return {"allowed": False, "reason": "rainbow.duration_s must be integer"}
         if not (1 <= d <= 60):
             return {"allowed": False, "reason": f"rainbow.duration_s {d} out of range (1-60)"}
+    elif action == "mcp_call":
+        tool_name = params.get("tool_name") or params.get("name")
+        if not tool_name:
+            return {"allowed": False, "reason": "mcp_call requires params.tool_name"}
+        arguments = params.get("arguments") or params.get("args") or {}
+        if isinstance(arguments, str):
+            try:
+                json.loads(arguments)
+            except Exception:
+                return {"allowed": False, "reason": "mcp_call arguments must be valid JSON"}
 
     return {"allowed": True, "reason": ""}

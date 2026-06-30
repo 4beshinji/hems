@@ -53,6 +53,7 @@ def _make_dispatcher(
     switchbot_url: str = "",
     tapo_url: str = "",
     mqtt_client=None,
+    mcp_bridge=None,
 ):
     """Build a DeviceDispatcher with mocked session and optionally bridge URLs."""
     import aiohttp
@@ -67,7 +68,11 @@ def _make_dispatcher(
     session = MagicMock(spec=aiohttp.ClientSession)
     if mqtt_client is None:
         mqtt_client = MagicMock()
-    return DeviceDispatcher(session=session, mqtt_client=mqtt_client), session, mqtt_client
+    return (
+        DeviceDispatcher(session=session, mqtt_client=mqtt_client, mcp_bridge=mcp_bridge),
+        session,
+        mqtt_client,
+    )
 
 
 def _ok_response(json_data=None, status=200):
@@ -1018,7 +1023,28 @@ class TestActionCapabilityGuard:
         assert "not registered" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_mcp_vendor_returns_error(self):
+    async def test_mcp_vendor_mcp_call(self):
+        mcp_bridge = AsyncMock()
+        mcp_bridge.call_tool = AsyncMock(return_value={"value": 22.5})
+        disp, _session, _ = _make_dispatcher(mcp_bridge=mcp_bridge)
+        disp.lookup = AsyncMock(
+            return_value={
+                "device_id": "mcp.sensor_01",
+                "vendor": "mcp",
+                "vendor_ref": "sensor_01",
+                "capabilities": ["on_off"],
+            }
+        )
+        result = await disp.dispatch(
+            "mcp.sensor_01",
+            "mcp_call",
+            {"tool_name": "get_temperature", "arguments": {"unit": "C"}},
+        )
+        assert result["success"] is True
+        mcp_bridge.call_tool.assert_awaited_once_with("sensor_01", "get_temperature", {"unit": "C"})
+
+    @pytest.mark.asyncio
+    async def test_mcp_vendor_non_mcp_call_action_rejected(self):
         disp, _session, _ = _make_dispatcher()
         disp.lookup = AsyncMock(
             return_value={
@@ -1030,7 +1056,7 @@ class TestActionCapabilityGuard:
         )
         result = await disp.dispatch("mcp.sensor_01", "on")
         assert result["success"] is False
-        assert "send_device_command" in result["error"]
+        assert "only support mcp_call" in result["error"]
 
 
 # =============================================================================
@@ -1732,5 +1758,6 @@ class TestAllowedActions:
             "pulse",
             "rainbow",
             "ir_send",
+            "mcp_call",
         }
         assert expected == DEVICE_ALLOWED_ACTIONS

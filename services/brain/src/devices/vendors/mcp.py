@@ -1,11 +1,13 @@
-"""MCP (physical sensor) vendor parser.
+"""MCP (physical sensor + actuator) vendor parser.
 
-Parse-only: MCP actuator control is routed through the legacy
-``send_device_command`` tool, so dispatch returns a fixed error (byte-stable).
+Sensor parsing is unchanged. Actuator control is now handled through
+``control_actuator`` with ``action="mcp_call"`` instead of the legacy
+``send_device_command`` tool.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from devices.base import DispatchContext, VendorParser
@@ -55,4 +57,28 @@ class McpParser(VendorParser):
         )
 
     async def dispatch(self, ctx: DispatchContext, device: dict, action: str, params: dict) -> dict[str, Any]:
-        return {"success": False, "error": "MCP actuator control uses send_device_command tool"}
+        """Dispatch MCP actuator calls via the shared MCPBridge.
+
+        ``control_actuator`` now handles MCP devices with ``action="mcp_call"``
+        and ``params={"tool_name": ..., "arguments": {...}}``.
+        """
+        if action != "mcp_call":
+            return {"success": False, "error": f"MCP devices only support mcp_call, got '{action}'"}
+        if ctx.mcp_bridge is None:
+            return {"success": False, "error": "MCP bridge not available"}
+
+        tool_name = params.get("tool_name") or params.get("name")
+        if not tool_name:
+            return {"success": False, "error": "mcp_call requires params.tool_name"}
+        arguments = params.get("arguments") or params.get("args") or {}
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except Exception:
+                return {"success": False, "error": "mcp_call arguments must be valid JSON"}
+
+        device_ref = device.get("vendor_ref") or device.get("device_id", "").replace("mcp.", "")
+        result = await ctx.mcp_bridge.call_tool(device_ref, tool_name, arguments)
+        if result is None:
+            return {"success": False, "error": f"MCP call to {device_ref}/{tool_name} failed or timed out"}
+        return {"success": True, "result": json.dumps(result, ensure_ascii=False)}

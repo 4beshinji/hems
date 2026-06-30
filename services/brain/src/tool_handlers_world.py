@@ -6,37 +6,6 @@ from loguru import logger
 
 
 class WorldToolHandlers:
-    async def _handle_device_command(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Send command to edge device via MCPBridge with adaptive timeout."""
-        agent_id = args.get("agent_id", "")
-        tool_name = args.get("tool_name", "")
-
-        inner_args = args.get("arguments", {})
-        if isinstance(inner_args, str):
-            try:
-                inner_args = json.loads(inner_args)
-            except (json.JSONDecodeError, TypeError):
-                inner_args = {}
-
-        timeout = None
-        if self.device_registry:
-            timeout = self.device_registry.get_timeout_for_device(agent_id)
-
-        result = await self.mcp.call_tool(agent_id, tool_name, inner_args, timeout=timeout)
-        if isinstance(result, dict) and result.get("status") == "queued":
-            target = result.get("target", agent_id)
-            return {
-                "success": True,
-                "result": f"コマンドをキューに追加: {target}/{tool_name} (デバイスの次回ウェイク時に配送)",
-            }
-
-        if result is not None:
-            return {
-                "success": True,
-                "result": f"デバイスコマンド実行完了: {agent_id}/{tool_name} -> {json.dumps(result, ensure_ascii=False)}",
-            }
-        return {"success": False, "error": f"MCP call to {agent_id}/{tool_name} failed or timed out"}
-
     async def _handle_get_zone_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get detailed zone status from WorldModel."""
         zone_id = args.get("zone_id", "")

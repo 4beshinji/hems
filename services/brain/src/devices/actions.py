@@ -20,6 +20,8 @@ DEVICE_ALLOWED_ACTIONS = {
     "pulse",
     "rainbow",
     "ir_send",
+    # MCP legacy tool unified into control_actuator
+    "mcp_call",
 }
 
 _ACTION_CAPABILITY = {

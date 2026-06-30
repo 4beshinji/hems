@@ -67,14 +67,12 @@ def tool_executor(sanitizer, mock_session, world_model):
     """ToolExecutor with mocked dependencies."""
     from tool_executor import ToolExecutor
 
-    mcp = AsyncMock()
     dashboard = AsyncMock()
     task_queue = AsyncMock()
     device_registry = MagicMock()
 
     executor = ToolExecutor(
         sanitizer=sanitizer,
-        mcp_bridge=mcp,
         dashboard_client=dashboard,
         world_model=world_model,
         task_queue=task_queue,

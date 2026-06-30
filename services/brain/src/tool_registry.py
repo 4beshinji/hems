@@ -1,6 +1,6 @@
 """
 OpenAI function-calling tool definitions for HEMS Brain.
-Base: create_task, send_device_command, get_zone_status, speak, get_active_tasks, get_device_status
+Base: create_task, get_zone_status, speak, get_active_tasks, get_device_status
 OpenClaw: get_pc_status, run_pc_command, control_browser, send_pc_notification
 Obsidian: search_notes, write_note, get_recent_notes
 Knowledge: search_knowledge, get_knowledge_sources, read_knowledge_document
@@ -135,8 +135,8 @@ def get_chat_tools(
 ) -> list:
     """Return read-only tool subset for conversational chat.
 
-    Excludes action tools: create_task, speak, send_device_command, control_*,
-    write_note, add_shopping_item, run_pc_command, etc.
+    Excludes action tools: create_task, speak, control_*, write_note,
+    add_shopping_item, run_pc_command, etc.
     """
     all_tools = get_tools(
         openclaw_enabled=openclaw_enabled,

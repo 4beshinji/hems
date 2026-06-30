@@ -95,8 +95,6 @@ def build_system_message(
 - get_zone_status: ゾーンの詳細状態を確認
 - get_active_tasks: 重複防止のため、タスク作成前に確認すること
 - get_device_status: デバイス状態を確認。コマンド失敗時や事前確認に使用
-- send_device_command: MCPデバイスを制御
-
 ## 制約
 - 1サイクルで作成するタスクは最大2件まで
 - 正常範囲内のデータに対してはアクションを起こさない

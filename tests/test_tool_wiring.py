@@ -63,7 +63,6 @@ def test_openclaw_url_falls_back_to_legacy_alias(sanitizer, mock_session, world_
         tool_executor = importlib.reload(tool_executor)
         executor = tool_executor.ToolExecutor(
             sanitizer=sanitizer,
-            mcp_bridge=AsyncMock(),
             dashboard_client=AsyncMock(),
             world_model=world_model,
             task_queue=AsyncMock(),

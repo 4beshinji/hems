@@ -8,7 +8,6 @@ from tool_registry import CHAT_ALLOWED_TOOL_NAMES, get_chat_tools, get_tools
 PC_TOOL_NAMES = {"get_pc_status", "run_pc_command", "control_browser", "send_pc_notification"}
 BASE_TOOL_NAMES = {
     "create_task",
-    "send_device_command",
     "get_zone_status",
     "speak",
     "get_active_tasks",
@@ -154,7 +153,6 @@ def test_chat_tools_do_not_include_mutating_actions():
         "execute_scene",
         "execute_scene_by_name",
         "run_pc_command",
-        "send_device_command",
         "send_pc_notification",
         "send_switchbot_ir",
         "set_guest_mode",

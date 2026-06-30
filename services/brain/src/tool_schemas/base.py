@@ -35,22 +35,6 @@ def get_base_tools() -> list:
         {
             "type": "function",
             "function": {
-                "name": "send_device_command",
-                "description": "MCP対応デバイスにコマンドを送信する。照明、エアコン、換気扇などの制御に使用。",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "agent_id": {"type": "string", "description": "デバイスのMCPエージェントID"},
-                        "tool_name": {"type": "string", "description": "デバイスのツール名 (例: set_relay, set_led)"},
-                        "arguments": {"type": "object", "description": "ツール引数 (JSON)"},
-                    },
-                    "required": ["agent_id", "tool_name", "arguments"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
                 "name": "get_zone_status",
                 "description": "指定ゾーンの詳細な環境状態を取得する。判断に追加情報が必要な場合に使用。",
                 "parameters": {

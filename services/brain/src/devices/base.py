@@ -34,9 +34,10 @@ class DispatchContext:
     that test patches and runtime reassignment remain authoritative.
     """
 
-    def __init__(self, session, mqtt_client):
+    def __init__(self, session, mqtt_client, mcp_bridge=None):
         self.session = session
         self.mqtt_client = mqtt_client
+        self.mcp_bridge = mcp_bridge
 
     @property
     def _facade(self):

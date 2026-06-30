@@ -123,7 +123,7 @@ class BrainStartupMixin:
 
         self.task_reminder = TaskReminder(session=session)
         self.task_queue = TaskQueueManager(self.world_model, self.dashboard)
-        self.device_dispatcher = DeviceDispatcher(session=session, mqtt_client=self.client)
+        self.device_dispatcher = DeviceDispatcher(session=session, mqtt_client=self.client, mcp_bridge=self.mcp)
         self.rule_engine.device_dispatcher = self.device_dispatcher
         self.scene_executor = SceneExecutor(
             device_dispatcher=self.device_dispatcher,
@@ -180,7 +180,6 @@ class BrainStartupMixin:
         )
         self.tool_executor = ToolExecutor(
             sanitizer=self.sanitizer,
-            mcp_bridge=self.mcp,
             dashboard_client=self.dashboard,
             world_model=self.world_model,
             task_queue=self.task_queue,

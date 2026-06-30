@@ -45,7 +45,6 @@ class ToolExecutor(
     def __init__(
         self,
         sanitizer,
-        mcp_bridge,
         dashboard_client,
         world_model,
         task_queue,
@@ -58,7 +57,6 @@ class ToolExecutor(
         event_writer=None,
     ):
         self.sanitizer = sanitizer
-        self.mcp = mcp_bridge
         self.dashboard = dashboard_client
         self.world_model = world_model
         self.task_queue = task_queue

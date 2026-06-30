@@ -47,14 +47,14 @@ class DeviceDispatcher:
     Brain's ToolExecutor calls dispatch() for `control_actuator`.
     """
 
-    def __init__(self, session: aiohttp.ClientSession, mqtt_client=None):
+    def __init__(self, session: aiohttp.ClientSession, mqtt_client=None, mcp_bridge=None):
         self.session = session
         self.mqtt_client = mqtt_client  # paho client for zigbee2mqtt publish
         # Imported lazily through the facade so DASHBOARD_API_URL reassignment is honoured.
         import device_dispatcher as _dd
 
         self.backend_url = _dd.DASHBOARD_API_URL
-        self._ctx = DispatchContext(session=session, mqtt_client=mqtt_client)
+        self._ctx = DispatchContext(session=session, mqtt_client=mqtt_client, mcp_bridge=mcp_bridge)
 
     @property
     def ctx(self) -> DispatchContext:

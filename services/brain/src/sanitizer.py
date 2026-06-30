@@ -2,7 +2,6 @@
 Input validation and safety limits for HEMS Brain.
 """
 
-import json
 import re
 import time
 from typing import Any
@@ -82,13 +81,6 @@ class Sanitizer:
     MAX_MESSAGE_LENGTH = 70
 
     def __init__(self):
-        self.safety_limits = {
-            "set_temperature": {"min": 18, "max": 28},
-            "pump_duration": {"max": 60},
-        }
-        # Device allowlist: swarm_hub devices are always permitted (checked by prefix)
-        self.allowed_devices: list[str] = ["light_01", "pump_01", "window_01"]
-
         # Rate limiting for task creation (timestamps recorded after successful creation)
         self._task_timestamps: list[float] = []
 
@@ -101,8 +93,6 @@ class Sanitizer:
 
         if tool_name == "create_task":
             return self._validate_create_task(arguments)
-        elif tool_name == "send_device_command":
-            return self._validate_device_command(arguments)
         elif tool_name == "speak":
             return self._validate_speak(arguments)
         elif tool_name == "run_pc_command":
@@ -117,6 +107,10 @@ class Sanitizer:
             return self._validate_control_cover(arguments)
         elif tool_name == "control_switch":
             return self._validate_control_switch(arguments)
+        elif tool_name == "control_switchbot":
+            return self._validate_control_switchbot(arguments)
+        elif tool_name == "send_switchbot_ir":
+            return self._validate_send_switchbot_ir(arguments)
         elif tool_name == "execute_scene":
             return self._validate_execute_scene(arguments)
         elif tool_name == "control_browser":
@@ -233,49 +227,6 @@ class Sanitizer:
         """Record a successful speak execution for cooldown tracking."""
         self._speak_cooldowns[zone] = time.time()
 
-    def _validate_device_command(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Validate send_device_command parameters."""
-        agent_id = args.get("agent_id", "")
-        tool_name = args.get("tool_name", "")
-
-        # Device allowlist check: swarm_hub devices always permitted
-        if not agent_id.startswith("swarm_hub") and agent_id not in self.allowed_devices:
-            logger.warning(f"REJECTED: Device {agent_id} not in allowed list")
-            return {"allowed": False, "reason": f"Device '{agent_id}' is not in the allowed device list"}
-
-        # Parse nested arguments if string
-        inner_args = args.get("arguments", {})
-        if isinstance(inner_args, str):
-            try:
-                inner_args = json.loads(inner_args)
-            except (json.JSONDecodeError, TypeError):
-                inner_args = {}
-
-        # Temperature range check
-        if tool_name == "set_temperature":
-            temp = inner_args.get("temperature")
-            if temp is not None:
-                limits = self.safety_limits["set_temperature"]
-                if not (limits["min"] <= temp <= limits["max"]):
-                    logger.warning(f"REJECTED: Temperature {temp} out of bounds [{limits['min']}-{limits['max']}]")
-                    return {
-                        "allowed": False,
-                        "reason": f"Temperature {temp} out of safe range [{limits['min']}-{limits['max']}]",
-                    }
-
-        # Pump duration check
-        if tool_name == "run_pump":
-            duration = inner_args.get("duration")
-            if duration is not None:
-                if duration > self.safety_limits["pump_duration"]["max"]:
-                    logger.warning(f"REJECTED: Pump duration {duration} exceeds limit")
-                    return {
-                        "allowed": False,
-                        "reason": f"Pump duration {duration}s exceeds maximum {self.safety_limits['pump_duration']['max']}s",
-                    }
-
-        return {"allowed": True, "reason": ""}
-
     def _validate_write_note(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate write_note parameters (Obsidian integration)."""
         title = args.get("title", "")
@@ -373,6 +324,26 @@ class Sanitizer:
             return {"allowed": False, "reason": "Missing entity_id"}
         if not entity_id.startswith("switch."):
             return {"allowed": False, "reason": f"Invalid entity_id prefix: expected 'switch.' but got '{entity_id}'"}
+        return {"allowed": True, "reason": ""}
+
+    def _validate_control_switchbot(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Validate control_switchbot parameters."""
+        device_id = args.get("device_id", "")
+        if not device_id:
+            return {"allowed": False, "reason": "Missing device_id"}
+        command = args.get("command", "")
+        if not command:
+            return {"allowed": False, "reason": "Missing command"}
+        return {"allowed": True, "reason": ""}
+
+    def _validate_send_switchbot_ir(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Validate send_switchbot_ir parameters."""
+        device_id = args.get("device_id", "")
+        if not device_id:
+            return {"allowed": False, "reason": "Missing device_id"}
+        command = args.get("command", "")
+        if not command:
+            return {"allowed": False, "reason": "Missing command"}
         return {"allowed": True, "reason": ""}
 
     def _validate_execute_scene(self, args: dict[str, Any]) -> dict[str, Any]:
