@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-30
+
+### 🆕 Phase 0 HITL 承認キュー (Frontend + Backend + Brain 統合)
+
+- ダッシュボードに `/approvals` ページを追加。承認待ちアクションの一覧、承認/修正/棄却を UI 上で操作可能。
+- Brain `ApprovalGate` → Backend `/approvals` API → Frontend 承認キュー のエンドツーエンドフローを統合。
+- 棄却・期限切れ時のロールバック補償 (`RollbackPlanner` / `RollbackExecutor`) を統合テストで検証。
+- Backend `mark_executed` が `modified` 決定も実行完了として記録できるよう修正。
+- `tests/test_approval_integration.py` に承認 → 実行、修正 → 実行、棄却 → ロールバックの統合テストを追加。
+
 ## 2026-06-17
 
 ### 🔧 ドキュメント・env 既定値の整備
