@@ -105,6 +105,37 @@ CREATE TABLE IF NOT EXISTS intervention_efficacy (
 
 CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_pending ON intervention_efficacy(completed_at);
 CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_zone ON intervention_efficacy(zone);
+
+-- Phase 1 feedback / learning tables
+CREATE TABLE IF NOT EXISTS agent_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    feedback_type TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'frontend',
+    payload TEXT DEFAULT '{}',
+    context TEXT DEFAULT '{}',
+    user_id TEXT,
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_feedback_target ON agent_feedback(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_agent_feedback_type ON agent_feedback(feedback_type);
+CREATE INDEX IF NOT EXISTS idx_agent_feedback_recorded_at ON agent_feedback(recorded_at);
+
+CREATE TABLE IF NOT EXISTS agent_trajectories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cycle_id TEXT,
+    decision_id TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    trigger_events TEXT DEFAULT '[]',
+    tool_calls TEXT DEFAULT '[]',
+    world_state_snapshot TEXT DEFAULT '{}',
+    outcome_summary TEXT DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_trajectories_cycle ON agent_trajectories(cycle_id);
+CREATE INDEX IF NOT EXISTS idx_agent_trajectories_timestamp ON agent_trajectories(timestamp);
 """
 
 DDL_POSTGRES = """
@@ -200,6 +231,42 @@ CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_pending
     ON events.intervention_efficacy (completed_at) WHERE verdict IS NULL;
 CREATE INDEX IF NOT EXISTS idx_intervention_efficacy_zone
     ON events.intervention_efficacy (zone);
+
+-- Phase 1 feedback / learning tables
+CREATE TABLE IF NOT EXISTS events.agent_feedback (
+    id BIGSERIAL PRIMARY KEY,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    feedback_type TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'frontend',
+    payload JSONB NOT NULL DEFAULT '{}',
+    context JSONB NOT NULL DEFAULT '{}',
+    user_id TEXT,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_feedback_target
+    ON events.agent_feedback (target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_agent_feedback_type
+    ON events.agent_feedback (feedback_type);
+CREATE INDEX IF NOT EXISTS idx_agent_feedback_recorded_at
+    ON events.agent_feedback (recorded_at);
+
+CREATE TABLE IF NOT EXISTS events.agent_trajectories (
+    id BIGSERIAL PRIMARY KEY,
+    cycle_id TEXT,
+    decision_id TEXT,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+    trigger_events JSONB NOT NULL DEFAULT '[]',
+    tool_calls JSONB NOT NULL DEFAULT '[]',
+    world_state_snapshot JSONB NOT NULL DEFAULT '{}',
+    outcome_summary JSONB NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_trajectories_cycle
+    ON events.agent_trajectories (cycle_id);
+CREATE INDEX IF NOT EXISTS idx_agent_trajectories_timestamp
+    ON events.agent_trajectories (timestamp);
 """
 
 

@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { FeedbackButtons } from '@/components/feedback/FeedbackButtons'
 import type { Approval, ApprovalDecision, RiskTier } from '@/lib/types'
 
 interface ApprovalCardProps {
@@ -41,6 +42,9 @@ export default function ApprovalCard({ approval, onDecide, disabled }: ApprovalC
               </Badge>
               <Badge variant="outline">{approval.reversibility}</Badge>
               <Badge variant={isPending ? 'default' : 'secondary'}>{approval.status}</Badge>
+              {!isPending && (
+                <FeedbackButtons targetType="approval" targetId={approval.id} showCancel showRerun />
+              )}
             </div>
             <h3 className="mt-2 text-base font-semibold truncate">
               {approval.action_type === 'rule'

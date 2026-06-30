@@ -162,6 +162,7 @@ class VoiceEvent(BaseModel):
     tone: str = "neutral"
     motion_id: str | None = None
     created_at: datetime | None = None
+    feedback_score: float | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -899,5 +900,65 @@ class VoiceCapsulePlayLogRecord(BaseModel):
     played_at: datetime
     trigger_drift_sec: int | None = None
     context_json: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Feedback / Learning ---
+
+
+class AgentFeedbackCreate(BaseModel):
+    target_type: str
+    target_id: str
+    feedback_type: str
+    channel: str = "frontend"
+    payload: dict = Field(default_factory=dict)
+    context: dict = Field(default_factory=dict)
+    user_id: str | None = None
+
+
+class AgentFeedback(BaseModel):
+    id: int
+    target_type: str
+    target_id: str
+    feedback_type: str
+    channel: str
+    payload: dict
+    context: dict
+    user_id: str | None = None
+    recorded_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AgentFeedbackStats(BaseModel):
+    target_type: str | None = None
+    target_id: str | None = None
+    total: int = 0
+    positive: int = 0
+    negative: int = 0
+    reruns: int = 0
+    cancels: int = 0
+
+
+class AgentTrajectoryCreate(BaseModel):
+    cycle_id: str | None = None
+    decision_id: str | None = None
+    timestamp: datetime | None = None
+    trigger_events: list = Field(default_factory=list)
+    tool_calls: list = Field(default_factory=list)
+    world_state_snapshot: dict = Field(default_factory=dict)
+    outcome_summary: dict = Field(default_factory=dict)
+
+
+class AgentTrajectory(BaseModel):
+    id: int
+    cycle_id: str | None = None
+    decision_id: str | None = None
+    timestamp: datetime | None = None
+    trigger_events: list
+    tool_calls: list
+    world_state_snapshot: dict
+    outcome_summary: dict
 
     model_config = ConfigDict(from_attributes=True)

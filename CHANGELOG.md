@@ -9,6 +9,14 @@
 
 ## 2026-06-30
 
+### 🆕 Phase 1 フィードバック収集と介入効果測定
+
+- Backend に `agent_feedback` / `agent_trajectories` テーブルと `POST /feedback` API を追加。
+- Brain event_store に `agent_feedback` / `agent_trajectories` テーブルを追加し、`EventWriter` が書き込めるよう拡張。
+- Brain `feedback` パッケージ (`FeedbackCollector` / `ImplicitFeedbackDetector` / `OutcomeRewardCalculator` / `TrajectoryRecorder`) を追加。
+- Frontend のタスク/発話/アラート/承認カードに 👍/👎/取り消し/再実行 フィードバックボタンを追加。
+- `tests/test_backend_feedback_router.py` / `services/brain/tests/feedback/` / `tests/test_feedback_integration.py` でパイプラインを検証。
+
 ### 🆕 Phase 0 HITL 承認キュー (Frontend + Backend + Brain 統合)
 
 - ダッシュボードに `/approvals` ページを追加。承認待ちアクションの一覧、承認/修正/棄却を UI 上で操作可能。

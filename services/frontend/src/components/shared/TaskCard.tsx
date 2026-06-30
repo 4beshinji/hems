@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { FeedbackButtons } from '@/components/feedback/FeedbackButtons'
 import { completeTask, dismissTask } from '@/lib/api'
 import { URGENCY_LABELS, URGENCY_VARIANTS, REPORT_STATUS_LABELS, TASK_SOURCE_LABELS } from '@/lib/constants'
 import { formatCognitiveLoad } from '@/lib/formatters'
@@ -93,25 +94,33 @@ const TaskCard = memo(function TaskCard({ task, onComplete, enqueueAudio, audioE
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 mt-auto pt-2 border-t border-border">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={async () => {
-                  try {
-                    await dismissTask(task.id)
-                    toast.info('タスクを却下しました')
-                    onComplete()
-                  } catch {
-                    toast.error('却下に失敗しました')
-                  }
-                }}
-              >
-                <X className="h-3 w-3" />却下
-              </Button>
-              <Button size="sm" onClick={() => setShowDialog(true)}>
-                Complete
-              </Button>
+            <div className="flex items-center justify-between gap-2 mt-auto pt-2 border-t border-border">
+              <FeedbackButtons
+                targetType="task"
+                targetId={String(task.id)}
+                showCancel
+                showRerun
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    try {
+                      await dismissTask(task.id)
+                      toast.info('タスクを却下しました')
+                      onComplete()
+                    } catch {
+                      toast.error('却下に失敗しました')
+                    }
+                  }}
+                >
+                  <X className="h-3 w-3" />却下
+                </Button>
+                <Button size="sm" onClick={() => setShowDialog(true)}>
+                  Complete
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -143,14 +152,17 @@ const TaskCard = memo(function TaskCard({ task, onComplete, enqueueAudio, audioE
               />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
-              キャンセル
-            </Button>
-            <Button onClick={handleComplete} disabled={completing}>
-              <CheckCircle className="h-4 w-4" />
-              {completing ? '処理中...' : '完了'}
-            </Button>
+          <DialogFooter className="flex items-center justify-between gap-2">
+            <FeedbackButtons targetType="task" targetId={String(task.id)} size="sm" />
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setShowDialog(false)}>
+                キャンセル
+              </Button>
+              <Button onClick={handleComplete} disabled={completing}>
+                <CheckCircle className="h-4 w-4" />
+                {completing ? '処理中...' : '完了'}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

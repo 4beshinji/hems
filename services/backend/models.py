@@ -113,6 +113,7 @@ class VoiceEvent(Base):
     tone = Column(String, default="neutral")
     motion_id = Column(String, nullable=True)
     created_at = Column(TZDateTime(timezone=True), server_default=func.now())
+    feedback_score = Column(Float, nullable=True)
 
 
 class TimeSeriesPoint(Base):
@@ -360,6 +361,7 @@ class DeviceActionLog(Base):
     source = Column(String, nullable=True)  # llm | rule | scene | api | ...
     success = Column(Boolean, default=True)
     timestamp = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+    feedback_score = Column(Float, nullable=True)
 
 
 class Approval(Base):
@@ -375,7 +377,9 @@ class Approval(Base):
     confidence = Column(Float, nullable=True)
     proposed_payload = Column(JSON, nullable=False, default=dict)
     context = Column(JSON, nullable=False, default=dict)
-    status = Column(String, nullable=False, default="proposed", index=True)  # proposed|pending|approved|rejected|modified|expired|rolled_back
+    status = Column(
+        String, nullable=False, default="proposed", index=True
+    )  # proposed|pending|approved|rejected|modified|expired|rolled_back
     reviewer_id = Column(String, nullable=True)
     decision = Column(String, nullable=True)  # approve|reject|modify
     decision_reason = Column(String, nullable=True)
@@ -413,3 +417,34 @@ class RollbackLog(Base):
     started_at = Column(TZDateTime(timezone=True), server_default=func.now())
     completed_at = Column(TZDateTime(timezone=True), nullable=True)
     error_message = Column(String, nullable=True)
+
+
+class AgentFeedback(Base):
+    """Explicit and implicit human feedback on agent actions."""
+
+    __tablename__ = "agent_feedback"
+    id = Column(Integer, primary_key=True, index=True)
+    target_type = Column(String, nullable=False, index=True)
+    # task|voice|device_action|approval|scene|rule
+    target_id = Column(String, nullable=False, index=True)
+    feedback_type = Column(String, nullable=False, index=True)
+    # explicit_up | explicit_down | cancel | rerun | snooze | dismiss | complete | implicit_override
+    channel = Column(String, nullable=False, default="frontend")  # frontend|voice|mqtt|implicit
+    payload = Column(JSON, nullable=False, default=dict)
+    context = Column(JSON, nullable=False, default=dict)
+    user_id = Column(String, nullable=True, index=True)
+    recorded_at = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AgentTrajectory(Base):
+    """Decision-to-outcome trajectory used for learning and personalization."""
+
+    __tablename__ = "agent_trajectories"
+    id = Column(Integer, primary_key=True, index=True)
+    cycle_id = Column(String, nullable=True, index=True)
+    decision_id = Column(String, nullable=True, index=True)
+    timestamp = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+    trigger_events = Column(JSON, nullable=False, default=list)
+    tool_calls = Column(JSON, nullable=False, default=list)
+    world_state_snapshot = Column(JSON, nullable=False, default=dict)
+    outcome_summary = Column(JSON, nullable=False, default=dict)

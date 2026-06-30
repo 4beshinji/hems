@@ -45,6 +45,8 @@ class EventWriter:
         self._interventions_created: list[dict] = []
         self._interventions_completed: list[dict] = []
         self._interventions_updates: list[dict] = []
+        self._agent_feedback: list[dict] = []
+        self._agent_trajectories: list[dict] = []
         self._lock = asyncio.Lock()
         self._running = False
 
@@ -245,6 +247,56 @@ class EventWriter:
             }
         )
 
+    # ------------------------------------------------------------------
+    # Phase 1: agent feedback and learning trajectories
+    # ------------------------------------------------------------------
+
+    def record_feedback(
+        self,
+        target_type: str,
+        target_id: str,
+        feedback_type: str,
+        channel: str = "mqtt",
+        payload: dict | None = None,
+        context: dict | None = None,
+        user_id: str | None = None,
+    ):
+        """Buffer a normalized agent feedback row."""
+        self._agent_feedback.append(
+            {
+                "target_type": target_type,
+                "target_id": target_id,
+                "feedback_type": feedback_type,
+                "channel": channel,
+                "payload": json.dumps(payload or {}, ensure_ascii=False, default=str),
+                "context": json.dumps(context or {}, ensure_ascii=False, default=str),
+                "user_id": user_id,
+                "recorded_at": datetime.now(UTC).isoformat(),
+            }
+        )
+
+    def record_trajectory(
+        self,
+        cycle_id: str | None,
+        decision_id: str | None,
+        trigger_events: list | None,
+        tool_calls: list | None,
+        world_state_snapshot: dict | None,
+        outcome_summary: dict | None,
+    ):
+        """Buffer a decision-to-outcome trajectory row."""
+        self._agent_trajectories.append(
+            {
+                "cycle_id": cycle_id,
+                "decision_id": decision_id,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "trigger_events": json.dumps(trigger_events or [], ensure_ascii=False, default=str),
+                "tool_calls": json.dumps(tool_calls or [], ensure_ascii=False, default=str),
+                "world_state_snapshot": json.dumps(world_state_snapshot or {}, ensure_ascii=False, default=str),
+                "outcome_summary": json.dumps(outcome_summary or {}, ensure_ascii=False, default=str),
+            }
+        )
+
     async def fetch_pending_interventions(self) -> list[dict]:
         """Return completed-but-unverdicted rows whose post-window has elapsed.
 
@@ -394,14 +446,27 @@ class EventWriter:
             iv_created = self._interventions_created[:]
             iv_completed = self._interventions_completed[:]
             iv_updates = self._interventions_updates[:]
+            feedback_rows = self._agent_feedback[:]
+            trajectories = self._agent_trajectories[:]
             self._events.clear()
             self._decisions.clear()
             self._world_events.clear()
             self._interventions_created.clear()
             self._interventions_completed.clear()
             self._interventions_updates.clear()
+            self._agent_feedback.clear()
+            self._agent_trajectories.clear()
 
-        if not events and not decisions and not world_events and not iv_created and not iv_completed and not iv_updates:
+        if (
+            not events
+            and not decisions
+            and not world_events
+            and not iv_created
+            and not iv_completed
+            and not iv_updates
+            and not feedback_rows
+            and not trajectories
+        ):
             return
 
         tp = TABLE_PREFIX
@@ -522,6 +587,43 @@ class EventWriter:
                             )
                     logger.debug("Flushed {} intervention approval updates", len(iv_updates))
 
+                if feedback_rows:
+                    await self._bulk_insert(
+                        conn,
+                        "agent_feedback",
+                        [
+                            "target_type",
+                            "target_id",
+                            "feedback_type",
+                            "channel",
+                            "payload",
+                            "context",
+                            "user_id",
+                            "recorded_at",
+                        ],
+                        feedback_rows,
+                        jsonb_cols=("payload", "context"),
+                    )
+                    logger.debug("Flushed {} agent feedback rows", len(feedback_rows))
+
+                if trajectories:
+                    await self._bulk_insert(
+                        conn,
+                        "agent_trajectories",
+                        [
+                            "cycle_id",
+                            "decision_id",
+                            "timestamp",
+                            "trigger_events",
+                            "tool_calls",
+                            "world_state_snapshot",
+                            "outcome_summary",
+                        ],
+                        trajectories,
+                        jsonb_cols=("trigger_events", "tool_calls", "world_state_snapshot", "outcome_summary"),
+                    )
+                    logger.debug("Flushed {} agent trajectories", len(trajectories))
+
         except Exception as e:
             logger.error("Event flush failed: {}", e)
             # Re-queue on failure so data is not lost
@@ -532,3 +634,5 @@ class EventWriter:
                 self._interventions_created = iv_created + self._interventions_created
                 self._interventions_completed = iv_completed + self._interventions_completed
                 self._interventions_updates = iv_updates + self._interventions_updates
+                self._agent_feedback = feedback_rows + self._agent_feedback
+                self._agent_trajectories = trajectories + self._agent_trajectories

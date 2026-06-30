@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { FeedbackButtons } from '@/components/feedback/FeedbackButtons'
 import { fetchAlertHistory } from '@/lib/api'
 
 const WINDOWS: { label: string; hours: number }[] = [
@@ -88,10 +89,13 @@ const AlertHistoryCard = memo(function AlertHistoryCard() {
               <AlertCircle className="h-3 w-3 mt-0.5 text-amber-500 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-foreground line-clamp-2">{a.message}</p>
-                <p className="text-[10px] text-muted-foreground">
-                  {a.zone ? `${a.zone} · ` : ''}
-                  {formatTime(a.created_at)}
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] text-muted-foreground">
+                    {a.zone ? `${a.zone} · ` : ''}
+                    {formatTime(a.created_at)}
+                  </p>
+                  <FeedbackButtons targetType="voice" targetId={String(a.id)} />
+                </div>
               </div>
             </li>
           ))}

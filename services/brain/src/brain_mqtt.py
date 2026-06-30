@@ -99,6 +99,7 @@ class MqttSyncMixin:
         if woke and self.sunrise_alarm and self.sunrise_alarm.is_active:
             self.sunrise_alarm.stop(self.client)
         self._record_to_event_store(topic, payload, parts)  # S8
+        self._collect_feedback(topic, parts, payload)  # S8.5
         self._update_device_registry(topic, payload, parts)  # S9a
         self._maybe_trigger_cycle()  # S9b (must be last)
 
@@ -138,6 +139,30 @@ class MqttSyncMixin:
         if self.event_writer and topic.startswith("hems/task/completed/"):
             if len(parts) >= 4:
                 self.event_writer.mark_intervention_completed(parts[3])
+
+    def _collect_feedback(self, topic: str, parts: list[str], payload) -> None:
+        """S8.5: route explicit feedback from backend/frontend to the learning store."""
+        if not topic.startswith("hems/feedback/"):
+            return
+        if len(parts) < 5:
+            return
+        if not isinstance(payload, dict):
+            return
+        collector = getattr(self, "feedback_collector", None)
+        if collector is None:
+            return
+        try:
+            collector.collect_explicit(
+                target_type=parts[2],
+                target_id=parts[3],
+                feedback_type=payload.get("feedback_type", "explicit_up"),
+                channel=payload.get("channel", "mqtt"),
+                payload=payload.get("payload", {}),
+                context=payload.get("context", {}),
+                user_id=payload.get("user_id"),
+            )
+        except Exception as e:
+            logger.debug(f"Feedback collection failed: {e}")
 
     def _feed_schedule_learner_occupancy(self, topic: str, payload, parts: list[str]) -> None:
         """S5: feed occupancy changes to schedule learner.

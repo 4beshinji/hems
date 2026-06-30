@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { MessageSquare, Brain, ChevronRight, AlertCircle, CheckCircle2, XCircle } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { FeedbackButtons } from '@/components/feedback/FeedbackButtons'
 import { fetchBrainStatus } from '@/lib/api'
 import { useVoiceEvents } from '@/hooks/queries/use-voice-events'
 import { ZONE_LABELS } from '@/lib/constants'
@@ -146,6 +147,7 @@ function VoiceEventRow({ event }: { event: VoiceEvent }) {
               {ZONE_LABELS[event.zone] ?? event.zone}
             </Badge>
           )}
+          <FeedbackButtons targetType="voice" targetId={String(event.id)} />
         </div>
         <p className="text-sm text-foreground">{event.message}</p>
       </div>
