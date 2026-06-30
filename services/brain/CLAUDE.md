@@ -22,7 +22,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - **ScheduleLearner** (HA / biometric / switchbot enabled): arrival/departure/wake pattern learning + biometric sleep
   - **TimelineGenerator** (`timeline/`, always instantiated; degrades without calendar): EDF + free-window daily timeline
   - **EventAutomation** (`event_automation.py`, always instantiated; actions degrade without news/gas): event→action wiring
-  - **AutomationEngine** (`automation_engine.py`): sensor_threshold / schedule / device_state / event rules
+  - **AutomationEngine** (`automation_engine.py`): sensor_threshold / schedule / device_state / event rules. Phase 0 HITL: `require_confirm=true` / `approval_required=true` のルールは `ApprovalGate` 経由で人間承認を取得してから実行する
   - **SceneExecutor** (`scene_executor.py`): named multi-device scenes
   - **DeviceDispatcher** (`device_dispatcher.py`): vendor-agnostic dispatch (ha/switchbot/tapo/zigbee/mcp)
   - **TaskQueueManager / TaskReminder** (`task_scheduling/`, `task_reminder.py`): batched task queue + due reminders
@@ -31,6 +31,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - **AckLearner** (`voice_capsule/ack_learner.py`): mobile companion ack pattern learning
   - **MotionRetriever** (`motion_retriever.py`): VRM motion via BM25 + tone affinity + usage decay + novelty, loaded from `config/motions.yaml`
   - **Approval subsystem** (`approval/`): HITL gate for high-risk / irreversible actions. `ApprovalGate` → `ApprovalClient` → backend `/approvals`; `ActionRiskClassifier`; `RollbackPlanner` / `RollbackExecutor` / `VerificationWatcher`; `ApprovalAuditLogger`
+  - **Feedback subsystem** (`feedback/`, Phase 1): `FeedbackCollector` は MQTT `hems/feedback/{target_type}/{target_id}` から明示フィードバックを受け取り `event_store.agent_feedback` に書き込む。`OutcomeRewardCalculator` / `TrajectoryRecorder` / `ImplicitFeedbackDetector` は構築済みで、Phase 2 の閾値調整と統合される
 - Always-on tools: `create_task`, `speak`, `get_zone_status`, `get_active_tasks`, `get_device_status`, `send_device_command` (legacy MCP), `get_sensor_history`, `add_shopping_item`, `get_shopping_list`
 - Device Registry tools (default-on): `control_actuator`, `list_devices`, `describe_device`, `execute_scene_by_name`, `list_scenes`, `zigbee_permit_join`
 - OpenClaw tools (profile `openclaw`; `localcraw` is a legacy alias): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`, `get_service_status`, `list_processes`

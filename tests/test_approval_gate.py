@@ -90,7 +90,8 @@ async def test_high_risk_rule_rejected_does_not_execute(high_risk_rule):
     assert result["success"] is False
     assert result["approval_status"] == "rejected"
     assert result["executed"] == 0
-    assert any(c[0] == "rollback" for c in fake_client.calls)
+    assert not any(c[0] == "rollback" for c in fake_client.calls)
+    assert not any(c[0] == "mark_executed" for c in fake_client.calls)
 
 
 @pytest.mark.asyncio
@@ -115,7 +116,7 @@ async def test_modified_payload_executes_modified_actions(high_risk_rule):
 
 
 @pytest.mark.asyncio
-async def test_rejected_rule_triggers_rollback_executor(high_risk_rule):
+async def test_rejected_rule_does_not_trigger_rollback_executor(high_risk_rule):
     async def executor(actions):
         return {"success": True, "executed": len(actions)}
 
@@ -141,6 +142,41 @@ async def test_rejected_rule_triggers_rollback_executor(high_risk_rule):
     result = await gate.execute_rule(high_risk_rule)
     assert result["success"] is False
     assert result["approval_status"] == "rejected"
-    assert result["rollback"]["success"] is True
-    assert len(rollback.calls) == 1
-    assert rollback.calls[0][2] == "human_reject"
+    assert "rollback" not in result
+    assert len(rollback.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_approved_execution_failure_does_not_mark_executed(high_risk_rule):
+    async def executor(actions):
+        return {"success": False, "executed": 0, "errors": ["device offline"]}
+
+    fake_client = _FakeClient({"app-1": {"id": "app-1", "status": "approved"}})
+    gate = ApprovalGate(client=fake_client, executor=executor)
+    result = await gate.execute_rule(high_risk_rule)
+    assert result["success"] is False
+    assert result["approval_status"] == "approved"
+    assert result["executed"] == 0
+    assert not any(c[0] == "mark_executed" for c in fake_client.calls)
+
+
+@pytest.mark.asyncio
+async def test_modified_execution_failure_does_not_mark_executed(high_risk_rule):
+    async def executor(actions):
+        return {"success": False, "executed": 0, "errors": ["device offline"]}
+
+    fake_client = _FakeClient(
+        {
+            "app-1": {
+                "id": "app-1",
+                "status": "modified",
+                "proposed_payload": {"actions": [{"device_id": "zigbee.door_lock", "action": "unlock"}]},
+            }
+        }
+    )
+    gate = ApprovalGate(client=fake_client, executor=executor)
+    result = await gate.execute_rule(high_risk_rule)
+    assert result["success"] is False
+    assert result["approval_status"] == "modified"
+    assert result["executed"] == 0
+    assert not any(c[0] == "mark_executed" for c in fake_client.calls)

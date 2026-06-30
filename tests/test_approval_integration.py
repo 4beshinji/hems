@@ -226,8 +226,8 @@ async def test_modify_and_execute_modified_payload(backend_app, approval_client)
 
 
 @pytest.mark.asyncio
-async def test_reject_triggers_rollback(backend_app, approval_client):
-    """Rejected approval triggers rollback compensation via captured before-states."""
+async def test_reject_does_not_execute_rollback(backend_app, approval_client):
+    """Rejected approval cancels execution and does not perform rollback."""
     executed: list[dict[str, Any]] = []
 
     async def executor(actions: list[dict[str, Any]]) -> dict[str, Any]:
@@ -240,14 +240,11 @@ async def test_reject_triggers_rollback(backend_app, approval_client):
         return {"device_id": device_id, "last_state": states.get(device_id, {})}
 
     from approval.gate import ApprovalGate
-    from approval.rollback_executor import RollbackExecutor
 
-    rollback_executor = RollbackExecutor(client=approval_client, executor=executor)
     gate = ApprovalGate(
         client=approval_client,
         executor=executor,
         state_lookup=state_lookup,
-        rollback_executor=rollback_executor,
     )
 
     rule = {
@@ -272,14 +269,10 @@ async def test_reject_triggers_rollback(backend_app, approval_client):
     result = await asyncio.wait_for(task, timeout=5)
     assert result["success"] is False
     assert result["approval_status"] == "rejected"
-    assert result["rollback"] is not None
-    assert result["rollback"]["success"] is True
-
-    # The rollback plan inverts the lock action to unlock.
-    assert any(a["device_id"] == "zigbee.lock" and a["action"] == "unlock" for a in executed)
+    assert "rollback" not in result or result.get("rollback") is None
+    assert executed == []
 
     resp = await backend_app.get(f"/approvals/{approval_id}")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["status"] == "rolled_back"
-    assert body["rollback_status"] == "success"
+    assert body["status"] == "rejected"

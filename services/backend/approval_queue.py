@@ -97,27 +97,32 @@ class ApprovalQueueManager:
         approval: models.Approval,
         decision: schemas.ApprovalDecision,
     ) -> models.Approval:
-        if approval.status not in {"proposed", "pending"}:
-            raise ValueError(f"Cannot decide approval in status '{approval.status}'")
         if decision.decision not in _DECISIONS:
             raise ValueError(f"decision must be one of {sorted(_DECISIONS)}")
 
+        result = await self.session.execute(select(models.Approval).filter_by(id=approval.id).with_for_update())
+        row = result.scalar_one()
+        if row.status not in {"proposed", "pending"}:
+            raise ValueError(f"Cannot decide approval in status '{row.status}'")
+        if row.expires_at < _utcnow():
+            raise ValueError("approval expired")
+
         now = _utcnow()
-        approval.reviewer_id = decision.reviewer_id
-        approval.decision = decision.decision
-        approval.decision_reason = decision.reason
-        approval.decided_at = now
+        row.reviewer_id = decision.reviewer_id
+        row.decision = decision.decision
+        row.decision_reason = decision.reason
+        row.decided_at = now
 
         if decision.decision == "approve":
-            approval.status = "approved"
+            row.status = "approved"
         elif decision.decision == "reject":
-            approval.status = "rejected"
+            row.status = "rejected"
         elif decision.decision == "modify":
-            approval.status = "modified"
+            row.status = "modified"
             if decision.modified_payload is not None:
-                approval.proposed_payload = decision.modified_payload
+                row.proposed_payload = decision.modified_payload
 
-        approval.audit_log.append(
+        row.audit_log.append(
             {
                 "event": f"decided:{decision.decision}",
                 "at": now.isoformat(),
@@ -126,17 +131,19 @@ class ApprovalQueueManager:
             }
         )
         await self.session.commit()
-        await self.session.refresh(approval)
-        return approval
+        await self.session.refresh(row)
+        return row
 
     async def mark_executed(self, approval: models.Approval) -> models.Approval:
-        if approval.status not in {"approved", "modified"}:
-            raise ValueError(f"Cannot execute approval in status '{approval.status}'")
-        approval.executed_at = _utcnow()
-        approval.audit_log.append({"event": "executed", "at": _utcnow().isoformat()})
+        result = await self.session.execute(select(models.Approval).filter_by(id=approval.id).with_for_update())
+        row = result.scalar_one()
+        if row.status not in {"approved", "modified"}:
+            raise ValueError(f"Cannot execute approval in status '{row.status}'")
+        row.executed_at = _utcnow()
+        row.audit_log.append({"event": "executed", "at": _utcnow().isoformat()})
         await self.session.commit()
-        await self.session.refresh(approval)
-        return approval
+        await self.session.refresh(row)
+        return row
 
     async def mark_rolled_back(
         self,
@@ -145,9 +152,13 @@ class ApprovalQueueManager:
         trigger: str,
         error_message: str | None = None,
     ) -> models.RollbackLog:
-        approval.status = "rolled_back"
-        approval.rollback_status = rollback_status
-        approval.audit_log.append(
+        result = await self.session.execute(select(models.Approval).filter_by(id=approval.id).with_for_update())
+        row = result.scalar_one()
+        if row.status not in {"approved", "modified", "rejected", "executed"}:
+            raise ValueError(f"Cannot rollback approval in status '{row.status}'")
+        row.status = "rolled_back"
+        row.rollback_status = rollback_status
+        row.audit_log.append(
             {
                 "event": "rolled_back",
                 "at": _utcnow().isoformat(),
@@ -156,16 +167,16 @@ class ApprovalQueueManager:
             }
         )
         log = models.RollbackLog(
-            approval_id=approval.id,
+            approval_id=row.id,
             trigger=trigger,
-            compensation_plan=approval.rollback_plan,
+            compensation_plan=row.rollback_plan,
             execution_status=rollback_status,
             completed_at=_utcnow() if rollback_status in {"success", "failed"} else None,
             error_message=error_message,
         )
         self.session.add(log)
         await self.session.commit()
-        await self.session.refresh(approval)
+        await self.session.refresh(row)
         await self.session.refresh(log)
         return log
 

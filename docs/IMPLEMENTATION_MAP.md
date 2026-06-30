@@ -182,14 +182,18 @@ Device Registry persistent 層。以下を参照: `services/backend/models.py` �
 
 `services/backend/models.py` に定義された承認・ロールバックテーブル。
 
-| Table | 主な役割 | 主要カラム |
-|-------|---------|-----------|
-| `approvals` | 人間承認リクエストと履歴 | `id` (UUID), `rule_id`, `action_type`, `risk_tier`, `reversibility`, `proposed_payload`, `context`, `status`, `decision`, `reviewer_id`, `requested_at`, `decided_at`, `executed_at`, `rollback_status`, `audit_log` |
-| `action_snapshots` | 実行前後のデバイス/シーン状態 | `approval_id`, `entity_type`, `entity_id`, `before_state`, `after_state`, `captured_at` |
-| `rollback_log` | 補償操作の実行記録 | `approval_id`, `trigger`, `compensation_plan`, `execution_status`, `started_at`, `completed_at`, `error_message` |
-| `intervention_efficacy` (events schema) | 介入効果測定 + Phase 0 HITL 紐付け | `approval_id`, `human_decision`, `rolled_back`, `rollback_success`, `efficacy_score` |
+| Table | 主な役割 | 主要カラム | 所在 |
+|-------|---------|-----------|------|
+| `approvals` | 人間承認リクエストと履歴 | `id` (UUID), `rule_id`, `action_type`, `risk_tier`, `reversibility`, `proposed_payload`, `context`, `status`, `decision`, `reviewer_id`, `requested_at`, `decided_at`, `executed_at`, `rollback_status`, `audit_log` | Backend DB |
+| `action_snapshots` | 実行前後のデバイス/シーン状態 | `approval_id`, `entity_type`, `entity_id`, `before_state`, `after_state`, `captured_at` | Backend DB |
+| `rollback_log` | 補償操作の実行記録 | `approval_id`, `trigger`, `compensation_plan`, `execution_status`, `started_at`, `completed_at`, `error_message` | Backend DB |
+| `intervention_efficacy` | 介入効果測定 + Phase 0 HITL 紐付け | `approval_id`, `human_decision`, `rolled_back`, `rollback_success`, `efficacy_score` | Brain `event_store` (events schema) |
+| `agent_feedback` | 明示・暗黙フィードバック | `target_type`, `target_id`, `feedback_type`, `channel`, `payload`, `context`, `user_id`, `recorded_at` | Brain `event_store` (events schema)。Backend は `/feedback` REST 経由で受け取り、MQTT (`hems/feedback/{target_type}/{target_id}`) で Brain に転送 |
+| `agent_trajectories` | 決定→結果の軌道 | `cycle_id`, `decision_id`, `trigger_events`, `tool_calls`, `world_state_snapshot`, `outcome_summary` | Brain `event_store` (events schema) |
 
-Backend API: `services/backend/routers/approvals.py`
+Backend API:
+- `services/backend/routers/approvals.py` — 承認フロー
+- `services/backend/routers/feedback.py` — `/feedback` / `/feedback/trajectory` エンドポイント
 - `POST /approvals` — 承認リクエスト作成
 - `GET /approvals` / `GET /approvals/{id}` — 一覧・詳細
 - `POST /approvals/{id}/decide` — approve / reject / modify
@@ -411,6 +415,10 @@ hems/weather/bridge/status
 # Brain control
 hems/brain/reload-character
 hems/brain/guest-mode
+
+# Approval / feedback
+hems/approvals/{id}/decide
+hems/feedback/{target_type}/{target_id}
 ```
 
 ### 4.1 ブローカーへの subscribe (Brain)
@@ -437,6 +445,7 @@ zigbee2mqtt/#
 | perception (bridge) | `hems/perception/bridge/status` | health |
 | brain (request) | `hems/perception/vlm/request` | rule engine からの再スキャン要求 |
 | backend | `hems/approvals/{approval_id}/decide` | 人間承認決定通知 (approve/reject/modify)。Brain ApprovalClient はポーリングでも取得 |
+| backend | `hems/feedback/{target_type}/{target_id}` | フィードバック作成通知。Brain `feedback_collector` が購読して event_store の `agent_feedback` へ複製 |
 | OpenClaw bridge | `hems/pc/metrics/{cpu,memory,gpu,disk,temp}` | PC メトリクス |
 | OpenClaw bridge | `hems/pc/processes/top` | top プロセス一覧 |
 | OpenClaw bridge | `hems/pc/bridge/status` | bridge 状態 |
@@ -710,7 +719,14 @@ grep -nE '"[^"]+": "_handle_' services/brain/src/tool_dispatch.py
 | TTS | `espeak`, `voicevox`, `voisona`, `edge-tts`, `aivoice` | |
 | STT | `whisper`, `sherpa-onnx`, `qwen3-asr` | |
 
-### 9.3 Verification
+### 9.3 Approval / Feedback
+
+承認・フィードバック機能に新規の環境変数は追加されていない。コードから参照されるのは既存の MQTT 接続情報のみ:
+
+- `MQTT_BROKER`, `MQTT_PORT`, `MQTT_USER`, `MQTT_PASS` — `feedback.py` / `approvals.py` で Brain への通知発行に使用
+- `DASHBOARD_API_URL` / `BACKEND_URL` — `approval/client.py` で Backend `/approvals` API 呼び出しに使用
+
+### 9.4 Verification
 
 ```bash
 # サービス側で参照されている env キー一覧
@@ -733,3 +749,5 @@ grep -E "^[A-Z_]+=|^# [A-Z_]+=" env.example | grep -oE "^# ?[A-Z_]+" | sort -u
 - [x] `data-bridge` の orphan 状態(README のみの scaffold、src 無し)— weather-bridge は always-on 化で解消済
 
 最終更新: 2026-06-17(env/compose 既定値統一、weather-bridge 常時起動化、SwitchBot topic 修正)
+
+最終更新: 2026-06-30(approval/feedback MQTT トピック追記、HITL/学習テーブルの所在明記)

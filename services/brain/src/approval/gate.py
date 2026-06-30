@@ -15,7 +15,6 @@ from approval.action_risk_classifier import RiskClassification, classify_action,
 from approval.audit_logger import ApprovalAuditLogger
 from approval.client import ApprovalClient
 from approval.rollback_executor import RollbackExecutor
-from approval.rollback_planner import build_rollback_plan
 
 
 class ApprovalGate:
@@ -148,11 +147,19 @@ class ApprovalGate:
             reviewer_id=decision.get("reviewer_id"),
             reason=decision.get("decision_reason"),
         )
+        if self.event_writer is not None:
+            try:
+                self.event_writer.record_intervention_decision(approval_id, human_decision=status)
+            except Exception as e:
+                logger.debug(f"Intervention decision recording failed: {e}")
 
         if status == "approved":
             result = await self.executor(actions)
             await self._record_snapshots(approval_id, actions, before_states, after=True)
-            await self.client.mark_executed(approval_id)
+            if result.get("success"):
+                await self.client.mark_executed(approval_id)
+            else:
+                logger.warning(f"Approval gate: execution failed for {approval_id}, not marking executed")
             self.audit_logger.executed(
                 approval_id,
                 success=result.get("success", False),
@@ -165,7 +172,10 @@ class ApprovalGate:
             modified = decision.get("proposed_payload", {}).get("actions", actions)
             result = await self.executor(modified)
             await self._record_snapshots(approval_id, modified, before_states, after=True)
-            await self.client.mark_executed(approval_id)
+            if result.get("success"):
+                await self.client.mark_executed(approval_id)
+            else:
+                logger.warning(f"Approval gate: execution failed for {approval_id}, not marking executed")
             self.audit_logger.executed(
                 approval_id,
                 success=result.get("success", False),
@@ -176,31 +186,23 @@ class ApprovalGate:
 
         # rejected / expired / rolled_back / unknown
         logger.info(f"Approval gate: action cancelled ({status}) for {approval_id}")
-        rollback_result: dict[str, Any] | None = None
-        if status in {"rejected", "expired"}:
-            trigger = "human_reject" if status == "rejected" else "timeout"
-            if self.rollback_executor and before_states:
-                plan = build_rollback_plan(approval_id, actions, before_states)
-                rollback_result = await self.rollback_executor.execute(plan, trigger=trigger)
-            else:
-                try:
-                    await self.client.record_rollback(approval_id, trigger=trigger, status="success")
-                except Exception as e:
-                    logger.warning(f"Failed to record rollback for {approval_id}: {e}")
-            rollback_errors = rollback_result.get("errors") if rollback_result else None
-            self.audit_logger.rolled_back(
-                approval_id,
-                trigger=trigger,
-                rollback_success=(rollback_result.get("success") if rollback_result else True),
-                error_message=rollback_errors[0] if rollback_errors else None,
-            )
+        trigger = "human_reject" if status == "rejected" else "timeout" if status == "expired" else status
+        self.audit_logger.cancelled(
+            approval_id,
+            trigger=trigger,
+            reason=f"approval {status}",
+        )
+        if status in ("rejected", "expired") and self.event_writer is not None:
+            try:
+                self.event_writer.record_intervention_rollback(approval_id, rolled_back=False, rollback_success=None)
+            except Exception as e:
+                logger.debug(f"Intervention rollback recording failed: {e}")
         return {
             "success": False,
             "error": f"approval {status}",
             "executed": 0,
             "approval_id": approval_id,
             "approval_status": status,
-            "rollback": rollback_result,
         }
 
     async def _capture_states(self, actions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

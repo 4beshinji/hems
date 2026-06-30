@@ -16,6 +16,7 @@ Reversibility classes:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -78,6 +79,19 @@ _CRITICAL_KEYWORDS = [
 
 def _normalize(text: str | None) -> str:
     return (text or "").lower()
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _tokenize(text: str | None) -> set[str]:
+    """Extract lowercase alphanumeric tokens separated by non-alphanumeric chars."""
+    return set(_TOKEN_RE.findall(_normalize(text)))
+
+
+def _class_matches(tokens: set[str], cls: str) -> bool:
+    """Check whether all tokens of a device class appear in the token set."""
+    return _tokenize(cls).issubset(tokens)
 
 
 def _tier_score(tier: str | None) -> int:
@@ -165,14 +179,16 @@ def classify_action(action: dict) -> RiskClassification:
     reasons: list[str] = []
 
     # Device class heuristics embedded in device_id or params.
+    device_tokens = _tokenize(device_id)
+    params_tokens = _tokenize(params_text)
     for cls in _CRITICAL_DEVICE_CLASSES:
-        if cls in device_id or cls in params_text:
+        if _class_matches(device_tokens, cls) or _class_matches(params_tokens, cls):
             score = _RISK_SCORES["critical"]
             reasons.append(f"critical device class: {cls}")
             break
     else:
         for cls in _HIGH_DEVICE_CLASSES:
-            if cls in device_id or cls in params_text:
+            if _class_matches(device_tokens, cls) or _class_matches(params_tokens, cls):
                 score = max(score, _RISK_SCORES["high"])
                 reasons.append(f"high-risk device class: {cls}")
                 break

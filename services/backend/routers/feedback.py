@@ -6,6 +6,7 @@ or polling and replicates it into the event_store learning mart.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -51,7 +52,7 @@ def _mqtt_auth() -> dict:
     return auth
 
 
-def _publish_feedback_event(feedback: models.AgentFeedback) -> None:
+async def _publish_feedback_event(feedback: models.AgentFeedback) -> None:
     """Notify Brain that a new feedback row is available."""
     try:
         topic = f"hems/feedback/{feedback.target_type}/{feedback.target_id}"
@@ -66,7 +67,8 @@ def _publish_feedback_event(feedback: models.AgentFeedback) -> None:
             "user_id": feedback.user_id,
             "recorded_at": feedback.recorded_at.isoformat() if feedback.recorded_at else None,
         }
-        mqtt_publish.single(
+        await asyncio.to_thread(
+            mqtt_publish.single,
             topic,
             payload=json.dumps(payload, ensure_ascii=False, default=str),
             hostname=MQTT_BROKER,
@@ -148,7 +150,7 @@ async def create_feedback(
         except ValueError:
             pass
 
-    _publish_feedback_event(feedback)
+    await _publish_feedback_event(feedback)
     return feedback
 
 

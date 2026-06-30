@@ -71,7 +71,7 @@ def test_create_approval(client):
 
 
 def test_list_approvals_with_status_filter(client):
-    client.post(
+    resp = client.post(
         "/approvals/",
         json={
             "action_type": "scene",
@@ -80,6 +80,7 @@ def test_list_approvals_with_status_filter(client):
             "proposed_payload": {"scene": "wake_up"},
         },
     )
+    assert resp.status_code == 201, resp.text
     resp = client.get("/approvals/?status=pending")
     assert resp.status_code == 200
     assert len(resp.json()) == 1
@@ -122,19 +123,21 @@ def test_decide_modify(client):
             "proposed_payload": {"device_id": "zigbee.bulb", "action": "on"},
         },
     )
+    assert create.status_code == 201, create.text
     approval_id = create.json()["id"]
 
+    modified_actions = [{"device_id": "zigbee.bulb", "action": "on", "params": {"brightness": 50}}]
     resp = client.post(
         f"/approvals/{approval_id}/decide",
         json={
             "decision": "modify",
-            "modified_payload": {"device_id": "zigbee.bulb", "action": "on", "params": {"brightness": 50}},
+            "modified_payload": {"actions": modified_actions},
         },
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "modified"
-    assert body["proposed_payload"]["params"] == {"brightness": 50}
+    assert body["proposed_payload"]["actions"] == modified_actions
 
 
 def test_decide_reject_then_rollback(client):
@@ -147,6 +150,7 @@ def test_decide_reject_then_rollback(client):
             "proposed_payload": {"device_id": "zigbee.lock", "action": "lock"},
         },
     )
+    assert create.status_code == 201, create.text
     approval_id = create.json()["id"]
 
     resp = client.post(
@@ -181,6 +185,7 @@ def test_mark_executed(client):
             "proposed_payload": {"scene": "wake_up"},
         },
     )
+    assert create.status_code == 201, create.text
     approval_id = create.json()["id"]
 
     # Cannot execute before approval
@@ -203,6 +208,7 @@ def test_snapshot_round_trip(client):
             "proposed_payload": {"device_id": "zigbee.bulb", "action": "on"},
         },
     )
+    assert create.status_code == 201, create.text
     approval_id = create.json()["id"]
 
     resp = client.post(
@@ -232,3 +238,10 @@ def test_invalid_risk_tier_rejected(client):
         },
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.skip(
+    reason="Fixture mounts approvals router directly without auth dependency; auth is covered by main app integration tests"
+)
+def test_auth_required_when_api_key_set(client):
+    """Placeholder: a request without/malformed Authorization header must return 401 when BACKEND_API_KEY is set."""

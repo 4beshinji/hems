@@ -23,6 +23,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - Manager: `approval_queue.py`
   - Router: `routers/approvals.py`
   - 責務: 人間承認リクエスト作成・決定・タイムアウト、実行前後スナップショット、ロールバック記録
+  - テーブル所在: Backend DB が `approvals` / `action_snapshots` / `rollback_log` を保持。学習用テーブル (`agent_feedback`, `agent_trajectories`, `intervention_efficacy`) は Brain `event_store` (events schema) にあり、Backend は `/feedback` および `/approvals` REST エンドポイントで受け取り・仲介する
 
 - **Users, Zones, Mobile, Places**
   - Models: `User`, `MobileDevice`, `FrequentPlace` (`models.py`)

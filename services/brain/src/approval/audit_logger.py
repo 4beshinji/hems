@@ -78,3 +78,15 @@ class ApprovalAuditLogger:
                 "error_message": error_message,
             },
         )
+
+    def cancelled(
+        self,
+        approval_id: str,
+        trigger: str,
+        reason: str | None,
+    ):
+        self._record(
+            "cancelled",
+            approval_id,
+            {"trigger": trigger, "reason": reason},
+        )

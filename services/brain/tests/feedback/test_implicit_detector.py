@@ -1,6 +1,6 @@
 """Tests for ImplicitFeedbackDetector."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from feedback.collector import FeedbackCollector
 from feedback.implicit_detector import ImplicitFeedbackDetector
@@ -54,7 +54,7 @@ def test_old_actions_are_pruned():
     detector.record_action("device_action", "42", "light.living", "on")
 
     def later():
-        return base.replace(second=base.second + 10)
+        return base + timedelta(seconds=10)
 
     detector._clock = later
     emitted = detector.observe_state("light.living", {"action": "off"})

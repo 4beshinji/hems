@@ -1,11 +1,15 @@
 import asyncio
 import os
+from typing import Any
 
 from aiohttp import web as aio_web
 from loguru import logger
 
 from ambient_speaker import AmbientSpeaker
 from annotator import ClassifierCache, EventClassifier, RulePromoter, ShoppingClassifier
+from approval.client import ApprovalClient
+from approval.gate import ApprovalGate
+from approval.rollback_executor import RollbackExecutor
 from automation_engine import AutomationEngine
 from boot_load_manager import BootLoadManager
 from brain_constants import (
@@ -119,6 +123,18 @@ class BrainStartupMixin:
             device_dispatcher=self.device_dispatcher,
             dashboard_client=self.dashboard,
         )
+        self.approval_client = ApprovalClient(backend_url=BACKEND_URL, session=session)
+        self.rollback_executor = RollbackExecutor(
+            client=self.approval_client,
+            executor=self.scene_executor.execute,
+        )
+        self.approval_gate = ApprovalGate(
+            client=self.approval_client,
+            executor=self.scene_executor.execute,
+            state_lookup=self._lookup_device_state,
+            event_writer=self.event_writer,
+            rollback_executor=self.rollback_executor,
+        )
         self.automation_engine = AutomationEngine(
             dispatcher=self.device_dispatcher,
             scene_executor=self.scene_executor,
@@ -126,6 +142,8 @@ class BrainStartupMixin:
             llm_client=self.llm,
             world_model=self.world_model,
             sanitizer=self.sanitizer,
+            approval_gate=self.approval_gate,
+            implicit_detector=self.implicit_detector,
         )
         self.tool_executor = ToolExecutor(
             sanitizer=self.sanitizer,
@@ -165,6 +183,31 @@ class BrainStartupMixin:
             session=session,
         )
         logger.info("Timeline generator initialized")
+
+    async def _lookup_device_state(self, device_id: str) -> dict[str, Any] | None:
+        """Return current device state dict for ApprovalGate snapshots.
+
+        Looks up the device in the world model and device registry, falling back
+        to the backend device dispatcher for the authoritative last_state.
+        """
+        # WorldModel zone devices (edge sensors)
+        for zone in self.world_model.zones.values():
+            dev = zone.devices.get(device_id)
+            if dev is not None:
+                return {"last_state": dev.state or {}}
+
+        # DeviceRegistry metadata/network state
+        dev = self.device_registry.get_device(device_id)
+        if dev is not None:
+            return {"last_state": {"state": dev.state, **dev.to_dict()}}
+
+        # Backend dispatcher has the authoritative last_state for actuators
+        if self.device_dispatcher is not None:
+            device = await self.device_dispatcher.lookup(device_id)
+            if device is not None:
+                return {"last_state": device.get("last_state", {})}
+
+        return None
 
     def _log_integrations(self) -> None:
         if NEWS_ENABLED:

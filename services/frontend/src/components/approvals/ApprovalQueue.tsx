@@ -12,13 +12,19 @@ export default function ApprovalQueue() {
   const { data: approvals, isLoading, error, refetch } = useApprovals(filter === 'all' ? undefined : filter)
   const decide = useDecideApproval()
 
-  const handleDecide = (id: string, decision: ApprovalDecision, reason?: string) => {
+  const handleDecide = (
+    id: string,
+    decision: ApprovalDecision,
+    reason?: string,
+    modifiedPayload?: Record<string, unknown>,
+  ) => {
     decide.mutate({
       id,
       decision: {
         decision,
         reason: reason || undefined,
         reviewer_id: 'frontend-user',
+        modified_payload: decision === 'modify' ? modifiedPayload : undefined,
       },
     })
   }

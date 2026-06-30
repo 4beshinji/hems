@@ -9,7 +9,7 @@ import type { Approval, ApprovalDecision, RiskTier } from '@/lib/types'
 
 interface ApprovalCardProps {
   approval: Approval
-  onDecide: (id: string, decision: ApprovalDecision, reason?: string) => void
+  onDecide: (id: string, decision: ApprovalDecision, reason?: string, modifiedPayload?: Record<string, unknown>) => void
   disabled?: boolean
 }
 
@@ -24,6 +24,7 @@ const RISK_CONFIG: Record<RiskTier, { label: string; color: string; icon: typeof
 export default function ApprovalCard({ approval, onDecide, disabled }: ApprovalCardProps) {
   const [reason, setReason] = useState('')
   const [showModify, setShowModify] = useState(false)
+  const [jsonError, setJsonError] = useState<string | null>(null)
   const risk = RISK_CONFIG[approval.risk_tier]
   const RiskIcon = risk.icon
 
@@ -88,21 +89,25 @@ export default function ApprovalCard({ approval, onDecide, disabled }: ApprovalC
               id={`reason-${approval.id}`}
               type="text"
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => {
+                setReason(e.target.value)
+                setJsonError(null)
+              }}
               placeholder={showModify ? '修正内容を JSON またはテキストで記述' : '承認/棄却理由'}
               disabled={disabled}
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             />
+            {jsonError && <p className="mt-1 text-xs text-destructive">{jsonError}</p>}
           </div>
         )}
       </CardContent>
 
       {isPending && (
-        <CardFooter className="flex gap-2 pt-0">
+        <CardFooter className="flex flex-wrap gap-2 pt-0">
           <Button
             variant="default"
             size="sm"
-            className="flex-1"
+            className="flex-1 min-w-[72px]"
             disabled={disabled}
             onClick={() => onDecide(approval.id, 'approve', reason)}
           >
@@ -112,11 +117,21 @@ export default function ApprovalCard({ approval, onDecide, disabled }: ApprovalC
           <Button
             variant="outline"
             size="sm"
-            className="flex-1"
+            className="flex-1 min-w-[72px]"
             disabled={disabled}
             onClick={() => {
               if (showModify) {
-                onDecide(approval.id, 'modify', reason)
+                try {
+                  const parsed = JSON.parse(reason)
+                  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    setJsonError(null)
+                    onDecide(approval.id, 'modify', reason, parsed as Record<string, unknown>)
+                  } else {
+                    setJsonError('修正内容は JSON オブジェクト形式で入力してください')
+                  }
+                } catch {
+                  setJsonError('無効な JSON です。修正内容を確認してください')
+                }
               } else {
                 setShowModify(true)
               }
@@ -125,10 +140,25 @@ export default function ApprovalCard({ approval, onDecide, disabled }: ApprovalC
             <PenLine className="h-4 w-4 mr-1" />
             {showModify ? '修正適用' : '修正'}
           </Button>
+          {showModify && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              disabled={disabled}
+              onClick={() => {
+                setShowModify(false)
+                setReason('')
+                setJsonError(null)
+              }}
+            >
+              キャンセル
+            </Button>
+          )}
           <Button
             variant="destructive"
             size="sm"
-            className="flex-1"
+            className="flex-1 min-w-[72px]"
             disabled={disabled}
             onClick={() => onDecide(approval.id, 'reject', reason)}
           >

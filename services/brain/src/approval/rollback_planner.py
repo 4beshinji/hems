@@ -57,15 +57,15 @@ def build_rollback_plan(
             reasons.append(f"{device_id}.{action} is irreversible")
             continue
 
+        # Prefer captured before-state over a simple inverse action.
+        restored = _restore_from_state(device_id, action, before)
+        if restored:
+            compensation.append(restored)
+            continue
+
         inverse = _SIMPLE_INVERSE.get(action)
         if inverse:
             compensation.append({"device_id": device_id, "action": inverse, "params": {}, "delay_s": 0})
-            continue
-
-        # State-restoration heuristics for set_* actions.
-        restored = _restore_from_state(device_id, before)
-        if restored:
-            compensation.append(restored)
             continue
 
         irreversible.append(a)
@@ -81,17 +81,34 @@ def build_rollback_plan(
     )
 
 
-def _restore_from_state(device_id: str, before: dict[str, Any]) -> dict[str, Any] | None:
+def _restore_from_state(device_id: str, action: str, before: dict[str, Any]) -> dict[str, Any] | None:
     """Try to synthesize a state-restoring action from a before snapshot."""
     if not before:
         return None
 
-    # Light / plug with previous on/off state.
-    if "on" in before:
+    # On/off actions restored from captured on/off state.
+    if action in ("on", "off") and "on" in before:
         return {"device_id": device_id, "action": "on" if before["on"] else "off", "params": {}, "delay_s": 0}
 
-    # Cover / curtain position.
-    if "position" in before:
+    # Lock/unlock actions restored from captured lock state.
+    if action in ("lock", "unlock") and "locked" in before:
+        return {
+            "device_id": device_id,
+            "action": "lock" if before["locked"] else "unlock",
+            "params": {},
+            "delay_s": 0,
+        }
+
+    # Open/close actions restored from captured open state or position.
+    if action in ("open", "close") and "open" in before:
+        return {
+            "device_id": device_id,
+            "action": "open" if before["open"] else "close",
+            "params": {},
+            "delay_s": 0,
+        }
+
+    if action in ("open", "close", "set_position") and "position" in before:
         return {
             "device_id": device_id,
             "action": "set_position",
@@ -99,8 +116,8 @@ def _restore_from_state(device_id: str, before: dict[str, Any]) -> dict[str, Any
             "delay_s": 0,
         }
 
-    # Brightness only (keep current on/off).
-    if "brightness" in before:
+    # Brightness restore.
+    if action == "set_brightness" and "brightness" in before:
         return {
             "device_id": device_id,
             "action": "set_brightness",
@@ -108,8 +125,8 @@ def _restore_from_state(device_id: str, before: dict[str, Any]) -> dict[str, Any
             "delay_s": 0,
         }
 
-    # Color temperature.
-    if "color_temp" in before:
+    # Color temperature restore.
+    if action == "set_color_temp" and "color_temp" in before:
         return {
             "device_id": device_id,
             "action": "set_color_temp",

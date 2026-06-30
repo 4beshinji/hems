@@ -144,9 +144,11 @@ class MqttSyncMixin:
         """S8.5: route explicit feedback from backend/frontend to the learning store."""
         if not topic.startswith("hems/feedback/"):
             return
-        if len(parts) < 5:
+        if len(parts) < 4:
             return
         if not isinstance(payload, dict):
+            return
+        if not isinstance(parts[2], str) or not isinstance(parts[3], str):
             return
         collector = getattr(self, "feedback_collector", None)
         if collector is None:

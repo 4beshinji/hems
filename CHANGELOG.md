@@ -11,9 +11,9 @@
 
 ### 🆕 Phase 1 フィードバック収集と介入効果測定
 
-- Backend に `agent_feedback` / `agent_trajectories` テーブルと `POST /feedback` API を追加。
-- Brain event_store に `agent_feedback` / `agent_trajectories` テーブルを追加し、`EventWriter` が書き込めるよう拡張。
-- Brain `feedback` パッケージ (`FeedbackCollector` / `ImplicitFeedbackDetector` / `OutcomeRewardCalculator` / `TrajectoryRecorder`) を追加。
+- Backend に `/feedback` REST エンドポイント (`POST /feedback`、`POST /feedback/trajectory`、`GET /feedback/*`) を追加。
+- Brain event_store に `agent_feedback` / `agent_trajectories` / `intervention_efficacy` テーブルを追加し、`EventWriter` が書き込めるよう拡張。
+- Brain `feedback` パッケージ (`FeedbackCollector` / `ImplicitFeedbackDetector` / `OutcomeRewardCalculator` / `TrajectoryRecorder`) を追加。`FeedbackCollector` は MQTT 経由で Backend からのフィードバックを受け取り event_store に複製; `OutcomeRewardCalculator` / `TrajectoryRecorder` / 完全な暗黙フィードバック配線は Phase 2 に予約。
 - Frontend のタスク/発話/アラート/承認カードに 👍/👎/取り消し/再実行 フィードバックボタンを追加。
 - `tests/test_backend_feedback_router.py` / `services/brain/tests/feedback/` / `tests/test_feedback_integration.py` でパイプラインを検証。
 

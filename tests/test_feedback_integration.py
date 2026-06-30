@@ -75,12 +75,19 @@ async def feedback_collector(backend_app):
 
     _, engine = backend_app
     writer = EventWriter(engine) if engine is not None else None
+    task = None
     if writer is not None:
-        asyncio.create_task(writer.start())
+        task = asyncio.create_task(writer.start())
     collector = FeedbackCollector(event_writer=writer)
     yield collector
     if writer is not None:
         await writer.stop()
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 @pytest.mark.asyncio
@@ -131,16 +138,28 @@ async def test_explicit_feedback_reaches_event_store(backend_app, feedback_colle
         user_id=payload.get("user_id"),
     )
 
-    # Force event_writer flush.
     writer = feedback_collector.event_writer
-    if writer is not None:
-        await writer._flush()
+    assert writer is not None
 
+    # Inspect the writer's buffer directly (public record path); flush to persist.
+    assert len(writer._agent_feedback) == 1
+    buffered = writer._agent_feedback[0]
+    assert buffered["target_type"] == "voice"
+    assert buffered["feedback_type"] == "explicit_down"
+
+    await writer._flush()
+    assert writer._agent_feedback == []
+
+    # Verify the row landed in the event_store using the backend-aware table prefix.
     from sqlalchemy import text
+
+    from event_store.writer import TABLE_PREFIX
 
     async with engine.begin() as conn:
         rows = await conn.execute(
-            text("SELECT target_type, target_id, feedback_type FROM agent_feedback ORDER BY id DESC LIMIT 1")
+            text(
+                f"SELECT target_type, target_id, feedback_type FROM {TABLE_PREFIX}agent_feedback ORDER BY id DESC LIMIT 1"
+            )
         )
         row = rows.fetchone()
     assert row is not None

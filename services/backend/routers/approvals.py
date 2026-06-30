@@ -7,9 +7,10 @@ via GET /approvals/{id}.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
-import uuid
 
 import paho.mqtt.publish as mqtt_publish
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -37,7 +38,7 @@ def _mqtt_auth() -> dict:
     return auth
 
 
-def _publish_decision(approval: models.Approval) -> None:
+async def _publish_decision(approval: models.Approval) -> None:
     """Notify Brain that an approval decision is available."""
     try:
         topic = f"hems/approvals/{approval.id}/decide"
@@ -49,9 +50,10 @@ def _publish_decision(approval: models.Approval) -> None:
             "reviewer_id": approval.reviewer_id,
             "proposed_payload": approval.proposed_payload,
         }
-        mqtt_publish.single(
+        await asyncio.to_thread(
+            mqtt_publish.single,
             topic,
-            payload=str(payload).replace("'", '"'),
+            payload=json.dumps(payload, ensure_ascii=False, default=str),
             hostname=MQTT_BROKER,
             port=MQTT_PORT,
             auth=_mqtt_auth(),
@@ -69,8 +71,6 @@ async def list_approvals(
     db: AsyncSession = Depends(get_db),
 ):
     manager = ApprovalQueueManager(db)
-    # Best-effort expiry sweep on every list call (lightweight).
-    await manager.expire_stale()
     return await manager.list_requests(status=status, thread_id=thread_id, limit=limit, offset=offset)
 
 
@@ -112,7 +112,7 @@ async def decide_approval(
         approval = await manager.decide(approval, body)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    _publish_decision(approval)
+    await _publish_decision(approval)
     return approval
 
 

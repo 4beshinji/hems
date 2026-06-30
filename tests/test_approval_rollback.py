@@ -18,11 +18,12 @@ class TestRollbackPlanner:
         assert plan.compensation_actions == [{"device_id": "zigbee.bulb", "action": "off", "params": {}, "delay_s": 0}]
         assert plan.irreversible_actions == []
 
-    def test_lock_inverts_to_unlock(self):
+    def test_lock_restored_from_state(self):
+        # Captured before-state says the lock was unlocked; restore that state.
         plan = build_rollback_plan(
             "app-1",
             [{"device_id": "zigbee.lock", "action": "lock"}],
-            {"zigbee.lock": {"locked": True}},
+            {"zigbee.lock": {"locked": False}},
         )
         assert plan.compensation_actions == [
             {"device_id": "zigbee.lock", "action": "unlock", "params": {}, "delay_s": 0}

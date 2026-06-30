@@ -77,6 +77,26 @@ class TestClassifyAction:
         assert c.risk_tier == "critical"
         assert c.approval_required is True
 
+    def test_fan_false_positive_avoided(self):
+        c = classify_action({"device_id": "fantasy_lamp", "action": "on"})
+        assert c.risk_tier == "low"
+        assert c.approval_required is False
+
+    def test_fan_legitimate_match(self):
+        c = classify_action({"device_id": "livingroom_fan", "action": "on"})
+        assert c.risk_tier == "high"
+        assert c.approval_required is True
+
+    def test_co_false_positive_avoided(self):
+        c = classify_action({"device_id": "coffee_maker", "action": "on"})
+        assert c.risk_tier == "low"
+        assert c.approval_required is False
+
+    def test_lock_false_positive_avoided(self):
+        c = classify_action({"device_id": "clock", "action": "on"})
+        assert c.risk_tier == "low"
+        assert c.approval_required is False
+
 
 class TestOverrideIfStricter:
     def test_override_to_high(self):

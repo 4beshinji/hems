@@ -54,6 +54,7 @@ class AutomationEngine:
         world_model,
         sanitizer,
         approval_gate=None,
+        implicit_detector=None,
     ):
         self.dispatcher = dispatcher
         self.scenes = scene_executor
@@ -62,6 +63,7 @@ class AutomationEngine:
         self.world_model = world_model
         self.sanitizer = sanitizer
         self.approval_gate = approval_gate
+        self.implicit_detector = implicit_detector
 
         self._rules: list[dict] = []
         self._sustain_since: dict[int, float] = {}  # rule_id → first time trigger held
@@ -77,6 +79,11 @@ class AutomationEngine:
         await self.refresh()
         self._task = asyncio.create_task(self._loop())
         self._refresh_task = asyncio.create_task(self._refresh_loop())
+        if self.implicit_detector is None:
+            logger.warning(
+                "ImplicitFeedbackDetector is instantiated but not yet wired into AutomationEngine; "
+                "implicit feedback recording is disabled."
+            )
         logger.info(f"AutomationEngine started with {len(self._rules)} rules")
 
     async def stop(self):
