@@ -136,6 +136,20 @@ CREATE TABLE IF NOT EXISTS agent_trajectories (
 
 CREATE INDEX IF NOT EXISTS idx_agent_trajectories_cycle ON agent_trajectories(cycle_id);
 CREATE INDEX IF NOT EXISTS idx_agent_trajectories_timestamp ON agent_trajectories(timestamp);
+
+-- Phase 2 adaptive thresholds / drift detection
+CREATE TABLE IF NOT EXISTS drift_detections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    metric_key TEXT NOT NULL,
+    detector TEXT NOT NULL,
+    old_threshold REAL,
+    proposed_threshold REAL,
+    detector_state TEXT DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_drift_detections_metric ON drift_detections(metric_key);
+CREATE INDEX IF NOT EXISTS idx_drift_detections_timestamp ON drift_detections(timestamp);
 """
 
 DDL_POSTGRES = """
@@ -267,6 +281,22 @@ CREATE INDEX IF NOT EXISTS idx_agent_trajectories_cycle
     ON events.agent_trajectories (cycle_id);
 CREATE INDEX IF NOT EXISTS idx_agent_trajectories_timestamp
     ON events.agent_trajectories (timestamp);
+
+-- Phase 2 adaptive thresholds / drift detection
+CREATE TABLE IF NOT EXISTS events.drift_detections (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+    metric_key TEXT NOT NULL,
+    detector TEXT NOT NULL,
+    old_threshold REAL,
+    proposed_threshold REAL,
+    detector_state JSONB NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_drift_detections_metric
+    ON events.drift_detections (metric_key);
+CREATE INDEX IF NOT EXISTS idx_drift_detections_timestamp
+    ON events.drift_detections (timestamp);
 """
 
 

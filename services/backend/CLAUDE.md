@@ -25,6 +25,17 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - 責務: 人間承認リクエスト作成・決定・タイムアウト、実行前後スナップショット、ロールバック記録
   - テーブル所在: Backend DB が `approvals` / `action_snapshots` / `rollback_log` を保持。学習用テーブル (`agent_feedback`, `agent_trajectories`, `intervention_efficacy`) は Brain `event_store` (events schema) にあり、Backend は `/feedback` および `/approvals` REST エンドポイントで受け取り・仲介する
 
+- **Adaptive Thresholds (Phase 2)**
+  - Models: `ThresholdDriftLog`, `ThresholdAdjustment` (`models.py`)
+  - Router: `routers/adaptive_thresholds.py`
+  - 責務: Brain からのドリフト検知提案を受け取り、人間承認/棄却/auto_apply を記録。承認時に `threshold_adjustments` へオフセットを永続化し、Brain 起動時に読み戻される
+  - API:
+    - `POST /thresholds/proposals` — 提案作成 (Brain から)
+    - `GET /thresholds/proposals` / `GET /thresholds/proposals/{id}` — 一覧・詳細
+    - `POST /thresholds/proposals/{id}/decide` — approve / reject / auto_apply
+    - `GET /thresholds/adjustments` — 適用済みオフセット一覧
+    - `POST /thresholds/adjustments` — Brain からの auto_applied 登録
+
 - **Users, Zones, Mobile, Places**
   - Models: `User`, `MobileDevice`, `FrequentPlace` (`models.py`)
   - Routers: `routers/users.py`, `routers/zones.py`, `routers/mobile.py`, `routers/frequent_places.py`

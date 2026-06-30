@@ -220,6 +220,7 @@ app.add_middleware(
 )
 
 from routers import (
+    adaptive_thresholds,
     approvals,
     automations,
     biometric,
@@ -281,6 +282,7 @@ app.include_router(scenes.router, dependencies=_require_api_key)
 app.include_router(automations.router, dependencies=_require_api_key)
 app.include_router(approvals.router, dependencies=_require_api_key)
 app.include_router(feedback.router, dependencies=_require_api_key)
+app.include_router(adaptive_thresholds.router, dependencies=_require_api_key)
 app.include_router(frequent_places.router, dependencies=_require_api_key)
 app.include_router(classifier_cache.router, dependencies=_require_api_key)
 # Mobile admin routes apply verify_api_key themselves; device routes authenticate per-endpoint.

@@ -96,10 +96,15 @@ class WorldModel(
         "co2_critical": 600,  # 10 min
     }
 
-    def __init__(self, thresholds: RuleThresholds | None = None):
+    def __init__(
+        self,
+        thresholds: RuleThresholds | None = None,
+        adaptive_manager=None,
+    ):
         # Single source of truth for alert thresholds (constructor DI, W2.2).
         # Falls back to env-loaded defaults when not injected.
         self.thresholds: RuleThresholds = thresholds or load_rule_thresholds()
+        self.adaptive_manager = adaptive_manager
 
         # Tri-domain architecture
         self.physical = PhysicalSpace()

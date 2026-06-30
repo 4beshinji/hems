@@ -16,6 +16,9 @@ httpx>=0.28.0
 websockets>=14.0
 aiohttp>=3.13.0
 
+# Adaptive thresholds / drift detection (Phase 2)
+river>=0.21,<1
+
 # Bridge-specific test dependencies
 # (knowledge-bridge: document processing)
 watchdog>=6.0.0

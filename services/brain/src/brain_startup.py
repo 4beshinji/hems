@@ -5,6 +5,11 @@ from typing import Any
 from aiohttp import web as aio_web
 from loguru import logger
 
+from adaptive_thresholds import (
+    AdaptiveThresholdManager,
+    ThresholdAdjuster,
+    ThresholdClient,
+)
 from ambient_speaker import AmbientSpeaker
 from annotator import ClassifierCache, EventClassifier, RulePromoter, ShoppingClassifier
 from approval.client import ApprovalClient
@@ -46,6 +51,7 @@ from feedback import FeedbackCollector, ImplicitFeedbackDetector, OutcomeRewardC
 from llm_client import LLMClient
 from llm_router import LLMRouter
 from persona_rewriter import PersonaRewriter
+from rules.config import AdaptiveRuleThresholds, load_rule_thresholds
 from scene_executor import SceneExecutor
 from task_reminder import TaskReminder
 from task_scheduling import TaskQueueManager
@@ -135,6 +141,33 @@ class BrainStartupMixin:
             event_writer=self.event_writer,
             rollback_executor=self.rollback_executor,
         )
+
+        # Phase 2 adaptive thresholds: wrap static thresholds and load approved offsets.
+        self.threshold_client = ThresholdClient(backend_url=BACKEND_URL, session=session)
+        base_thresholds = load_rule_thresholds()
+        self.adaptive_thresholds = AdaptiveRuleThresholds(base_thresholds)
+        try:
+            adjustments = await self.threshold_client.list_adjustments()
+            for adj in adjustments:
+                metric_key = adj.get("metric_key")
+                offset = adj.get("offset", 0.0)
+                if metric_key:
+                    self.adaptive_thresholds.set_offset(metric_key, float(offset))
+        except Exception as e:
+            logger.warning(f"Failed to load threshold adjustments: {e}")
+
+        self.adaptive_threshold_manager = AdaptiveThresholdManager(
+            thresholds=self.adaptive_thresholds.base,
+            event_writer=self.event_writer,
+            backend_client=self.threshold_client,
+        )
+        self.threshold_adjuster = ThresholdAdjuster()
+
+        # Replace WorldModel/RuleEngine thresholds with the dynamic wrapper.
+        self.world_model.thresholds = self.adaptive_thresholds
+        self.world_model.adaptive_manager = self.adaptive_threshold_manager
+        self.rule_engine.thresholds = self.adaptive_thresholds
+
         self.automation_engine = AutomationEngine(
             dispatcher=self.device_dispatcher,
             scene_executor=self.scene_executor,

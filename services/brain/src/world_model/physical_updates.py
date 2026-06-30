@@ -47,6 +47,13 @@ class PhysicalUpdatesMixin:
         env.last_update = now
         env.channel_last_seen[channel] = now
 
+        # Feed adaptive threshold manager (Phase 2)
+        if self.adaptive_manager is not None and channel in ("co2", "temperature", "humidity", "pm25"):
+            try:
+                self.adaptive_manager.feed(channel, fused)
+            except Exception as e:
+                logger.debug(f"Adaptive manager feed failed for {channel}: {e}")
+
         # Generate events from threshold crossings
         self._check_thresholds(zone, channel, fused, prev)
 

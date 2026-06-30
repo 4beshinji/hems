@@ -107,6 +107,51 @@ class RuleThresholds:
     pm25_high: float = 35.0
 
 
+class AdaptiveRuleThresholds:
+    """Dynamic wrapper around RuleThresholds that applies learned offsets.
+
+    Allows the rule engine to keep using `self.thresholds.co2_high` while the
+    effective value drifts based on feedback and distribution shift. The base
+    RuleThresholds instance is never mutated; offsets are stored separately.
+    """
+
+    def __init__(self, base: RuleThresholds, offsets: dict[str, float] | None = None):
+        self._base = base
+        self._offsets: dict[str, float] = dict(offsets or {})
+
+    def __getattr__(self, name: str):
+        value = getattr(self._base, name)
+        if name in self._offsets and isinstance(value, (int, float)):
+            return value + self._offsets[name]
+        return value
+
+    def __setattr__(self, name: str, value) -> None:
+        if name.startswith("_"):
+            super().__setattr__(name, value)
+        else:
+            setattr(self._base, name, value)
+
+    def set_offset(self, metric_key: str, offset: float) -> None:
+        self._offsets[metric_key] = offset
+
+    def get_offset(self, metric_key: str) -> float:
+        return self._offsets.get(metric_key, 0.0)
+
+    def get_effective(self, metric_key: str) -> float | None:
+        base = getattr(self._base, metric_key, None)
+        if base is None:
+            return None
+        return base + self._offsets.get(metric_key, 0.0)
+
+    @property
+    def base(self) -> RuleThresholds:
+        return self._base
+
+    @property
+    def offsets(self) -> dict[str, float]:
+        return dict(self._offsets)
+
+
 def load_rule_thresholds() -> RuleThresholds:
     return RuleThresholds(
         temp_critical_high=float(os.getenv("HEMS_THRESHOLD_TEMP_CRITICAL_HIGH", "40.0")),

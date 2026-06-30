@@ -20,6 +20,17 @@ from brain_constants import (
 
 
 class BackgroundLoopsMixin:
+    # Phase 2: map trigger metric channels to adaptive threshold metric keys.
+    _CHANNEL_TO_METRIC_KEYS: dict[str, list[str]] = {
+        "co2": ["co2_high"],
+        "temperature": ["temp_high", "temp_low"],
+        "humidity": ["humidity_high", "humidity_low"],
+        "pm25": ["pm25_high"],
+    }
+
+    def _metric_keys_for_channel(self, channel: str) -> list[str]:
+        return self._CHANNEL_TO_METRIC_KEYS.get(channel, [])
+
     async def _push_all_snapshots(self):
         """Push all domain snapshots to backend for frontend consumption."""
         await self.dashboard.push_zone_snapshot(self.world_model)
@@ -136,7 +147,7 @@ class BackgroundLoopsMixin:
             logger.debug(f"Schedule state save failed: {e}")
 
     async def _maybe_daily_maintenance(self):
-        """Run rule_promoter + ack_learner once per day, around 03:xx local."""
+        """Run rule_promoter + ack_learner + adaptive threshold flush once per day."""
         now = datetime.now()
         if now.hour != 3:
             return
@@ -153,8 +164,36 @@ class BackgroundLoopsMixin:
                 n = await self._ack_learner.run()
                 if n:
                     logger.info("[DailyMaint] ack_learner adjusted %d entries", n)
+            await self._run_adaptive_threshold_maintenance()
         except Exception as e:
             logger.warning(f"Daily maintenance error: {e}")
+
+    async def _run_adaptive_threshold_maintenance(self):
+        """Flush pending drift proposals to backend and reload approved offsets."""
+        if self.adaptive_threshold_manager is None or self.threshold_client is None:
+            return
+        try:
+            proposals = self.adaptive_threshold_manager.flush_proposals()
+            for proposal in proposals:
+                try:
+                    await self.threshold_client.create_proposal(proposal)
+                    logger.info(
+                        "[DailyMaint] created threshold proposal: %s",
+                        proposal.get("metric_key"),
+                    )
+                except Exception as e:
+                    logger.warning(f"[DailyMaint] failed to create threshold proposal: {e}")
+
+            # Reload approved/auto_applied adjustments from backend.
+            adjustments = await self.threshold_client.list_adjustments()
+            if self.adaptive_thresholds is not None:
+                for adj in adjustments:
+                    metric_key = adj.get("metric_key")
+                    offset = adj.get("offset", 0.0)
+                    if metric_key:
+                        self.adaptive_thresholds.set_offset(metric_key, float(offset))
+        except Exception as e:
+            logger.warning(f"[DailyMaint] adaptive threshold maintenance error: {e}")
 
     async def _efficacy_eval_loop(self):
         """Score completed environment interventions (Group D).
@@ -190,6 +229,24 @@ class BackgroundLoopsMixin:
                             "time": time.time(),
                         }
                     )
+
+                    # Phase 2: nudge threshold offsets based on efficacy verdict.
+                    if self.threshold_adjuster is not None and self.adaptive_thresholds is not None:
+                        metric = row["trigger_metric"]
+                        for metric_key in self._metric_keys_for_channel(metric):
+                            current_offset = self.adaptive_thresholds.get_offset(metric_key)
+                            new_offset = self.threshold_adjuster.compute_offset(
+                                current_offset,
+                                efficacy_verdict=verdict,
+                            )
+                            self.adaptive_thresholds.set_offset(metric_key, new_offset)
+                            logger.info(
+                                "Threshold offset adjusted from efficacy: %s %s -> %s",
+                                metric_key,
+                                current_offset,
+                                new_offset,
+                            )
+
                     logger.info(
                         f"Efficacy verdict: zone={row['zone']} metric={row['trigger_metric']} "
                         f"baseline={row['baseline_value']} post={post} -> {verdict}"

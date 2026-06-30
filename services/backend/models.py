@@ -448,3 +448,36 @@ class AgentTrajectory(Base):
     tool_calls = Column(JSON, nullable=False, default=list)
     world_state_snapshot = Column(JSON, nullable=False, default=dict)
     outcome_summary = Column(JSON, nullable=False, default=dict)
+
+
+class ThresholdDriftLog(Base):
+    """Detected threshold drift proposals awaiting human or automatic approval."""
+
+    __tablename__ = "threshold_drift_log"
+    id = Column(Integer, primary_key=True, index=True)
+    metric_key = Column(String, nullable=False, index=True)
+    detector = Column(String, nullable=False)
+    detected_at = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+    old_value = Column(Float, nullable=True)
+    proposed_value = Column(Float, nullable=True)
+    reason = Column(String, nullable=True)  # drift | feedback | efficacy
+    status = Column(
+        String,
+        nullable=False,
+        default="proposed",
+        index=True,
+    )  # proposed | approved | rejected | auto_applied
+    context_json = Column(JSON, nullable=False, default=dict)
+
+
+class ThresholdAdjustment(Base):
+    """Applied threshold offset for a metric key."""
+
+    __tablename__ = "threshold_adjustments"
+    id = Column(Integer, primary_key=True, index=True)
+    metric_key = Column(String, nullable=False, index=True)
+    base_value = Column(Float, nullable=False)
+    offset = Column(Float, nullable=False, default=0.0)
+    applied_at = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+    approved_by = Column(String, nullable=True)  # system | user | auto
+    drift_log_id = Column(Integer, ForeignKey("threshold_drift_log.id"), nullable=True, index=True)

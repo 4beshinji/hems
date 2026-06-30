@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import paho.mqtt.client as mqtt
@@ -91,6 +91,10 @@ class Brain(
         self.device_dispatcher: DeviceDispatcher | None = None
         self.scene_executor: SceneExecutor | None = None
         self.automation_engine: AutomationEngine | None = None
+        self.adaptive_threshold_manager: Any | None = None
+        self.threshold_adjuster: Any | None = None
+        self.threshold_client: Any | None = None
+        self.adaptive_thresholds: Any | None = None
         self.shopping_classifier: ShoppingClassifier | None = None
         self.event_classifier = None  # wired in brain_startup._wire_runtime_components
         self._rule_promoter: RulePromoter | None = None

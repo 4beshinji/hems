@@ -9,6 +9,19 @@
 
 ## 2026-06-30
 
+### 🆕 Phase 2 適応的閾値とドリフト検知
+
+- `river` を依存関係に追加し、オンライン・ドリフト検知基盤を構築。
+- Brain に `adaptive_thresholds` パッケージ (`MetricDriftTracker` / `AdaptiveThresholdManager` / `ThresholdAdjuster` / `ThresholdClient`) を追加。
+- `RuleThresholds` を動的にラップする `AdaptiveRuleThresholds` を追加。rule engine と world model は自動的に動的閾値を参照する。
+- Backend に `threshold_drift_log` / `threshold_adjustments` テーブルと `/thresholds` REST エンドポイントを追加。
+- Brain event_store に `drift_detections` テーブルを追加。
+- WorldModel のセンサー更新時に `AdaptiveThresholdManager` へ値をフィードし、ドリフト検出時に backend へ提案を送信。
+- 日次メンテナンス (`_maybe_daily_maintenance`) で未送信の閾値提案を backend へフラッシュし、承認済みオフセットを再読み込み。
+- 介入効果判定 (`_efficacy_eval_loop`) から `ThresholdAdjuster` を経由して閾値オフセットを更新。
+- Frontend に `/settings/thresholds` ページと `ThresholdProposalCard` コンポーネントを追加。閾値変更提案の承認/棄却と適用履歴表示に対応。
+- テスト: `tests/test_backend_adaptive_thresholds_router.py` / `services/brain/tests/adaptive_thresholds/` を追加。
+
 ### 🆕 Phase 1 フィードバック収集と介入効果測定
 
 - Backend に `/feedback` REST エンドポイント (`POST /feedback`、`POST /feedback/trajectory`、`GET /feedback/*`) を追加。

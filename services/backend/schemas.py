@@ -962,3 +962,68 @@ class AgentTrajectory(BaseModel):
     outcome_summary: dict
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Adaptive Thresholds ---
+
+
+class ThresholdDriftLogCreate(BaseModel):
+    metric_key: str
+    detector: str
+    old_value: float | None = None
+    proposed_value: float | None = None
+    reason: str = "drift"
+    status: str = "proposed"
+    context_json: dict = Field(default_factory=dict)
+
+
+class ThresholdDriftLog(BaseModel):
+    id: int
+    metric_key: str
+    detector: str
+    detected_at: datetime | None = None
+    old_value: float | None = None
+    proposed_value: float | None = None
+    reason: str | None = None
+    status: str
+    context_json: dict
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ThresholdAdjustmentCreate(BaseModel):
+    metric_key: str
+    base_value: float
+    offset: float
+    approved_by: str = "auto"
+    drift_log_id: int | None = None
+
+
+class ThresholdAdjustment(BaseModel):
+    id: int
+    metric_key: str
+    base_value: float
+    offset: float
+    applied_at: datetime | None = None
+    approved_by: str | None = None
+    drift_log_id: int | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ThresholdDecideRequest(BaseModel):
+    decision: str  # approve | reject | auto_apply
+    reviewer_id: str | None = None
+    reason: str | None = None
+
+
+class ThresholdProposalResponse(BaseModel):
+    id: int
+    metric_key: str
+    detector: str
+    detected_at: datetime | None = None
+    old_value: float | None = None
+    proposed_value: float | None = None
+    reason: str | None = None
+    status: str
+    context_json: dict

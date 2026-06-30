@@ -190,10 +190,14 @@ Device Registry persistent 層。以下を参照: `services/backend/models.py` �
 | `intervention_efficacy` | 介入効果測定 + Phase 0 HITL 紐付け | `approval_id`, `human_decision`, `rolled_back`, `rollback_success`, `efficacy_score` | Brain `event_store` (events schema) |
 | `agent_feedback` | 明示・暗黙フィードバック | `target_type`, `target_id`, `feedback_type`, `channel`, `payload`, `context`, `user_id`, `recorded_at` | Brain `event_store` (events schema)。Backend は `/feedback` REST 経由で受け取り、MQTT (`hems/feedback/{target_type}/{target_id}`) で Brain に転送 |
 | `agent_trajectories` | 決定→結果の軌道 | `cycle_id`, `decision_id`, `trigger_events`, `tool_calls`, `world_state_snapshot`, `outcome_summary` | Brain `event_store` (events schema) |
+| `threshold_drift_log` | 閾値ドリフト検知・提案 | `metric_key`, `detector`, `detected_at`, `old_value`, `proposed_value`, `reason`, `status`, `context_json` | Backend DB |
+| `threshold_adjustments` | 適用済み閾値オフセット | `metric_key`, `base_value`, `offset`, `applied_at`, `approved_by`, `drift_log_id` | Backend DB |
+| `drift_detections` | Brain 内ドリフト検知ログ | `metric_key`, `detector`, `old_threshold`, `proposed_threshold`, `detector_state` | Brain `event_store` (events schema) |
 
 Backend API:
 - `services/backend/routers/approvals.py` — 承認フロー
 - `services/backend/routers/feedback.py` — `/feedback` / `/feedback/trajectory` エンドポイント
+- `services/backend/routers/adaptive_thresholds.py` — `/thresholds/proposals` / `/thresholds/adjustments` エンドポイント
 - `POST /approvals` — 承認リクエスト作成
 - `GET /approvals` / `GET /approvals/{id}` — 一覧・詳細
 - `POST /approvals/{id}/decide` — approve / reject / modify
@@ -201,6 +205,10 @@ Backend API:
 - `POST /approvals/{id}/rollback` — ロールバック記録
 - `POST /approvals/{id}/snapshots` — 状態スナップショット記録
 - `POST /approvals/cleanup/expired` — 期限切れクリーンアップ
+- `GET /thresholds/proposals` / `GET /thresholds/proposals/{id}` — 閾値変更提案一覧・詳細
+- `POST /thresholds/proposals/{id}/decide` — approve / reject / auto_apply
+- `GET /thresholds/adjustments` — 適用済みオフセット一覧
+- `POST /thresholds/adjustments` — Brain からの auto_applied 登録
 
 ---
 
@@ -419,6 +427,11 @@ hems/brain/guest-mode
 # Approval / feedback
 hems/approvals/{id}/decide
 hems/feedback/{target_type}/{target_id}
+
+# Adaptive thresholds
+hems/thresholds/drift_detected
+hems/thresholds/adjustment_proposed
+hems/thresholds/adjustment_applied
 ```
 
 ### 4.1 ブローカーへの subscribe (Brain)
@@ -446,6 +459,7 @@ zigbee2mqtt/#
 | brain (request) | `hems/perception/vlm/request` | rule engine からの再スキャン要求 |
 | backend | `hems/approvals/{approval_id}/decide` | 人間承認決定通知 (approve/reject/modify)。Brain ApprovalClient はポーリングでも取得 |
 | backend | `hems/feedback/{target_type}/{target_id}` | フィードバック作成通知。Brain `feedback_collector` が購読して event_store の `agent_feedback` へ複製 |
+| brain | `hems/thresholds/drift_detected` | ドリフト検知通知。Backend `/thresholds/proposals` でも提案を受け付ける |
 | OpenClaw bridge | `hems/pc/metrics/{cpu,memory,gpu,disk,temp}` | PC メトリクス |
 | OpenClaw bridge | `hems/pc/processes/top` | top プロセス一覧 |
 | OpenClaw bridge | `hems/pc/bridge/status` | bridge 状態 |
@@ -748,6 +762,6 @@ grep -E "^[A-Z_]+=|^# [A-Z_]+=" env.example | grep -oE "^# ?[A-Z_]+" | sort -u
 - [x] CLAUDE.md の MQTT topic 一覧が §4 と一致?(2026-06-17: SwitchBot publisher topic を `hems/home/{zone}/sensor/switchbot.{device_id}_*/*` に修正)
 - [x] `data-bridge` の orphan 状態(README のみの scaffold、src 無し)— weather-bridge は always-on 化で解消済
 
-最終更新: 2026-06-17(env/compose 既定値統一、weather-bridge 常時起動化、SwitchBot topic 修正)
+最終更新: 2026-06-30(Phase 2 adaptive thresholds テーブル・API・MQTT トピック追記)
 
 最終更新: 2026-06-30(approval/feedback MQTT トピック追記、HITL/学習テーブルの所在明記)

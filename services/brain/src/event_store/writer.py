@@ -47,6 +47,7 @@ class EventWriter:
         self._interventions_updates: list[dict] = []
         self._agent_feedback: list[dict] = []
         self._agent_trajectories: list[dict] = []
+        self._drift_detections: list[dict] = []
         self._lock = asyncio.Lock()
         self._running = False
 
@@ -297,6 +298,26 @@ class EventWriter:
             }
         )
 
+    def record_drift_detection(
+        self,
+        metric_key: str,
+        detector: str,
+        old_threshold: float | None,
+        proposed_threshold: float | None,
+        detector_state: dict | None = None,
+    ):
+        """Buffer a drift detection event for observability and later learning."""
+        self._drift_detections.append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "metric_key": metric_key,
+                "detector": detector,
+                "old_threshold": old_threshold,
+                "proposed_threshold": proposed_threshold,
+                "detector_state": json.dumps(detector_state or {}, ensure_ascii=False, default=str),
+            }
+        )
+
     async def fetch_pending_interventions(self) -> list[dict]:
         """Return completed-but-unverdicted rows whose post-window has elapsed.
 
@@ -448,6 +469,7 @@ class EventWriter:
             iv_updates = self._interventions_updates[:]
             feedback_rows = self._agent_feedback[:]
             trajectories = self._agent_trajectories[:]
+            drift_detections = self._drift_detections[:]
             self._events.clear()
             self._decisions.clear()
             self._world_events.clear()
@@ -456,6 +478,7 @@ class EventWriter:
             self._interventions_updates.clear()
             self._agent_feedback.clear()
             self._agent_trajectories.clear()
+            self._drift_detections.clear()
 
         if (
             not events
@@ -466,6 +489,7 @@ class EventWriter:
             and not iv_updates
             and not feedback_rows
             and not trajectories
+            and not drift_detections
         ):
             return
 
@@ -624,6 +648,23 @@ class EventWriter:
                     )
                     logger.debug("Flushed {} agent trajectories", len(trajectories))
 
+                if drift_detections:
+                    await self._bulk_insert(
+                        conn,
+                        "drift_detections",
+                        [
+                            "timestamp",
+                            "metric_key",
+                            "detector",
+                            "old_threshold",
+                            "proposed_threshold",
+                            "detector_state",
+                        ],
+                        drift_detections,
+                        jsonb_cols=("detector_state",),
+                    )
+                    logger.debug("Flushed {} drift detections", len(drift_detections))
+
         except Exception as e:
             logger.error("Event flush failed: {}", e)
             # Re-queue on failure so data is not lost
@@ -636,3 +677,4 @@ class EventWriter:
                 self._interventions_updates = iv_updates + self._interventions_updates
                 self._agent_feedback = feedback_rows + self._agent_feedback
                 self._agent_trajectories = trajectories + self._agent_trajectories
+                self._drift_detections = drift_detections + self._drift_detections

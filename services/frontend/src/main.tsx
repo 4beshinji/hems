@@ -15,6 +15,7 @@ const ScenesPage = lazy(() => import('./app/devices/scenes/page'))
 const AutomationsPage = lazy(() => import('./app/devices/automations/page'))
 const MobilePage = lazy(() => import('./app/mobile/page'))
 const ApprovalsPage = lazy(() => import('./app/approvals/page'))
+const ThresholdSettingsPage = lazy(() => import('./app/settings/thresholds/page'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -113,6 +114,14 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<LoadingState />}>
             <ApprovalsPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'settings/thresholds',
+        element: (
+          <Suspense fallback={<LoadingState />}>
+            <ThresholdSettingsPage />
           </Suspense>
         ),
       },
