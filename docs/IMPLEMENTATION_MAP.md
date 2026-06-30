@@ -750,10 +750,17 @@ grep -nE '"[^"]+": "_handle_' services/brain/src/tool_dispatch.py
 ### 9.4 Verification
 
 ```bash
-# サービス側で参照されている env キー一覧
-grep -rnE 'os\.getenv\(["'"'"']([^"'"'"']+)["'"'"']' services/ --include="*.py" | grep -oE '"[^"]+"' | sort -u
-# env.example で定義されているもの
-grep -E "^[A-Z_]+=|^# [A-Z_]+=" env.example | grep -oE "^# ?[A-Z_]+" | sort -u
+# サービス側で参照されている env キー一覧（LOG_LEVEL のデフォルト値 "INFO" 等、
+# 文字列リテラル由来の誤検出があるため要マニュアルレビュー）
+grep -rnE 'os\.(getenv|environ\.get)\(' services/ --include="*.py" \
+  | grep -oE "['\"][A-Z_][A-Z0-9_]*['\"]" | tr -d '\"' | sort -u > /tmp/code_env_keys.txt
+
+# env.example で定義されているもの（コメントアウトも含む）
+(grep -oE '^[A-Z_][A-Z0-9_]*=' env.example; grep -oE '^#\s*[A-Z_][A-Z0-9_]*=' env.example) \
+  | sed 's/^#\s*//;s/=$//' | sort -u > /tmp/example_env_keys.txt
+
+# code にあって env.example に無いもの
+comm -23 /tmp/code_env_keys.txt /tmp/example_env_keys.txt
 ```
 
 ---
@@ -762,13 +769,11 @@ grep -E "^[A-Z_]+=|^# [A-Z_]+=" env.example | grep -oE "^# ?[A-Z_]+" | sort -u
 
 以下を四半期ごとに走らせて、ドキュメント追従状況を確認する。
 
-- [ ] `services/` 配下のディレクトリすべてが docker-compose に登録されているか? (orphan 検出)
+- [x] `services/` 配下のディレクトリすべてが docker-compose に登録されているか? (orphan 検出) — **2026-06-30 検証: 3 件の orphan を検出したが、いずれも意図的**。`_common`(共有ライブラリ)、`data-bridge`(Phase 2 scaffold)、`mobile-android`(Docker 対象外 Android プロジェクト)。詳細は §1.2。
 - [x] `tool_registry.py` の tool 数 == `tool_dispatch.py` の `TOOL_HANDLERS` 数? — **2026-05-25 検証: 58==58 完全一致**(§3.5)
-- [ ] `world_model/mqtt_router.py:update_from_mqtt` のすべての elif 分岐が公開されているトピックを網羅?(reducer は `{physical,digital,user}_updates.py`)
-- [ ] 各 bridge で `os.getenv` されている環境変数すべてが `env.example` に記載?(未解決: `AUTOMATION_ENGINE_ENABLED` が未記載 — audit/2026-05-25/brain-core-loop.md)
+- [x] `world_model/mqtt_router.py:update_from_mqtt` のすべての elif 分岐が公開されているトピックを網羅?(reducer は `{physical,digital,user}_updates.py`) — **2026-06-30 検証: 15 分岐すべてが §4.3/§4.4 で網羅済み**。canonical bridge status(`hems/ha/bridge/status` / `hems/biometric/bridge/status`)は個別ハンドル済み、その他 bridge status は §4.4 partial として記載。
+- [x] 各 bridge で `os.getenv` されている環境変数すべてが `env.example` に記載?(未解決: `AUTOMATION_ENGINE_ENABLED` が未記載 — audit/2026-05-25/brain-core-loop.md) — **2026-06-30 検証: `services/` 全体を `env.example` と突合**。`AUTOMATION_ENGINE_ENABLED` は既に記載済み。未記載は 4 件発見(`CONFIG_DIR`、`HEMS_DRIFT_DELTA`、`HEMS_DRIFT_DETECTOR`、`HEMS_DRIFT_MIN_SAMPLES`)し `env.example` へ追記。`INFO` は `LOG_LEVEL` のデフォルト値からの誤検出。
 - [x] CLAUDE.md の MQTT topic 一覧が §4 と一致?(2026-06-17: SwitchBot publisher topic を `hems/home/{zone}/sensor/switchbot.{device_id}_*/*` に修正)
 - [x] `data-bridge` の orphan 状態(README のみの scaffold、src 無し)— weather-bridge は always-on 化で解消済
 
-最終更新: 2026-06-30(Phase 2 adaptive thresholds テーブル・API・MQTT トピック追記)
-
-最終更新: 2026-06-30(approval/feedback MQTT トピック追記、HITL/学習テーブルの所在明記)
+最終更新: 2026-06-30(Phase 2 adaptive thresholds テーブル・API・MQTT トピック追記、approval/feedback MQTT トピック追記、HITL/学習テーブルの所在明記、§10 ハイレベル整合性チェック 3 項検証完了、env.example へ CONFIG_DIR / HEMS_DRIFT_* 追記)
