@@ -20,6 +20,7 @@ Modes:
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import os
 import time
 from datetime import UTC, datetime
@@ -245,14 +246,19 @@ class AutomationEngine:
     # ─── Firing ─────────────────────────────────────────────────────
 
     async def trigger_event(self, event_name: str):
-        """Fire all rules with trigger_type='event' matching event_name."""
+        """Fire all rules with trigger_type='event' matching event_name.
+
+        Supports exact matching and glob-style wildcards in the rule's
+        configured event (e.g. ``motion:*`` matches ``motion:pir_entrance``).
+        """
         for rule in self._rules:
             if not rule.get("enabled", True):
                 continue
             if rule.get("trigger_type") != "event":
                 continue
             cfg = rule.get("trigger_config") or {}
-            if cfg.get("event") == event_name:
+            cfg_event = cfg.get("event")
+            if cfg_event and fnmatch.fnmatch(event_name, cfg_event):
                 await self._fire(rule)
 
     async def _fire(self, rule: dict):

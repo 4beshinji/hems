@@ -92,7 +92,7 @@ diff <(ls services/) <(grep -E "build: \.\./services/" infra/docker-compose.yml 
 | TimelineGenerator | timeline/ | startup (常時 instantiate) | 1日のタイムライン生成 (EDF + free window)。calendar 無時は内部 degrade |
 | EventAutomation | event_automation.py | startup (常時 instantiate) | wake_up / arrival / departure / scheduled 連動。action は news/gas 無時 degrade |
 | AmbientSpeaker | ambient_speaker.py | startup | 5分間隔の自然な独り言生成 |
-| AutomationEngine | automation_engine.py | always | sensor_threshold / schedule / device_state / event ルール。`require_confirm=true` / `approval_required=true` 時は ApprovalGate 経由 |
+| AutomationEngine | automation_engine.py | always | sensor_threshold / schedule / device_state / event ルール。`event` は完全一致 + glob ワイルドカード（例: `motion:*`）。`require_confirm=true` / `approval_required=true` 時は ApprovalGate 経由 |
 | ApprovalGate | approval/gate.py | always (backend 接続時) | HITL 承認ゲート: 高リスク/不可逆アクション実行前に人間承認を取得 |
 | ApprovalClient | approval/client.py | ApprovalGate から利用 | backend `/approvals` API 非同期クライアント |
 | ActionRiskClassifier | approval/action_risk_classifier.py | ApprovalGate から利用 | ルール/アクションの risk_tier / reversibility / approval_required 判定 |
@@ -535,7 +535,7 @@ zigbee2mqtt/#
 | `*/bridge/status` (各サービス) | 各 bridge | partial | bridge_connected フラグ更新のみで outage 履歴は残らない。topic 自体も実装間で不統一 + 4 ブリッジ未発行(refactor/2026-06-11 W3.3 で追跡) |
 | `hems/gas/sheets/{name}` | gas-bridge | unused | `_update_gas_state` で受けるが、業務的に活用するルール無し |
 | `hems/gas/drive/recent` | gas-bridge | unused | 同上 |
-| `hems/services/{name}/event` (edge events) | OpenClaw bridge | partial | 受信はするがイベント駆動の即時ルールは無く、次の 30s サイクルで拾う(即時トリガ経路なし) |
+| `hems/services/{name}/event` (edge events) | OpenClaw bridge | partial | 受信はするがイベント駆動の即時ルールは無く、次の 30s サイクルで拾う(即時トリガ経路なし)。**例外: motion/presence** は `brain_mqtt._trigger_motion_event` 経由で即時 `AutomationEngine.trigger_event("motion:{device_id}")` される |
 
 ### 4.5 公開先のあるが Subscriber が居ない (Orphan publish)
 
@@ -652,9 +652,16 @@ grep -rnE "^\s+def _evaluate_\w+_rules" services/brain/src/rules/
 - `sensor_threshold`: device + channel + op + value + sustain_s
 - `schedule`: cron / `time: "HH:MM"`
 - `device_state`: device_id + state_key + equals
-- `event`: 外部 `trigger_event()` から発火
+- `event`: 外部 `trigger_event()` から発火。event 名は完全一致か、ルール側に glob パターン（`motion:*` 等）を指定可能
 
-### 7.2 EventAutomation 対応イベント
+### 7.2 即時 event 発火源
+
+| Event | 発火源 |
+|-------|--------|
+| `motion:{device_id}` | `zigbee2mqtt/{device}` occupancy/motion=True、または `hems/home/{zone}/binary_sensor/{entity_id}/state` の motion/occupancy/presence on/detected/open |
+| `wake_up` | biometric sleep_end_ts / morning camera (5:00–10:00) |
+
+### 7.3 EventAutomation 対応イベント
 
 | Event | 発火源 |
 |-------|--------|
@@ -663,7 +670,7 @@ grep -rnE "^\s+def _evaluate_\w+_rules" services/brain/src/rules/
 | departure | 同上 |
 | scheduled | cron / 時刻指定 |
 
-### 7.3 実装済み Action
+### 7.4 実装済み Action
 
 - `morning_greeting` (LLM 生成)
 - `news_briefing` (news-bridge から取得)
@@ -673,7 +680,7 @@ grep -rnE "^\s+def _evaluate_\w+_rules" services/brain/src/rules/
 - `speak_custom` (任意テキスト発話)
 - `scene:{name}` (named scene 実行)
 
-### 7.4 Verification
+### 7.5 Verification
 
 ```bash
 grep -nE "^\s+(def |async def |@register)" services/brain/src/automation_engine.py services/brain/src/event_automation.py

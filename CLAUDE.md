@@ -256,7 +256,7 @@ For exact mapping between code, docker-compose, MQTT topics, world model fields,
 
 - **`services/data-bridge/`** — Phase-2 scaffold (placeholder for future Strava/Fitbit/Garmin/Intervals.icu intake). `src/bridges/` empty, no compose entry. Topics under `hems/personal/calendar`, `hems/personal/training/fitness`, `hems/system/gpu/utilization` are documented but never published. Currently substituted by biometric-bridge + gas-bridge. **存続・実装決定(2026-06-11)** — Strava/Fitbit 連携として共通ブリッジ基盤(refactor/2026-06-11 PLAN W3.1)完了後に着手。
 - **`services/mobile-android/` / `apps/healthconnect-companion/`** — compose 非参照の Android プロジェクト。リポジトリ内での位置づけ未文書化。
-- **`hems/services/{name}/event`** — edge events arrive but only the next 30s cycle picks them up; no immediate-trigger path.
+- **`hems/services/{name}/event`** — edge events arrive but only the next 30s cycle picks them up; no immediate-trigger path. **例外: motion/presence** は `brain_mqtt._trigger_motion_event` 経由で即座に `AutomationEngine.trigger_event("motion:{device_id}")` され、`*motion:*` パターンの event ルールを即時発火。
 - **`hems/gas/sheets/{name}` / `hems/gas/drive/recent`** — flow into world_model but no rules / event-automation actions consume them yet.
 - **`*/bridge/status`** — only `bridge_connected` flag is updated; outage history is not retained. W3.3(2026-06-12)で ha/biometric を規約 `hems/<service>/bridge/status` に統一(旧 `hems/home/bridge/status` / `hems/personal/biometrics/bridge/status` は互換 window で併読)。gas/weather/news/knowledge は status topic 未発行のまま。
 - 解消済: ~~`services/weather-bridge/`~~(always-on 配線済)。

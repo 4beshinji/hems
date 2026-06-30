@@ -88,6 +88,7 @@ class MqttSyncMixin:
 
         self._enrich_payload(topic, payload)  # S0 (must precede S1)
         self.world_model.update_from_mqtt(topic, payload)  # S1
+        self._trigger_motion_event(topic, payload, parts)  # S1.5 immediate reactive automation
         self._feed_shopping_classifier(topic, payload)  # S2
         self._trigger_timeline_on_event(topic, parts)  # S3
         self._mark_intervention(topic, parts)  # S4
@@ -216,6 +217,36 @@ class MqttSyncMixin:
             sleep_start = payload.get("sleep_start_ts", 0)
             if sleep_end > 0:
                 self.schedule_learner.record_sleep_from_biometrics(sleep_start, sleep_end)
+
+    def _trigger_motion_event(self, topic: str, payload, parts: list[str]) -> None:
+        """S1.5: immediate reactive automation trigger for motion/presence events.
+
+        PIR/occupancy pulses are too short for the 15s AutomationEngine polling
+        loop. Convert them into ``motion:{device_id}`` events so event-triggered
+        rules fire with sub-second latency.
+        """
+        if not self.automation_engine or not self._loop:
+            return
+        if not isinstance(payload, dict):
+            return
+
+        device_id: str | None = None
+
+        # Zigbee2MQTT: occupancy/motion boolean sensors
+        if topic.startswith("zigbee2mqtt/") and not topic.startswith("zigbee2mqtt/bridge"):
+            if payload.get("occupancy") or payload.get("motion"):
+                device_id = topic.split("/", 1)[1]
+
+        # HA/SwitchBot/Zigbee-via-HA binary_sensor motion/occupancy/presence
+        elif len(parts) >= 5 and parts[0] == "hems" and parts[1] == "home" and parts[3] == "binary_sensor":
+            dc = payload.get("device_class", "")
+            if dc in ("motion", "occupancy", "presence"):
+                raw = payload.get("state", "off")
+                if raw in ("on", "detected", "open"):
+                    device_id = parts[4]
+
+        if device_id:
+            asyncio.run_coroutine_threadsafe(self.automation_engine.trigger_event(f"motion:{device_id}"), self._loop)
 
     def _detect_wake_up(self, topic: str, payload, parts: list[str]) -> bool:
         """S7: wake-up detection for EventAutomation. Returns aggregated wake flag.
