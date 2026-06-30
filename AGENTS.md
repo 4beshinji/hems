@@ -291,6 +291,12 @@ docs(infra): update compose port table
 refactor(brain): split persona rewriter into module
 ```
 
+#### Commit strategy
+
+- **Commits are proactive**: create commits freely when a coherent, working change is ready (e.g., after a feature slice passes lint/tests). Do not ask for permission each time.
+- **Other git mutations remain cautious**: `git push`, `git reset`, `git rebase`, and other destructive/outward-facing git operations still require explicit user confirmation per action.
+- Keep commits focused and reviewable; avoid bundling unrelated Phase/feature changes when they can be split cleanly.
+
 ## Testing Instructions
 
 ### Python tests
