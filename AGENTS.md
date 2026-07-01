@@ -390,6 +390,43 @@ When adding a new service, tool, topic, or env variable, update in order:
 4. `docs/README.md`
 5. `env.example`
 
+## Plan-Driven Work and Documentation Synchronization
+
+When you start work from a planning document — `docs/refactor/*/PLAN.md`, `docs/refactor/*/LEDGER.md`, `docs/audit/*/SUMMARY.md`, `docs/audit/*/*.md`, or any `W*.md` design note — you **must** update those documents before the work is considered complete. The repository treats these docs as living records; stale plans are a form of technical debt.
+
+### Before starting
+
+1. Read the relevant plan/audit/design note and identify the specific items you will address.
+2. Verify the current code state. Items marked "未実装", "未着手", "要対応", or "open" may already be implemented by a prior refactor.
+3. Note any discrepancies you find before changing code.
+
+### After finishing
+
+For each planning/audit document you referenced, perform the doc-sync checklist:
+
+- [ ] Mark addressed items as implemented / done. Use the same convention the doc uses (e.g. `→ **実装済み**`, `Done`, `Completed`).
+- [ ] If an item was already implemented before you started, mark it as already-implemented and record the evidence.
+- [ ] Update any concrete details that changed: file paths, function names, line counts, env vars, topic strings, tool counts, port numbers.
+- [ ] If the work changed a canonical interface (MQTT topics, tools, env vars, REST routes, DB models), update the canonical docs in the order listed in "Documentation Map" above.
+- [ ] If no code change was required because the doc was already stale, explain that in the commit message or PR description.
+- [ ] Run `make lint` and the relevant test subset; doc-only commits must not break tests.
+
+### Commit convention
+
+Use a scoped commit. Prefer separate commits for code changes and doc updates when the doc update is large, otherwise a single commit is fine.
+
+Examples:
+
+```
+refactor(brain): split cognitive_cycle into five phases
+
+docs(refactor): mark W2.4-W2.8 cognitive cycle refactor as done in LEDGER.md
+```
+
+### Exception
+
+Historical/archival docs (e.g. `docs/audit-jisei-roku-*.md`, research notes, pitch decks) should not be rewritten; add a brief "Status as of YYYY-MM-DD" note instead.
+
 ## Quick Reference
 
 ```bash
