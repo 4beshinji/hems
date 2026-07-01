@@ -23,7 +23,18 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - Manager: `approval_queue.py`
   - Router: `routers/approvals.py`
   - 責務: 人間承認リクエスト作成・決定・タイムアウト、実行前後スナップショット、ロールバック記録
-  - テーブル所在: Backend DB が `approvals` / `action_snapshots` / `rollback_log` を保持。学習用テーブル (`agent_feedback`, `agent_trajectories`, `intervention_efficacy`) は Brain `event_store` (events schema) にあり、Backend は `/feedback` および `/approvals` REST エンドポイントで受け取り・仲介する
+  - テーブル所在: Backend DB が `approvals` / `action_snapshots` / `rollback_log` を保持
+
+- **Feedback / Learning (Phase 1)**
+  - Models: `AgentFeedback`, `AgentTrajectory` (`models.py`)
+  - Router: `routers/feedback.py`
+  - REST API:
+    - `POST /feedback/` — ユーザーからの明示/暗黙フィードバックを `AgentFeedback` へ記録
+    - `GET /feedback/` — フィードバック一覧・フィルタ
+    - `GET /feedback/stats` — 集計（up/down/cancel/rerun 等）
+    - `POST /feedback/trajectory` — Brain から decision-to-outcome 軌道を `AgentTrajectory` へ記録
+    - `GET /feedback/trajectory` — 軌道一覧
+  - 責務: Backend DB がフィードバックと軌道を永続化し、必要に応じて MQTT (`hems/feedback/{target_type}/{target_id}`) で Brain へ通知
 
 - **Adaptive Thresholds (Phase 2)**
   - Models: `ThresholdDriftLog`, `ThresholdAdjustment` (`models.py`)
@@ -36,15 +47,28 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
     - `GET /thresholds/adjustments` — 適用済みオフセット一覧
     - `POST /thresholds/adjustments` — Brain からの auto_applied 登録
 
-- **Users, Zones, Mobile, Places**
-  - Models: `User`, `MobileDevice`, `FrequentPlace` (`models.py`)
-  - Routers: `routers/users.py`, `routers/zones.py`, `routers/mobile.py`, `routers/frequent_places.py`
-  - 責務: ユーザー・ゾーン情報、モバイル端末登録・HMAC 認証、頻出場所管理
+- **Users & Places**
+  - Models: `User`, `FrequentPlace` (`models.py`)
+  - Routers: `routers/users.py`, `routers/frequent_places.py`
+  - 責務: ユーザー情報、頻出場所管理
+
+- **Zones (sensor snapshot)**
+  - Router: `routers/zones.py`
+  - 責務: Brain からの `POST /zones/snapshot` を受けて in-memory `_zone_store` を更新し、`GET /zones/` で最新ゾーンセンサーデータを返す。`Zone` DB モデルは存在しない
+
+- **Mobile companion**
+  - Model: `MobileDevice` (`models.py`)
+  - Router: `routers/mobile.py`
+  - 認証:
+    - `admin_router` (`/mobile/register`, `/mobile/devices`, `/mobile/voice-capsule/*`): `Authorization: Bearer <BACKEND_API_KEY>` (`verify_api_key`)。`BACKEND_API_KEY` 未設定時はゼロコンフィグ LAN 信頼モードで開放
+    - `device_router` (`/mobile/state/webhook`, `/mobile/voice-capsule/*`): 登録時に発行された per-device Bearer token (`verify_mobile_device`)。`/mobile/state/webhook` はさらに raw body の HMAC-SHA256 署名を `X-HEMS-Signature: sha256=<hex>` で検証する
+  - 責務: モバイル端末登録、状態 webhook（位置/アクティビティ/生体/電池）、voice capsule 配信/ack
 
 - **Chat & Voice**
   - Models: `Conversation`, `Message`, `VoiceEvent`, `VoiceCapsule`, `VoiceCapsulePlayLog` (`models.py`)
   - Routers: `routers/chat.py`, `routers/voice_events.py`, `routers/character.py`
-  - 責務: 会話/メッセージ永続化と Brain プロキシ、音声イベント・ボイスカプセル管理
+  - 責務: 会話/メッセージ永続化、Brain チャットサーバー `/chat` へのプロキシ、音声イベント・ボイスカプセル管理
+  - 注記: `chat.py` は Brain HTTP エンドポイントへリクエストをプロキシする。詳細は「認証」節の internal-token 解説を参照
 
 - **Biometrics**
   - Model: `BiometricReading` (`models.py`)
@@ -66,9 +90,27 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - 責務: 各ブリッジからの MQTT データを受け取り、キャッシュ/クエリ/転送用 REST を提供
   - Model: `BridgeStatusLog` — ブリッジの接続状態遷移を記録
 
-- **Brain proxy**
+- **Brain control / batch**
   - Router: `routers/brain.py`
-  - 責務: ダッシュボードから Brain 内部エンドポイントへの中継
+  - 責務:
+    - `GET /brain/power-mode`, `POST /brain/power-mode` — Brain パワーモード取得/設定（MQTT `hems/brain/set-power-mode` 発行）
+    - `POST /brain/snapshot` — Brain からの power-mode スナップショット受信
+    - `GET /brain/ollama/models` — 利用可能な Ollama モデル一覧
+    - `POST /brain/batch` — `hems/brain/batch-run` 経由でバッチタスク実行を要求
+  - 注記: ダッシュボード → Brain HTTP 内部エンドポイントのプロキシは `chat.py`（`/chat`）と `devices.py`（`/devices/control` 等）が担当する
+
+## Authentication / Internal proxy tokens
+
+Backend-to-Brain、Backend-to-voice-service、Backend-to-ha-bridge 間のプロキシ呼び出しには、共有の内部トークン認証ヘルパー `hems_common.auth.internal_auth_headers()` を使用する。
+
+- `HEMS_INTERNAL_TOKEN` が設定されている場合、`Authorization: Bearer <HEMS_INTERNAL_TOKEN>` を付加
+- 未設定・空文字の場合は空の dict を返し、dev/ゼロコンフィグ環境では認証をスキップ
+- 使用箇所:
+  - `routers/chat.py` — Brain `/chat` へのプロキシ、voice-service `/api/voice/synthesize` への TTS 呼び出し
+  - `routers/devices.py` — Brain `/devices/control`、Brain `/devices/zigbee/permit_join` へのプロキシ
+  - `routers/home.py` — ha-bridge へのスマートホーム制御プロキシ
+
+ダッシュボード向け API (`BACKEND_API_KEY`) と内部サービス間トークン (`HEMS_INTERNAL_TOKEN`) は独立しており、同じ値でも異なる値でもよい。
 
 ## Device Registry (Unified sensor + actuator 管理)
 
@@ -116,13 +158,13 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
 
 - **Control Proxy** (`POST /devices/{device_id}/control`):
   - Frontend / REST クライアント向け manual control endpoint
-  - Backend は device lookup + enabled check 後、Brain の `/devices/control` REST に proxy
+  - Backend は device lookup + enabled check 後、`body.params` をそのまま Brain の `/devices/control` REST に proxy するのみ
   - Brain 側 DeviceDispatcher が action dispatch（ha-bridge / switchbot-bridge / tapo-bridge / zigbee2mqtt ...）
-  - 成功ログを `DeviceActionLog` へ記録（timeline view + analytics）
+  - Backend はこのエンドポイントで `DeviceActionLog` を書き込まない。アクション履歴は Brain が `POST /device-actions/` (`routers/device_actions.py`) へ書き込む
 
 - **Safety**:
-  - action params validation via shared validator（sanitizer の規則と統一）
-  - pulse `duration_s` ≤ 600s、brightness 0-255、`color_temp` 153-500 等
+  - Backend は action params を検証しない。params の内容は Brain 側 `sanitizer.py` / `device_control_validator.py` で安全検証される
+  - 例: pulse `duration_s` ≤ 600s、brightness 0-255、`color_temp` 153-500 等
 
 ### Brain Device Registry (Runtime TTL Cache)
 

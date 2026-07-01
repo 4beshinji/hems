@@ -1,12 +1,12 @@
 # services/brain/
 
-Brain service — ReAct cognitive loop, plugin registry, world model, chat server, event automation.
+Brain service — event-driven ReAct cognitive loop, plugin registry, world model, chat server, event automation.
 
 Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read that first if you haven't.
 
 ## Brain Service
 
-- ReAct cognitive loop (30s cycle, max 5 iterations)
+- ReAct cognitive loop (event-driven; normal mode polls every `HEMS_NORMAL_CYCLE_INTERVAL`, default 180s, with a proactive-thinking floor of `HEMS_NORMAL_HEARTBEAT_INTERVAL`, default 600s; low-power modes use 5min/10min; `REACT_MAX_ITERATIONS=5`)
 - Dual mode: LLM + rule-based fallback (GPU load > threshold, low-power mode, VLM heavy-model swap)
 - Character personality 2-stage separation: Stage 1 thinking on raw model, Stage 2 output via PersonaRewriter
 - Event store data mart (raw_events / llm_decisions / hourly_aggregates, 730d retention)
@@ -33,12 +33,14 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - **Approval subsystem** (`approval/`): HITL gate for high-risk / irreversible actions. `ApprovalGate` → `ApprovalClient` → backend `/approvals`; `ActionRiskClassifier`; `RollbackPlanner` / `RollbackExecutor` / `VerificationWatcher`; `ApprovalAuditLogger`
   - **Feedback subsystem** (`feedback/`, Phase 1): `FeedbackCollector` は MQTT `hems/feedback/{target_type}/{target_id}` から明示フィードバックを受け取り `event_store.agent_feedback` に書き込む。`OutcomeRewardCalculator` / `TrajectoryRecorder` / `ImplicitFeedbackDetector` は構築済みで、Phase 2 の閾値調整と統合される
   - **Adaptive Thresholds subsystem** (`adaptive_thresholds/`, Phase 2): `MetricDriftTracker` (River ADWIN) でセンサー分布変化を監視し、`AdaptiveThresholdManager` が閾値変更提案を backend `/thresholds/proposals` へ送信。`ThresholdAdjuster` は feedback/efficacy から閾値オフセットを nudge する。`AdaptiveRuleThresholds` は `RuleThresholds` を動的にラップし、rule engine が変更を自動反映する
-- Always-on tools: `create_task`, `speak`, `get_zone_status`, `get_active_tasks`, `get_device_status`, `send_device_command` (legacy MCP), `get_sensor_history`, `add_shopping_item`, `get_shopping_list`
+- Always-on tools: `create_task`, `get_zone_status`, `speak`, `get_active_tasks`, `get_device_status`, `get_sensor_history`
+- Legacy MCP actuator control is now `control_actuator(action="mcp_call")` via `devices/vendors/mcp.py`
+- Shopping tools (included because `shopping_enabled=True` in practice): `add_shopping_item`, `get_shopping_list`
 - Device Registry tools (default-on): `control_actuator`, `list_devices`, `describe_device`, `execute_scene_by_name`, `list_scenes`, `zigbee_permit_join`
-- OpenClaw tools (profile `openclaw`; `localcraw` is a legacy alias): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`, `get_service_status`, `list_processes`
+- OpenClaw tools (profile `openclaw`; `localcraw` is a legacy alias): `get_pc_status`, `run_pc_command`, `control_browser`, `send_pc_notification`, `get_service_status`, `list_processes` (`get_service_status` requires `services_enabled`, i.e. OpenClaw enabled and non-empty `services_state`)
 - Obsidian tools (profile `obsidian`): `search_notes`, `write_note`, `get_recent_notes`, `list_note_tags`
 - HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`, `get_entity_status`, `set_guest_mode`
-- Weather tools (always-on, weather-bridge): `get_weather`
+- Weather tools (registered only when `ha_enabled=True` and `HA_BRIDGE_URL` is set; weather data is always ingested): `get_weather`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`, `get_biometric_trend`, `get_sleep_history`
 - Perception tools (profile `perception`): `get_perception_status`, `describe_scene`, `list_scene_objects`, `get_scene_timeline`, `list_cameras`, `get_vlm_status`, `get_activity_history`
 - News tools (profile `news`): `get_news_summary`
@@ -56,6 +58,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
 Interactive chat with the AI character via the dashboard. Uses agentic RAG with read-only tools.
 
 - **Brain chat server**: Internal aiohttp.web server (:8080) alongside the MQTT cognitive loop
+  - REST surface: `POST /chat`, `GET /health`, `POST /devices/control`, `POST /devices/zigbee/permit_join`, `POST /scenes/execute`, `POST /automations/evaluate`
   - Separate ReAct loop for chat (max 3 iterations, read-only tools only)
   - Chat-specific system prompt with character personality + world context
   - Tools: search_knowledge, search_notes, get_biometrics, get_zone_status, get_weather, etc.
@@ -97,7 +100,7 @@ Brain 側 Device Registry は **in-memory TTL キャッシュ** — Backend の�
 - **Memory Structure**: `dict[device_id: str → DeviceInfo]`
 - **DeviceInfo** (single device):
   - Volatile: `state` (online/sleeping/stale/offline), `last_seen` (wall-clock), `battery_pct`, `link_quality`
-  - Static: `device_type`, `parent_id`, `hops_to_mqtt`, `capabilities`, `queue_status`
+  - Static: `device_type`, `parent_id`, `children: dict[str, DeviceInfo]`, `hops_to_mqtt`, `capabilities`, `queue_status`
   - Metadata: `power_mode`, `next_wake_epoch`, `utility_score`, `_last_used`
 
 - **State Automation** (`_update_device_states`):
@@ -105,23 +108,27 @@ Brain 側 Device Registry は **in-memory TTL キャッシュ** — Backend の�
   - elapsed < 120s → `state = "online"`
   - 120s ≤ elapsed < 900s → `state = "stale"`
   - elapsed ≥ 900s → `state = "offline"`
-  - Sleeping device (power_mode ∈ {DEEP_SLEEP, ULTRA_LOW} ∧ next_wake_epoch is not None) → `state = "sleeping"` (until wake)
-  
+  - Sleeping device (power_mode ∈ {DEEP_SLEEP, ULTRA_LOW} ∧ next_wake_epoch is not None) → `state = "sleeping"` (until wake or the 15-minute stale threshold, whichever comes first)
+
 - **Timeout Calculation** (`get_timeout_for_device`):
-  - device state based adaptive LLM tool timeout (ms)
-  - online → 10.0s, sleeping → 30.0s, stale → 20.0s, offline → 5.0s
+  - device state based adaptive LLM tool timeout (seconds)
+  - online → 10.0, sleeping → 30.0, stale → 20.0, offline → 5.0
   - 物理デバイスへの dispatch 時間が state で異なる(offline なら fast-fail)ため最適化
 
-### MQTT Heartbeat Intake (`update_from_heartbeat`)
+### MQTT Heartbeat Intake
 
-**Flow**:
+There are two intake paths for device state into the Backend registry.
+
+**Path A — canonical `/heartbeat` topics**
 1. Brain MQTT subscriber: `hems/sensors/{zone}/{device_type}/{device_id}/heartbeat` → `_update_device_registry` in `brain_mqtt.py`
-2. `device_registry.update_from_heartbeat(device_id, payload)` ← Backend からではなく、MQTT heartbeat を Brain が parse
-3. DeviceInfo in-memory fields refresh (battery_pct, link_quality, power_mode, device_type, capabilities etc.)
-4. **Async**: dashboard_client → `POST /devices/heartbeat` to Backend で永続化(write-back)
-5. Backend: auto-register or volatile fields refresh のみ
+2. `device_registry.update_from_heartbeat(device_id, payload)` refreshes in-memory `DeviceInfo` (battery_pct, link_quality, power_mode, device_type, capabilities, etc.)
+3. `dashboard_client` → `POST /devices/heartbeat` to Backend for persistence
 
-**注意**: heartbeat は MQTT から来ることもあり(Zigbee2MQTT bridge 等)、その場合は topic parsing で DeviceObservation にして push。dispatcher が parse_mqtt で全ベンダーをカバー。
+**Path B — parsed device-state topics**
+1. `dispatcher.parse_mqtt` handles vendor/device-state topics and emits `DeviceObservation`
+2. `dashboard_client.push_device_heartbeat` → `POST /devices/heartbeat` straight to Backend auto-registration/refresh
+
+In both paths the Backend performs only auto-register or volatile-field refresh; it never overrides user-edited metadata.
 
 ### Device Tools (LLM accessible)
 
@@ -131,21 +138,23 @@ Brain 側 Device Registry は **in-memory TTL キャッシュ** — Backend の�
 |------|----------|--------|----------|
 | `control_actuator` | device action dispatch | success/result/error | sanitizer validated、dispatcher → bridge |
 | `list_devices` | Backend DB query | list[Device] | kind/zone/vendor/capability/purpose_contains filters |
-| `describe_device` | single device fetch | Device + state | Backend fetch + Brain cache state merge |
+| `describe_device` | single device fetch | Device + state | Backend fetch only (no Brain cache merge) |
 | `execute_scene_by_name` | named multi-device scene | success/error | SceneExecutor (device_dispatcher 用) |
 | `list_scenes` | available scenes | list[Scene] | SceneExecutor |
 | `zigbee_permit_join` | Zigbee pairing mode | success/result | dispatcher publish to zigbee2mqtt/bridge/request/permit_join |
 
 ### Dispatcher Integration (`device_dispatcher.py`)
 
-- **Vendor agnostic interface**: `DeviceDispatcher.control_device(device_id, action, params)`
-  - device_id から vendor 決定 (prefix parse: zigbee.*, tapo.*, switchbot.*, hems.ha.*, etc.)
+- **Vendor agnostic interface**: `DeviceDispatcher.dispatch(device_id, action, params)`
+  - device_id で backend device record を look up し、その `vendor` フィールドを読んでルーティング
   - vendor parser → bridge-specific action/params translate
   - publish to bridge (ha-bridge / switchbot-bridge / tapo-bridge / zigbee2mqtt)
-  
+
 - **Topic Parsing** (`parse_mqtt`):
-  - `hems/sensors/{zone}/{device_type}/{device_id}/{channel}` ← sensor telemetry (canonical, W3.8c)
-  - `hems/home/{zone}/{domain}/{entity_id}/state` ← HA / SwitchBot / Tapo (vendor-specific entity mapping)
+  - `hems/sensors/{zone}/sensor/{device_id}/{channel}` ← sensor telemetry (canonical, W3.8c); camera/activity topics are not parsed into `DeviceObservation`
+  - `hems/home/{zone}/{domain}/{entity_id}/state` ← HA only
+  - `hems/switchbot/{device_id}/state` ← SwitchBot
+  - `hems/tapo/{device_id}/state` ← Tapo
   - `zigbee2mqtt/{device}` ← Zigbee2MQTT
   - 各 parser が DeviceObservation emit → dashboard_client.push_device_heartbeat
 
@@ -165,17 +174,25 @@ Brain 側 Device Registry は **in-memory TTL キャッシュ** — Backend の�
 ### Device Registry と Backend の同期（まとめ）
 
 ```
-Physical MQTT → dispatcher.parse_mqtt() → DeviceObservation
+Path A (canonical heartbeat)
+hems/sensors/{zone}/{device_type}/{device_id}/heartbeat
   ↓
 brain_mqtt._update_device_registry() → device_registry.update_from_heartbeat()
   ↓
 In-memory DeviceInfo refresh (TTL-based state machine)
   ↓
 dashboard_client.push_device_heartbeat() → Backend POST /devices/heartbeat
+
+Path B (parsed device-state)
+Vendor/device-state topic (HA / SwitchBot / Tapo / Zigbee2MQTT)
   ↓
-Backend: auto-register or volatile fields refresh のみ(metadata override しない)
+dispatcher.parse_mqtt() → DeviceObservation
   ↓
-Frontend: GET /devices → Backend DB SoT を読む
+dashboard_client.push_device_heartbeat() → Backend POST /devices/heartbeat
+
+Backend: auto-register or volatile fields refresh only (no metadata override)
+  ↓
+Frontend: GET /devices → reads Backend DB SoT
 ```
 
 **Key point**: Brain と Backend は独立に device state を持つが、Frontend UI は常に Backend DB を SoT とする。Brain は LLM context / tool loop / timeout optimization の high-frequency cache。
