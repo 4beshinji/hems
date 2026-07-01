@@ -22,6 +22,7 @@
 | frontend | hems-frontend | (always) | services/frontend | ✓ |
 | voice-service | hems-voice | (always) | services/voice | ✓ |
 | weather-bridge | hems-weather-bridge | (always) | services/weather-bridge | ✓ |
+| base | hems-base:py3.11 | bootstrap | infra/base/Dockerfile | ✓ |
 | mock-llm | hems-mock-llm | mock | infra/mock_llm | ✓ |
 | localcraw-bridge | hems-openclaw-bridge | openclaw / localcraw | external repo (`../localcraw`) | ✓ ※注 |
 | obsidian-bridge | hems-obsidian-bridge | obsidian | services/obsidian-bridge | ✓ |
@@ -214,14 +215,13 @@ Backend API:
 
 ## 3. Brain Tools 一覧 (LLM が呼べるもの)
 
-`services/brain/src/tool_registry.py` の `get_tools()` が返す JSON Schema と、`tool_dispatch.py` の `TOOL_HANDLERS` を突合した結果(全 flag 有効時 **58 ツール**、schema↔handler 完全一致を §3.5 で検証)。
+`services/brain/src/tool_registry.py` の `get_tools()` が返す JSON Schema と、`tool_dispatch.py` の `TOOL_HANDLERS` を突合した結果(全 flag 有効時 **57 ツール**、schema↔handler 完全一致を §3.5 で検証)。
 
 ### 3.1 Always-on (gating: なし)
 
 | Tool | 備考 |
 |------|------|
 | `create_task` | タスク作成 |
-| `send_device_command` | レガシー MCP コマンド (廃止予定) |
 | `get_zone_status` | ゾーン状態取得 |
 | `speak` | 音声発話 (Stage 2 character overlay 適用) |
 | `get_active_tasks` | アクティブタスク一覧 |
@@ -250,7 +250,7 @@ Backend API:
 | `get_sensor_data` | `HA_BRIDGE_URL` | HA センサー値 |
 | `execute_scene` | `HA_BRIDGE_URL` | HA シーン実行 |
 | `set_guest_mode` | `HA_BRIDGE_URL` | 来客モード ON/OFF |
-| `get_weather` | (always-on) | world_model.weather (weather-bridge → MQTT) から読む |
+| `get_weather` | `HA_BRIDGE_URL` (`ha_enabled=True`) | world_model.weather (weather-bridge → MQTT) から読む。`HA_BRIDGE_URL` 未設定時は tool 登録されない |
 | `get_biometrics` | `BIOMETRIC_BRIDGE_URL` | 生体データ |
 | `get_sleep_summary` | `BIOMETRIC_BRIDGE_URL` | 睡眠サマリ |
 | `get_perception_status` | `PERCEPTION_BRIDGE_URL` | カメラ検出状態 |
@@ -345,6 +345,9 @@ hems/pc/bridge/status
 hems/services/{name}/status
 hems/services/{name}/event
 
+# NOTE: `hems/pc/*` および `hems/services/{name}/*` の実装は外部リポジトリ
+# `../localcraw` (OpenClaw bridge) にあり、このリポジトリ内では検証できない。
+
 # Knowledge store (Obsidian bridge)
 hems/personal/notes/changed
 hems/personal/notes/stats
@@ -420,18 +423,31 @@ hems/personal/knowledge/stats
 hems/weather/{current,forecast,alerts}
 hems/weather/bridge/status
 
+# Backend task lifecycle (backend → brain: timeline/intervention トリガ)
+hems/task/created/{id}
+hems/task/dismissed/{id}
+hems/task/completed/{id}
+hems/task/locked/{id}
+
 # Brain control
 hems/brain/reload-character
 hems/brain/guest-mode
+
+# Voice capsule (brain → mobile companion)
+hems/voice-capsule/ready
 
 # Approval / feedback
 hems/approvals/{id}/decide
 hems/feedback/{target_type}/{target_id}
 
-# Adaptive thresholds
-hems/thresholds/drift_detected
-hems/thresholds/adjustment_proposed
-hems/thresholds/adjustment_applied
+# Adaptive thresholds (future / unimplemented stubs)
+# NOTE: 以下 3 トピックは現在の実装では publish も subscribe もされていない。
+# Backend には `/thresholds/proposals` / `/thresholds/adjustments` REST API と
+# `threshold_drift_log` / `threshold_adjustments` テーブルは存在するが、
+# MQTT 経路は未実装の将来予約。
+hems/thresholds/drift_detected      # (未実装 stub)
+hems/thresholds/adjustment_proposed # (未実装 stub)
+hems/thresholds/adjustment_applied  # (未実装 stub)
 ```
 
 ### 4.1 ブローカーへの subscribe (Brain)
@@ -459,7 +475,11 @@ zigbee2mqtt/#
 | brain (request) | `hems/perception/vlm/request` | rule engine からの再スキャン要求 |
 | backend | `hems/approvals/{approval_id}/decide` | 人間承認決定通知 (approve/reject/modify)。Brain ApprovalClient はポーリングでも取得 |
 | backend | `hems/feedback/{target_type}/{target_id}` | フィードバック作成通知。Brain `feedback_collector` が購読して event_store の `agent_feedback` へ複製 |
-| brain | `hems/thresholds/drift_detected` | ドリフト検知通知。Backend `/thresholds/proposals` でも提案を受け付ける |
+| backend | `hems/task/created/{id}` | タスク作成。Brain timeline 再生成 + intervention トリガ |
+| backend | `hems/task/dismissed/{id}` | タスク却下。同上 |
+| backend | `hems/task/completed/{id}` | タスク完了。同上 + `event_writer.mark_intervention_completed` |
+| backend | `hems/task/locked/{id}` | タスク locked 開始。同上 |
+| — (future stub) | `hems/thresholds/drift_detected` | 未実装。Backend `/thresholds/proposals` REST API で提案を受け付ける |
 | OpenClaw bridge | `hems/pc/metrics/{cpu,memory,gpu,disk,temp}` | PC メトリクス |
 | OpenClaw bridge | `hems/pc/processes/top` | top プロセス一覧 |
 | OpenClaw bridge | `hems/pc/bridge/status` | bridge 状態 |
@@ -498,8 +518,9 @@ zigbee2mqtt/#
 | backend | `hems/shopping/list` | 全 pending snapshot (ShoppingState reducer 用) |
 | brain | `hems/brain/reload-character` | self-trigger |
 | brain | `hems/brain/guest-mode` | self-trigger |
-| brain | `hems/brain/set-power-mode` | self-trigger |
-| brain | `hems/brain/batch-run` | self-trigger |
+| backend | `hems/brain/set-power-mode` | backend `routers/brain.py` から dashboard 操作を Brain へ転送 |
+| backend | `hems/brain/batch-run` | backend `routers/brain.py` から dashboard 操作を Brain へ転送 |
+| brain | `hems/voice-capsule/ready` | voice_capsule/builder.py から mobile companion へ通知 |
 
 ### 4.3 Brain WorldModel 受信 (`update_from_mqtt`) → 状態反映
 
@@ -539,7 +560,11 @@ zigbee2mqtt/#
 
 ### 4.5 公開先のあるが Subscriber が居ない (Orphan publish)
 
-(none — 2026-04-30 以降 weather-bridge が常時起動に統合済)
+| Topic | 公開元 | 状態 |
+|-------|--------|------|
+| `hems/voice-capsule/ready` | brain | mobile companion 向け。リポジトリ内に subscriber 実装は存在しない |
+
+なお `hems/thresholds/*` は §4.0 / §4.2 のとおり **未実装の将来 stub** のため、orphan ではなく publish/subscribe 共に存在しない。
 
 ### 4.6 Verification
 
@@ -780,10 +805,10 @@ grep -rnE 'import\.meta\.env\.VITE_[A-Z_][A-Z0-9_]*|process\.env\.VITE_' service
 以下を四半期ごとに走らせて、ドキュメント追従状況を確認する。
 
 - [x] `services/` 配下のディレクトリすべてが docker-compose に登録されているか? (orphan 検出) — **2026-06-30 検証: 3 件の orphan を検出したが、いずれも意図的**。`_common`(共有ライブラリ)、`data-bridge`(Phase 2 scaffold)、`mobile-android`(Docker 対象外 Android プロジェクト)。詳細は §1.2。
-- [x] `tool_registry.py` の tool 数 == `tool_dispatch.py` の `TOOL_HANDLERS` 数? — **2026-05-25 検証: 58==58 完全一致**(§3.5)
+- [x] `tool_registry.py` の tool 数 == `tool_dispatch.py` の `TOOL_HANDLERS` 数? — **2026-07-01 検証: 57==57 完全一致**(§3.5)
 - [x] `world_model/mqtt_router.py:update_from_mqtt` のすべての elif 分岐が公開されているトピックを網羅?(reducer は `{physical,digital,user}_updates.py`) — **2026-06-30 検証: 15 分岐すべてが §4.3/§4.4 で網羅済み**。canonical bridge status(`hems/ha/bridge/status` / `hems/biometric/bridge/status`)は個別ハンドル済み、その他 bridge status は §4.4 partial として記載。
 - [x] 各 bridge で `os.getenv` されている環境変数すべてが `env.example` に記載?(未解決: `AUTOMATION_ENGINE_ENABLED` が未記載 — audit/2026-05-25/brain-core-loop.md) — **2026-06-30 検証: `services/` 全体を `env.example` と突合**。`AUTOMATION_ENGINE_ENABLED` は既に記載済み。未記載は 4 件発見(`CONFIG_DIR`、`HEMS_DRIFT_DELTA`、`HEMS_DRIFT_DETECTOR`、`HEMS_DRIFT_MIN_SAMPLES`)し `env.example` へ追記。`INFO` は `LOG_LEVEL` のデフォルト値からの誤検出。**残存乖離クリーンアップ: `env.example`-only の残りは compose / scripts / frontend / 将来 data-bridge で正当に使用されているため削除対象なし**。
 - [x] CLAUDE.md の MQTT topic 一覧が §4 と一致?(2026-06-17: SwitchBot publisher topic を `hems/home/{zone}/sensor/switchbot.{device_id}_*/*` に修正)
 - [x] `data-bridge` の orphan 状態(README のみの scaffold、src 無し)— weather-bridge は always-on 化で解消済
 
-最終更新: 2026-06-30(Phase 2 adaptive thresholds テーブル・API・MQTT トピック追記、approval/feedback MQTT トピック追記、HITL/学習テーブルの所在明記、§10 ハイレベル整合性チェック 3 項検証完了、env.example へ CONFIG_DIR / HEMS_DRIFT_* 追記、S1/S2 実装済みを audit/2026-06-11/SUMMARY.md と §9.3 に反映、§9.4 検証コマンドを compose/scripts/frontend 対応に拡張、audit/2026-05-25/brain-core-loop.md の P1 リファクタ完了を反映)
+最終更新: 2026-07-01(tool 数 58→57 訂正、`send_device_command` 削除、`get_weather` を HA-gated に修正、§1.1 base サービス追加、backend task lifecycle MQTT トピック追加、`hems/voice-capsule/ready` 追加、`hems/thresholds/*` を未実装 stub として明記、`hems/brain/set-power-mode` / `hems/brain/batch-run` の publisher を brain→backend に修正、OpenClaw/PC metrics の外部リポジトリ注記追加、§10 tool 数整合性 57==57 に更新)
