@@ -23,25 +23,25 @@
 
 | 優先度 | current → proposed | file:line | 理由 |
 |---|---|---|---|
-| P2 | `split_for_speak as _split_for_speak` → alias 撤去 | event_automation.py:16 | public 関数を private 名へ alias(boot_load 等と同パターン) |
-| P2 | `_dt = _rule_engine.datetime` → 直接 `from datetime import datetime` | rules/biometric.py:227 | stdlib を facade namespace 経由で別名化 |
-| P2 | `morning_greeting` 切詰 `[:67]` の magic | event_automation.py:318 | `SPEAK_CHUNK_LIMIT` 由来定数に統一(他は SPEAK_CHUNK_LIMIT) |
+| P2 | ~~`split_for_speak as _split_for_speak` → alias 撤去~~ → **実装済み** | event_automation.py:16 | `from brain_utils import SPEAK_CHUNK_LIMIT, split_for_speak` と直接 import |
+| P2 | ~~`_dt = _rule_engine.datetime` → 直接 `from datetime import datetime`~~ → **実装済み**。rules ミキシンは `_rule_engine` facade 経由参照を解消 | rules/*.py | stdlib/`logger`/閾値は各 mixin で直接 import |
+| P2 | ~~`morning_greeting` 切詰 `[:67]` の magic~~ → **実装済み**。全 speak 切詰を `SPEAK_CHUNK_LIMIT` に統一 | event_automation.py:192,303,403,421,456,457 | — |
 
 ## スコープ所見(refactor-ready)
 
 | 優先度 | 問題 | file:line | 推奨 |
 |---|---|---|---|
-| P1 | **namespace 結合 / 準循環 import**(unit 2 world_model と同型): rules 8 ミキシンが `import rule_engine as _rule_engine` し、`_rule_engine.datetime`(stdlib!)・`_rule_engine.logger`・閾値定数(world_model 由来 + RuleThresholds 由来)を facade 経由参照。rule_engine.py は末尾(L104-111)で mixin を import = 準循環 | rules/*.py(例 biometric.py:14,20,145) | 共有 symbol(`datetime`/`logger`/閾値)を各 mixin で直接 import。閾値は `RuleThresholds` 注入に一本化 |
-| P1 | `RuleEngine.evaluate` が ~490 行の god-method。biometric/gas/perception 等は mixin 抽出済だが、**環境(CO2/温湿度/気圧/soil/voc/pm25/light/posture)・PC(gpu/disk/cpu/mem/proc)・screen_time** は inline のまま残り抽出が不完全 | rule_engine.py:193-684 | `rules/environment.py` / `rules/pc.py` ミキシンへ切り出し、`evaluate` は集約のみに |
+| P1 | ~~**namespace 結合 / 準循環 import**~~ → **実装済み**。rules 8 ミキシンの `_rule_engine.datetime`/`logger` 参照を解消し、各 mixin が直接 import。facade 経由の準循環を断つ | rules/*.py | — |
+| P1 | ~~`RuleEngine.evaluate` が ~490 行の god-method~~ → **実装済み**。`evaluate`/`evaluate_critical` は各ドメインミキシンの `_evaluate_*_rules` を呼び出す thin orchestrator に | rule_engine.py | `rules/environment.py` / `rules/pc.py` ミキシンへ抽出済み |
 | P1 | `AutomationEngine._llm_review` が `llm_client.chat()` の戻りを **str 扱い**(`(response or "").strip()` / `.splitlines()`)。他箇所(brain_cognitive / event_automation)は `response.content` / `.error` のオブジェクト。LLMResponse は str ではないため llm_review パスが破綻の可能性 | automation_engine.py:293-294 | `llm_client.chat` の戻り型に合わせ `response.content` を使う(**unit 4 で llm_client.chat 署名と要 cross-check**) |
 | P2 | 閾値表現が 3 段(env → `RuleThresholds` dataclass → `rule_engine` モジュール UPPERCASE 定数 → `_rule_engine.X` 参照)で間接が深い。さらに world_model 定数(CO2_HIGH 等)と RuleThresholds の二重ソース | rule_engine.py:17-(world_model import) / rules/config.py | 閾値ソースを `RuleThresholds` 一本に集約 |
-| P2 | `scene_executor._fetch_all` が呼び出し毎に新規 `aiohttp.ClientSession`(+ method 内 `import os, aiohttp`)。`dashboard_client.session` を未利用 | scene_executor.py:41-58 | 共有 session を利用、import を hoist |
+| P2 | ~~`scene_executor._fetch_all` が呼び出し毎に新規 `aiohttp.ClientSession`~~ → **実装済み**。`scene_executor.py:48` で `self.dashboard.session.get(...)` を使用 | scene_executor.py:42-57 | — |
 
 ## 可読性所見(refactor-ready)
 
 | 優先度 | 問題 | file:line | 推奨 |
 |---|---|---|---|
-| P1 | `evaluate` god-method(上記スコープ参照)— 認知負荷・テスト困難 | rule_engine.py:193-684 | 同上(環境/PC 切り出し) |
+| P1 | ~~`evaluate` god-method~~ → **実装済み**(上記スコープ参照) | rule_engine.py | — |
 | P2 | `_check_schedule` の cron は "M H * * *" のみ対応でワイルドカード不可。MVP コメントあるが doc(§7.1 "cron")は full cron を示唆 | automation_engine.py:194-211 | doc に「分・時のみ対応」を明記 or cron lib 採用 |
 | P2 | `scene_executor.dashboard` は session 用途では使われず None-gate のみ(コメントは "future" stat bump) | scene_executor.py:23,27,36 | 用途整理 |
 | P2 | EventAutomation の各 `_action_*` が speak 引数 dict を個別に組み立て(zone="home"/tone 固定が反復) | event_automation.py:256-518 | speak helper で重複削減 |
@@ -49,10 +49,10 @@
 ## 後続リファクタ推奨(優先度順サマリ)
 
 - **P1**:
-  1. namespace 結合解消(unit 2 と共通): rules ミキシンの `_rule_engine.X` 参照を直接 import / 閾値注入へ。準循環 import を断つ。
-  2. `RuleEngine.evaluate` の inline 環境/PC rule を `rules/environment.py`・`rules/pc.py` へ抽出し god-method を解消(8 ドメイン抽出の積み残し完了)。
-  3. `AutomationEngine._llm_review` の戻り値型バグ疑い(str vs LLMResponse)を unit 4 の llm_client 署名と照合して是正。
+  1. ~~namespace 結合解消(unit 2 と共通): rules ミキシンの `_rule_engine.X` 参照を直接 import / 閾値注入へ。準循環 import を断つ~~ → **実装済み**。
+  2. ~~`RuleEngine.evaluate` の inline 環境/PC rule を `rules/environment.py`・`rules/pc.py` へ抽出し god-method を解消~~ → **実装済み**。
+  3. ~~`AutomationEngine._llm_review` の戻り値型バグ疑い(str vs LLMResponse)を unit 4 の llm_client 署名と照合して是正~~ → **実装済み**(`automation_engine.py:296` `response.content`)。
 - **P2**:
   - 閾値ソースを `RuleThresholds` 一本化(world_model 定数との二重を解消)。
-  - scene_executor / 各所の共有 session 利用、cron 制約の doc 明記、speak helper 抽出。
+  - ~~scene_executor の共有 session 利用~~ → **実装済み**(`scene_executor.py:48`); cron 制約の doc 明記・speak helper 抽出は未対応。
 - **P0**: `_llm_review` 戻り値型は llm_review モード使用時のみ影響。デフォルト mode=direct のため常時破綻ではないが、要確認 P1。

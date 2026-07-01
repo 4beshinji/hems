@@ -35,25 +35,25 @@ unit 1(sanitizer)で「許可リストに canonical 未掲載ツールがある�
 
 | 優先度 | 問題 | file:line | 推奨 |
 |---|---|---|---|
-| P1 | **`AutomationEngine._llm_review` 戻り値型バグ確証**(unit 3 で疑い): `LLMClient.chat` は `LLMResponse`(dataclass, `llm_client.py:12-20`)を返すが、`_llm_review` は `(response or "").strip()` / `.splitlines()` で **str 扱い** → `AttributeError` → except → 常に `skip`。**llm_review モードのルールは無音で発火しない** | automation_engine.py:293 ↔ llm_client.py:33 | `response.content` を使う。デフォルト mode=direct のため全停止ではないが llm_review は機能不全 |
-| P2 | `_ALLOWED_ACTIONS`(actuator 許可アクション)が sanitizer と device_dispatcher で二重定義 = SoT 二箇所 | sanitizer.py:385 ↔ device_dispatcher.py:808 | 共有定数(例 `device_dispatcher._ALLOWED_ACTIONS`)を sanitizer が import |
+| P1 | ~~`AutomationEngine._llm_review` 戻り値型バグ~~ → **実装済み**。`automation_engine.py:296` で `response.content` を使用し、LLMResponse オブジェクトを正しく扱う | automation_engine.py:296 ↔ llm_client.py:33 | — |
+| P2 | ~~`_ALLOWED_ACTIONS`(actuator 許可アクション)が sanitizer と device_dispatcher で二重定義~~ → **実装済み**。`devices/actions.py:10` の `DEVICE_ALLOWED_ACTIONS` を単一 SoT とし、`device_control_validator.py:27` が import、`sanitizer.py:365` が `validate_device_control` に委譲 | sanitizer.py:365 / device_control_validator.py:27 / devices/actions.py:10 | — |
 | P2 | `annotator/`(6)・`voice_capsule/`(7)は構造スキャンのみ(行レベル未精査) | annotator/ , voice_capsule/ | 後続パスで EventClassifier/RulePromoter/ShoppingClassifier/CapsuleBuilder を精読 |
 
 ## 可読性所見(refactor-ready)
 
 | 優先度 | 問題 | file:line | 推奨 |
 |---|---|---|---|
-| P2 | `PersonaRewriter.rewrite` と `rewrite_long` が ~80% 重複(cache 判定・クォート除去・truncate・例外処理)。クォート除去ブロックは逐語コピー | persona_rewriter.py:35-98 vs 100-157 | `_rewrite_impl(message, tone, max_len, max_tokens)` に共通化 |
+| P2 | ~~`PersonaRewriter.rewrite` と `rewrite_long` が ~80% 重複~~ → **実装済み**。両メソッドは `persona_rewriter.py:79` の `_rewrite_impl(...)` を共用 | persona_rewriter.py:45,70,79 | — |
 | P2 | `parse_mqtt` ~130 行(vendor 検出分岐) | device_dispatcher.py:72-204 | vendor 別 parser へ分割可(現状でも可読、優先度低) |
 | P2 | `_dict_to_config` ~110 行の手動マッピング | character_loader.py:273-382 | dataclass フィールド駆動化の余地(ただし inheritance 解決と絡むため慎重に) |
 
 ## 後続リファクタ推奨(優先度順サマリ)
 
 - **P1**:
-  1. `AutomationEngine._llm_review` の戻り値型バグ修正(`response.content` 化)。llm_review automation を実際に機能させる。
+  1. ~~`AutomationEngine._llm_review` の戻り値型バグ修正(`response.content` 化)~~ → **実装済み**(`automation_engine.py:296`)。
 - **P2**:
-  - `_ALLOWED_ACTIONS` の二重定義を 1 SoT に統合(sanitizer ↔ device_dispatcher)。
-  - `PersonaRewriter` の rewrite/rewrite_long 共通化。
+  - ~~`_ALLOWED_ACTIONS` の二重定義を 1 SoT に統合(sanitizer ↔ device_dispatcher)~~ → **実装済み**(`devices/actions.py:10` SoT、`device_control_validator.py:27`、`sanitizer.py:365`)。
+  - ~~`PersonaRewriter` の rewrite/rewrite_long 共通化~~ → **実装済み**(`persona_rewriter.py:79` `_rewrite_impl`)。
   - tool_executor のハンドラ署名統一(`get_active_tasks` 特例解消)。
   - `annotator/` `voice_capsule/` の行レベル精査(本パス未到達)。
 - **P0**: registry↔dispatch は 58=58 で整合。挙動ブロッカー無し(`_llm_review` は llm_review モード限定の機能不全で P1)。

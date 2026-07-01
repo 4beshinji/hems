@@ -28,15 +28,15 @@
 
 | 優先度 | 問題 | file:line | 推奨 |
 |---|---|---|---|
-| P2 | `SpeechGenerator._call_llm` が呼び出し毎に新規 `aiohttp.ClientSession` を生成 | voice/src/speech_generator.py:78 | app lifespan で共有 session を持たせる(voice-service は brain ほど高頻度でないため優先度低) |
+| P2 | ~~`SpeechGenerator._call_llm` が呼び出し毎に新規 `aiohttp.ClientSession` を生成~~ → **実装済み**。`speech_generator.py:21-28` の `_get_session()` で lazy shared session を使用 | voice/src/speech_generator.py:21-28,91 | — |
 | P2 | voice-service が独自に OpenAI 互換 LLM 呼び出しを実装(brain の `llm_client` と別実装) | voice/src/speech_generator.py:73-91 | 別プロセスのため共有不可。重複は許容だが、将来 LLM 呼び出し仕様変更時に 2 箇所メンテ要 |
 
 ## 可読性所見(refactor-ready)
 
 | 優先度 | 問題 | file:line | 推奨 |
 |---|---|---|---|
-| P2 | voice/main.py に VoiSona 専用 health loop(`_voisona_health_loop` / `_get_voisona_provider`)が混在 — default provider 固有ロジックが汎用 main に侵入 | voice/src/main.py:75-140 | provider 側の health hook に委譲できると汎用性向上(優先度低) |
+| P2 | ~~voice/main.py に VoiSona 専用 health loopが混在~~ → **実装済み**。`voice/src/main.py:75-95` の `_health_loop()` は `tts_provider.health_poll_interval`/`passive_health_snapshot()` を使った provider 汎用 health loop | voice/src/main.py:75-95 | — |
 
 ## 後続リファクタ推奨(優先度順サマリ)
-- **P2**: `_call_llm` の共有 session 化、VoiSona 専用 health ロジックの provider 側委譲。
+- **P2**: ~~`_call_llm` の共有 session 化~~ → **実装済み**; ~~VoiSona 専用 health ロジックの provider 側委譲~~ → **実装済み**(`voice/src/main.py:75-95` 汎用 `_health_loop`)。
 - **P0/P1**: 無し。TTS/STT とも plugin(ABC + factory)構成が明快で、各 provider の責務が独立。find-replace 事故・dead code 無し。voice-service は `_check_auth`(Header ベース)で認証あり(backend の no-op とは対照的)。**クリーンなユニット**。

@@ -27,15 +27,15 @@
 
 | 優先度 | current → proposed | file:line | 理由 |
 |---|---|---|---|
-| P2 | `verify_api_key` → `lan_trusted_noop`(または明示 deprecate) | auth.py:30 | 名は「verify」だが実体は no-op。実装と名の乖離 |
+| P2 | ~~`verify_api_key` → `lan_trusted_noop`(または明示 deprecate)~~ → **実装済み** | auth.py:38 | 元の no-op 状態は解消。`verify_api_key` は `Authorization: Bearer <BACKEND_API_KEY>` を検証するよう実装済み |
 
 ## スコープ所見(refactor-ready)
 
 | 優先度 | 問題 | file:line | 推奨 |
 |---|---|---|---|
-| P1(security) | `verify_api_key` が `return None` の **no-op**。全 main ルーターが `Depends(verify_api_key)` で gating されているが実質**無認証**(LAN-trusted 設計)。`dependencies=_auth` 装飾が認証ありと誤認させる | auth.py:30-31 / main.py:132-159 | LAN-trusted を明示 doc 化、または最小限の共有キー検証を入れる。mobile ルートは `verify_mobile_device` で実認証済(問題なし) |
+| P1(security) | ~~`verify_api_key` が `return None` の **no-op**~~ → **実装済み**。`auth.py:38` で `Authorization: Bearer <BACKEND_API_KEY>` を検証。mobile ルートは `verify_mobile_device` で実認証済(問題なし) | auth.py:38 / main.py:257 (`_require_api_key`) | — |
 | P2 | lifespan で手製 `ALTER TABLE ADD COLUMN` マイグレーション(voice_events/tasks/shopping_items/devices)。全例外 `except Exception: pass` で握り潰し、versioning 無し・型変更/削除不可 | main.py:27-78 | Alembic 等の migration framework 導入 |
-| P2 | `routers/chat.py` のみ raw `text()` SQL を使用(他は ORM) | routers/chat.py | ORM クエリに統一 or 意図を明記 |
+| P2 | ~~`routers/chat.py` のみ raw `text()` SQL を使用(他は ORM)~~ → **実装済み**。`routers/chat.py:5` に「All DB access goes through the SQLAlchemy ORM (no raw `text()` SQL)」と明記 | routers/chat.py | — |
 
 ## 可読性所見(refactor-ready)
 

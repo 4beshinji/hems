@@ -49,13 +49,13 @@
 | P2 | ~~`_run_batch` が他オブジェクトの private `event_automation._execute_action` を直叩き~~ → **実装済み** | brain_cognitive.py | `event_automation.execute_action(task_name)` という public メソッド呼出しに既に修正済み |
 | P2 | ~~SOMS legacy 残骸(`allowed_devices` / `swarm_hub` prefix / `set_temperature`/`run_pump`/`pump_duration` safety_limits)が deprecated `send_device_command` に紐づく~~ → **実装済み** | sanitizer.py | `send_device_command` を廃止し、`control_actuator(action="mcp_call")` へ統合。SOMS legacy を sanitizer から一括除去 |
 | P2 | ~~sanitizer 読み取り許可リストに canonical/registry 未掲載のツール名~~ → **実装済み** | sanitizer.py | cross-check の結果、`control_switchbot` / `send_switchbot_ir` が registry/dispatch には存在するが sanitizer 許可リストに欠落していたため追加。残りは全て registry と一致 |
-| P2 | `AUTOMATION_ENGINE_ENABLED`(default true)が env.example / §9 未記載 | brain_startup.py:229 | §9 + env.example へ追記(SUMMARY/env unit で処理) |
+| P2 | ~~`AUTOMATION_ENGINE_ENABLED`(default true)が env.example / §9 未記載~~ → **実装済み**。`env.example:519` に `# AUTOMATION_ENGINE_ENABLED=true` を追記 | brain_startup.py:229 / env.example:519 | — |
 
 ## 可読性所見(refactor-ready)
 
 | 優先度 | 問題 | file:line | 推奨 |
 |---|---|---|---|
-| P2 | `if inferred is not None` が常時真の dead-guard(`inferred` は L118 で 0 初期化、None になる経路無し)。結果 schedule_learner 有効時は **全 MQTT msg** で reconcile_presence + update_occupancy が走る | brain_mqtt.py:143(init L118) | `inferred = None` 初期化に変える(presence 関連 msg のみ発火)か guard を撤去して意図を明示 |
+| P2 | ~~`if inferred is not None` が常時真の dead-guard(`inferred` は L118 で 0 初期化、None になる経路無し)~~ → **実装済み**。`brain_mqtt.py:181` で `inferred = None` に初期化し、guard が presence 関連 msg のみ発火するよう正しく機能 | brain_mqtt.py:181 | — |
 | P2 | ~~guard 番号が "Guard 0 / 1 / 2 / 4"(Guard 3 欠番)~~ → **実装済み** | brain_cognitive.py:541-597 | 連番 0–3 に振り直し済 |
 | P2 | ~~system_prompt「## 行動原則」が 1,2,4,5(項目 3 欠番)~~ → **実装済み** | system_prompt.py:37-42 | 連番 1–4 に修正済 |
 | P2 | ~~`_summarize_action` が ~60 行 if/elif チェーン~~ → **実装済み** | brain_constants.py:117-186 | `_ACTION_SUMMARIZERS` dict ディスパッチ表化済。tapo/knowledge/device-registry tool も対応 |
@@ -78,7 +78,7 @@
   - ~~`_run_batch` が `event_automation._execute_action` private メソッドを直叩き → public メソッド化~~ → **実装済み**。
   - ~~sanitizer の SOMS legacy(`allowed_devices`/`swarm_hub`/`set_temperature`/`run_pump`/`pump_duration`)を `send_device_command` 廃止と同時に一括除去~~ → **実装済み**。
   - ~~sanitizer 読み取り許可リストの canonical/registry 未掲載ツール cross-check~~ → **実装済み**(`control_switchbot` / `send_switchbot_ir` を追加)。
-  - `if inferred is not None` dead-guard の是正(`inferred = None` 初期化 or guard 撤去)。
+  - ~~`if inferred is not None` dead-guard の是正(`inferred = None` 初期化 or guard 撤去)~~ → **実装済み**(`brain_mqtt.py:181`)。
   - ~~連続する `if OPENCLAW_ENABLED:` ブロックの統合~~ → **実装済み**。
   - ~~`brain_loops.py:126` `except (json.JSONDecodeError, Exception)` の簡潔化~~ → **実装済み**。
   - ~~`brain_chat_server.py` aiohttp ハンドラのローカル `from aiohttp import web as aio_web` を module 先頭へ集約~~ → **実装済み**。
