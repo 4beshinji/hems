@@ -11,7 +11,7 @@
 make lint
 PYTHONPATH=services/brain/src:services/backend timeout 1800s .venv/bin/python -m pytest \
   tests/ services/brain/tests/ -v --tb=short -m "not integration and not e2e and not benchmark"
-# baseline: 1283 passed, 2 skipped, 19 deselected — 各 Wave 完了時にこれを下回らないこと
+# plan-time baseline: 1283 passed, 2 skipped, 19 deselected — 各 Wave 完了時にこれを下回らないこと
 ```
 
 挙動変更を含む row(W1 全部、W2 の dispatcher)は該当サービスの docker compose 起動 + 手動疎通も gate に含める。
@@ -62,7 +62,7 @@ deferred 可: TLS/HSTS(LAN 運用前提のため distribution Phase と同期)�
 | W2.2 | world_model mixin の facade 脱結合: stdlib・logger は直接 import、dataclass は `data_classes` から、定数は `brain_constants` / thresholds から | R6.1 | W2.1 | 高(置換自体は機械的だが循環 import の解消順序を誤ると即死。import グラフの設計が本体) | Opus 4.8 |
 | W2.3 | rules mixin の同型脱結合(`_rule_engine.datetime` 等の排除) | R6.2 | W2.1 | 中(W2.2 で確立したパターンの同型適用) | Sonnet 4.6 |
 | W2.4 | `RuleEngine.evaluate`(~490 行)の domain 別評価メソッド抽出 | R5.4 | W2.3 | 高(cooldown 等の共有状態を跨ぐ分割。rule 発火順序の回帰リスク) | Opus 4.8 |
-| W2.5 | `cognitive_cycle`(~470 行)分割: `_run_preflight` / `_build_context` / `_run_react_loop` / `_postprocess` | R5.2 | — | 高(本計画の最難 row。fallback Guard 0-4・ReAct iteration・event 書き込みが絡む) | Opus 4.8 以上 |
+| W2.5 | `cognitive_cycle`(~470 行)分割: `_run_preflight` / `_run_fallback_guards` / `_build_cycle_context` / `_run_react_loop` / `_postprocess_cycle` | R5.2 | — | 高(本計画の最難 row。fallback Guard 0-4・ReAct iteration・event 書き込みが絡む) | Opus 4.8 以上 |
 | W2.6 | `_process_mqtt`(~240 行)分割: enrich / schedule-learner feed / wake 検出の分離 | R5.1 | — | 高(メッセージ順序・副作用の保存が必要) | Opus 4.8 |
 | W2.7 | `_get_physical_context`(~257 行)・`_update_biometric_state`(~165 行)分割 | R5.3, R5.5 | W2.2 | 中(純粋な文字列組み立て/テーブル駆動化で、既存 test が厚い領域) | Sonnet 4.6 |
 | W2.8 | 分割と同時に各抽出単位へ unit test 追加(`brain_cognitive` / `brain_mqtt` は現状テストゼロ。分割 PR にテストを同梱しないと再びテスト不能サイズに戻る) | — | 各 row | 中(対象の分割が済んでいればテスト自体は定型。fixture 設計のみ初回コストあり) | Sonnet 4.6(初回 fixture は実装 row と同一ワーカ) |
@@ -76,9 +76,9 @@ deferred 可: TLS/HSTS(LAN 運用前提のため distribution Phase と同期)�
 | W3.1 | 共有パッケージ `services/_common/`(hems-base イメージに同梱)を新設: `MQTTPublisher`(retain/エラー/connected を引数化)、lifespan テンプレート、dataclass Config ローダ、`verify_internal_token`、統一 status publisher | 重複 ~610 行削減、S3 一括解消 | 高(9 ブリッジ全部が乗る API の設計。retain/エラー処理の現状差分をどの引数に吸収するかが本体) | Opus 4.8(API 設計)→ 実装は Sonnet 4.6 |
 | W3.2 | 9 ブリッジを順次 `_common` へ移行(1 ブリッジ = 1 commit。weather → tapo → switchbot → gas → news → knowledge → obsidian → ha → biometric の低リスク順) | 挙動互換を test で担保 | 低〜中(1 件目で移行パターン確立後は同型反復。ha=WebSocket reconnect、biometric=send queue の 2 件のみ固有処理が厚い) | 1 件目 Sonnet 4.6 → 2〜7 件目 Haiku 4.5 → ha/biometric は Sonnet 4.6 |
 | W3.3 | bridge status topic を `hems/<service>/bridge/status` に統一 + 未発行 4 ブリッジ(gas/weather/news/knowledge)に発行追加。brain 側 subscribe を旧 topic と互換 window 併読 | 監視の一貫性 | 低(W3.1 の status publisher を使うだけ。互換併読も追記のみ) | Haiku 4.5 |
-| W3.4 | `device_dispatcher.py`(901 行)を vendor parser クラス群(`HAParser`/`SwitchBotParser`/`TapoParser`/`ZigbeeParser`…)+ dispatch core に分割。`ALLOWED_ACTIONS` を `DEVICE_ALLOWED_ACTIONS` に改名し sanitizer 側 `_ALLOWED_BROWSER_ACTIONS` と区別 | 新 vendor 追加が 1 ファイル追加に | 高(Parser インターフェース設計 + topic 正規表現の挙動保存。物理デバイス操作の回帰は test で覆いきれない) | Opus 4.8 |
+| W3.4 | `device_dispatcher.py`(901 行)を vendor parser クラス群(`HAParser`/`SwitchBotParser`/`TapoParser`/`ZigbeeParser`…)+ dispatch core に分割。`ALLOWED_ACTIONS` を `DEVICE_ALLOWED_ACTIONS` に改名し sanitizer 側 `_ALLOWED_BROWSER_ACTIONS` と区別。**実装後**: `device_dispatcher.py` は 60 行の後方互換 facade に縮小し、実体は `services/brain/src/devices/` サブパッケージへ移行 | 新 vendor 追加が 1 ファイル追加に | 高(Parser インターフェース設計 + topic 正規表現の挙動保存。物理デバイス操作の回帰は test で覆いきれない) | Opus 4.8 |
 | W3.5 | Device Registry の責務境界を doc 化(backend = 永続 SoT、brain = TTL 付き runtime cache)し、dispatcher の仲介ロジックを registry 側へ寄せる。**統合はしない**(in-memory ビューの存在意義は妥当) | 二重実装の誤解消滅 | 中(主体は doc + 小規模な移動。境界の言語化は W3.4 の設計者が兼ねると一貫する) | Sonnet 4.6 |
-| W3.6 | `dashboard_client.py`(758 行)を transport / cache / domain mapper に分割 | — | 中(内部分割のみで外部 API 不変。既存 test_dashboard_client_* が回帰網) | Sonnet 4.6 |
+| W3.6 | `dashboard_client.py`(758 行)を transport / domain mapper に分割。**実装後**: `dashboard_client.py` は 294 行の facade に縮小し、`dashboard_transport.py` / `dashboard_mappers.py` に HTTP / マッピング責務を分離 | — | 中(内部分割のみで外部 API 不変。既存 test_dashboard_client_* が回帰網) | Sonnet 4.6 |
 | W3.7 | 依存バージョン統一: fastapi / paho-mqtt の下限を `infra/base/requirements.txt` に揃え、ブリッジ個別 requirements は差分のみ | — | 低(機械的な突合と書き換え) | Haiku 4.5 |
 | **W3.9** | **(メタ監査追加分) ブリッジ HTTP エンドポイントへの `HEMS_INTERNAL_TOKEN` Bearer 認証横展開。`verify_internal_token` を 9 ブリッジの REST router に配線し、backend→bridge 呼び出しにも Authorization 付与** | 9 ブリッジの `main.py`/`routers`, `backend/routers/home.py` 等 | token 未設定時は既存挙動維持。設定時に `/health` 以外で 401。biometric webhook は対象外 | 中(9 ブリッジの機械的適用 + backend 呼び出し側修正) | Sonnet 4.6(1 件目パターン確立) → Haiku 4.5(2〜8 件目) → Sonnet 4.6(ha/biometric) |
 
