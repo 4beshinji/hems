@@ -31,7 +31,7 @@ from world_model import WorldModel
 
 if TYPE_CHECKING:
     from ambient_speaker import AmbientSpeaker
-    from annotator import RulePromoter, ShoppingClassifier
+    from annotator import EventClassifier, RulePromoter, ShoppingClassifier
     from automation_engine import AutomationEngine
     from boot_load_manager import BootLoadManager
     from device_dispatcher import DeviceDispatcher
@@ -96,11 +96,11 @@ class Brain(
         self.threshold_client: Any | None = None
         self.adaptive_thresholds: Any | None = None
         self.shopping_classifier: ShoppingClassifier | None = None
-        self.event_classifier = None  # wired in brain_startup._wire_runtime_components
+        self.event_classifier: EventClassifier | None = None  # wired in brain_startup._wire_runtime_components
         self._rule_promoter: RulePromoter | None = None
         self._ack_learner = None
         self._daily_maintenance_date: str | None = None
-        # Bridge SLA tracking state (populated lazily by _track_bridge_transitions)
+        # Bridge SLA tracking state
         self._bridge_state_cache: dict[str, bool] = {}
         self._bridge_disconnect_history: dict[str, list[float]] = {}
         self._bridge_outage_alert_sent: dict[str, float] = {}
