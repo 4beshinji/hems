@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import aiohttp
@@ -69,6 +70,9 @@ def _extract_ha_state(domain: str, payload: dict) -> dict[str, Any]:
 class HAParser(VendorParser):
     vendor = "ha"
 
+    def __init__(self):
+        self._rainbow_tasks: set[asyncio.Task] = set()
+
     def matches(self, parts: list[str]) -> bool:
         # hems/home/{zone}/{domain}/{entity_id}/state
         return len(parts) >= 6 and parts[0] == "hems" and parts[1] == "home" and parts[5] == "state"
@@ -101,7 +105,9 @@ class HAParser(VendorParser):
             duration = int(params.get("duration_s", 10))
             if duration > 60:
                 return {"success": False, "error": "rainbow duration_s > 60 rejected"}
-            ctx.asyncio.ensure_future(self._ha_rainbow(ctx, entity_id, duration))
+            task = ctx.asyncio.create_task(self._ha_rainbow(ctx, entity_id, duration))
+            self._rainbow_tasks.add(task)
+            task.add_done_callback(self._rainbow_tasks.discard)
             return {"success": True, "result": f"ha rainbow {duration}s -> {entity_id}"}
 
         service, data = _ha_service_for(action, params, domain)

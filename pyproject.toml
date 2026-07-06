@@ -86,6 +86,7 @@ markers = [
 filterwarnings = [
     "ignore::DeprecationWarning:pydantic.*",
     "ignore::DeprecationWarning:sqlalchemy.*",
+    "ignore::starlette.exceptions.StarletteDeprecationWarning:fastapi.testclient",
 ]
 
 [tool.coverage.run]
