@@ -43,7 +43,7 @@ Linux (Ubuntu) 上で Windows VM を動かし、VoiSona Talk の音声合成 API
 
 - ベースURL: `http://192.168.1.173:32766/api/talk/v1`
 - 認証: Basic認証
-- 詳細仕様: `/home/sin/Downloads/talk_api.yaml`
+- 詳細仕様: `~/Downloads/talk_api.yaml`（各自のダウンロード先に合わせて読み替え）
 
 ### ボイス一覧取得
 

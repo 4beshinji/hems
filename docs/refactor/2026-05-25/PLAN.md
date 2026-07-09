@@ -39,7 +39,7 @@ git に残り、再入時に「次の pending row」が一意に決まる。
 必ず以下で実行する:
 
 ```bash
-cd /home/sin/code/claude/hems
+cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
 make lint          # ruff check + format check
 make test-quick    # pytest tests/ services/brain/tests/ -m "not integration and not e2e and not benchmark"
@@ -72,7 +72,7 @@ W7 の auth は挙動変更のため `feat(backend): shared-key 認証を実装`
 
 ## 再入プロトコル(/clear 後はこれで始める)
 
-1. `cd /home/sin/code/claude/hems`
+1. `cd "$(git rev-parse --show-toplevel)"`
 2. `git log --oneline -8` で最後に done した row を確認
 3. 本 doc を Read → [`LEDGER.md`](LEDGER.md) の先頭 `pending` row を選ぶ
 4. 出所 unit doc を Read → per-row 手順を実行

@@ -40,7 +40,7 @@ const char* MQTT_SERVER = "192.168.1.100";  // ← MQTTブローカーのIPア�
 ### 2.1 プロジェクトディレクトリへ移動
 
 ```bash
-cd /home/sin/code/gemini/bigbrother/edge/test-edge/sensor-node
+cd "$(git rev-parse --show-toplevel)/edge/test-edge/sensor-node"
 ```
 
 ### 2.2 依存関係のインストール
@@ -143,7 +143,7 @@ Telemetry published
 ### 3.1 プロジェクトディレクトリへ移動
 
 ```bash
-cd /home/sin/code/gemini/bigbrother/edge/test-edge/camera-node
+cd "$(git rev-parse --show-toplevel)/edge/test-edge/camera-node"
 ```
 
 ### 3.2 依存関係のインストール

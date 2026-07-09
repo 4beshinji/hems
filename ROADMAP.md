@@ -1,6 +1,6 @@
 # hems ロードマップ
 
-> 本ドキュメントは [`/home/sin/code/agent/auto/ROADMAP.md`](../ROADMAP.md)（上位ロードマップ）の下位計画です。
+> 本ドキュメントは [`../ROADMAP.md`](../ROADMAP.md)（上位ロードマップ）の下位計画です。
 >
 > 目的: 個人・単身者向けのパーソナル AI ホームアシスタントとして、環境センサー・生体情報・スマートデバイス・PC/サービス監視・スケジュールから意思決定を補助・自動化するための充足・不足を整理し、改善ロードマップを示す。
 
@@ -54,7 +54,7 @@
 
 ## 4. 関連ドキュメント・ファイル
 
-- 上位ロードマップ: [`/home/sin/code/agent/auto/ROADMAP.md`](../ROADMAP.md)
+- 上位ロードマップ: [`../ROADMAP.md`](../ROADMAP.md)
 - 全体像: `README.md`, `CLAUDE.md`, `docs/IMPLEMENTATION_MAP.md`
 - 大規模リファクタ監査: `docs/audit/2026-06-11/SUMMARY.md`
 - 配布計画: `docs/distribution.md`

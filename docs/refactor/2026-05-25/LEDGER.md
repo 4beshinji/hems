@@ -4,7 +4,7 @@
 [`PLAN.md`](PLAN.md)。**1 row = 1 commit**。先頭 `pending` row を 1 つ処理 → lint+test-quick グリーンを
 surface → commit → 当該行を `done <sha>` に更新。baseline: lint clean / **1257 passed, 2 skipped, 19 deselected**。
 
-> 再入(/clear 後): `cd /home/sin/code/claude/hems` → `git log --oneline -8` → 本表の先頭 `pending` row →
+> 再入(/clear 後): `cd "$(git rev-parse --show-toplevel)"` → `git log --oneline -8` → 本表の先頭 `pending` row →
 > 出所 unit doc Read → `source .venv/bin/activate` → [`PLAN.md`](PLAN.md) per-row 手順。
 
 | Wave | # | row(変更) | 対象 file:symbol | 出所 unit | status | commit |

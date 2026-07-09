@@ -178,7 +178,7 @@ pio device list
 ## 7. プロジェクトの初期化 (PlatformIO)
 
 ```bash
-cd /home/sin/code/gemini/bigbrother/edge/test-edge
+cd "$(git rev-parse --show-toplevel)/edge/test-edge"
 
 # Camera Node
 cd camera-node

@@ -121,7 +121,7 @@
 ## Suggested Commands
 
 ```bash
-cd /home/sin/code/claude/hems
+cd "$(git rev-parse --show-toplevel)"
 git status --short
 git log --oneline --decorate --max-count=80
 sed -n '1,140p' docs/audit/2026-05-25/SUMMARY.md
