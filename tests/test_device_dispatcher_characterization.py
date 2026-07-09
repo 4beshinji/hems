@@ -1447,13 +1447,13 @@ class TestHaRainbow:
             "capabilities": ["on_off", "brightness", "color_hs"],
         }
 
-        # Patch ensure_future to prevent it from actually running
-        with patch("device_dispatcher.asyncio.ensure_future") as mock_ef:
+        # Patch create_task to prevent the rainbow coroutine from actually running
+        with patch("device_dispatcher.asyncio.create_task") as mock_ct:
             result = await disp._dispatch_ha(device, "rainbow", {"duration_s": 5})
 
         assert result["success"] is True
         assert "rainbow" in result["result"]
-        mock_ef.assert_called_once()
+        mock_ct.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_rainbow_duration_too_large_rejected(self):
