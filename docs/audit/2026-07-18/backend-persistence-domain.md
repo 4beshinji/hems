@@ -127,6 +127,11 @@ Android監査の根因をBackend所有権として再確認した。
 
 ### P0-3 — PostgreSQL既定化とtask stats SQLが矛盾
 
+> **2026-07-18 実装済み** — `get_task_stats()` はUTC awareなPython cutoffをbindする
+> `_completed_last_hour_query()` を使用するよう変更。PostgreSQL dialectでcompileしたSQLに
+> SQLite固有`datetime()`が含まれないfocused testを追加した。SQLite実行testと合わせて `2 passed`、
+> 対象ruff check / format checkもpass。
+
 `database.py`の既定はPostgreSQLだが、`routers/tasks.py:get_task_stats()` は
 `Task.completed_at >= func.datetime("now", "-1 hour")` を使う。これはSQLite関数で、PostgreSQLには`datetime(text,text)`がない。
 

@@ -27,7 +27,7 @@
 | # | 対象 | 状態 | 主要理由 | 報告書 |
 |---|---|---|---|---|
 | 1 | Android 生体・モバイル収集系 | Reviewed / fix design pending | 未監査、Health Connect 二重実装、silent drop、biometric contract mismatch | [android-biometric-mobile.md](android-biometric-mobile.md) |
-| 2 | Backend persistence / domain ownership | Reviewed / urgent fixes pending | 複数 ingress、snapshot と observation の混在、PostgreSQL互換、非冪等更新 | [backend-persistence-domain.md](backend-persistence-domain.md) |
+| 2 | Backend persistence / domain ownership | Reviewed / P0-3 fixed, other urgent fixes pending | 複数 ingress、snapshot と observation の混在、PostgreSQL互換、非冪等更新 | [backend-persistence-domain.md](backend-persistence-domain.md) |
 | 3 | Brain world model / MQTT / persistence | Next | reducer 到達性、同一 state の複数表現、cycle 起因の重複書込み | — |
 | 4 | Biometric bridge / external health sources | Queued | Android 統合、dedup identity、provider placeholder | — |
 | 5 | Edge / SensorSwarm / virtual edge | Queued | 未実装 transport、実機経路と mock/simulator の乖離 | — |
@@ -40,6 +40,8 @@
 順序は重大所見の依存で変更する。Android / Backend の P0 は Brain / biometric-bridge の境界にも跨るため、次は Brain world model / MQTT / persistence を調査し、修正対象と既存 event store の再利用可否を確定する。
 
 Backendレビューでは追加で、PostgreSQL既定構成に対するSQLite専用task stats SQL、既存PostgreSQL schemaを安全に更新できないstartup migrationをP0と判定した。これらはdomain設計を待たず独立修正できるが、PostgreSQLでの回帰testを先に追加する。
+
+task stats SQLは2026-07-18に緊急修正済み。UTC awareなPython cutoff bindへ変更し、PostgreSQL dialectでSQLite固有`datetime()`が生成されないfocused testを追加した。startup migration（P0-4）を含む他所見は未修正。
 
 ## 第1レビューの扱い
 

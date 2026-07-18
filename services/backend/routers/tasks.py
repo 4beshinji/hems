@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,15 @@ MQTT_USER = os.getenv("MQTT_USER", "hems")
 MQTT_PASS = os.getenv("MQTT_PASS", "")
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+def _completed_last_hour_query(cutoff: datetime):
+    """Build the completed-task count query using a dialect-neutral cutoff."""
+    return (
+        select(func.count())
+        .select_from(models.Task)
+        .filter(models.Task.is_completed.is_(True), models.Task.completed_at >= cutoff)
+    )
 
 
 def _safe_json_loads(value: str | None) -> list:
@@ -292,8 +302,6 @@ async def dismiss_task(
     task.dismissed_at = func.now()
     task.dismiss_reason = reason
 
-    from datetime import datetime
-
     hour = datetime.now().hour
     bucket = (
         "morning"
@@ -393,12 +401,9 @@ async def get_task_stats(db: AsyncSession = Depends(get_db)):
     )
     active_count = active_result.scalar()
 
-    # completed_last_hour — SQLite compatible
-    completed_result = await db.execute(
-        select(func.count())
-        .select_from(models.Task)
-        .filter(models.Task.is_completed.is_(True), models.Task.completed_at >= func.datetime("now", "-1 hour"))
-    )
+    # Bind a UTC-aware cutoff instead of using a database-specific datetime function.
+    completed_cutoff = datetime.now(UTC) - timedelta(hours=1)
+    completed_result = await db.execute(_completed_last_hour_query(completed_cutoff))
     completed_last_hour = completed_result.scalar()
 
     sys_stats = await _get_or_create_system_stats(db)
