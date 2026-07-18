@@ -1,7 +1,6 @@
-"""
-Biometric data — persisted to DB, updated by Brain snapshots (biometric-bridge integration).
-"""
+"""Biometric latest projection and legacy reading history."""
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
@@ -10,8 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import BiometricReading
+from schemas import BiometricSnapshotIn
 
 router = APIRouter(prefix="/biometric", tags=["biometric"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/")
@@ -39,25 +40,21 @@ async def get_biometric_history(
 
 
 @router.post("/snapshot")
-async def update_biometric(data: dict, db: AsyncSession = Depends(get_db)):
-    """Receive biometric snapshot from Brain (called every cognitive cycle)."""
-    reading = BiometricReading(
-        provider=data.get("provider", "unknown"),
-        heart_rate=data.get("heart_rate"),
-        resting_heart_rate=data.get("resting_heart_rate"),
-        spo2=data.get("spo2"),
-        steps=data.get("steps"),
-        calories=data.get("calories"),
-        active_minutes=data.get("active_minutes"),
-        stress_level=data.get("stress_level"),
-        fatigue_score=data.get("fatigue_score"),
-        sleep_duration_minutes=data.get("sleep_duration_minutes"),
-        sleep_quality_score=data.get("sleep_quality_score"),
-        hrv_ms=data.get("hrv_ms"),
-        body_temperature=data.get("body_temperature"),
-        respiratory_rate=data.get("respiratory_rate"),
-    )
-    db.add(reading)
+async def update_biometric(data: BiometricSnapshotIn, db: AsyncSession = Depends(get_db)):
+    """Upsert the Brain's latest-state projection without creating history rows."""
+    if data.uses_legacy_flat_contract():
+        logger.warning("Legacy flat biometric snapshot received; migrate caller to the nested contract")
+
+    values = data.to_flat_columns()
+    result = await db.execute(select(BiometricReading).order_by(desc(BiometricReading.id)).limit(1))
+    reading = result.scalar_one_or_none()
+    if reading is None:
+        reading = BiometricReading(**values)
+        db.add(reading)
+    else:
+        for field, value in values.items():
+            setattr(reading, field, value)
+        reading.recorded_at = datetime.now(UTC)
     await db.commit()
 
     return {"updated": True}

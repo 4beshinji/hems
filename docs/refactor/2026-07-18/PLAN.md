@@ -12,8 +12,8 @@
 | Row | 内容 | 受け入れ条件 | 状態 |
 |---|---|---|---|
 | P0.1 | task statsのSQLite専用SQLをdialect-neutral化 | PostgreSQL dialect compile + SQLite実行test | Done (`3a91dac`) |
-| P0.2a | Brain nested biometric snapshotを型付きBackend schemaで受理・flat化 | 実mapper payloadのcontract test、SQLite/PostgreSQL互換 | Pending |
-| P0.2b | cycle snapshotの無条件history insertをlatest updateへ変更 | 100回POSTしてrow数不変、最新値更新 | Pending |
+| P0.2a | Brain nested biometric snapshotを型付きBackend schemaで受理・flat化 | 実mapper payloadのcontract test、SQLite/PostgreSQL互換 | Done (2026-07-18) |
+| P0.2b | cycle snapshotの無条件history insertをlatest updateへ変更 | 100回POSTしてrow数不変、最新値更新 | Done (2026-07-18) |
 | P0.3 | PostgreSQL startup migrationをversioned / fail-fast化 | 旧schema→head migration、失敗時起動停止 | Pending |
 | P0.4 | mobile非biometric observationのsilent dropを停止 | webhook→Brain stateまでのcross-boundary test | Phase 1設計に依存 |
 

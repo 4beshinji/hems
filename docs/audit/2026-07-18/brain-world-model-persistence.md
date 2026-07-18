@@ -92,6 +92,8 @@ Backend `routers/mobile.py` は `hems/personal/mobile/<subtopic>` をpublishす�
 
 ### P0-2（再確認）— Biometric cycle snapshotのproducer / consumer contractが不一致
 
+> **2026-07-18 実装済み (P0.2a/b)** — typed nested→flat mappingとlatest updateを導入。多重history insertは停止し、canonical observationはPhase 1対象。
+
 `dashboard_mappers.map_biometric_payload()`は`heart_rate={bpm,...}`、`spo2={percent}`、`sleep`、`activity`等の
 nested objectを返す。一方Backendはflat scalarを`BiometricReading`列へ代入する。producer testはnested payload、
 Backend testは手書きflat payloadを別々に検証するため、結合不整合を検出しない。

@@ -5,8 +5,8 @@
 | Row | 状態 | Commit | 検証 |
 |---|---|---|---|
 | P0.1 task stats DB portability | Done | `3a91dac` | focused pytest 2 passed、target ruff pass |
-| P0.2a biometric snapshot schema / mapping | Pending | — | — |
-| P0.2b latest update / history insert停止 | Pending | — | — |
+| P0.2a biometric snapshot schema / mapping | Done | this commit | 非DB focused pytest 2 passed、target ruff pass。既存`tests/test_backend_biometric_router.py` fixture testは60秒間無出力のままtimeout (exit 124) |
+| P0.2b latest update / history insert停止 | Done | this commit | fake sessionで100 cycle / add 1回 / commit 100回を検証。既存`tests/test_backend_biometric_router.py` fixture testは60秒間無出力のままtimeout (exit 124) |
 | P0.3 versioned Backend migration | Pending | — | — |
 | P0.4 mobile non-biometric reducer | Pending | — | — |
 | P1.1–P1.5 canonical observation | Pending | — | — |

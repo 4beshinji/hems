@@ -1,6 +1,6 @@
 # Biometric / Mobile Observation P0 Design — 2026-07-18
 
-Status: proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
+Status: Phase 0 implemented (2026-07-18)、Phase 1 proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
 
 ## 1. 決定
 

@@ -90,6 +90,8 @@ Brainへmobile biometric parserを追加してはならない。standalone app�
 
 ### P0-2（再確認）— BridgeからBackend historyまでのcontractが破断
 
+> **2026-07-18 実装済み (P0.2a/b)** — Backendでnested snapshotを型検証・flat化しlatest row updateへ変更。observation identity/outboxはPhase 1対象。
+
 Bridgeはmetric別MQTTをBrainへ送り、Brain `map_biometric_payload()`はnested snapshotを作る。Backend
 `update_biometric()`はflat scalar列を期待する。producer / consumer testも別payloadを手書きするため不一致を隠す。
 

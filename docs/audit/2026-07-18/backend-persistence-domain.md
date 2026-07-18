@@ -110,7 +110,9 @@ Android監査の根因をBackend所有権として再確認した。
 
 ### P0-2 — Biometric POST contract mismatch
 
-**証拠**:
+> **2026-07-18 実装済み (P0.2a/b)** — 実mapper payloadを型検証・flat化し、cycle insertをlatest row updateへ変更。immutable observation分離はPhase 1で継続する。
+
+**修正前の証拠**:
 
 - Brain `dashboard_mappers.map_biometric_payload()` は `heart_rate={bpm,...}`、`spo2={percent}`、`sleep`、`activity`、`stress`、`fatigue` のnested objectを生成。
 - Backend `routers/biometric.update_biometric()` は `data.get("heart_rate")`をInteger列へ直接代入し、nested keyをflattenしない。

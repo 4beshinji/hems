@@ -82,7 +82,9 @@ Backend は `MobileDevice.last_seen_at` だけを更新し、payload 自体は�
 
 ### P0-2 — Brain / Backend biometric snapshot schema が不一致
 
-**証拠**:
+> **2026-07-18 実装済み (P0.2a/b)** — `BiometricSnapshotIn`でnested→flat化し、latest row updateへ変更。legacy flat payloadはwarning付きで互換受理する。
+
+**修正前の証拠**:
 
 - `services/brain/src/dashboard_mappers.py:map_biometric_payload()` は次の nested payload を作る。
   - `heart_rate: {bpm, zone, resting_bpm}`

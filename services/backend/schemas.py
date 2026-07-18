@@ -830,6 +830,119 @@ class MobileStateWebhookResponse(BaseModel):
     published_topics: list[str] = []
 
 
+# --- Biometric latest snapshot ---
+
+
+class BiometricHeartRateSnapshot(BaseModel):
+    bpm: int
+    zone: str | None = None
+    resting_bpm: int | None = None
+
+
+class BiometricSpO2Snapshot(BaseModel):
+    percent: int
+
+
+class BiometricSleepSnapshot(BaseModel):
+    stage: str | None = None
+    duration_minutes: int | None = None
+    deep_minutes: int | None = None
+    rem_minutes: int | None = None
+    light_minutes: int | None = None
+    quality_score: int | None = None
+
+
+class BiometricActivitySnapshot(BaseModel):
+    steps: int | None = None
+    steps_goal: int | None = None
+    calories: int | None = None
+    active_minutes: int | None = None
+    level: str | None = None
+
+
+class BiometricStressSnapshot(BaseModel):
+    level: int | None = None
+    category: str | None = None
+
+
+class BiometricFatigueSnapshot(BaseModel):
+    score: int | None = None
+    factors: list[str] = Field(default_factory=list)
+
+
+class BiometricSnapshotIn(BaseModel):
+    """Brain latest-state projection, with temporary flat-payload compatibility."""
+
+    bridge_connected: bool | None = None
+    provider: str = "unknown"
+    heart_rate: BiometricHeartRateSnapshot | int | None = None
+    spo2: BiometricSpO2Snapshot | int | None = None
+    sleep: BiometricSleepSnapshot | None = None
+    activity: BiometricActivitySnapshot | None = None
+    stress: BiometricStressSnapshot | None = None
+    fatigue: BiometricFatigueSnapshot | None = None
+
+    # Legacy flat fields. Remove after all callers use the nested contract.
+    resting_heart_rate: int | None = None
+    steps: int | None = None
+    calories: int | None = None
+    active_minutes: int | None = None
+    stress_level: int | None = None
+    fatigue_score: int | None = None
+    sleep_duration_minutes: int | None = None
+    sleep_quality_score: int | None = None
+    hrv_ms: int | None = None
+    body_temperature: float | None = None
+    respiratory_rate: int | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    def uses_legacy_flat_contract(self) -> bool:
+        flat_fields = (
+            "resting_heart_rate",
+            "steps",
+            "calories",
+            "active_minutes",
+            "stress_level",
+            "fatigue_score",
+            "sleep_duration_minutes",
+            "sleep_quality_score",
+            "hrv_ms",
+            "body_temperature",
+            "respiratory_rate",
+        )
+        return (
+            isinstance(self.heart_rate, int)
+            or isinstance(self.spo2, int)
+            or any(getattr(self, field) is not None for field in flat_fields)
+        )
+
+    def to_flat_columns(self) -> dict[str, int | float | str | None]:
+        heart_rate = self.heart_rate.bpm if isinstance(self.heart_rate, BiometricHeartRateSnapshot) else self.heart_rate
+        resting_heart_rate = (
+            self.heart_rate.resting_bpm
+            if isinstance(self.heart_rate, BiometricHeartRateSnapshot)
+            else self.resting_heart_rate
+        )
+        spo2 = self.spo2.percent if isinstance(self.spo2, BiometricSpO2Snapshot) else self.spo2
+        return {
+            "provider": self.provider,
+            "heart_rate": heart_rate,
+            "resting_heart_rate": resting_heart_rate,
+            "spo2": spo2,
+            "steps": self.activity.steps if self.activity else self.steps,
+            "calories": self.activity.calories if self.activity else self.calories,
+            "active_minutes": self.activity.active_minutes if self.activity else self.active_minutes,
+            "stress_level": self.stress.level if self.stress else self.stress_level,
+            "fatigue_score": self.fatigue.score if self.fatigue else self.fatigue_score,
+            "sleep_duration_minutes": self.sleep.duration_minutes if self.sleep else self.sleep_duration_minutes,
+            "sleep_quality_score": self.sleep.quality_score if self.sleep else self.sleep_quality_score,
+            "hrv_ms": self.hrv_ms,
+            "body_temperature": self.body_temperature,
+            "respiratory_rate": self.respiratory_rate,
+        }
+
+
 # --- Voice Capsule manifest (served to mobile) ---
 
 
