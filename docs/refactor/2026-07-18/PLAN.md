@@ -4,6 +4,7 @@
 
 - [`../../audit/2026-07-18/README.md`](../../audit/2026-07-18/README.md)
 - [`biometric-mobile-observation-design.md`](biometric-mobile-observation-design.md)
+- [`backend-migration-design.md`](backend-migration-design.md)
 
 実装進捗は [`LEDGER.md`](LEDGER.md) で管理する。監査は継続中のため、新しいP0/P1が見つかれば独立rowとして追加する。
 
@@ -14,7 +15,9 @@
 | P0.1 | task statsのSQLite専用SQLをdialect-neutral化 | PostgreSQL dialect compile + SQLite実行test | Done (`3a91dac`) |
 | P0.2a | Brain nested biometric snapshotを型付きBackend schemaで受理・flat化 | 実mapper payloadのcontract test、SQLite/PostgreSQL互換 | Done (2026-07-18) |
 | P0.2b | cycle snapshotの無条件history insertをlatest updateへ変更 | 100回POSTしてrow数不変、最新値更新 | Done (2026-07-18) |
-| P0.3 | PostgreSQL startup migrationをversioned / fail-fast化 | 旧schema→head migration、失敗時起動停止 | Pending |
+| P0.3a | Alembic scaffolding + fixed baseline revision | fresh SQLite/PostgreSQL→head、metadata driftなし | Design Done / Implementation Pending |
+| P0.3b | unversioned legacy DB bootstrap / reconciliation | 完全schemaは検証後stamp、部分schemaは欠落のみ追加、非互換はfatal | Design Done / Implementation Pending |
+| P0.3c | container migration-first cutover + runtime DDL削除 | upgrade成功後のみUvicorn起動、CI PostgreSQL gate | Design Done / Implementation Pending |
 | P0.4 | mobile非biometric observationのsilent dropを停止 | webhook→Brain stateまでのcross-boundary test | Phase 1設計に依存 |
 
 ## Phase 1 — Canonical biometric/mobile observation
