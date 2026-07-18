@@ -29,8 +29,8 @@
 | 1 | Android 生体・モバイル収集系 | Reviewed / fix design pending | 未監査、Health Connect 二重実装、silent drop、biometric contract mismatch | [android-biometric-mobile.md](android-biometric-mobile.md) |
 | 2 | Backend persistence / domain ownership | Reviewed / P0-3 fixed, other urgent fixes pending | 複数 ingress、snapshot と observation の混在、PostgreSQL互換、非冪等更新 | [backend-persistence-domain.md](backend-persistence-domain.md) |
 | 3 | Brain world model / MQTT / persistence | Reviewed / fixes pending | mobile reducer欠落、event ring飽和、cycle由来多重書込み、event store境界 | [brain-world-model-persistence.md](brain-world-model-persistence.md) |
-| 4 | Biometric bridge / external health sources | Next | Android 統合、dedup identity、provider placeholder | — |
-| 5 | Edge / SensorSwarm / virtual edge | Queued | 未実装 transport、実機経路と mock/simulator の乖離 | — |
+| 4 | Biometric bridge / external health sources | Reviewed / design pending | source identity欠落、非durable受理、strict HMAC未移行、Zepp placeholder | [biometric-bridge.md](biometric-bridge.md) |
+| 5 | Edge / SensorSwarm / virtual edge | Next | 未実装 transport、実機経路と mock/simulator の乖離 | — |
 | 6 | STT / Voice | Queued | 旧監査で STT 対象外、provider fallback と実運用経路 | — |
 | 7 | Frontend | Queued | server contract の重複表現、mock data panel、主要 UI test gap | — |
 | 8 | Bridge 群 | Queued | 共通化後の責務重複、実データ源、HTTP/MQTT 二経路 | — |
@@ -39,7 +39,9 @@
 
 順序は重大所見の依存で変更する。Android / Backend の P0 は Brain / biometric-bridge の境界にも跨るため、Brain world model / MQTT / persistenceを調査して修正対象と既存event storeの再利用可否を確定した。
 
-Brainレビューの結果、既存event storeは分析martとしては利用できるが、mobile durable outboxやcanonical biometric observation storeにはそのまま再利用できないと判定した。次はbiometric-bridgeの正規化・dedup・provider経路を確認し、P0修正design noteを確定する。
+Brainレビューの結果、既存event storeは分析martとしては利用できるが、mobile durable outboxやcanonical biometric observation storeにはそのまま再利用できないと判定した。biometric-bridgeの正規化・dedup・provider経路まで確認し、P0修正design noteの入力を確定した。
+
+Biometric bridgeレビューでは、HTTP 200より先にdurable enqueueが完了しないcrash gap、source timestamp / observation IDの消失、compose未配線設定、Zepp placeholderを確認した。P0修正は既存send queueをinbox/outboxへ拡張し、bridgeをbiometric normalizationの単一所有者とする最小設計で進める。
 
 Backendレビューでは追加で、PostgreSQL既定構成に対するSQLite専用task stats SQL、既存PostgreSQL schemaを安全に更新できないstartup migrationをP0と判定した。これらはdomain設計を待たず独立修正できるが、PostgreSQLでの回帰testを先に追加する。
 
