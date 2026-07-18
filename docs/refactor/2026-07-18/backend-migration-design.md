@@ -3,6 +3,10 @@
 調査日: 2026-07-18  
 対象: `services/backend` の `public` schemaのみ。コード変更はこのnoteの対象外。
 
+Status: P0.3a implemented (2026-07-18)。Alembic scaffoldingと固定`0001_backend_baseline` / `0002_legacy_additive_columns`
+を追加し、fresh SQLiteでhead・二度目no-op・metadata driftなしを検証した。legacy DB fingerprint/stampはP0.3b、
+PostgreSQL CIとmigration-first起動切替はP0.3cとして未実装。
+
 ## 決定
 
 Backendには **Alembicを採用**し、起動前に`upgrade head`を実行して失敗時はAPI processを開始しない。

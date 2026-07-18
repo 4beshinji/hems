@@ -3,6 +3,7 @@
 
 # Backend-specific
 sqlalchemy>=2.0.36
+alembic>=1.14.0,<2.0
 aiosqlite>=0.20.0
 asyncpg>=0.30.0
 httpx>=0.28.0
