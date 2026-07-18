@@ -16,7 +16,7 @@
 | P0.2a | Brain nested biometric snapshotを型付きBackend schemaで受理・flat化 | 実mapper payloadのcontract test、SQLite/PostgreSQL互換 | Done (2026-07-18) |
 | P0.2b | cycle snapshotの無条件history insertをlatest updateへ変更 | 100回POSTしてrow数不変、最新値更新 | Done (2026-07-18) |
 | P0.3a | Alembic scaffolding + fixed baseline revision | fresh SQLite/PostgreSQL→head、metadata driftなし | SQLite implementation Done (2026-07-18); PostgreSQL gateはP0.3c |
-| P0.3b | unversioned legacy DB bootstrap / reconciliation | 完全schemaは検証後stamp、部分schemaは欠落のみ追加、非互換はfatal | Design Done / Implementation Pending |
+| P0.3b | unversioned legacy DB bootstrap / reconciliation | 完全/部分schemaをidempotent revisionで検証・reconcile、非互換はfatal | Done (2026-07-18) |
 | P0.3c | container migration-first cutover + runtime DDL削除 | upgrade成功後のみUvicorn起動、CI PostgreSQL gate | Design Done / Implementation Pending |
 | P0.4 | mobile非biometric observationのsilent dropを停止 | webhook→Brain stateまでのcross-boundary test | Phase 1設計に依存 |
 

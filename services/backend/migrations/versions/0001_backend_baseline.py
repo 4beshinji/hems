@@ -15,8 +15,49 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _assert_compatible_column(table_name: str, expected: sa.Column, actual: dict) -> None:
+    reflected = sa.Column(expected.name, actual["type"], nullable=actual["nullable"])
+    if op.get_context().impl.compare_type(reflected, expected):
+        raise RuntimeError(
+            f"Incompatible legacy column type for {table_name}.{expected.name}: "
+            f"found {actual['type']}, expected {expected.type}"
+        )
+    if not expected.primary_key and bool(actual["nullable"]) != bool(expected.nullable):
+        raise RuntimeError(
+            f"Incompatible legacy nullability for {table_name}.{expected.name}: "
+            f"found nullable={actual['nullable']}, expected nullable={expected.nullable}"
+        )
+
+
+def _create_table(table_name: str, *elements, **kwargs) -> None:
+    inspector = sa.inspect(op.get_bind())
+    if table_name not in inspector.get_table_names():
+        op.create_table(table_name, *elements, **kwargs)
+        return
+
+    actual_columns = {column["name"]: column for column in inspector.get_columns(table_name)}
+    expected_columns = {element.name: element for element in elements if isinstance(element, sa.Column)}
+    missing = sorted(expected_columns.keys() - actual_columns.keys())
+    if missing:
+        raise RuntimeError(f"Legacy table {table_name} is missing required baseline columns: {', '.join(missing)}")
+    for name, expected in expected_columns.items():
+        _assert_compatible_column(table_name, expected, actual_columns[name])
+
+
+def _create_index(index_name: str, table_name: str, columns: list[str], *, unique: bool = False) -> None:
+    inspector = sa.inspect(op.get_bind())
+    existing = {index["name"]: index for index in inspector.get_indexes(table_name)}
+    name = str(index_name)
+    if name not in existing:
+        op.create_index(index_name, table_name, columns, unique=unique)
+        return
+    index = existing[name]
+    if list(index["column_names"]) != columns or bool(index["unique"]) != unique:
+        raise RuntimeError(f"Incompatible legacy index {name} on {table_name}")
+
+
 def upgrade() -> None:
-    op.create_table(
+    _create_table(
         "agent_feedback",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("target_type", sa.String(), nullable=False),
@@ -31,13 +72,13 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_agent_feedback_feedback_type"), "agent_feedback", ["feedback_type"], unique=False)
-    op.create_index(op.f("ix_agent_feedback_id"), "agent_feedback", ["id"], unique=False)
-    op.create_index(op.f("ix_agent_feedback_recorded_at"), "agent_feedback", ["recorded_at"], unique=False)
-    op.create_index(op.f("ix_agent_feedback_target_id"), "agent_feedback", ["target_id"], unique=False)
-    op.create_index(op.f("ix_agent_feedback_target_type"), "agent_feedback", ["target_type"], unique=False)
-    op.create_index(op.f("ix_agent_feedback_user_id"), "agent_feedback", ["user_id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_agent_feedback_feedback_type"), "agent_feedback", ["feedback_type"], unique=False)
+    _create_index(op.f("ix_agent_feedback_id"), "agent_feedback", ["id"], unique=False)
+    _create_index(op.f("ix_agent_feedback_recorded_at"), "agent_feedback", ["recorded_at"], unique=False)
+    _create_index(op.f("ix_agent_feedback_target_id"), "agent_feedback", ["target_id"], unique=False)
+    _create_index(op.f("ix_agent_feedback_target_type"), "agent_feedback", ["target_type"], unique=False)
+    _create_index(op.f("ix_agent_feedback_user_id"), "agent_feedback", ["user_id"], unique=False)
+    _create_table(
         "agent_trajectories",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("cycle_id", sa.String(), nullable=True),
@@ -51,11 +92,11 @@ def upgrade() -> None:
         sa.Column("outcome_summary", sa.JSON(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_agent_trajectories_cycle_id"), "agent_trajectories", ["cycle_id"], unique=False)
-    op.create_index(op.f("ix_agent_trajectories_decision_id"), "agent_trajectories", ["decision_id"], unique=False)
-    op.create_index(op.f("ix_agent_trajectories_id"), "agent_trajectories", ["id"], unique=False)
-    op.create_index(op.f("ix_agent_trajectories_timestamp"), "agent_trajectories", ["timestamp"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_agent_trajectories_cycle_id"), "agent_trajectories", ["cycle_id"], unique=False)
+    _create_index(op.f("ix_agent_trajectories_decision_id"), "agent_trajectories", ["decision_id"], unique=False)
+    _create_index(op.f("ix_agent_trajectories_id"), "agent_trajectories", ["id"], unique=False)
+    _create_index(op.f("ix_agent_trajectories_timestamp"), "agent_trajectories", ["timestamp"], unique=False)
+    _create_table(
         "automation_rules",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
@@ -76,9 +117,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_automation_rules_id"), "automation_rules", ["id"], unique=False)
-    op.create_index(op.f("ix_automation_rules_trigger_type"), "automation_rules", ["trigger_type"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_automation_rules_id"), "automation_rules", ["id"], unique=False)
+    _create_index(op.f("ix_automation_rules_trigger_type"), "automation_rules", ["trigger_type"], unique=False)
+    _create_table(
         "biometric_readings",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("provider", sa.String(), nullable=False),
@@ -100,10 +141,10 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_biometric_readings_id"), "biometric_readings", ["id"], unique=False)
-    op.create_index(op.f("ix_biometric_readings_provider"), "biometric_readings", ["provider"], unique=False)
-    op.create_index(op.f("ix_biometric_readings_recorded_at"), "biometric_readings", ["recorded_at"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_biometric_readings_id"), "biometric_readings", ["id"], unique=False)
+    _create_index(op.f("ix_biometric_readings_provider"), "biometric_readings", ["provider"], unique=False)
+    _create_index(op.f("ix_biometric_readings_recorded_at"), "biometric_readings", ["recorded_at"], unique=False)
+    _create_table(
         "bridge_status_log",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("service", sa.String(), nullable=False),
@@ -114,10 +155,10 @@ def upgrade() -> None:
         sa.Column("detail", sa.String(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_bridge_status_log_id"), "bridge_status_log", ["id"], unique=False)
-    op.create_index(op.f("ix_bridge_status_log_service"), "bridge_status_log", ["service"], unique=False)
-    op.create_index(op.f("ix_bridge_status_log_timestamp"), "bridge_status_log", ["timestamp"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_bridge_status_log_id"), "bridge_status_log", ["id"], unique=False)
+    _create_index(op.f("ix_bridge_status_log_service"), "bridge_status_log", ["service"], unique=False)
+    _create_index(op.f("ix_bridge_status_log_timestamp"), "bridge_status_log", ["timestamp"], unique=False)
+    _create_table(
         "classifier_cache",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("kind", sa.String(), nullable=False),
@@ -132,10 +173,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("kind", "key_hash", name="uq_classifier_kind_key"),
     )
-    op.create_index(op.f("ix_classifier_cache_id"), "classifier_cache", ["id"], unique=False)
-    op.create_index(op.f("ix_classifier_cache_key_hash"), "classifier_cache", ["key_hash"], unique=False)
-    op.create_index(op.f("ix_classifier_cache_kind"), "classifier_cache", ["kind"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_classifier_cache_id"), "classifier_cache", ["id"], unique=False)
+    _create_index(op.f("ix_classifier_cache_key_hash"), "classifier_cache", ["key_hash"], unique=False)
+    _create_index(op.f("ix_classifier_cache_kind"), "classifier_cache", ["kind"], unique=False)
+    _create_table(
         "conversations",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("title", sa.String(), nullable=True),
@@ -148,8 +189,8 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_conversations_id"), "conversations", ["id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_conversations_id"), "conversations", ["id"], unique=False)
+    _create_table(
         "device_action_log",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("device_id", sa.String(), nullable=False),
@@ -163,10 +204,10 @@ def upgrade() -> None:
         sa.Column("feedback_score", sa.Float(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_device_action_log_device_id"), "device_action_log", ["device_id"], unique=False)
-    op.create_index(op.f("ix_device_action_log_id"), "device_action_log", ["id"], unique=False)
-    op.create_index(op.f("ix_device_action_log_timestamp"), "device_action_log", ["timestamp"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_device_action_log_device_id"), "device_action_log", ["device_id"], unique=False)
+    _create_index(op.f("ix_device_action_log_id"), "device_action_log", ["id"], unique=False)
+    _create_index(op.f("ix_device_action_log_timestamp"), "device_action_log", ["timestamp"], unique=False)
+    _create_table(
         "devices",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("device_id", sa.String(), nullable=False),
@@ -196,11 +237,11 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_devices_device_id"), "devices", ["device_id"], unique=True)
-    op.create_index(op.f("ix_devices_id"), "devices", ["id"], unique=False)
-    op.create_index(op.f("ix_devices_vendor"), "devices", ["vendor"], unique=False)
-    op.create_index(op.f("ix_devices_zone"), "devices", ["zone"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_devices_device_id"), "devices", ["device_id"], unique=True)
+    _create_index(op.f("ix_devices_id"), "devices", ["id"], unique=False)
+    _create_index(op.f("ix_devices_vendor"), "devices", ["vendor"], unique=False)
+    _create_index(op.f("ix_devices_zone"), "devices", ["zone"], unique=False)
+    _create_table(
         "frequent_places",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("label", sa.String(), nullable=False),
@@ -216,9 +257,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_frequent_places_category"), "frequent_places", ["category"], unique=False)
-    op.create_index(op.f("ix_frequent_places_id"), "frequent_places", ["id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_frequent_places_category"), "frequent_places", ["category"], unique=False)
+    _create_index(op.f("ix_frequent_places_id"), "frequent_places", ["id"], unique=False)
+    _create_table(
         "mobile_devices",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("device_label", sa.String(), nullable=False),
@@ -232,9 +273,9 @@ def upgrade() -> None:
         sa.Column("enabled", sa.Boolean(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_mobile_devices_api_key_hash"), "mobile_devices", ["api_key_hash"], unique=True)
-    op.create_index(op.f("ix_mobile_devices_id"), "mobile_devices", ["id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_mobile_devices_api_key_hash"), "mobile_devices", ["api_key_hash"], unique=True)
+    _create_index(op.f("ix_mobile_devices_id"), "mobile_devices", ["id"], unique=False)
+    _create_table(
         "purchase_history",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("item_name", sa.String(), nullable=False),
@@ -247,9 +288,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_purchase_history_id"), "purchase_history", ["id"], unique=False)
-    op.create_index(op.f("ix_purchase_history_item_name"), "purchase_history", ["item_name"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_purchase_history_id"), "purchase_history", ["id"], unique=False)
+    _create_index(op.f("ix_purchase_history_item_name"), "purchase_history", ["item_name"], unique=False)
+    _create_table(
         "scenes",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
@@ -265,9 +306,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_scenes_id"), "scenes", ["id"], unique=False)
-    op.create_index(op.f("ix_scenes_name"), "scenes", ["name"], unique=True)
-    op.create_table(
+    _create_index(op.f("ix_scenes_id"), "scenes", ["id"], unique=False)
+    _create_index(op.f("ix_scenes_name"), "scenes", ["name"], unique=True)
+    _create_table(
         "shopping_items",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
@@ -292,10 +333,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("share_token"),
     )
-    op.create_index(op.f("ix_shopping_items_category"), "shopping_items", ["category"], unique=False)
-    op.create_index(op.f("ix_shopping_items_id"), "shopping_items", ["id"], unique=False)
-    op.create_index(op.f("ix_shopping_items_name"), "shopping_items", ["name"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_shopping_items_category"), "shopping_items", ["category"], unique=False)
+    _create_index(op.f("ix_shopping_items_id"), "shopping_items", ["id"], unique=False)
+    _create_index(op.f("ix_shopping_items_name"), "shopping_items", ["name"], unique=False)
+    _create_table(
         "system_stats",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("tasks_completed", sa.Integer(), nullable=True),
@@ -303,7 +344,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_table(
+    _create_table(
         "task_preferences",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("key", sa.String(), nullable=False),
@@ -314,9 +355,9 @@ def upgrade() -> None:
         sa.Column("weight", sa.Float(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_task_preferences_id"), "task_preferences", ["id"], unique=False)
-    op.create_index(op.f("ix_task_preferences_key"), "task_preferences", ["key"], unique=True)
-    op.create_table(
+    _create_index(op.f("ix_task_preferences_id"), "task_preferences", ["id"], unique=False)
+    _create_index(op.f("ix_task_preferences_key"), "task_preferences", ["key"], unique=True)
+    _create_table(
         "tasks",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("title", sa.String(), nullable=True),
@@ -345,9 +386,9 @@ def upgrade() -> None:
         sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_tasks_id"), "tasks", ["id"], unique=False)
-    op.create_index(op.f("ix_tasks_title"), "tasks", ["title"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_tasks_id"), "tasks", ["id"], unique=False)
+    _create_index(op.f("ix_tasks_title"), "tasks", ["title"], unique=False)
+    _create_table(
         "threshold_drift_log",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("metric_key", sa.String(), nullable=False),
@@ -362,11 +403,11 @@ def upgrade() -> None:
         sa.Column("context_json", sa.JSON(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_threshold_drift_log_detected_at"), "threshold_drift_log", ["detected_at"], unique=False)
-    op.create_index(op.f("ix_threshold_drift_log_id"), "threshold_drift_log", ["id"], unique=False)
-    op.create_index(op.f("ix_threshold_drift_log_metric_key"), "threshold_drift_log", ["metric_key"], unique=False)
-    op.create_index(op.f("ix_threshold_drift_log_status"), "threshold_drift_log", ["status"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_threshold_drift_log_detected_at"), "threshold_drift_log", ["detected_at"], unique=False)
+    _create_index(op.f("ix_threshold_drift_log_id"), "threshold_drift_log", ["id"], unique=False)
+    _create_index(op.f("ix_threshold_drift_log_metric_key"), "threshold_drift_log", ["metric_key"], unique=False)
+    _create_index(op.f("ix_threshold_drift_log_status"), "threshold_drift_log", ["status"], unique=False)
+    _create_table(
         "timeseries",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("metric", sa.String(), nullable=False),
@@ -377,11 +418,11 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_timeseries_id"), "timeseries", ["id"], unique=False)
-    op.create_index(op.f("ix_timeseries_metric"), "timeseries", ["metric"], unique=False)
-    op.create_index(op.f("ix_timeseries_recorded_at"), "timeseries", ["recorded_at"], unique=False)
-    op.create_index(op.f("ix_timeseries_zone"), "timeseries", ["zone"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_timeseries_id"), "timeseries", ["id"], unique=False)
+    _create_index(op.f("ix_timeseries_metric"), "timeseries", ["metric"], unique=False)
+    _create_index(op.f("ix_timeseries_recorded_at"), "timeseries", ["recorded_at"], unique=False)
+    _create_index(op.f("ix_timeseries_zone"), "timeseries", ["zone"], unique=False)
+    _create_table(
         "users",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("username", sa.String(), nullable=True),
@@ -392,9 +433,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_users_id"), "users", ["id"], unique=False)
-    op.create_index(op.f("ix_users_username"), "users", ["username"], unique=True)
-    op.create_table(
+    _create_index(op.f("ix_users_id"), "users", ["id"], unique=False)
+    _create_index(op.f("ix_users_username"), "users", ["username"], unique=True)
+    _create_table(
         "voice_capsules",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("capsule_date", sa.String(), nullable=False),
@@ -407,9 +448,9 @@ def upgrade() -> None:
         sa.Column("invalidated", sa.Boolean(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_voice_capsules_capsule_date"), "voice_capsules", ["capsule_date"], unique=False)
-    op.create_index(op.f("ix_voice_capsules_id"), "voice_capsules", ["id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_voice_capsules_capsule_date"), "voice_capsules", ["capsule_date"], unique=False)
+    _create_index(op.f("ix_voice_capsules_id"), "voice_capsules", ["id"], unique=False)
+    _create_table(
         "voice_events",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("message", sa.String(), nullable=True),
@@ -422,8 +463,8 @@ def upgrade() -> None:
         sa.Column("feedback_score", sa.Float(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_voice_events_id"), "voice_events", ["id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_voice_events_id"), "voice_events", ["id"], unique=False)
+    _create_table(
         "approvals",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("thread_id", sa.String(), nullable=True),
@@ -453,10 +494,10 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_approvals_rule_id"), "approvals", ["rule_id"], unique=False)
-    op.create_index(op.f("ix_approvals_status"), "approvals", ["status"], unique=False)
-    op.create_index(op.f("ix_approvals_thread_id"), "approvals", ["thread_id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_approvals_rule_id"), "approvals", ["rule_id"], unique=False)
+    _create_index(op.f("ix_approvals_status"), "approvals", ["status"], unique=False)
+    _create_index(op.f("ix_approvals_thread_id"), "approvals", ["thread_id"], unique=False)
+    _create_table(
         "dismiss_log",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("task_id", sa.Integer(), nullable=True),
@@ -473,8 +514,8 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_dismiss_log_id"), "dismiss_log", ["id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_dismiss_log_id"), "dismiss_log", ["id"], unique=False)
+    _create_table(
         "messages",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("conversation_id", sa.Integer(), nullable=False),
@@ -492,9 +533,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_messages_conversation_id"), "messages", ["conversation_id"], unique=False)
-    op.create_index(op.f("ix_messages_id"), "messages", ["id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_messages_conversation_id"), "messages", ["conversation_id"], unique=False)
+    _create_index(op.f("ix_messages_id"), "messages", ["id"], unique=False)
+    _create_table(
         "scheduled_blocks",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("date", sa.String(), nullable=False),
@@ -516,9 +557,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_scheduled_blocks_date"), "scheduled_blocks", ["date"], unique=False)
-    op.create_index(op.f("ix_scheduled_blocks_id"), "scheduled_blocks", ["id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_scheduled_blocks_date"), "scheduled_blocks", ["date"], unique=False)
+    _create_index(op.f("ix_scheduled_blocks_id"), "scheduled_blocks", ["id"], unique=False)
+    _create_table(
         "threshold_adjustments",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("metric_key", sa.String(), nullable=False),
@@ -535,13 +576,13 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_threshold_adjustments_applied_at"), "threshold_adjustments", ["applied_at"], unique=False)
-    op.create_index(
+    _create_index(op.f("ix_threshold_adjustments_applied_at"), "threshold_adjustments", ["applied_at"], unique=False)
+    _create_index(
         op.f("ix_threshold_adjustments_drift_log_id"), "threshold_adjustments", ["drift_log_id"], unique=False
     )
-    op.create_index(op.f("ix_threshold_adjustments_id"), "threshold_adjustments", ["id"], unique=False)
-    op.create_index(op.f("ix_threshold_adjustments_metric_key"), "threshold_adjustments", ["metric_key"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_threshold_adjustments_id"), "threshold_adjustments", ["id"], unique=False)
+    _create_index(op.f("ix_threshold_adjustments_metric_key"), "threshold_adjustments", ["metric_key"], unique=False)
+    _create_table(
         "voice_capsule_play_log",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("capsule_id", sa.Integer(), nullable=True),
@@ -557,11 +598,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        op.f("ix_voice_capsule_play_log_capsule_id"), "voice_capsule_play_log", ["capsule_id"], unique=False
-    )
-    op.create_index(op.f("ix_voice_capsule_play_log_id"), "voice_capsule_play_log", ["id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_voice_capsule_play_log_capsule_id"), "voice_capsule_play_log", ["capsule_id"], unique=False)
+    _create_index(op.f("ix_voice_capsule_play_log_id"), "voice_capsule_play_log", ["id"], unique=False)
+    _create_table(
         "action_snapshots",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("approval_id", sa.Uuid(), nullable=False),
@@ -578,8 +617,8 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_action_snapshots_approval_id"), "action_snapshots", ["approval_id"], unique=False)
-    op.create_table(
+    _create_index(op.f("ix_action_snapshots_approval_id"), "action_snapshots", ["approval_id"], unique=False)
+    _create_table(
         "rollback_log",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("approval_id", sa.Uuid(), nullable=False),
@@ -597,7 +636,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_rollback_log_approval_id"), "rollback_log", ["approval_id"], unique=False)
+    _create_index(op.f("ix_rollback_log_approval_id"), "rollback_log", ["approval_id"], unique=False)
     # ### end Alembic commands ###
 
 

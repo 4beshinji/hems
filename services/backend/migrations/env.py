@@ -10,7 +10,8 @@ from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-database_url = os.environ.get("DATABASE_URL")
+config = context.config
+database_url = config.attributes.get("database_url") or os.environ.get("DATABASE_URL")
 if database_url and database_url.startswith("sqlite:///"):
     # database.py owns an AsyncEngine; keep model import async even when a
     # migration test deliberately uses SQLAlchemy's synchronous SQLite driver.
@@ -22,7 +23,6 @@ Base = database.Base
 if database_url:
     os.environ["DATABASE_URL"] = database_url
 
-config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 

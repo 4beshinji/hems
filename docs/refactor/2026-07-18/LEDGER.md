@@ -8,7 +8,7 @@
 | P0.2a biometric snapshot schema / mapping | Done | this commit | 非DB focused pytest 2 passed、target ruff pass。既存`tests/test_backend_biometric_router.py` fixture testは60秒間無出力のままtimeout (exit 124) |
 | P0.2b latest update / history insert停止 | Done | this commit | fake sessionで100 cycle / add 1回 / commit 100回を検証。既存`tests/test_backend_biometric_router.py` fixture testは60秒間無出力のままtimeout (exit 124) |
 | P0.3a Alembic scaffolding / baseline | Done | this commit | fresh SQLite focused pytest 2 passed、30 tables、0001/0002分離、二度目no-op、current=head、metadata driftなし。PostgreSQL gateはP0.3c |
-| P0.3b legacy bootstrap / reconciliation | Design Done / Implementation Pending | — | full/partial/incompatible schema fixtures planned |
+| P0.3b legacy bootstrap / reconciliation | Done | this commit | SQLite focused pytest 7 passed。empty/full/partial→head、sentinel/未知schema保持、二度目no-op、missing baseline/type/unknown revision fatal |
 | P0.3c migration-first runtime cutover | Design Done / Implementation Pending | — | PostgreSQL CI + Uvicorn fail-fast planned |
 | P0.4 mobile non-biometric reducer | Pending | — | — |
 | P1.1–P1.5 canonical observation | Pending | — | — |

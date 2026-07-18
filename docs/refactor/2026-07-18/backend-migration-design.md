@@ -3,9 +3,10 @@
 調査日: 2026-07-18  
 対象: `services/backend` の `public` schemaのみ。コード変更はこのnoteの対象外。
 
-Status: P0.3a implemented (2026-07-18)。Alembic scaffoldingと固定`0001_backend_baseline` / `0002_legacy_additive_columns`
-を追加し、fresh SQLiteでhead・二度目no-op・metadata driftなしを検証した。legacy DB fingerprint/stampはP0.3b、
-PostgreSQL CIとmigration-first起動切替はP0.3cとして未実装。
+Status: P0.3a/b implemented (2026-07-18)。Alembic scaffoldingと固定`0001_backend_baseline` / `0002_legacy_additive_columns`
+を追加し、fresh / full legacy / partial legacy SQLiteでhead・二度目no-op・metadata driftなしを検証した。
+legacy DBはblind stampせず両revisionを実行して検証・reconcileする。PostgreSQL CIとmigration-first起動切替は
+P0.3cとして未実装。
 
 ## 決定
 
@@ -66,15 +67,14 @@ revision chainは次の2本から開始する。
    欠落列だけを追加する。日時4列は`DateTime(timezone=True)`を使い、PostgreSQLではTIMESTAMPTZ、SQLiteでは互換な
    DateTimeとして生成する。全列は既存rowを壊さないnullable追加とする。
 
-bootstrap wrapperは`alembic_version`がない場合だけ次のfingerprintを取る。
+bootstrap wrapperは常に通常の`upgrade head`を実行し、revision validationを迂回するblind stampを行わない。
 
-- Backend tableが0件: `upgrade head`（0001→0002）を実行する。
-- 30 tableとhead必須columnが全て存在し、互換型である: 既存データ件数を変更せず`stamp 0002`する。これが現在の
-  `create_all + 20列` DBのbaseline stampingである。
-- table/20列が部分的: baseから`upgrade head`する。0001/0002の存在checkにより欠落だけを加算する。
-- 未知tableは保持する。既知tableの不整合、複数head、version tableの未知revisionはfatalとし、自動stampしない。
+- Backend tableが0件: `0001`が30 tableを作り、`0002`が20列を追加する。
+- 30 tableとhead必須columnが全て存在し、互換型である: `0001` / `0002`が全列を検証してskipし、既存rowを保持する。
+- table/20列が部分的: `0001`は存在しないtableだけを作り、`0002`は欠落した管理対象20列だけを加算する。
+- 既存tableのbaseline必須列が欠ける場合は推測追加せずfatal。型/nullable非互換、複数head、version tableの未知revisionもfatal。
+- 未知table、未知columnは所有外または将来互換dataとして保持する。
 
-stamp前後でtable/column fingerprintと各table row countをlogする。revision適用とstampはいずれも同一DB内で行い、
 SQLite fileは事前copy、PostgreSQLは運用backupをrelease手順の必須条件とする。revision fileを適用済み後に編集しない。
 
 ## 起動方式とfail-fast
@@ -102,7 +102,7 @@ SQLite fileは事前copy、PostgreSQLは運用backupをrelease手順の必須条
 ## Test gate
 
 - SQLite fresh: 空file→head、30 table、`alembic current=head`、二度目no-op。
-- SQLite legacy: baseline fixtureへsentinel rowを入れ、完全20列DBはstampのみ、部分DBは欠落列のみ追加、row/PK/FKを保持。
+- SQLite legacy: baseline fixtureへsentinel rowを入れ、完全/部分DBともidempotent revisionで検証し、欠落table/20列だけを追加、row/PK/FKを保持。
 - PostgreSQL fresh/legacy: GitHub Actions service containerで同じ検査を行う。`public`だけが変化し、`events` schemaのtable数・
   fingerprintが不変であることもassertする。
 - Failure: 非互換型、未知revision、意図的に失敗するrevisionでcommand非zeroかつUvicorn未起動を確認する。
