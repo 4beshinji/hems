@@ -66,6 +66,7 @@
 | Doc | 状態 |
 |---|---|
 | [`audit/2026-07-18/`](audit/2026-07-18/README.md) | **active** — コンポーネント分割レビュー台帳。実データ経路、文書鮮度、DRY・二重計上、未配線、技術負債を現行 code で再検証 |
+| [`refactor/2026-07-18/PLAN.md`](refactor/2026-07-18/PLAN.md) | **active** — 分割レビューで確定したP0/P1修正計画。biometric/mobile observation設計と実装ledgerを含む |
 | [`refactor/2026-06-11/PLAN.md`](refactor/2026-06-11/PLAN.md) | **completed** — 2026-06-11 リファクタ計画(W1–W5)。全 row は `LEDGER.md` で完了宣言 |
 | [`refactor/2026-06-11/LEDGER.md`](refactor/2026-06-11/LEDGER.md) | **completed** — PLAN.md 2026-06-11 の実装進捗台帳。全 row done |
 | [`refactor/2026-06-11/RECOMMENDED_FOLLOW_UPS.md`](refactor/2026-06-11/RECOMMENDED_FOLLOW_UPS.md) | **completed** — 実装後の品質向上・検証作業リスト。全項完了 |
