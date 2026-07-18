@@ -1,5 +1,10 @@
 # 技術的負債・設計監査サマリ — 2026-06-11
 
+> **Status as of 2026-07-18:** 本書は historical snapshot。後続の分割レビューは
+> [`../2026-07-18/README.md`](../2026-07-18/README.md) を正本とする。W1.3 の replay 防御は server 側に実装済みだが、
+> Android 2 client は legacy body-only HMAC のままで strict 化できず、end-to-end では未完了。また Android mobile / biometric
+> 経路には silent drop と payload contract mismatch が確認されている。
+
 対象リビジョン: `7e77409`(main) — 監査後、2026-06-17 時点で未コミット変更あり。
 調査方式: 6 並列調査(前回監査照合 / セキュリティ / Brain / Backend+ブリッジ / インフラ+ドキュメント / Frontend)+ 主要矛盾点のコードレベル裏取り。
 後続の実行計画: [`../../refactor/2026-06-11/PLAN.md`](../../refactor/2026-06-11/PLAN.md)（全 Wave 完了済み）。

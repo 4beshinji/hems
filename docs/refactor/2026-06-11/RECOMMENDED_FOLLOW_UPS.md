@@ -1,6 +1,9 @@
 # 推奨フォローアップ作業 — 2026-06-11 リファクタリング後
 
 > **COMPLETED** — 本リストの全項目は [`LEDGER.md`](LEDGER.md) において commit 付きで `done` として記録されています。新規タスクは `../../feature-proposals-2026-06-11.md` を参照してください。
+>
+> **Status as of 2026-07-18:** 完了宣言は当時の scope に対するもの。Android client と mobile / biometric の境界は
+> [`../../audit/2026-07-18/android-biometric-mobile.md`](../../audit/2026-07-18/android-biometric-mobile.md) で別途追跡する。
 
 作成経緯: 2026-06-17 に Agent Swarm による実装レビューと full pytest テスト妥当性検証を実施。
 受け入れ条件を満たす重大な問題は実装済みだが、品質向上・技術的負債低減・一貫性強化の観点から対応を推奨する残作業を整理する。

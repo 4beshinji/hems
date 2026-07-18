@@ -1,6 +1,10 @@
 # リファクタリング計画 — 2026-06-11
 
 > **COMPLETED** — 本計画の全 Wave (W1–W5) は [`LEDGER.md`](LEDGER.md) ですべて完了しています。未実装の機能提案は [`../../feature-proposals-2026-06-11.md`](../../feature-proposals-2026-06-11.md) で管理されています。
+>
+> **Status as of 2026-07-18:** 上記は本計画の server-side scope に対する完了記録。Android は監査対象外だったため、W1.3 の
+> replay-safe HMAC は Android 2 client へ未配線で strict 化不能。mobile / biometric の end-to-end 所見は
+> [`../../audit/2026-07-18/android-biometric-mobile.md`](../../audit/2026-07-18/android-biometric-mobile.md) を参照。
 
 入力: [`../../audit/2026-06-11/SUMMARY.md`](../../audit/2026-06-11/SUMMARY.md)(本日監査)+ 2026-05-25 監査の deferred 9 行。
 進行管理: 着手時に本ディレクトリへ `LEDGER.md` を作成し、1 row = 1 commit の規律を踏襲する(2026-05-25 方式)。

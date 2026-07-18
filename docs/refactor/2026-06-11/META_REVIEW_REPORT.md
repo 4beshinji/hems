@@ -1,5 +1,9 @@
 # メタレビュー報告書: 2026-05-25 / 2026-06-11 監査・リファクタリングの妥当性評価
 
+> **Status as of 2026-07-18:** 本書は 2026-06-16 時点の historical review。対象外だった Android client を含む再検証で、
+> mobile MQTT の silent drop、biometric payload contract mismatch、legacy HMAC が判明した。現行所見は
+> [`../../audit/2026-07-18/android-biometric-mobile.md`](../../audit/2026-07-18/android-biometric-mobile.md) を参照。
+
 ## 結論
 
 2026-05-25 監査・リファクタリングと 2026-06-11 後続対応は、**実装上ほぼ完了しており、品質ゲートも通過している**。`make lint` / `make test-quick` / frontend vitest はすべて PASS（Python 2108 passed / frontend 48 passed）。

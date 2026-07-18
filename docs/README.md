@@ -65,6 +65,7 @@
 
 | Doc | 状態 |
 |---|---|
+| [`audit/2026-07-18/`](audit/2026-07-18/README.md) | **active** — コンポーネント分割レビュー台帳。実データ経路、文書鮮度、DRY・二重計上、未配線、技術負債を現行 code で再検証 |
 | [`refactor/2026-06-11/PLAN.md`](refactor/2026-06-11/PLAN.md) | **completed** — 2026-06-11 リファクタ計画(W1–W5)。全 row は `LEDGER.md` で完了宣言 |
 | [`refactor/2026-06-11/LEDGER.md`](refactor/2026-06-11/LEDGER.md) | **completed** — PLAN.md 2026-06-11 の実装進捗台帳。全 row done |
 | [`refactor/2026-06-11/RECOMMENDED_FOLLOW_UPS.md`](refactor/2026-06-11/RECOMMENDED_FOLLOW_UPS.md) | **completed** — 実装後の品質向上・検証作業リスト。全項完了 |
@@ -72,7 +73,7 @@
 | [`research/closed-loop-assets/INTEGRATED_PLAN.md`](research/closed-loop-assets/INTEGRATED_PLAN.md) | **active** — HEMS 閉 loop 実装統合計画(Phase 0 HITL/ロールバック 〜 Phase 5 RLHF)。実装のクリティカルパス・マイルストーン・リスク |
 | [`research/closed-loop-assets/PLAN-phase-0-hitl-rollback.md`](research/closed-loop-assets/PLAN-phase-0-hitl-rollback.md) | Phase 0 詳細計画: 人間承認(HITL)・ロールバック基盤 |
 | [`research/closed-loop-assets/PLAN-phase-1-feedback-efficacy.md`](research/closed-loop-assets/PLAN-phase-1-feedback-efficacy.md) | Phase 1 詳細計画: フィードバック収集と介入効果測定 |
-| [`audit/2026-06-11/SUMMARY.md`](audit/2026-06-11/SUMMARY.md) | **active** — 最新の技術的負債・セキュリティ統合監査(誤検知の棄却記録含む) |
+| [`audit/2026-06-11/SUMMARY.md`](audit/2026-06-11/SUMMARY.md) | **historical / superseded** — 2026-06-11 統合監査。後続実装と当時スコープ外だった領域は `audit/2026-07-18/` で再検証 |
 | [`distribution.md`](distribution.md) | **active** — 配布/オンボーディング Phase 計画。`make quickstart` / PostgreSQL 既定化 / env 既定値統一は実装済み |
 | [`db-improvement-plan.md`](db-improvement-plan.md) | active(SQLite WAL / retention / schema gaps / index / DDL split) |
 | [`morning-briefing-refactor-plan.md`](morning-briefing-refactor-plan.md) | **historical** — Waves 1-3 完了。後続は gap-06 / feature-proposals-2026-06-11 へ |

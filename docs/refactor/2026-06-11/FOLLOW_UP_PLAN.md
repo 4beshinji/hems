@@ -1,5 +1,8 @@
 # Follow-up 計画: 2026-06-11 メタレビュー後の残タスク
 
+> **Status as of 2026-07-18:** 本計画は historical。Android client は対象外だったため、mobile / biometric end-to-end の後続作業は
+> [`../../audit/2026-07-18/README.md`](../../audit/2026-07-18/README.md) で管理する。
+
 > 本計画は [`META_REVIEW_REPORT.md`](META_REVIEW_REPORT.md) の所見を実行可能なタスクに分解したもの。
 > 次セッションでは本計画に従い、優先順位に沿って 1 タスクずつ実装・検証・commit する。
 

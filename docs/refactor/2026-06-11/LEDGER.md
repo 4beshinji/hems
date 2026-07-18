@@ -1,5 +1,9 @@
 # リファクタ進捗 ledger — 2026-06-11
 
+> **Status as of 2026-07-18:** 本 ledger は当時の server-side scope の完了記録。Android client は当時の監査対象外であり、W1.3 は
+> client の timestamp / nonce HMAC 移行を含む end-to-end 完了を意味しない。後続所見は
+> [`../../audit/2026-07-18/android-biometric-mobile.md`](../../audit/2026-07-18/android-biometric-mobile.md) を参照。
+
 監査所見([`docs/audit/2026-06-11/SUMMARY.md`](../../audit/2026-06-11/SUMMARY.md))の実コード反映。参照 doc・手順は
 [`PLAN.md`](PLAN.md)・各設計ノート。**1 row = 1 commit**。先頭 `pending` row を 1 つ処理 → lint+test グリーンを
 surface → commit → 当該行を `done <sha>` に更新。baseline: lint clean / **1283 passed, 2 skipped, 19 deselected**。
