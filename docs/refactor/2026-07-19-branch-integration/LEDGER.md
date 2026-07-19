@@ -16,10 +16,11 @@
 | 2 | 3 | `hems_common` パターンへの適合調整 | `services/sentinel/src/main.py` | Done | `e4953d4` | `MqttPublisher` + canonical `hems/sensors/*` topics |
 | 2 | 4 | lite サービスの lint / test / build gate | `tests/lite/`, Docker build, compose config | Done | — | `38 passed`; Docker build ×2 OK; compose config OK |
 | 2 | 5 | `main` へマージ | `integrate/lite-services` → `main` | Done | `3f02308` | — |
-| 3 | 1 | 重複ブランチ削除 | `origin/refactor/upstream-port`, `origin/refactor/brain-dedup`, `origin/hardening/p0-impl`, `origin/feat/distribution` | Pending (remote) | — | ローカルは削除済み、remote 削除待ち |
-| 3 | 2 | 統合済みブランチ削除 | `origin/docs/audit-2026-05-30-review-plan`, `origin/lite` | Pending (remote) | — | ローカルは削除済み、remote 削除待ち |
+| 3 | 1 | 重複ブランチ削除 | `origin/refactor/upstream-port`, `origin/refactor/brain-dedup`, `origin/hardening/p0-impl`, `origin/feat/distribution` | Done | — | `git push origin --delete ...` |
+| 3 | 2 | 統合済みブランチ削除 | `origin/docs/audit-2026-05-30-review-plan`, `origin/lite` | Done | — | `git push origin --delete ...` |
 | 3 | 3 | ローカル backup ブランチ削除 | `backup/hems-local-20260628` | Done | — | `git branch -D backup/hems-local-20260628` |
-| 4 | 1 | ドキュメント同期 | `CLAUDE.md`, `IMPLEMENTATION_MAP.md`, `env.example`, 各 canonical doc | In Progress | — | `IMPLEMENTATION_MAP.md` §1.2 に notifier/sentinel 追加済 |
+| 4 | 1 | ドキュメント同期 | `CLAUDE.md`, `IMPLEMENTATION_MAP.md`, `env.example`, 各 canonical doc | Done | — | commit `469885d` |
+| 5 | 1 | `main` へ push | `origin/main` | Pending | — | 5 commits ahead |
 
 ## ゲート結果記録欄
 
