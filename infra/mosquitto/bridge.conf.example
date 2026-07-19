@@ -1,0 +1,27 @@
+# MQTT Bridge: HEMS Lite → HEMS Main
+# Copy this to bridge.conf and configure, then add to mosquitto-lite.conf:
+#   include_dir /mosquitto/config/bridge.conf
+#
+# This bridges local topics to the main HEMS instance under the hems-lite/ prefix.
+
+connection hems-main
+address YOUR_MAIN_HEMS_HOST:1893
+
+# Authentication
+remote_username hems-lite-bridge
+remote_password YOUR_PASSWORD
+
+# Forward all biometric, perception, and environment data
+# Local topic → Remote topic (out = local→remote, in = remote→local)
+topic hems/personal/biometrics/# out 1 "" hems-lite/SITE_ID/
+topic office/# out 1 "" hems-lite/SITE_ID/
+topic hems/home/# out 1 "" hems-lite/SITE_ID/
+
+# Receive commands from main HEMS
+topic hems-lite/SITE_ID/command/# in 1
+
+# Bridge settings
+cleansession true
+try_private false
+start_type automatic
+restart_timeout 30
