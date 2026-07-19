@@ -29,12 +29,14 @@ from auth import (
 )
 from database import get_db
 from hmac_util import verify_signature_with_replay
+from mobile_observations import (
+    MobileObservationConflictError,
+    adapt_legacy_mobile_payload,
+    adapt_v2_mobile_batch,
+    persist_mobile_observation_batch,
+)
 
 logger = logging.getLogger(__name__)
-
-MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
-MQTT_USER = os.getenv("MQTT_USER", "hems")
-MQTT_PASS = os.getenv("MQTT_PASS", "hems_dev_mqtt")
 
 # Character version string surfaced in the registration response so the phone
 # can invalidate cached voice-capsule bundles when the persona changes.
@@ -61,28 +63,6 @@ admin_router = APIRouter(
 
 # Device-authenticated routes (webhooks, capsule retrieval — capsule added later phase).
 device_router = APIRouter(prefix="/mobile", tags=["mobile-device"])
-
-
-def _publish_mobile_event(subtopic: str, payload: dict) -> list[str]:
-    """Publish a mobile event to ``hems/personal/mobile/<subtopic>`` and return topics published.
-
-    Mirrors the synchronous paho pattern used in :mod:`routers.shopping`.
-    """
-    topic = f"hems/personal/mobile/{subtopic}"
-    body = json.dumps(payload, ensure_ascii=False, default=str)
-    try:
-        import paho.mqtt.publish as mqtt_publish
-
-        mqtt_publish.single(
-            topic,
-            body,
-            hostname=MQTT_BROKER,
-            auth={"username": MQTT_USER, "password": MQTT_PASS},
-        )
-        return [topic]
-    except Exception as exc:
-        logger.warning("MQTT publish failed for mobile %s: %s", topic, exc)
-        return []
 
 
 # ---------------------------------------------------------------- admin ---
@@ -246,57 +226,31 @@ async def state_webhook(
         )
 
     try:
-        payload = schemas.MobileStateWebhookPayload.model_validate_json(body)
+        raw = json.loads(body)
+        if raw.get("schema_version") == 2:
+            payload = schemas.MobileStateBatchV2.model_validate(raw)
+            observations = adapt_v2_mobile_batch(payload, device_id=device.id)
+        else:
+            payload = schemas.MobileStateWebhookPayload.model_validate(raw)
+            observations = adapt_legacy_mobile_payload(payload, device_id=device.id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Malformed payload: {exc}") from exc
 
-    ts_iso = payload.ts.astimezone(UTC).isoformat()
-    published: list[str] = []
+    try:
+        persisted = await persist_mobile_observation_batch(db, device=device, observations=observations)
+    except MobileObservationConflictError:
+        raise HTTPException(status_code=409, detail="observation_id already exists with different payload") from None
+    except Exception:
+        logger.exception("Durable mobile observation transaction failed")
+        raise HTTPException(status_code=503, detail="mobile observation store unavailable") from None
 
-    if payload.location is not None:
-        published += _publish_mobile_event(
-            "location",
-            {
-                **payload.location.model_dump(exclude_none=True),
-                "ts": ts_iso,
-                "device_id": device.id,
-            },
-        )
-
-    if payload.activity is not None:
-        published += _publish_mobile_event(
-            "activity",
-            {
-                **payload.activity.model_dump(exclude_none=True),
-                "ts": ts_iso,
-                "device_id": device.id,
-            },
-        )
-
-    if payload.biometrics is not None:
-        published += _publish_mobile_event(
-            "biometrics",
-            {
-                **payload.biometrics.model_dump(exclude_none=True),
-                "ts": ts_iso,
-                "device_id": device.id,
-            },
-        )
-
-    if payload.battery_pct is not None:
-        published += _publish_mobile_event(
-            "battery",
-            {
-                "percent": payload.battery_pct,
-                "ts": ts_iso,
-                "device_id": device.id,
-            },
-        )
-
-    device.last_seen_at = datetime.now(UTC)
-    await db.commit()
-
-    return schemas.MobileStateWebhookResponse(received=True, published_topics=published)
+    return schemas.MobileStateWebhookResponse(
+        received=True,
+        published_topics=[],
+        queued_observations=persisted["inserted"],
+        duplicate_observations=persisted["duplicates"],
+        idempotent=persisted["inserted"] == 0 and persisted["duplicates"] > 0,
+    )
 
 
 # ------------------------------------------------------------- voice-capsule ---

@@ -94,10 +94,11 @@ def test_legacy_adapter_is_deterministic_and_emits_every_delivery_intent():
     assert sleep.interval_start is None  # never infer a session window from one duration scalar
 
 
-def test_foundation_is_not_wired_into_legacy_mobile_router():
+def test_foundation_is_wired_without_legacy_sync_publish():
     source = (_ROOT / "services" / "backend" / "routers" / "mobile.py").read_text()
-    assert "persist_mobile_observation_batch" not in source
-    assert "adapt_legacy_mobile_payload" not in source
+    assert "persist_mobile_observation_batch" in source
+    assert "adapt_legacy_mobile_payload" in source
+    assert "_publish_mobile_event" not in source
 
 
 def test_legacy_naive_time_is_explicitly_degraded_to_assumed_utc():

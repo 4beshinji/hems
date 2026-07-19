@@ -11,28 +11,55 @@ from sqlalchemy import delete
 from auth import verify_api_key
 from database import AsyncSessionLocal
 from hems_common.auth import verify_internal_token
+from hems_common.mqtt import MqttPublisher
+from mobile_delivery import MobileDeliveryStore, MobileDeliveryWorker, worker_config
 from models import BiometricReading, PurchaseHistory, Task, TimeSeriesPoint, VoiceEvent
 
 logger = logging.getLogger(__name__)
+mobile_delivery_store = MobileDeliveryStore()
+mobile_delivery_worker: MobileDeliveryWorker | None = None
+mobile_mqtt_publisher: MqttPublisher | None = None
+
+
+def _publish_mobile_canonical(topic: str, payload: dict) -> bool:
+    return bool(mobile_mqtt_publisher and mobile_mqtt_publisher.publish(topic, payload, qos=1, retain=False))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global mobile_delivery_worker, mobile_mqtt_publisher
     # W1.2: Audit existing Device rows for identifier safety.
     # Rows that pre-date validation are left intact (no deletion/rejection) but
     # a warning is emitted so operators can review and manually correct them.
     await _audit_existing_device_ids()
 
-    # Background retention cleanup for tables without natural deletion.
+    mobile_mqtt_publisher = MqttPublisher(
+        os.getenv("MQTT_BROKER", "mosquitto"),
+        int(os.getenv("MQTT_PORT", "1883")),
+        os.getenv("MQTT_USER", "hems-backend"),
+        os.getenv("MQTT_PASS", ""),
+        client_id="hems-backend-mobile-delivery",
+        default_qos=1,
+        default_retain=False,
+    )
+    mobile_mqtt_publisher.connect()
+    mobile_delivery_worker = MobileDeliveryWorker(
+        store=mobile_delivery_store,
+        mqtt_publish=_publish_mobile_canonical,
+        biometric_bridge_url=os.getenv("BIOMETRIC_BRIDGE_URL", "http://biometric-bridge:8000"),
+        **worker_config(),
+    )
+
+    # Background retention cleanup and the single durable mobile delivery worker.
     cleanup_task = asyncio.create_task(_retention_cleanup_loop())
+    mobile_delivery_task = asyncio.create_task(mobile_delivery_worker.run())
     try:
         yield
     finally:
-        cleanup_task.cancel()
-        try:
-            await cleanup_task
-        except asyncio.CancelledError:
-            pass
+        for task in (cleanup_task, mobile_delivery_task):
+            task.cancel()
+        await asyncio.gather(cleanup_task, mobile_delivery_task, return_exceptions=True)
+        mobile_mqtt_publisher.disconnect()
 
 
 # Retention policies: (model, datetime_column, days_to_keep)
@@ -240,4 +267,14 @@ async def root():
 @app.get("/health")
 async def health():
     """Health check endpoint — no auth required for Docker healthcheck."""
-    return {"status": "ok"}
+    try:
+        counts = await mobile_delivery_store.counts()
+    except Exception:
+        counts = {}
+    return {
+        "status": "ok",
+        "mobile_delivery": {
+            **(mobile_delivery_worker.status() if mobile_delivery_worker else {"running": False}),
+            "counts": counts,
+        },
+    }

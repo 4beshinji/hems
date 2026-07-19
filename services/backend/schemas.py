@@ -838,6 +838,9 @@ class MobileStateWebhookPayload(BaseModel):
 class MobileStateWebhookResponse(BaseModel):
     received: bool = True
     published_topics: list[str] = []
+    queued_observations: int = 0
+    duplicate_observations: int = 0
+    idempotent: bool = False
 
 
 class MobileObservationV2(BaseModel):

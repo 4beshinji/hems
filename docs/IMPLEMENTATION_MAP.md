@@ -218,7 +218,7 @@ intentを`${BACKEND_URL}/internal/biometric/observations`へinternal bearer toke
 409/auth/非retry 4xxはdead-letter、MQTT失敗/5xx/networkはbackoff retryし、stale leaseは再起動後回収する。
 これはdownstream observation-ID冪等性を前提とするat-least-once配送である。mobile/Android callerとBrain side-effect dedupは未配線。
 
-### 2.5 Mobile observation foundation (P1.3a, unwired)
+### 2.5 Mobile durable ingress / delivery (P1.3)
 
 `mobile_observation_inbox`はstable observation ID、canonical hash/payload、mobile device `RESTRICT` FK、kind、
 source/interval/aggregation、statusを保持する。`mobile_delivery_outbox`は`mqtt|biometric_bridge`宛先、target/payload、
@@ -227,8 +227,10 @@ retry/lease/error timestampsを保持し、`(observation_id, destination, target
 `services/backend/mobile_observations.py`はlegacy payloadをlocation/activity/battery observationとmetric別
 `BiometricObservationIn`へpure変換し、schema-v2 batchではsource record ID/UTC timestamp/intervalを保持する。
 non-biometric MQTT targetは`hems/personal/mobile/mobile.{device_id}/{kind}`、biometric targetはbridge
-`/api/biometric/ingest`。transaction helperはinbox/outbox/device last-seenを同時commit可能だが、P1.3aでは
-`routers/mobile.py`から未使用であり、現webhookの同期`hems/personal/mobile/{kind}` publish挙動はP1.3bまで継続する。
+`/api/biometric/ingest`。P1.3bで`routers/mobile.py`はlegacy/v2 bodyをadapterへ通し、inbox/outbox/device last-seenを
+同時commit後だけ2xxにする。同ID/同hashは冪等、異hashは409、DB failureは503。旧同期publishは削除済み。
+Backend lifespanのsingle workerはstale leaseを回収し、MQTTをQoS1/non-retainedで直接publish、biometric bridgeを
+internal token付きHTTPで呼ぶ。429/5xx/networkはretry、非429 4xxと上限超過はdead-letter。Brain reducerはP1.3c範囲。
 
 ### 2.6 Approval / HITL Persistence
 

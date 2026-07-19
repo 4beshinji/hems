@@ -15,7 +15,8 @@
 | P1.2a bridge canonical intake transaction | Done | this commit | shared schema、private auth、inbox+metric/backend outbox atomic commit、duplicate/conflict/rollback/legacy併存 focused 5 passed |
 | P1.2b bridge canonical delivery worker | Done | this commit | MQTT direct/Backend token POST、status分類、backoff/dead-letter、stale lease、mixed batch、lifecycle/schema upgrade focused 16 passed |
 | P1.3a mobile durable observation foundation | Done | this commit | Alembic 0004、legacy/v2 adapter、time/ID semantics、inbox+outbox+device transaction、migration/adapter/helper focused 16 passed |
-| P1.3b–P1.5 router wiring / Android / MQTT side-effect dedup | Pending | — | 現mobile webhook同期publish、Brain consumer、Android wiringは未変更 |
+| P1.3b mobile durable ingress/delivery | Done | this commit | legacy/v2 route、atomic queue/idempotency、MQTT/bridge worker分類・retry・lifecycle focused 16 passed |
+| P1.3c–P1.5 Brain reducer / Android / MQTT side-effect dedup | Pending | — | Brain consumer、Android wiringは未変更 |
 
 監査文書だけのcommit:
 

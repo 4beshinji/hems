@@ -6,7 +6,7 @@ Status as of 2026-07-19: P1.1 Backend側にtyped observation envelope、`biometr
 `HEMS_INTERNAL_TOKEN`保護の`POST /internal/biometric/observations`を実装した。同一ID/同一payloadは2xx、
 同一ID/異なるpayloadは409。P1.2a/bでbridge private ingest、versioned `observation_inbox` / `delivery_outbox`、
 metric envelope mapper、lease/retry/dead-letter workerを実装した。mobile callerは未実装である。
-P1.3aでBackend側mobile adapter/outbox foundationを追加したがrouterは未配線であり、bridgeへのmobile trafficはまだない。
+P1.3a/bでBackend mobile router/workerからbridge private ingestへdurable配線した。Android v2 producerとBrain dedupは未実装。
 
 ## 1. 対象と方法
 

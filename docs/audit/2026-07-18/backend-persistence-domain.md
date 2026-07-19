@@ -5,8 +5,8 @@
 Status as of 2026-07-19: biometric P0/P1.1でcycle latestを`biometric_latest`、canonical source historyを
 `biometric_observations`、既存rowをlegacy `biometric_readings`に分離した。stable ID/source metadata/payload hashの
 internal-token Backend endpointに加え、P1.2a/bでbridge inbox/outbox受理transactionとdelivery workerを実装した。
-P1.3aでBackend mobile inbox/outboxとtransaction helperも実装済みとなった。router配線・mobile delivery workerはP1.3bであり、
-現行同期publish挙動はまだ変えていない。
+P1.3a/bでBackend mobile inbox/outbox、router transaction、single delivery workerを実装し同期publishを廃止した。
+Brain reducerとAndroid v2 producerは未実装である。
 
 ## 1. 対象と検証方法
 

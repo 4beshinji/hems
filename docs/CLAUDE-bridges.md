@@ -124,7 +124,7 @@ Tracks heart rate, sleep, activity, stress, and fatigue via smartband/smartwatch
 - **Thresholds**: HR > 120, HR < 45, SpO2 < 92, Stress > 80 (configurable via env vars)
 - **World model**: Tri-domain architecture — biometrics in User State domain, threshold crossing events
 - **Canonical delivery (P1.2)**: shared contract lives in `hems_common.biometric`. Internal-token protected `POST /api/biometric/ingest` atomically records `observation_inbox` plus per-metric MQTT and Backend delivery intents in `delivery_outbox`; same ID/body is idempotent and different content is 409. A single lifespan worker leases due rows, publishes MQTT intents directly, and token-POSTs Backend intents with bounded retry/dead-letter handling. Crash recovery is at-least-once and depends on stable observation-ID dedup downstream. These tables share `BIOMETRIC_DB_PATH` with, but do not replace or double-enqueue into, legacy MQTT failure queue `outbox`. Mobile/Android callers remain unwired.
-- **Mobile foundation (P1.3a)**: Backend can adapt legacy/v2 mobile sections into durable MQTT or biometric-bridge delivery intents, but the mobile webhook does not call this helper yet. No new traffic reaches the bridge until P1.3b.
+- **Mobile ingress (P1.3b)**: Backend mobile webhook now atomically queues legacy/v2 sections and a single worker delivers biometric intents to `/api/biometric/ingest` with `HEMS_INTERNAL_TOKEN`. Compose wires the URL without a service dependency, avoiding a backend↔optional-profile cycle.
 
 Configure in `.env`:
 ```bash

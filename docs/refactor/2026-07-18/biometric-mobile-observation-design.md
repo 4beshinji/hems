@@ -1,6 +1,6 @@
 # Biometric / Mobile Observation P0 Design — 2026-07-18
 
-Status: Phase 0、Phase 1 P1.1/P1.2a/P1.2b/P1.3a implemented (2026-07-19)、P1.3b–P1.5 proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
+Status: Phase 0、Phase 1 P1.1/P1.2a/P1.2b/P1.3a/P1.3b implemented (2026-07-19)、P1.3c–P1.5 proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
 
 ## 1. 決定
 
@@ -71,8 +71,10 @@ process crash後はstale leaseを回収する。downstreamはstable `observation
 P1.3aでBackendに`mobile_observation_inbox` / `mobile_delivery_outbox`、schema-v2 batch、legacy/v2 pure adapter、
 同一AsyncSession transaction helperを追加した。legacy IDはcanonical section hashから決定し、HRはsample、stepsは
 20分`interval_sum`、sleep duration scalarはsessionを推定せず`legacy_degraded`として保持する。v2はsource record ID、
-UTC source timestamp、intervalを保持する。現mobile routerはhelperを呼ばず、従来の同期MQTT publishをP1.3bまで維持する。
-Android producer、Brain MQTT side-effect dedupはP1.3b–P1.5であり、まだ配線していない。
+UTC source timestamp、intervalを保持する。P1.3bでmobile routerをlegacy/v2 adapterとtransaction helperへ切り替え、
+全inbox/outbox/device last-seen commit後だけ2xxを返す。同期MQTT publishは削除し、Backend lifespanのsingle workerが
+MQTT QoS1 non-retainedまたはbiometric bridgeへlease/retry/dead-letter配送する。downstream ID冪等性を前提とする。
+Android producer、Brain reducer/side-effect dedupはP1.3c–P1.5であり、まだ変更していない。
 
 standalone Health Connectの複合batchは、HR sample、daily steps、sleep sessionなど時間意味が違うためadapterで複数observationへ分割する。
 
@@ -154,7 +156,7 @@ legacy MQTT failure queueへcanonical intentを二重enqueueしない。未送�
 
 P1.3aのBackend migration `0004_mobile_observation_foundation`はmobile deviceを`RESTRICT`参照するimmutable inboxと、
 `mqtt|biometric_bridge` destination別unique outboxを加算する。mobile deviceは既存通りsoft-disableし、observation auditを
-保持する。helperはinbox/outbox/`MobileDevice.last_seen_at`を一transactionでcommitできるが、router配線はP1.3bで行う。
+保持する。P1.3bでhelperをproduction routerへ配線し、inbox/outbox/`MobileDevice.last_seen_at`を一transactionでcommitする。
 `BIOMETRIC_CANONICAL_INGEST_ENABLED`と`BIOMETRIC_MQTT_ENVELOPE_ENABLED`を独立toggleにする。
 
 ## 8. 段階別acceptance tests
