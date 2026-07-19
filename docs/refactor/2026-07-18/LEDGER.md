@@ -12,7 +12,8 @@
 | P0.3c migration-first runtime cutover | Done | this commit | SQLite/entrypoint focused 10 passed、PostgreSQL 16 integration 1 passed (10.19s)、compose通常/lite・env check pass |
 | P0.4 mobile non-biometric reducer | Pending | — | — |
 | P1.1 observation envelope / Backend canonical store | Done | this commit | typed UTC envelope、immutable observation ID冪等/409、internal-token auth、latest/history分離、SQLite migration/model/route focused 12 passed |
-| P1.2–P1.5 delivery / producers / MQTT side-effect dedup | Pending | — | bridge/mobile/MQTT/Android wiringは未変更 |
+| P1.2a bridge canonical intake transaction | Done | this commit | shared schema、private auth、inbox+metric/backend outbox atomic commit、duplicate/conflict/rollback/legacy併存 focused 5 passed |
+| P1.2b–P1.5 delivery worker / producers / MQTT side-effect dedup | Pending | — | delivery実行、mobile/MQTT publish/Android wiringは未変更 |
 
 監査文書だけのcommit:
 

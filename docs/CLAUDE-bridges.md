@@ -123,7 +123,7 @@ Tracks heart rate, sleep, activity, stress, and fatigue via smartband/smartwatch
 - **Brain rules**: 7 rules (high HR/stress/fatigue alerts, sleep quality notification, step goal, sleep detection lights off, fatigue-linked dimming)
 - **Thresholds**: HR > 120, HR < 45, SpO2 < 92, Stress > 80 (configurable via env vars)
 - **World model**: Tri-domain architecture — biometrics in User State domain, threshold crossing events
-- **Backend persistence (P1.1)**: `POST /internal/biometric/observations` now provides an `HEMS_INTERNAL_TOKEN`-protected immutable store with observation-ID idempotency. The bridge/mobile producers are **not wired to it yet**; existing webhook and MQTT behavior remains unchanged until P1.2–P1.5.
+- **Canonical intake (P1.2a)**: shared contract lives in `hems_common.biometric`. Internal-token protected `POST /api/biometric/ingest` atomically records `observation_inbox` plus per-metric MQTT and Backend delivery intents in `delivery_outbox`; same ID/body is idempotent and different content is 409. Both tables share `BIOMETRIC_DB_PATH` with, but do not replace, legacy MQTT failure queue `outbox`. Delivery workers and mobile/Android callers remain unwired.
 
 Configure in `.env`:
 ```bash

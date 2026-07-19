@@ -209,8 +209,11 @@ TEST_POSTGRES_URL=postgresql+asyncpg://... pytest tests/integration/test_backend
 
 `biometric_observations`はprovider/device/source timestamp/interval/aggregation/typed metrics/received timestampと
 payload hashを保持するimmutable canonical history。`biometric_latest`は別責務のcycle projectionである。
-P1.1時点でbridge/mobile/Android producerはinternal observation endpointへまだ配線されておらず、
-MQTT topic/envelopeも未変更。deliveryはP1.2–P1.5の範囲である。
+P1.2aでcanonical schema正本を`services/_common/hems_common/biometric.py`へ移し、biometric-bridge private
+`POST /api/biometric/ingest`を追加した。受理時に`BIOMETRIC_DB_PATH`の`observation_inbox`と
+`delivery_outbox`（metric別MQTT envelope + Backend canonical payload）を一transactionで作る。
+同DBのlegacy MQTT failure queue `outbox`は別owner/tableとして変更せず併存する。P1.2aはintentを保存するだけで、
+delivery worker、mobile/Android caller、実MQTT publish、Brain side-effect dedupは未配線である。
 
 ### 2.5 Approval / HITL Persistence
 

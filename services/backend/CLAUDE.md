@@ -83,6 +83,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - Models: `BiometricLatest` (Brain cycle latest projection), `BiometricObservation` (immutable canonical history), `BiometricReading` (legacy history) (`models.py`)
   - Dashboard router: `routers/biometric.py` — `POST /biometric/snapshot` / `GET /biometric/` は`biometric_latest`をupsert/readし、`GET /biometric/history`は互換期間中`biometric_readings`を読む
   - Internal router: `routers/biometric_internal.py` — `POST /internal/biometric/observations`は`HEMS_INTERNAL_TOKEN`で保護し、stable observation IDとcanonical payload hashで同一payloadを冪等化、異なるpayloadを409にする
+  - Canonical request schema/hashの正本は`services/_common/hems_common/biometric.py`。Backend `schemas.py`は互換import/re-exportのみ行う
   - 責務: latest projectionとcanonical observation historyの分離。bridge/mobile producerのこのinternal endpointへの配線は未実装
 
 - **Shopping & Intelligence**

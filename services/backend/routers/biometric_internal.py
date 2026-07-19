@@ -1,24 +1,15 @@
 """Internal canonical biometric observation ingest."""
 
-import hashlib
-import json
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
+from hems_common.biometric import BiometricObservationIn, canonical_observation_payload
 from models import BiometricObservation
-from schemas import BiometricObservationIn
 
 router = APIRouter(prefix="/internal/biometric", tags=["biometric-internal"])
-
-
-def _canonical_payload(data: BiometricObservationIn) -> tuple[dict, str]:
-    payload = data.model_dump(mode="json", exclude_none=True)
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
-    return payload, hashlib.sha256(encoded).hexdigest()
 
 
 def _duplicate_response(observation_id: str) -> dict:
@@ -28,7 +19,7 @@ def _duplicate_response(observation_id: str) -> dict:
 @router.post("/observations")
 async def ingest_observation(data: BiometricObservationIn, db: AsyncSession = Depends(get_db)):
     """Persist one immutable observation, idempotently by observation_id."""
-    payload, payload_hash = _canonical_payload(data)
+    payload, payload_hash = canonical_observation_payload(data)
     existing = await _get_observation(db, data.observation_id)
     if existing is not None:
         if existing.payload_hash == payload_hash:

@@ -17,6 +17,7 @@ import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 
+from canonical_ingest import CanonicalObservationStore, ObservationConflictError, ObservationStoreError
 from data_processor import BiometricReading, DataProcessor
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from loguru import logger
@@ -42,7 +43,13 @@ from config import (
     ZEPP_PASSWORD,
     ZEPP_POLL_INTERVAL,
 )
-from hems_common import MqttPublisher, bridge_lifespan, publish_bridge_status, verify_internal_token
+from hems_common import (
+    BiometricObservationIn,
+    MqttPublisher,
+    bridge_lifespan,
+    publish_bridge_status,
+    verify_internal_token,
+)
 
 # HMAC secret for webhook authentication.
 # Set BIOMETRIC_WEBHOOK_SECRET in environment (required).
@@ -193,6 +200,7 @@ async def _verify_webhook_signature(request: Request) -> bytes:
 # Module-level state
 mqtt_pub: MqttPublisher | None = None
 send_queue: SendQueue = SendQueue()
+canonical_store: CanonicalObservationStore = CanonicalObservationStore()
 processor = DataProcessor()
 gadgetbridge = GadgetbridgeProvider()
 huami: HuamiProvider | None = None
@@ -391,6 +399,7 @@ async def lifespan(app: FastAPI):
     async def _startup():
         global huami, zepp
         await send_queue.init()
+        await canonical_store.init()
         await gadgetbridge.start()
 
         # Huami cloud API (primary server-side path)
@@ -416,6 +425,7 @@ async def lifespan(app: FastAPI):
         if zepp:
             await zepp.stop()
         await gadgetbridge.stop()
+        await canonical_store.close()
         await send_queue.close()
 
     # Conditional poll loops — always include _bridge_status_loop and
@@ -482,6 +492,19 @@ async def receive_webhook(request: Request):
     processed = processor.process(reading)
     _publish_reading(processed)
     return {"received": True, "provider": reading.provider}
+
+
+@private_router.post("/api/biometric/ingest")
+async def receive_canonical_observation(data: BiometricObservationIn):
+    """Durably accept a canonical observation and its delivery intents."""
+    try:
+        duplicate = await canonical_store.ingest(data)
+    except ObservationConflictError:
+        raise HTTPException(status_code=409, detail="observation_id already exists with different payload") from None
+    except ObservationStoreError:
+        logger.exception("Canonical biometric ingest storage failure")
+        raise HTTPException(status_code=503, detail="canonical biometric store unavailable") from None
+    return {"accepted": True, "duplicate": duplicate, "observation_id": data.observation_id}
 
 
 @private_router.get("/api/biometric/latest")

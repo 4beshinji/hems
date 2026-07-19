@@ -4,7 +4,8 @@
 
 Status as of 2026-07-19: biometric P0/P1.1でcycle latestを`biometric_latest`、canonical source historyを
 `biometric_observations`、既存rowをlegacy `biometric_readings`に分離した。stable ID/source metadata/payload hashの
-internal-token endpointは実装済みだが、mobile/bridge outboxとproducer配線は未実装である。
+internal-token Backend endpointに加え、P1.2aでbridge inbox/outbox受理transactionを実装した。delivery worker、
+Backend mobile outbox、producer配線は未実装である。
 
 ## 1. 対象と検証方法
 
