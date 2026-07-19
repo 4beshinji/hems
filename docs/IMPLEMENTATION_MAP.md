@@ -182,7 +182,7 @@ Device Registry persistent 層。以下を参照: `services/backend/models.py` �
 #### Backend schema revision owner / startup order
 
 - Backend `public` schemaのrevision SoTは`services/backend/migrations/versions/`。現在のheadは
-  `0003_canonical_biometric_store`で、`migrations.bootstrap`がempty/unversioned/versioned DBを検証して`upgrade head`する。
+  `0004_mobile_observation_foundation`で、`migrations.bootstrap`がempty/unversioned/versioned DBを検証して`upgrade head`する。
 - Containerとローカル`make backend-run`は`entrypoint.py`を通り、migration成功後にだけUvicornを`exec`する。
   revision不整合・未知revision・DB接続失敗時はAPI/health endpointを公開しない。
 - `main.py::lifespan`はdevice identifier auditとretention taskのみを所有し、DDLを実行しない。
@@ -218,7 +218,19 @@ intentを`${BACKEND_URL}/internal/biometric/observations`へinternal bearer toke
 409/auth/非retry 4xxはdead-letter、MQTT失敗/5xx/networkはbackoff retryし、stale leaseは再起動後回収する。
 これはdownstream observation-ID冪等性を前提とするat-least-once配送である。mobile/Android callerとBrain side-effect dedupは未配線。
 
-### 2.5 Approval / HITL Persistence
+### 2.5 Mobile observation foundation (P1.3a, unwired)
+
+`mobile_observation_inbox`はstable observation ID、canonical hash/payload、mobile device `RESTRICT` FK、kind、
+source/interval/aggregation、statusを保持する。`mobile_delivery_outbox`は`mqtt|biometric_bridge`宛先、target/payload、
+retry/lease/error timestampsを保持し、`(observation_id, destination, target)`をuniqueにする。
+
+`services/backend/mobile_observations.py`はlegacy payloadをlocation/activity/battery observationとmetric別
+`BiometricObservationIn`へpure変換し、schema-v2 batchではsource record ID/UTC timestamp/intervalを保持する。
+non-biometric MQTT targetは`hems/personal/mobile/mobile.{device_id}/{kind}`、biometric targetはbridge
+`/api/biometric/ingest`。transaction helperはinbox/outbox/device last-seenを同時commit可能だが、P1.3aでは
+`routers/mobile.py`から未使用であり、現webhookの同期`hems/personal/mobile/{kind}` publish挙動はP1.3bまで継続する。
+
+### 2.6 Approval / HITL Persistence
 
 `services/backend/models.py` に定義された承認・ロールバックテーブル。
 

@@ -6,6 +6,8 @@ Status as of 2026-07-19: P0 snapshot contractとP1.1 Backend storeは実装済�
 `biometric_latest`だけを更新し、immutable historyは`biometric_observations`とinternal-token endpointに分離した。
 P1.2a/bでbridge private ingest、durable inbox/outbox、lease/retry/dead-letter delivery workerまで実装した。
 mobile/Android callerは未配線で、この監査のP0-1とclient durability/replay指摘は継続する。
+P1.3aでBackend mobile inbox/outbox、v2 schema、legacy/v2 adapter、transaction helperまで追加したが、現routerは未配線で
+同期MQTT publishを維持する。従ってend-to-end silent dropはP1.3bまで解消していない。
 
 対象コンポーネント:
 

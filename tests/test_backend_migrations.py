@@ -43,7 +43,12 @@ BACKEND_TABLES = {
     "voice_capsules",
     "voice_events",
 }
-HEAD_BACKEND_TABLES = BACKEND_TABLES | {"biometric_latest", "biometric_observations"}
+HEAD_BACKEND_TABLES = BACKEND_TABLES | {
+    "biometric_latest",
+    "biometric_observations",
+    "mobile_delivery_outbox",
+    "mobile_observation_inbox",
+}
 
 LEGACY_ADDITIVE_COLUMNS = {
     "voice_events": {"motion_id"},
@@ -165,7 +170,7 @@ def test_fresh_upgrade_is_at_head_idempotent_and_matches_metadata(tmp_path):
     before = _schema_fingerprint(database)
 
     current = _run_alembic(database, "current")
-    assert "0003_canonical_biometric_store (head)" in current.stdout
+    assert "0004_mobile_observation_foundation (head)" in current.stdout
 
     _run_alembic(database, "upgrade", "head")
     assert _schema_fingerprint(database) == before
@@ -186,14 +191,14 @@ def test_bootstrap_reconciles_full_legacy_and_preserves_unknown_schema(tmp_path)
 
     _run_bootstrap(database)
 
-    assert Path(f"{database}.pre-0003_canonical_biometric_store.bak").is_file()
+    assert Path(f"{database}.pre-0004_mobile_observation_foundation.bak").is_file()
     assert _tables(database) >= HEAD_BACKEND_TABLES | {"alembic_version", "external_plugin_data"}
     assert "legacy_extra" in _columns(database, "tasks")
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT title FROM tasks").fetchall() == [("sentinel-full",)]
         assert connection.execute("SELECT value FROM external_plugin_data").fetchall() == [("keep-me",)]
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0003_canonical_biometric_store",
+            "0004_mobile_observation_foundation",
         )
 
     before = _schema_fingerprint(database)
@@ -279,3 +284,26 @@ def test_canonical_migration_copies_only_latest_legacy_projection(tmp_path):
             (1, "legacy-latest", 82)
         ]
         assert connection.execute("SELECT COUNT(*) FROM biometric_observations").fetchone() == (0,)
+
+
+def test_mobile_foundation_upgrades_existing_head_and_preserves_devices(tmp_path):
+    database = tmp_path / "mobile-foundation-upgrade.db"
+    _run_alembic(database, "upgrade", "0003_canonical_biometric_store")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO mobile_devices (device_label, api_key_hash, hmac_secret, enabled) VALUES (?, ?, ?, ?)",
+            ("sentinel-phone", "hash", "secret", 1),
+        )
+        connection.commit()
+
+    _run_alembic(database, "upgrade", "head")
+
+    assert {"mobile_observation_inbox", "mobile_delivery_outbox"} <= _tables(database)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT device_label FROM mobile_devices").fetchall() == [("sentinel-phone",)]
+        inbox_fk = connection.execute("PRAGMA foreign_key_list(mobile_observation_inbox)").fetchone()
+        delivery_fk = connection.execute("PRAGMA foreign_key_list(mobile_delivery_outbox)").fetchone()
+        assert inbox_fk[2:4] == ("mobile_devices", "mobile_device_id")
+        assert inbox_fk[6] == "RESTRICT"
+        assert delivery_fk[2:4] == ("mobile_observation_inbox", "observation_id")
+        assert delivery_fk[6] == "CASCADE"

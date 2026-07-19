@@ -105,7 +105,7 @@ def test_postgres_fresh_partial_and_events_schema_isolation():
 
     _bootstrap()
     current = _alembic("current")
-    assert "0003_canonical_biometric_store (head)" in current.stdout
+    assert "0004_mobile_observation_foundation (head)" in current.stdout
     fresh_fingerprint = _public_fingerprint()
     _bootstrap()
     assert _public_fingerprint() == fresh_fingerprint
@@ -124,5 +124,5 @@ def test_postgres_fresh_partial_and_events_schema_isolation():
     _bootstrap()
 
     assert _sql("SELECT title FROM tasks", fetch="all") == [("sentinel-partial",)]
-    assert _sql("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'", fetch="one") == (33,)
+    assert _sql("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'", fetch="one") == (35,)
     assert _events_fingerprint() == events_before

@@ -72,6 +72,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
     - `admin_router` (`/mobile/register`, `/mobile/devices`, `/mobile/voice-capsule/*`): `Authorization: Bearer <BACKEND_API_KEY>` (`verify_api_key`)。`BACKEND_API_KEY` 未設定時はゼロコンフィグ LAN 信頼モードで開放
     - `device_router` (`/mobile/state/webhook`, `/mobile/voice-capsule/*`): 登録時に発行された per-device Bearer token (`verify_mobile_device`)。`/mobile/state/webhook` はさらに raw body の HMAC-SHA256 署名を `X-HEMS-Signature: sha256=<hex>` で検証する
   - 責務: モバイル端末登録、状態 webhook（位置/アクティビティ/生体/電池）、voice capsule 配信/ack
+  - P1.3a foundation (unwired): `MobileObservationInbox` / `MobileDeliveryOutbox`、schema-v2 batch、`mobile_observations.py` adapter/transaction helperを追加。`routers/mobile.py`はまだhelperを呼ばず、従来の同期MQTT publishを維持
 
 - **Chat & Voice**
   - Models: `Conversation`, `Message`, `VoiceEvent`, `VoiceCapsule`, `VoiceCapsulePlayLog` (`models.py`)

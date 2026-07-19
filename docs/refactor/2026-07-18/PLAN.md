@@ -27,7 +27,8 @@
 | P1.1 | observation envelopeとBackend history schema | ID/source timestamp/aggregation保持、同一ID冪等 | Done (2026-07-19) |
 | P1.2a | bridge transactional inbox/outbox + private ingest受理境界 | commit後のみ2xx、同一ID冪等、異body 409 | Done (2026-07-19) |
 | P1.2b | bridge delivery worker | MQTT/Backend停止後・再起動後delivery継続 | Done (2026-07-19) |
-| P1.3 | mobile Backend outbox→bridge合流 | mobile biometricがcanonical MQTT/historyへ一度だけ到達 | Pending |
+| P1.3a | mobile observation schema/adapter/inbox/outbox foundation | legacy/v2 time semantics、ID冪等、transaction helper。router未配線 | Done (2026-07-19) |
+| P1.3b | mobile webhook→durable outbox配線 | mobile biometricがcanonical MQTT/historyへ一度だけ到達 | Pending |
 | P1.4 | Android strict HMAC + durable outbox + permission wiring | nonce/timestamp対応、offline lossなし | Pending |
 | P1.5 | MQTT metadataとBrain side-effect dedup | retained/retryでwake/learning一度だけ | Pending |
 

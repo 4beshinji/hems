@@ -1,7 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from hems_common.biometric import (
     BiometricAggregation as BiometricAggregation,
@@ -837,6 +838,54 @@ class MobileStateWebhookPayload(BaseModel):
 class MobileStateWebhookResponse(BaseModel):
     received: bool = True
     published_topics: list[str] = []
+
+
+class MobileObservationV2(BaseModel):
+    """One source-identified section in a schema-v2 mobile batch."""
+
+    observation_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+    kind: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_.-]*$")
+    source_ts: datetime
+    interval_start: datetime | None = None
+    interval_end: datetime | None = None
+    aggregation: BiometricAggregation | None = None
+    data: dict = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("source_ts", "interval_start", "interval_end")
+    @classmethod
+    def require_utc_timestamp(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must include a UTC offset")
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_interval_and_biometric_aggregation(self):
+        if (self.interval_start is None) != (self.interval_end is None):
+            raise ValueError("interval_start and interval_end must be provided together")
+        if self.interval_start is not None and self.interval_end < self.interval_start:
+            raise ValueError("interval_end must not precede interval_start")
+        if self.kind.startswith("biometric.") and self.aggregation is None:
+            raise ValueError("biometric observations require aggregation")
+        return self
+
+
+class MobileStateBatchV2(BaseModel):
+    schema_version: Literal[2]
+    batch_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+    observations: list[MobileObservationV2] = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def require_unique_observation_ids(self):
+        ids = [observation.observation_id for observation in self.observations]
+        if len(ids) != len(set(ids)):
+            raise ValueError("observation_id must be unique within a batch")
+        return self
 
 
 # --- Biometric latest snapshot ---

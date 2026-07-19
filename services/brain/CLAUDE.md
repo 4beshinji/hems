@@ -43,6 +43,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
 - Weather tools (registered only when `ha_enabled=True` and `HA_BRIDGE_URL` is set; weather data is always ingested): `get_weather`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`, `get_biometric_trend`, `get_sleep_history`
 - Biometric persistence boundary: cognitive-cycle `POST /biometric/snapshot` is a Frontend-facing `biometric_latest` projection only. Brain does not create immutable `biometric_observations`; source ingress/delivery must supply stable observation identity separately.
+- Mobile P1.3a boundary: Backend durable mobile inbox/outbox exists only as an unwired foundation. The legacy webhook still publishes `hems/personal/mobile/*`; Brain still has no new mobile reducer or observation side-effect handling in this phase.
 - Perception tools (profile `perception`): `get_perception_status`, `describe_scene`, `list_scene_objects`, `get_scene_timeline`, `list_cameras`, `get_vlm_status`, `get_activity_history`
 - News tools (profile `news`): `get_news_summary`
 - Knowledge tools (profile `knowledge`): `search_knowledge`, `get_knowledge_sources`, `read_knowledge_document`, `get_recent_knowledge_changes`

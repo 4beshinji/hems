@@ -14,7 +14,8 @@
 | P1.1 observation envelope / Backend canonical store | Done | this commit | typed UTC envelope、immutable observation ID冪等/409、internal-token auth、latest/history分離、SQLite migration/model/route focused 12 passed |
 | P1.2a bridge canonical intake transaction | Done | this commit | shared schema、private auth、inbox+metric/backend outbox atomic commit、duplicate/conflict/rollback/legacy併存 focused 5 passed |
 | P1.2b bridge canonical delivery worker | Done | this commit | MQTT direct/Backend token POST、status分類、backoff/dead-letter、stale lease、mixed batch、lifecycle/schema upgrade focused 16 passed |
-| P1.3–P1.5 producers / MQTT side-effect dedup | Pending | — | mobile caller、Brain consumer、Android wiringは未変更 |
+| P1.3a mobile durable observation foundation | Done | this commit | Alembic 0004、legacy/v2 adapter、time/ID semantics、inbox+outbox+device transaction、migration/adapter/helper focused 16 passed |
+| P1.3b–P1.5 router wiring / Android / MQTT side-effect dedup | Pending | — | 現mobile webhook同期publish、Brain consumer、Android wiringは未変更 |
 
 監査文書だけのcommit:
 

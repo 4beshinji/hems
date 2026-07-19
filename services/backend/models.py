@@ -360,6 +360,49 @@ class MobileDevice(Base):
     enabled = Column(Boolean, default=True)
 
 
+class MobileObservationInbox(Base):
+    """Immutable mobile observation accepted before downstream delivery."""
+
+    __tablename__ = "mobile_observation_inbox"
+    observation_id = Column(String(128), primary_key=True)
+    payload_hash = Column(String(64), nullable=False)
+    mobile_device_id = Column(Integer, ForeignKey("mobile_devices.id", ondelete="RESTRICT"), nullable=False, index=True)
+    kind = Column(String(64), nullable=False, index=True)
+    observed_at = Column(TZDateTime(timezone=True), nullable=False, index=True)
+    interval_start = Column(TZDateTime(timezone=True), nullable=True)
+    interval_end = Column(TZDateTime(timezone=True), nullable=True)
+    aggregation = Column(String(32), nullable=True, index=True)
+    canonical_payload = Column(JSON, nullable=False)
+    status = Column(String(32), nullable=False, default="pending_delivery", index=True)
+    received_at = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class MobileDeliveryOutbox(Base):
+    """Durable delivery intent for one mobile observation."""
+
+    __tablename__ = "mobile_delivery_outbox"
+    id = Column(Integer, primary_key=True)
+    observation_id = Column(
+        String(128),
+        ForeignKey("mobile_observation_inbox.observation_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    destination = Column(String(32), nullable=False, index=True)  # mqtt|biometric_bridge
+    target = Column(String(256), nullable=False)
+    payload = Column(JSON, nullable=False)
+    status = Column(String(32), nullable=False, default="pending", index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(TZDateTime(timezone=True), nullable=True, index=True)
+    lease_until = Column(TZDateTime(timezone=True), nullable=True, index=True)
+    last_error = Column(String(256), nullable=True)
+    created_at = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(TZDateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        UniqueConstraint("observation_id", "destination", "target", name="uq_mobile_delivery_destination"),
+    )
+
+
 class VoiceCapsule(Base):
     __tablename__ = "voice_capsules"
     id = Column(Integer, primary_key=True, index=True)

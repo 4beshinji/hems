@@ -1,6 +1,6 @@
 # Biometric / Mobile Observation P0 Design — 2026-07-18
 
-Status: Phase 0、Phase 1 P1.1/P1.2a/P1.2b implemented (2026-07-19)、P1.3–P1.5 proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
+Status: Phase 0、Phase 1 P1.1/P1.2a/P1.2b/P1.3a implemented (2026-07-19)、P1.3b–P1.5 proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
 
 ## 1. 決定
 
@@ -68,7 +68,11 @@ metric別MQTT intent、Backend intentをcommitしてから2xxを返す受理境�
 P1.2bでsingle workerをlifespan管理し、due intentをlease claimしてMQTTへ直接publish、Backendへinternal-token付きPOSTする。
 2xxはsent、409と4xx/authはdead-letter、5xx/network/MQTT failureは指数backoff+jitterでretryし、上限後dead-letterにする。
 process crash後はstale leaseを回収する。downstreamはstable `observation_id`で冪等化される前提でat-least-once配送する。
-mobile/Android producer、Brain MQTT side-effect dedupはP1.3–P1.5であり、まだ配線していない。
+P1.3aでBackendに`mobile_observation_inbox` / `mobile_delivery_outbox`、schema-v2 batch、legacy/v2 pure adapter、
+同一AsyncSession transaction helperを追加した。legacy IDはcanonical section hashから決定し、HRはsample、stepsは
+20分`interval_sum`、sleep duration scalarはsessionを推定せず`legacy_degraded`として保持する。v2はsource record ID、
+UTC source timestamp、intervalを保持する。現mobile routerはhelperを呼ばず、従来の同期MQTT publishをP1.3bまで維持する。
+Android producer、Brain MQTT side-effect dedupはP1.3b–P1.5であり、まだ配線していない。
 
 standalone Health Connectの複合batchは、HR sample、daily steps、sleep sessionなど時間意味が違うためadapterで複数observationへ分割する。
 
@@ -83,7 +87,7 @@ BiometricObservationIn
   source_ts: UTC datetime
   interval_start: UTC datetime | null
   interval_end: UTC datetime | null
-  aggregation: sample|interval_sum|daily_total|session
+  aggregation: sample|interval_sum|daily_total|session|legacy_degraded
   metrics: BiometricMetrics           # 1つ以上
 
 BiometricMetrics
@@ -147,6 +151,10 @@ P1.2aでbridgeの`observation_inbox` / `delivery_outbox`をversion 1として`BI
 （既定`/data/send_queue.db`）へ加算した。legacy MQTT failure queue `outbox`は変更・移行せず併存する。
 Backend `biometric_delivery_outbox`は未実装。bridge `delivery_outbox` workerはP1.2bで実装し、
 legacy MQTT failure queueへcanonical intentを二重enqueueしない。未送信outboxは将来のrollbackでも削除しない。
+
+P1.3aのBackend migration `0004_mobile_observation_foundation`はmobile deviceを`RESTRICT`参照するimmutable inboxと、
+`mqtt|biometric_bridge` destination別unique outboxを加算する。mobile deviceは既存通りsoft-disableし、observation auditを
+保持する。helperはinbox/outbox/`MobileDevice.last_seen_at`を一transactionでcommitできるが、router配線はP1.3bで行う。
 `BIOMETRIC_CANONICAL_INGEST_ENABLED`と`BIOMETRIC_MQTT_ENVELOPE_ENABLED`を独立toggleにする。
 
 ## 8. 段階別acceptance tests

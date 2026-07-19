@@ -16,6 +16,7 @@ class BiometricAggregation(StrEnum):
     INTERVAL_SUM = "interval_sum"
     DAILY_TOTAL = "daily_total"
     SESSION = "session"
+    LEGACY_DEGRADED = "legacy_degraded"
 
 
 class BiometricMetrics(BaseModel):
