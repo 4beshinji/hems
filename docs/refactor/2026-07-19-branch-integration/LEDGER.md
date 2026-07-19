@@ -20,7 +20,7 @@
 | 3 | 2 | 統合済みブランチ削除 | `origin/docs/audit-2026-05-30-review-plan`, `origin/lite` | Done | — | `git push origin --delete ...` |
 | 3 | 3 | ローカル backup ブランチ削除 | `backup/hems-local-20260628` | Done | — | `git branch -D backup/hems-local-20260628` |
 | 4 | 1 | ドキュメント同期 | `CLAUDE.md`, `IMPLEMENTATION_MAP.md`, `env.example`, 各 canonical doc | Done | — | commit `469885d` |
-| 5 | 1 | `main` へ push | `origin/main` | Pending | — | 5 commits ahead |
+| 5 | 1 | `main` へ push | `origin/main` | Done | — | `git push origin main` (6 commits) |
 
 ## ゲート結果記録欄
 
