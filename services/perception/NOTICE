@@ -1,0 +1,22 @@
+HEMS Perception Service — third-party attribution
+=================================================
+
+This service performs pose estimation with RTMO, executed via rtmlib. Both, and
+the bundled RTMO ONNX model weights, are licensed under the Apache License 2.0.
+Per Apache-2.0 §4, the following attribution is preserved. These obligations
+apply only to the components below — not to HEMS's own source.
+
+1. rtmlib
+   - Project: https://github.com/Tau-J/rtmlib
+   - Copyright (c) Tau-J and rtmlib contributors
+   - License: Apache License 2.0
+
+2. RTMO / MMPose (pose model + ONNX weights)
+   - Project: https://github.com/open-mmlab/mmpose (projects/rtmo)
+   - Copyright (c) OpenMMLab and MMPose contributors
+   - License: Apache License 2.0
+   - Bundled weights: rtmo-s_8xb32-600e_body7-640x640 (unmodified), retrieved
+     from https://download.openmmlab.com/mmpose/v1/projects/rtmo/onnx_sdk/
+
+Full Apache-2.0 license text: https://www.apache.org/licenses/LICENSE-2.0
+The model weights are redistributed unmodified.

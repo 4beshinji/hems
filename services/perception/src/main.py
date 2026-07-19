@@ -1,7 +1,7 @@
 """
 HEMS Perception Service — Camera-based person detection + activity tracking.
 
-Captures frames from MCP/stream cameras, runs YOLOv11s-pose inference,
+Captures frames from MCP/stream cameras, runs RTMO pose inference,
 classifies posture/activity, and publishes to MQTT for Brain consumption.
 
 Optional VLM (Vision Language Model) integration via Ollama for richer
@@ -28,6 +28,7 @@ from config import (
     MQTT_PASS,
     MQTT_PORT,
     MQTT_USER,
+    POSE_DEVICE,
     POSE_MODEL,
     PROCESS_INTERVAL,
     VLM_BASE_INTERVAL,
@@ -56,7 +57,7 @@ vlm_analyzer = None  # VLMAnalyzer | None
 vlm_scheduler = None  # VLMScheduler | None
 _vlm_session: aiohttp.ClientSession | None = None
 
-# State tracking for YOLO event detection → VLM scheduler notification
+# State tracking for pose event detection → VLM scheduler notification
 _prev_state: dict[str, dict] = {}  # {cam_id: {person_count, posture, activity_level}}
 
 logger.remove()
@@ -64,7 +65,7 @@ logger.add(lambda msg: print(msg, end=""), level=LOG_LEVEL, format="{time:HH:mm:
 
 
 def _detect_events(cam_id: str, zone: str, person_count: int, posture: str, activity_level: float) -> None:
-    """Compare current YOLO state with previous, notify VLM scheduler on changes."""
+    """Compare current pose state with previous, notify VLM scheduler on changes."""
     if not vlm_scheduler:
         return
 
@@ -360,6 +361,7 @@ async def lifespan(app: FastAPI):
     detector = Detector(
         pose_model_name=POSE_MODEL,
         confidence=CONFIDENCE_THRESHOLD,
+        device=POSE_DEVICE,
     )
 
     async def _load_models():

@@ -21,7 +21,7 @@ np = pytest.importorskip("numpy", reason="numpy not installed")
 # Mock heavy optional dependencies that are NOT installed in the test env.
 # Only mock what's truly missing — paho-mqtt IS installed and must not be mocked
 # (mocking it breaks other tests that import the real client).
-for _mod_name in ("cv2", "ultralytics"):
+for _mod_name in ("cv2",):
     if _mod_name not in sys.modules:
         sys.modules[_mod_name] = types.ModuleType(_mod_name)
 
@@ -126,30 +126,11 @@ def _make_frame(width: int = 640, height: int = 480) -> np.ndarray:
 
 class TestDetector:
     def test_detect_returns_frame_result_structure(self):
-        """Mock YOLO model to verify FrameResult structure."""
-        det = Detector(pose_model_name="yolo11s-pose.pt", confidence=0.5)
+        """Mock RTMO model to verify FrameResult structure."""
+        det = Detector(pose_model_name="rtmo-s.onnx", confidence=0.5)
 
-        # Create mock YOLO result
-        mock_box = MagicMock()
-        mock_box.xyxy = [MagicMock(tolist=lambda: [10.0, 20.0, 100.0, 200.0])]
-        mock_box.conf = [MagicMock(__float__=lambda self: 0.85)]
-
-        mock_boxes = MagicMock()
-        mock_boxes.__len__ = lambda self: 1
-        mock_boxes.__getitem__ = lambda self, i: mock_box
-
-        mock_kps_data = MagicMock()
-        mock_kps_tensor = MagicMock()
-        mock_kps_tensor.cpu.return_value.numpy.return_value = _make_keypoints("standing")
-        mock_kps_data.data = [mock_kps_tensor]
-        mock_kps_data.__len__ = lambda self: 1
-        mock_kps_data.__getitem__ = lambda self, i: mock_kps_data
-
-        mock_result = MagicMock()
-        mock_result.boxes = mock_boxes
-        mock_result.keypoints = mock_kps_data
-
-        det._pose_model = MagicMock(return_value=[mock_result])
+        kps = _make_keypoints("standing")
+        det._pose_model = MagicMock(return_value=(kps[None, :, :2], kps[None, :, 2]))
         det._loaded = True
 
         frame = _make_frame()
@@ -158,33 +139,29 @@ class TestDetector:
         assert isinstance(result, FrameResult)
         assert result.person_count == 1
         assert len(result.detections) == 1
-        assert result.detections[0].confidence == 0.85
+        assert result.detections[0].confidence == pytest.approx(float(kps[:, 2].mean()))
+        assert result.detections[0].keypoints.shape == (17, 3)
         assert result.timestamp > 0
 
-    def test_detect_filters_person_class_only(self):
-        """Verify that detect passes classes=[0] to YOLO."""
+    def test_detect_calls_rtmo_without_yolo_kwargs(self):
+        """Verify that detect calls RTMO with the frame only."""
         det = Detector(confidence=0.6)
-        det._pose_model = MagicMock(return_value=[])
+        kps = _make_keypoints("standing")
+        det._pose_model = MagicMock(return_value=(kps[None, :, :2], kps[None, :, 2]))
         det._loaded = True
 
         frame = _make_frame()
         det.detect(frame)
 
-        det._pose_model.assert_called_once()
-        call_kwargs = det._pose_model.call_args[1]
-        assert call_kwargs["classes"] == [0]
-        assert call_kwargs["conf"] == 0.6
+        det._pose_model.assert_called_once_with(frame)
 
     def test_detect_empty_frame(self):
         """No detections → person_count=0, empty detections list."""
         det = Detector()
 
-        mock_result = MagicMock()
-        mock_result.boxes = MagicMock(__len__=lambda self: 0)
-        mock_result.boxes.__iter__ = lambda self: iter([])
-        mock_result.keypoints = None
-
-        det._pose_model = MagicMock(return_value=[mock_result])
+        keypoints = np.zeros((1, 17, 2), dtype=np.float32)
+        scores = np.zeros((1, 17), dtype=np.float32)
+        det._pose_model = MagicMock(return_value=(keypoints, scores))
         det._loaded = True
 
         result = det.detect(_make_frame())

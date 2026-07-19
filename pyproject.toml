@@ -76,7 +76,7 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "services/brain/tests"]
+testpaths = ["tests", "services/brain/tests", "services/perception/tests"]
 asyncio_mode = "auto"
 markers = [
     "integration: requires running services",
