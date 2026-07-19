@@ -11,15 +11,15 @@
 | 1 | 4 | `requirements.txt` / `env.example` 手動解決 | `services/perception/requirements.txt`, `env.example` | Done | — | branch 版を採用 |
 | 1 | 5 | RTMO 統合の lint / test gate | perception tests | Done | — | `76 passed, 2 skipped` |
 | 1 | 6 | `main` へマージ | `integrate/rtmo-perception` → `main` | Done | `54d5034` | — |
-| 2 | 1 | lite サービス統合ブランチ作成 | `integrate/lite-services` | Pending | — | — |
-| 2 | 2 | notifier / sentinel / lite ファイルを `main` へ移植 | `services/notifier/`, `services/sentinel/`, `infra/docker-compose.lite.yml`, etc. | Pending | — | — |
-| 2 | 3 | `hems_common` パターンへの適合調整 | `services/notifier/src/main.py`, `services/sentinel/src/main.py` | Pending | — | — |
-| 2 | 4 | lite サービスの lint / test / build gate | `tests/lite/`, Docker build, compose config | Pending | — | — |
-| 2 | 5 | `main` へマージ | `integrate/lite-services` → `main` | Pending | — | — |
-| 3 | 1 | 重複ブランチ削除 | `origin/refactor/upstream-port`, `origin/refactor/brain-dedup`, `origin/hardening/p0-impl`, `origin/feat/distribution` | Pending | — | — |
-| 3 | 2 | 統合済みブランチ削除 | `origin/docs/audit-2026-05-30-review-plan`, `origin/lite` | Pending | — | — |
-| 3 | 3 | ローカル backup ブランチ削除 | `backup/hems-local-20260628` | Pending | — | — |
-| 4 | 1 | ドキュメント同期 | `CLAUDE.md`, `IMPLEMENTATION_MAP.md`, 各 canonical doc | Pending | — | — |
+| 2 | 1 | lite サービス統合ブランチ作成 | `integrate/lite-services` | Done | — | — |
+| 2 | 2 | notifier / sentinel / lite ファイルを `main` へ移植 | `services/notifier/`, `services/sentinel/`, `infra/docker-compose.lite.yml`, etc. | Done | `e4953d4` | sentinel モジュールを `sentinel.*` パッケージ化 |
+| 2 | 3 | `hems_common` パターンへの適合調整 | `services/sentinel/src/main.py` | Done | `e4953d4` | `MqttPublisher` + canonical `hems/sensors/*` topics |
+| 2 | 4 | lite サービスの lint / test / build gate | `tests/lite/`, Docker build, compose config | Done | — | `38 passed`; Docker build ×2 OK; compose config OK |
+| 2 | 5 | `main` へマージ | `integrate/lite-services` → `main` | Done | `3f02308` | — |
+| 3 | 1 | 重複ブランチ削除 | `origin/refactor/upstream-port`, `origin/refactor/brain-dedup`, `origin/hardening/p0-impl`, `origin/feat/distribution` | Pending (remote) | — | ローカルは削除済み、remote 削除待ち |
+| 3 | 2 | 統合済みブランチ削除 | `origin/docs/audit-2026-05-30-review-plan`, `origin/lite` | Pending (remote) | — | ローカルは削除済み、remote 削除待ち |
+| 3 | 3 | ローカル backup ブランチ削除 | `backup/hems-local-20260628` | Done | — | `git branch -D backup/hems-local-20260628` |
+| 4 | 1 | ドキュメント同期 | `CLAUDE.md`, `IMPLEMENTATION_MAP.md`, `env.example`, 各 canonical doc | In Progress | — | `IMPLEMENTATION_MAP.md` §1.2 に notifier/sentinel 追加済 |
 
 ## ゲート結果記録欄
 
@@ -54,7 +54,16 @@ DOCKER_BUILDKIT=1 docker build -t hems-sentinel:dev services/sentinel
 cd infra && docker compose -f docker-compose.lite.yml config
 ```
 
-結果: 未実行
+結果:
+
+```
+make lint: ruff check passed, ruff format --check passed
+tests/lite: 38 passed in 0.11s
+Docker build: hems-notifier:dev, hems-sentinel:dev 成功
+docker compose -f docker-compose.lite.yml config: OK
+```
+
+全 test suite 実行時は `2408 passed, 3 skipped, 48 deselected, 1 failed, 11 errors`。失敗/エラーは Phase 1 と同一の pre-existing 問題（security auth test + biometric bridge webhook fixtures）で、lite 統合による追加の失敗はなし。
 
 ## 備考
 

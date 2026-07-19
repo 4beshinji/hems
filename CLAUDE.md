@@ -141,11 +141,13 @@ Host ports are configurable via `HEMS_PORT_*` env vars.
 | News Bridge | 8021 | `HEMS_PORT_NEWS_BRIDGE` | hems-news-bridge |
 | Knowledge Bridge | 8022 | `HEMS_PORT_KNOWLEDGE_BRIDGE` | hems-knowledge-bridge |
 | STT Service | 8023 | `HEMS_PORT_STT` | hems-stt |
+| Notifier (Lite) | 8019 | `HEMS_PORT_NOTIFIER` | hems-lite-notifier |
 | VOICEVOX | 50031 | `HEMS_PORT_VOICEVOX` | hems-voicevox |
 | Ollama | 11444 | `HEMS_PORT_OLLAMA` | hems-ollama |
 | PostgreSQL | 5442 | `HEMS_PORT_POSTGRES` | hems-postgres |
 | MQTT | 1893 | `HEMS_PORT_MQTT` | hems-mqtt |
 | Weather bridge | — | — | hems-weather-bridge |
+| Sentinel (Lite) | — | — | hems-lite-sentinel |
 
 ### MQTT Topics
 
@@ -162,6 +164,19 @@ Host ports are configurable via `HEMS_PORT_*` env vars.
 - `hems/<service>/bridge/status` — 各ブリッジ接続状態
 - `hems/approvals/{approval_id}/decide` — backend から Brain への承認決定通知 (HITL)
 - `hems/brain/{reload-character,guest-mode}` — Brain 制御
+
+### HEMS Lite (lightweight satellite)
+
+軽量監視サテライト構成。Brain なしで `sentinel` (ルール + グレーゾーン LLM) が MQTT センサーを監視し、`notifier` (LINE/Discord/Slack/ntfy) へ通知する。別ファイル `infra/docker-compose.lite.yml` で起動する。
+
+```bash
+# Standalone lite stack
+cd infra && docker compose -f docker-compose.lite.yml up -d --build
+# With optional biometric / perception / HA bridge
+# docker compose -f docker-compose.lite.yml --profile biometric up -d --build
+```
+
+詳細・設定テンプレート: [`docs/lite/README.md`](docs/lite/README.md) / `env.lite.example`
 
 ### Brain Service
 

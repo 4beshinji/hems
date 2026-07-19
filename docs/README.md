@@ -87,7 +87,8 @@
 | [`technical-debt-audit-2026-05-24.md`](technical-debt-audit-2026-05-24.md) → [`technical-debt-refactoring-plan-2026-05-24.md`](technical-debt-refactoring-plan-2026-05-24.md) → [`technical-debt-followups-2026-05-25.md`](technical-debt-followups-2026-05-25.md) | **completed** — 5/24-25 負債監査 → 計画 → followup。followup P1-P3 は全解決済(2026-06-11 監査で確認) |
 | [`audit/2026-05-25/`](audit/2026-05-25/README.md) | **historical / superseded** — サービス単位実装監査。後継: `audit/2026-06-11/SUMMARY.md` |
 | [`refactor/2026-05-25/LEDGER.md`](refactor/2026-05-25/LEDGER.md) | **historical / completed** — R0-R8 リファクタ台帳。deferred 9 行は refactor/2026-06-11 W2 へ移管済み |
-| [`lite/refinement-plan.md`](lite/refinement-plan.md) | **historical** — lite ブランチ(2026-03-05 凍結)精査計画。再開時の復旧ガイド |
+| [`lite/README.md`](lite/README.md) | **active** — HEMS Lite (lightweight satellite) のセットアップ・設定・運用ガイド |
+| [`lite/refinement-plan.md`](lite/refinement-plan.md) | **historical** — lite ブランチ(2026-03-05 凍結)精査計画。復旧の経緯は `refactor/2026-07-19-branch-integration/` へ |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | breaking change / migration / deprecation |
 | `wiring-gap-0{1,2,3,4,5}-*.md` | **CLOSED (2026-05-03)** — gap-06 に統合済。履歴参照用 |
 | `pitch-slides.md` / `pitch-deck.md` / `pitch-gamma-prompt.md` / `pitch-notebooklm.txt` / `pitch-slides.pdf` / `pitch-diagrams*.mmd` | **historical** — pitch 資料(運用対象外) |

@@ -54,6 +54,8 @@
 | services/data-bridge | Phase 2 scaffold (Strava/Fitbit/Garmin 用)、実装予定 W3.1 後 | **実装予定** — 共有ライブラリ W3.1/W3.2 完了後に `_common` ベース新規ブリッジとして実装(2026-08 月以降) |
 | services/mobile-android | Android コンパニオンアプリ (Gradle プロジェクト) | **ALIVE** — Docker 化対象外。apk ビルド、実デバイス配布。詳細: [`services/mobile-android/README.md`](../services/mobile-android/README.md) |
 | apps/healthconnect-companion | Android Health Connect reader (Gradle プロジェクト) | **ALIVE** — Docker 化対象外。apk ビルド、実デバイス配布。biometric-bridge webhook データソース。詳細: [`apps/healthconnect-companion/README.md`](../apps/healthconnect-companion/README.md) |
+| services/notifier | HEMS Lite 通知ゲートウェイ (LINE/Discord/Slack/ntfy) | **ALIVE** — Docker 化対象外の Lite サービス。`infra/docker-compose.lite.yml` の `notifier` サービスとして使用。詳細: [`docs/lite/README.md`](lite/README.md) |
+| services/sentinel | HEMS Lite 見守りエンジン (ルール + グレーゾーン + クラウド LLM) | **ALIVE** — Docker 化対象外の Lite サービス。`infra/docker-compose.lite.yml` の `sentinel` サービスとして使用。詳細: [`docs/lite/README.md`](lite/README.md) |
 
 ### 1.3 Verification
 
