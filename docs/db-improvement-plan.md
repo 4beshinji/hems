@@ -40,7 +40,7 @@
 | 3 | Backend の pool 設定なし | 中 | PostgreSQL 時の安定性 | **W4.5' で対応済** |
 | 4 | Biometric リテンションの設計問題 | 中 | クリーンアップの信頼性 | **対応済** (main.py `RETENTION_POLICIES` に統合) |
 | 5 | インデックス不足 | 中 | クエリ性能 | 未対応 |
-| 6 | マイグレーション管理の脆弱性 | 低 | 保守性 | 部分的対応 (`backend/main.py` で起動時 best-effort 列追加) |
+| 6 | マイグレーション管理の脆弱性 | 低 | 保守性 | **Backend対応済み** (Alembic + migration-first fail-fast)。Brain `events` DDLは独立課題 |
 | 7 | event_store DDL 分割の脆弱性 | 低 | 将来の堅牢性 | 未対応 |
 
 ---
@@ -302,7 +302,12 @@ async with engine.begin() as conn:
 
 ## 6. マイグレーション管理の脆弱性
 
-### 問題
+> **2026-07-19 Backend対応済み** — 当初の自前migration table案は、PostgreSQL/SQLite両対応と30 modelの
+> schema drift検出を踏まえて不採用とした。BackendはAlembic固定revisionを採用し、`entrypoint.py`が
+> `migrations.bootstrap`成功後だけUvicornを起動する。`main.py`のbest-effort DDLは削除済み。
+> 以下の案比較は決定経緯として残すが、現行運用の正本は`services/backend/CLAUDE.md`である。
+
+### 問題（修正前）
 
 - Backend: `try/except pass` で ALTER TABLE (`main.py` L28-35)
 - Brain: `PRAGMA table_info` で列存在チェック → ALTER (`event_store/database.py` L146-157)
@@ -313,7 +318,7 @@ async with engine.begin() as conn:
 - `services/backend/main.py`
 - (将来的に `services/backend/migrations.py` 新設)
 
-### 案A: 自前マイグレーションテーブル (推奨)
+### 案A: 自前マイグレーションテーブル（不採用）
 
 ```python
 MIGRATIONS = [
@@ -348,17 +353,20 @@ async def run_migrations(conn):
 - 変更量: 新規30行 + main.py の既存 migration 置き換え
 - 利点: 適用済み判定が確実。冪等。課題5のインデックス追加もここに統合可能
 
-### 案B: Alembic 導入
+### 案B: Alembic 導入（採用・実装済み）
 
-- 変更量: Alembic 設定 + 既存DDLをrevision化
-- 欠点: async 対応に工夫要。Phase 0 の zero-config 思想と相反。依存追加
+- `services/backend/migrations/versions/0001_backend_baseline.py` / `0002_legacy_additive_columns.py`で固定revision化。
+- async PostgreSQLとSQLiteを同じbootstrapで処理し、legacy DBはblind stampせず検証/reconcileする。
+- PostgreSQL CIでfresh/no-op/partial legacyとBrain `events` schema非変更を検証する。
 
 ### 案C: Brain パターンに統一 (PRAGMA table_info チェック)
 
 - 変更量: main.py 5行書き換え
 - 欠点: SQLite 限定。マイグレーション増加に弱い
 
-### 結論: 案A (課題5のインデックス追加と自然に統合できる)
+### 結論: 案B（2026-07-19実装済み）
+
+BackendとBrainのDDL ownerは統合しない。Backend Alembicは`public`のみ、Brain event storeは`events`を独立管理する。
 
 ---
 

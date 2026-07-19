@@ -199,8 +199,10 @@ VRM avatar / animation の詳細は [`docs/avatar-setup.md`](docs/avatar-setup.m
 - Default: PostgreSQL 16 (core service since W4.5')
 - Optional: SQLite (`aiosqlite`) — use `make quickstart-sqlite` or the
   `docker-compose.sqlite-lite.yml` override for lightweight deployments
+- Backend schema: Alembic `migrations.bootstrap` runs before Uvicorn; migration failure is fail-fast. Local startup is `make backend-run`.
+- Backend revisions own PostgreSQL `public`; Brain event_store continues to own the separate `events` schema.
 - Migration: `infra/scripts/migrate_sqlite_to_pg.py` supports `--check`,
-  `--dry-run`, and automatic `.bak` backups before executing
+  `--dry-run`, and automatic `.bak` backups before executing data transfer (not schema revision)
 - Backend: Task, User, VoiceEvent, SystemStats, ShoppingItem, PurchaseHistory
 - Brain event_store: raw_events, llm_decisions, hourly_aggregates (`events` schema)
 - Retention: 730 days (2 years) for raw_events and llm_decisions
@@ -276,5 +278,4 @@ For exact mapping between code, docker-compose, MQTT topics, world model fields,
 - Configuration via environment variables (`.env`)
 - Source code bind-mounted into containers (changes take effect on restart)
 - Bilingual: English code/comments, Japanese UI/voice/docs
-
 

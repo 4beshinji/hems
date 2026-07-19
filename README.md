@@ -9,6 +9,8 @@ make quickstart
 ```
 
 `.env` がなければ自動生成し、共有Pythonベースイメージをビルドして常時起動コアを立ち上げます。
+Backendは起動前にversioned migrationを自動適用し、失敗時はAPIを起動しません。既存PostgreSQL環境は更新前に
+backupを取得してください。SQLite軽量モードはhead不一致時にrevision別`*.pre-<head>.bak`を自動作成します。
 
 - ダッシュボード: http://localhost:8080
 - Backend API: http://localhost:8010/docs
@@ -39,6 +41,8 @@ docker compose up -d --build
 ```bash
 make quickstart-sqlite
 ```
+
+ローカルでBackendだけを起動する場合もmigration-firstの`make backend-run`を使用します。
 
 ## HEMSでできること
 

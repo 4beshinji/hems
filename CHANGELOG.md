@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-07-19
+
+### ⚠️ Backend schema migrationをAlembicへ移行
+
+- Backend containerと`make backend-run`は固定Alembic revisionを`upgrade head`してからUvicornを起動する。
+- migration失敗時はfail-fastし、旧`main.py` lifespanの`create_all` / best-effort `ALTER TABLE`は削除した。
+- unversioned legacy DBはblind stampせず既存列を検証し、欠落tableと管理対象20列だけをreconcileする。
+- upgrade前にPostgreSQL backupを取得すること。SQLite軽量モードはrevision別`*.pre-<head>.bak`を自動作成する。downgradeでtableをdropせずforward-fixする。
+- Backend revisionのownerはPostgreSQL `public`のみ。Brain event storeの`events` schemaは変更しない。
+
 ## 2026-06-30
 
 ### 🆕 Phase 2 適応的閾値とドリフト検知
@@ -119,20 +129,8 @@ docker compose restart mosquitto
 | `link_quality` | INTEGER | Z2M LQI (0-255) / SwitchBot RSSI |
 | `last_seen_reported` | TIMESTAMP TZ | デバイス自身が報告した最終アクセス時刻 (Z2M `last_seen`) |
 
-backend は alembic 未導入 (`Base.metadata.create_all` のみ) のため、**既存 DB は新カラムを自動追加しない**。dev 環境では DB を削除して再生成:
-
-```bash
-docker compose stop backend brain
-docker compose rm -f backend brain
-docker volume rm hems_hems_backend_data
-docker compose up -d --build backend brain
-```
-
-prod 想定なら手動マイグレーション:
-```sql
-ALTER TABLE device ADD COLUMN link_quality INTEGER;
-ALTER TABLE device ADD COLUMN last_seen_reported TIMESTAMP WITH TIME ZONE;
-```
+> 2026-07-19以降、この手動migration案は廃止。Backend Alembicの`0002_legacy_additive_columns`が
+> `link_quality` / `last_seen_reported`を含む既存20列を検証・追加する。volume削除や手動ALTERは不要。
 
 ### ⚠️ 古いコンテナボリュームの所有者問題 (brain / backend)
 

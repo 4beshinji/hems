@@ -3,84 +3,20 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import delete
 
 from auth import verify_api_key
-from database import AsyncSessionLocal, Base, engine
+from database import AsyncSessionLocal
 from models import BiometricReading, PurchaseHistory, Task, TimeSeriesPoint, VoiceEvent
 
 logger = logging.getLogger(__name__)
 
 
-async def _add_column_if_missing(conn, table: str, col: str, col_type: str) -> None:
-    """Best-effort additive column migration for existing SQLite/Postgres DBs.
-
-    This is a hand-rolled migration, NOT a framework. It only adds columns; it
-    cannot drop/rename/alter types or order changes. The "column already exists"
-    case (re-run on an up-to-date DB) is expected and logged at debug; any other
-    DDL failure is surfaced as a warning instead of being silently swallowed.
-    A proper migration tool (Alembic) is the intended follow-up and is out of
-    scope here.
-    """
-    from sqlalchemy import text
-
-    try:
-        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
-        logger.info(f"Added {col} column to {table}")
-    except Exception as e:
-        msg = str(e).lower()
-        if "duplicate column" in msg or "already exists" in msg:
-            logger.debug(f"Column {table}.{col} already present; skipping")
-        else:
-            logger.warning(f"Column migration {table}.{col} failed: {e}")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure data directory exists for SQLite
-    db_url = os.getenv("DATABASE_URL", "")
-    if "sqlite" in db_url:
-        db_path = db_url.split("///")[-1] if "///" in db_url else "./data/hems.db"
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables created/verified")
-
-    # Lightweight additive column migration for existing SQLite/Postgres DBs.
-    # (Hand-rolled; see _add_column_if_missing. Alembic is the intended follow-up.)
-    migrations: list[tuple[str, str, str]] = [
-        ("voice_events", "motion_id", "VARCHAR"),
-        ("tasks", "cognitive_load", "INTEGER"),
-        ("tasks", "preferred_time_slot", "VARCHAR"),
-        ("tasks", "deadline", "DATETIME"),
-        ("tasks", "source", "VARCHAR"),
-        ("tasks", "source_ref", "VARCHAR"),
-        ("tasks", "confidence", "REAL"),
-        ("tasks", "proposal_status", "VARCHAR"),
-        ("tasks", "dismissed_at", "DATETIME"),
-        ("tasks", "dismiss_reason", "VARCHAR"),
-        ("tasks", "locked_start", "DATETIME"),
-        ("shopping_items", "store_category", "VARCHAR"),
-        ("devices", "model_id", "VARCHAR"),
-        ("devices", "manufacturer", "VARCHAR"),
-        ("devices", "link_quality", "INTEGER"),
-        ("devices", "last_seen_reported", "DATETIME"),
-        ("automation_rules", "risk_tier", "VARCHAR"),
-        ("automation_rules", "reversibility", "VARCHAR"),
-        ("automation_rules", "approval_required", "BOOLEAN"),
-        ("automation_rules", "auto_rollback_window_seconds", "INTEGER"),
-    ]
-    for table, col, col_type in migrations:
-        # Per-column transaction so one failure can't abort the rest (Postgres
-        # aborts the whole tx on a failed statement).
-        async with engine.begin() as conn:
-            await _add_column_if_missing(conn, table, col, col_type)
-
     # W1.2: Audit existing Device rows for identifier safety.
     # Rows that pre-date validation are left intact (no deletion/rejection) but
     # a warning is emitted so operators can review and manually correct them.

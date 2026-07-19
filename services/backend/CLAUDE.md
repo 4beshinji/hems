@@ -4,6 +4,15 @@ Backend は FastAPI + SQLAlchemy async で構成される永続化・REST API �
 
 Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read that first if you haven't. Brain-side device tools and the brain chat server are documented in `services/brain/CLAUDE.md` — this file is the backend (persistence + HTTP) side.
 
+## Schema migrations / startup
+
+- Backend schemaはAlembic revision (`migrations/versions/`)が唯一のDDL SoT。`main.py` lifespanはDDLを実行しない。
+- Containerは`entrypoint.py`、ローカルは`make backend-run`を使用し、`python -m migrations.bootstrap`成功後だけUvicornを起動する。
+- 手動適用は`cd services/backend && python -m migrations.bootstrap`。`DATABASE_URL`は環境変数から読み、URL自体をlogしない。
+- 現在のheadは`0002_legacy_additive_columns`。unversioned legacy DBもblind stampせずrevisionで検証/reconcileする。
+- migration前にbackupを取得する。SQLiteはhead不一致時にrevision別`*.pre-<head>.bak`を自動作成し、PostgreSQLは運用backupを取得する。rollbackはDBをheadのままforward-fixする。
+- Backend Alembicの所有範囲はPostgreSQL `public`のみ。Brain event storeの`events` schemaを変更してはならない。
+
 ## Backend Models / Routers Overview
 
 主要な SQLAlchemy モデルと FastAPI ルーターをカテゴリ別に示します。詳細な CRUD 仕様は各ルーター/モデルファイルを参照してください。ファイルパスは `services/backend/` からの相対パスです。

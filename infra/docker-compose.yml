@@ -228,6 +228,7 @@ services:
     build: ../services/backend
     container_name: hems-backend
     restart: always
+    command: ["python", "entrypoint.py"]
     ports:
       - "${HEMS_PORT_BACKEND:-8010}:8000"
     depends_on:

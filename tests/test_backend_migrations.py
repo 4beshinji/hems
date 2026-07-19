@@ -156,7 +156,7 @@ def test_fixed_baseline_excludes_then_adds_legacy_columns(tmp_path):
 
 
 def test_fresh_upgrade_is_at_head_idempotent_and_matches_metadata(tmp_path):
-    database = tmp_path / "fresh.db"
+    database = tmp_path / "missing-data-dir" / "fresh.db"
 
     _run_bootstrap(database)
     before = _schema_fingerprint(database)
@@ -183,6 +183,7 @@ def test_bootstrap_reconciles_full_legacy_and_preserves_unknown_schema(tmp_path)
 
     _run_bootstrap(database)
 
+    assert Path(f"{database}.pre-0002_legacy_additive_columns.bak").is_file()
     assert _tables(database) >= BACKEND_TABLES | {"alembic_version", "external_plugin_data"}
     assert "legacy_extra" in _columns(database, "tasks")
     with sqlite3.connect(database) as connection:

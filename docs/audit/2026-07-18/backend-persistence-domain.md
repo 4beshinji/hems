@@ -141,7 +141,11 @@ Android監査の根因をBackend所有権として再確認した。
 
 ### P0-4 — 既存PostgreSQL DBのstartup migrationを保証できない
 
-**証拠**:
+> **2026-07-19 実装済み (P0.3a/b/c)** — Backend `public` schemaを固定Alembic revisionへ移行し、
+> unversioned DBを検証/reconcileするmigration-first entrypointを導入。runtime DDLを削除し、PostgreSQL 16 CI gateで
+> fresh/no-op/partial legacy、Brain `events` schema非変更、migration失敗時Uvicorn未起動を検証する。
+
+**修正前の証拠**:
 
 - `main.py:lifespan()` が毎起動20列を `ALTER TABLE ... ADD COLUMN` する手書きmigration。
 - `deadline`、`dismissed_at`、`locked_start`等に`DATETIME`を使うが、PostgreSQLの型は`TIMESTAMP [WITH TIME ZONE]`である。

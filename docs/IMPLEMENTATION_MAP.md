@@ -179,6 +179,25 @@ Device Registry persistent 層。以下を参照: `services/backend/models.py` �
 
 **重要**: heartbeat 時に display_name が placeholder name (empty / raw IEEE addr / device_id そのまま) なら override、それ以外は保持。
 
+#### Backend schema revision owner / startup order
+
+- Backend `public` schemaのrevision SoTは`services/backend/migrations/versions/`。現在のheadは
+  `0002_legacy_additive_columns`で、`migrations.bootstrap`がempty/unversioned/versioned DBを検証して`upgrade head`する。
+- Containerとローカル`make backend-run`は`entrypoint.py`を通り、migration成功後にだけUvicornを`exec`する。
+  revision不整合・未知revision・DB接続失敗時はAPI/health endpointを公開しない。
+- `main.py::lifespan`はdevice identifier auditとretention taskのみを所有し、DDLを実行しない。
+- PostgreSQLで同じDBを共有するBrain event storeの`events` schemaはBackend Alembicの対象外。Brain側DDLは独立管理する。
+- SQLite軽量モードも同じbootstrapを使用する。SQLite↔PostgreSQLのデータ移送は
+  `infra/scripts/migrate_sqlite_to_pg.py`であり、schema revision runnerではない。
+
+Verification:
+
+```bash
+make backend-run
+pytest tests/test_backend_migrations.py tests/test_backend_entrypoint.py -q
+TEST_POSTGRES_URL=postgresql+asyncpg://... pytest tests/integration/test_backend_migrations_postgres.py -q -m integration
+```
+
 ### 2.4 Approval / HITL Persistence
 
 `services/backend/models.py` に定義された承認・ロールバックテーブル。

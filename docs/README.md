@@ -12,6 +12,9 @@
 - 広域 pytest (`tests/ services/brain/tests/`) は過去に async SQLite 周辺で環境依存の hang が発生した履歴がある。証跡として使う場合は、実行環境、timeout、完全な command、結果を記録する。
 - release 判定の canonical gate は通常環境での `make lint` と full non-integration pytest:
   `PYTHONPATH=services/brain/src:services/backend timeout 1800s .venv/bin/python -m pytest tests/ services/brain/tests/ -v --tb=short -m "not integration and not e2e and not benchmark"`。
+- Backend migration gateは`tests/test_backend_migrations.py`（SQLite）と
+  `tests/integration/test_backend_migrations_postgres.py`（CI PostgreSQL service）を正本とする。起動順の詳細は
+  [`../services/backend/CLAUDE.md`](../services/backend/CLAUDE.md)を参照。
 - filesystem audit や review-boundary 棚卸しの前は `make clean` を実行し、ignored/generated な `__pycache__/` などのノイズを落とす。
 
 ---
@@ -30,7 +33,7 @@
 | [`../services/brain/CLAUDE.md`](../services/brain/CLAUDE.md) | Brain Service(ReAct ループ・subsystem 一覧・brain tools・Chat brain server・Event Automation) |
 | [`../services/voice/CLAUDE.md`](../services/voice/CLAUDE.md) | Voice I/O(plugin TTS / STT) |
 | [`../services/perception/CLAUDE.md`](../services/perception/CLAUDE.md) | Perception(YOLOv11s-pose・VLM scene 分析) |
-| [`../services/backend/CLAUDE.md`](../services/backend/CLAUDE.md) | 横断: Device Registry CRUD・Shopping List・Chat REST router |
+| [`../services/backend/CLAUDE.md`](../services/backend/CLAUDE.md) | 横断: Backend Alembic/startup・Device Registry CRUD・Shopping List・Chat REST router |
 
 補助(設計メモ、in-dir):
 [`../services/brain/TASK_REMINDER.md`](../services/brain/TASK_REMINDER.md)(task queue/reminder)・

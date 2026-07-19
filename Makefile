@@ -1,4 +1,4 @@
-.PHONY: lint format test test-quick build-frontend docker-build security ci clean help quickstart quickstart-sqlite
+.PHONY: lint format test test-quick build-frontend docker-build security ci clean help quickstart quickstart-sqlite backend-run
 
 export PYTHONPATH := services/brain/src:services/backend
 
@@ -20,6 +20,9 @@ quickstart-sqlite: docker-base ## Start the lightweight SQLite variant (no Postg
 		cp env.example .env; \
 	fi
 	cd infra && docker compose --env-file ../.env -f docker-compose.yml -f docker-compose.sqlite-lite.yml up -d --build
+
+backend-run: ## Run Backend locally after applying versioned migrations
+	cd services/backend && ../../.venv/bin/python entrypoint.py
 
 # -- Linting -----------------------------------------------------------------
 

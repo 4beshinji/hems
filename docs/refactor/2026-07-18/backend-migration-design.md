@@ -3,10 +3,10 @@
 調査日: 2026-07-18  
 対象: `services/backend` の `public` schemaのみ。コード変更はこのnoteの対象外。
 
-Status: P0.3a/b implemented (2026-07-18)。Alembic scaffoldingと固定`0001_backend_baseline` / `0002_legacy_additive_columns`
+Status: P0.3a/b/c implemented (2026-07-19)。Alembic scaffoldingと固定`0001_backend_baseline` / `0002_legacy_additive_columns`
 を追加し、fresh / full legacy / partial legacy SQLiteでhead・二度目no-op・metadata driftなしを検証した。
-legacy DBはblind stampせず両revisionを実行して検証・reconcileする。PostgreSQL CIとmigration-first起動切替は
-P0.3cとして未実装。
+legacy DBはblind stampせず両revisionを実行して検証・reconcileする。Container/local startupはmigration-firstへ切替済みで、
+PostgreSQL 16 integration gateがfresh/no-op/partial legacyと`events` schema非変更を検証する。
 
 ## 決定
 
@@ -18,7 +18,7 @@ Brainのevent store (`events` schema) は今回のmigration対象に含めない
 `DATABASE_URL`を共有するが、所有schemaとDDL実装が異なる。Backend Alembicが`events.*`を作成・stamp・変更しては
 ならない。Brain側の手製DDL/ALTERのversioningは独立rowで行う。
 
-## 現状の証拠と問題
+## 修正前の証拠と問題
 
 - `services/backend/main.py::lifespan` は最初に`Base.metadata.create_all`を実行し、その後20個の列追加を
   `_add_column_if_missing`で1列1 transactionとして実行する。DDL失敗はwarningで継続するため、APIは不完全な

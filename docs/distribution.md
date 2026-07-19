@@ -100,6 +100,8 @@ docker compose logs voice-service brain | grep -iE 'error|traceback'   # 既定�
 - `make quickstart` は PostgreSQL _profile_ を含む完全版を起動する。
 - `make quickstart-sqlite` は file-based SQLite で動作する軽量モード。Raspberry Pi や検証用に適している。
 - いずれも `infra/scripts/init_env.py` が初回のみ `.env` を生成し、必須シークレットを埋める。
+- いずれもBackend containerはAlembic `upgrade head`成功後だけAPIを起動する。upgrade前にPostgreSQL backupまたは
+  SQLite DB file copyを取得し、失敗時はAPIを公開せずschema不整合を修正してforward-fixする。
 
 ### Phase 2 — プロファイル束 + env 再編(P1) **【未実装】**
 
@@ -176,5 +178,5 @@ Phase 0 が全レイヤの前提。1 と 2 は 0 完了後に並行可能。3 �
 ## 6. スコープ外
 
 - `services/mobile-android/` — scaffold のみ(QR 登録 API は `services/backend/routers/mobile.py` で稼働だがアプリ未完成)。配布対象外。
-- PostgreSQL migration — SQLite→PG 移行は [`infra/scripts/migrate_sqlite_to_pg.py`](../infra/scripts/migrate_sqlite_to_pg.py) で対応。`--check` / `--dry-run` / `--execute` を使い、実行前に SQLite の自動バックアップを作成。alembic 不在の手動 ALTER 運用の本格整備は [`db-improvement-plan.md`](db-improvement-plan.md) 管轄。
+- SQLite→PostgreSQLのデータ移送は [`infra/scripts/migrate_sqlite_to_pg.py`](../infra/scripts/migrate_sqlite_to_pg.py) で対応。`--check` / `--dry-run` / `--execute` を使い、実行前に SQLite の自動バックアップを作成する。移送先schemaはBackend Alembic head適用後であること。
 - `docs/lite/`(lite 版)— 別管理([`lite/refinement-plan.md`](lite/refinement-plan.md))。
