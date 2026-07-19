@@ -4,7 +4,7 @@
 
 Status as of 2026-07-19: biometric P0/P1.1でBrain cycle writeは`biometric_latest`専用となり、Backendに
 stable ID/source metadata付き`biometric_observations`を追加した。Brainはcanonical historyを作らない。
-P1.2aでbridge受理時のdelivery intent永続化まで実装したが、delivery実行、mobile caller、Brain side-effect dedupは未配線である。
+P1.2a/bでbridge受理・delivery実行まで実装したが、mobile callerとBrain side-effect dedupは未配線である。
 
 ## 1. 対象と検証方法
 

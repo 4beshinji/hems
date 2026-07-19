@@ -4,12 +4,12 @@ import json
 import os
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from hems_common.biometric import BiometricObservationIn, canonical_observation_payload
 
 _SCHEMA_NAME = "canonical_observation_store"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _BACKEND_TARGET = "/internal/biometric/observations"
 
 _INIT_STATEMENTS = (
@@ -41,6 +41,11 @@ _INIT_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS ix_delivery_outbox_due ON delivery_outbox(status, next_attempt_at, created_at)",
 )
 
+_V2_STATEMENTS = (
+    "ALTER TABLE delivery_outbox ADD COLUMN lease_until TEXT",
+    "CREATE INDEX IF NOT EXISTS ix_delivery_outbox_lease ON delivery_outbox(status, lease_until)",
+)
+
 
 class ObservationConflictError(Exception):
     """The stable observation ID was reused for different canonical content."""
@@ -54,6 +59,16 @@ class ObservationStoreError(Exception):
 class MqttDelivery:
     topic: str
     payload: dict
+
+
+@dataclass(frozen=True)
+class OutboxIntent:
+    id: int
+    observation_id: str
+    destination: str
+    target: str
+    payload: dict
+    attempts: int
 
 
 def _metadata(data: BiometricObservationIn) -> dict:
@@ -130,15 +145,19 @@ class CanonicalObservationStore:
                 version = row[0] if row else 0
                 if version > _SCHEMA_VERSION:
                     raise ObservationStoreError(f"unsupported canonical store schema version: {version}")
-                if version == _SCHEMA_VERSION:
-                    return
-                db.execute("BEGIN IMMEDIATE")
-                for statement in _INIT_STATEMENTS:
-                    db.execute(statement)
-                db.execute(
-                    "INSERT INTO biometric_schema_versions (name, version) VALUES (?, ?)",
-                    (_SCHEMA_NAME, _SCHEMA_VERSION),
-                )
+                while version < _SCHEMA_VERSION:
+                    next_version = version + 1
+                    db.execute("BEGIN IMMEDIATE")
+                    statements = _INIT_STATEMENTS if next_version == 1 else _V2_STATEMENTS
+                    for statement in statements:
+                        db.execute(statement)
+                    db.execute(
+                        """INSERT INTO biometric_schema_versions (name, version) VALUES (?, ?)
+                           ON CONFLICT(name) DO UPDATE SET version = excluded.version""",
+                        (_SCHEMA_NAME, next_version),
+                    )
+                    db.commit()
+                    version = next_version
         except sqlite3.Error as exc:
             raise ObservationStoreError("canonical biometric schema initialization failed") from exc
 
@@ -196,3 +215,128 @@ class CanonicalObservationStore:
             raise
         except sqlite3.Error as exc:
             raise ObservationStoreError("canonical biometric intake transaction failed") from exc
+
+    async def claim_due(self, *, batch_size: int, lease_seconds: float) -> list[OutboxIntent]:
+        """Recover stale claims and lease a due batch for this worker."""
+        if not self._initialized:
+            raise ObservationStoreError("canonical observation store is not initialized")
+        now = datetime.now(UTC)
+        lease_until = now + timedelta(seconds=lease_seconds)
+        try:
+            with sqlite3.connect(self.db_path) as db:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute(
+                    """UPDATE delivery_outbox
+                       SET status = 'retry', lease_until = NULL, updated_at = ?
+                       WHERE status = 'processing' AND lease_until <= ?""",
+                    (now.isoformat(), now.isoformat()),
+                )
+                rows = db.execute(
+                    """SELECT id, observation_id, destination, target, payload, attempts
+                       FROM delivery_outbox
+                       WHERE status IN ('pending', 'retry')
+                         AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+                       ORDER BY created_at, id LIMIT ?""",
+                    (now.isoformat(), batch_size),
+                ).fetchall()
+                if rows:
+                    placeholders = ",".join("?" for _ in rows)
+                    db.execute(
+                        f"UPDATE delivery_outbox SET status = 'processing', lease_until = ?, updated_at = ? "
+                        f"WHERE id IN ({placeholders})",
+                        (lease_until.isoformat(), now.isoformat(), *(row[0] for row in rows)),
+                    )
+            return [
+                OutboxIntent(
+                    id=row[0],
+                    observation_id=row[1],
+                    destination=row[2],
+                    target=row[3],
+                    payload=json.loads(row[4]),
+                    attempts=row[5],
+                )
+                for row in rows
+            ]
+        except (sqlite3.Error, json.JSONDecodeError) as exc:
+            raise ObservationStoreError("canonical delivery claim failed") from exc
+
+    async def mark_sent(self, intent_id: int) -> None:
+        self._update_delivery(
+            intent_id,
+            status="sent",
+            attempts_delta=0,
+            error=None,
+            next_attempt_at=None,
+        )
+
+    async def mark_failed(
+        self,
+        intent_id: int,
+        *,
+        error: str,
+        next_attempt_at: datetime | None,
+        permanent: bool,
+    ) -> None:
+        self._update_delivery(
+            intent_id,
+            status="dead_letter" if permanent else "retry",
+            attempts_delta=1,
+            error=error[:256],
+            next_attempt_at=next_attempt_at,
+        )
+
+    def _update_delivery(
+        self,
+        intent_id: int,
+        *,
+        status: str,
+        attempts_delta: int,
+        error: str | None,
+        next_attempt_at: datetime | None,
+    ) -> None:
+        now = datetime.now(UTC).isoformat()
+        try:
+            with sqlite3.connect(self.db_path) as db:
+                observation_row = db.execute(
+                    "SELECT observation_id FROM delivery_outbox WHERE id = ?", (intent_id,)
+                ).fetchone()
+                db.execute(
+                    """UPDATE delivery_outbox
+                       SET status = ?, attempts = attempts + ?, last_error = ?, next_attempt_at = ?,
+                           lease_until = NULL, updated_at = ?
+                       WHERE id = ? AND status = 'processing'""",
+                    (
+                        status,
+                        attempts_delta,
+                        error,
+                        next_attempt_at.isoformat() if next_attempt_at else None,
+                        now,
+                        intent_id,
+                    ),
+                )
+                if observation_row:
+                    observation_id = observation_row[0]
+                    active = db.execute(
+                        """SELECT COUNT(*) FROM delivery_outbox
+                           WHERE observation_id = ? AND status IN ('pending', 'retry', 'processing')""",
+                        (observation_id,),
+                    ).fetchone()[0]
+                    failed = db.execute(
+                        "SELECT COUNT(*) FROM delivery_outbox WHERE observation_id = ? AND status = 'dead_letter'",
+                        (observation_id,),
+                    ).fetchone()[0]
+                    inbox_status = "pending_delivery" if active else "delivery_failed" if failed else "delivered"
+                    db.execute(
+                        "UPDATE observation_inbox SET status = ? WHERE observation_id = ?",
+                        (inbox_status, observation_id),
+                    )
+        except sqlite3.Error as exc:
+            raise ObservationStoreError("canonical delivery status update failed") from exc
+
+    async def delivery_counts(self) -> dict[str, int]:
+        try:
+            with sqlite3.connect(self.db_path) as db:
+                rows = db.execute("SELECT status, COUNT(*) FROM delivery_outbox GROUP BY status").fetchall()
+            return {status: count for status, count in rows}
+        except sqlite3.Error as exc:
+            raise ObservationStoreError("canonical delivery status query failed") from exc

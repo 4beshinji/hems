@@ -17,6 +17,7 @@ import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 
+from canonical_delivery import CanonicalDeliveryWorker
 from canonical_ingest import CanonicalObservationStore, ObservationConflictError, ObservationStoreError
 from data_processor import BiometricReading, DataProcessor
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
@@ -27,6 +28,13 @@ from providers.zepp import ZeppProvider
 from send_queue import SendQueue
 
 from config import (
+    BACKEND_URL,
+    BIOMETRIC_DELIVERY_BASE_BACKOFF_SECONDS,
+    BIOMETRIC_DELIVERY_BATCH_SIZE,
+    BIOMETRIC_DELIVERY_LEASE_SECONDS,
+    BIOMETRIC_DELIVERY_MAX_ATTEMPTS,
+    BIOMETRIC_DELIVERY_MAX_BACKOFF_SECONDS,
+    BIOMETRIC_DELIVERY_POLL_SECONDS,
     BIOMETRIC_PROVIDER,
     HUAMI_AUTH_TOKEN,
     HUAMI_ENABLED,
@@ -201,6 +209,7 @@ async def _verify_webhook_signature(request: Request) -> bytes:
 mqtt_pub: MqttPublisher | None = None
 send_queue: SendQueue = SendQueue()
 canonical_store: CanonicalObservationStore = CanonicalObservationStore()
+canonical_worker: CanonicalDeliveryWorker | None = None
 processor = DataProcessor()
 gadgetbridge = GadgetbridgeProvider()
 huami: HuamiProvider | None = None
@@ -347,6 +356,16 @@ async def _flush_queue_loop():
         await asyncio.sleep(10)
 
 
+def _canonical_mqtt_publish(topic: str, data: dict) -> bool:
+    """Publish canonical intent directly; never copy it into the legacy SendQueue."""
+    return bool(mqtt_pub and mqtt_pub.publish(topic, data, retain=True))
+
+
+async def _canonical_delivery_loop():
+    if canonical_worker:
+        await canonical_worker.run()
+
+
 async def _huami_poll_loop():
     """Poll Huami API periodically for batch data."""
     if not huami:
@@ -379,7 +398,7 @@ async def _zepp_poll_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global mqtt_pub, huami, zepp
+    global mqtt_pub, huami, zepp, canonical_worker
 
     # biometric: connection tracking + auto-reconnect enable the send-queue contract
     # (connected property + publish() -> bool).  ensure_ascii=False preserves
@@ -397,9 +416,20 @@ async def lifespan(app: FastAPI):
     )
 
     async def _startup():
-        global huami, zepp
+        global huami, zepp, canonical_worker
         await send_queue.init()
         await canonical_store.init()
+        canonical_worker = CanonicalDeliveryWorker(
+            store=canonical_store,
+            mqtt_publish=_canonical_mqtt_publish,
+            backend_base_url=BACKEND_URL,
+            batch_size=BIOMETRIC_DELIVERY_BATCH_SIZE,
+            poll_seconds=BIOMETRIC_DELIVERY_POLL_SECONDS,
+            lease_seconds=BIOMETRIC_DELIVERY_LEASE_SECONDS,
+            max_attempts=BIOMETRIC_DELIVERY_MAX_ATTEMPTS,
+            base_backoff_seconds=BIOMETRIC_DELIVERY_BASE_BACKOFF_SECONDS,
+            max_backoff_seconds=BIOMETRIC_DELIVERY_MAX_BACKOFF_SECONDS,
+        )
         await gadgetbridge.start()
 
         # Huami cloud API (primary server-side path)
@@ -431,7 +461,7 @@ async def lifespan(app: FastAPI):
     # Conditional poll loops — always include _bridge_status_loop and
     # _flush_queue_loop; huami/zepp loops are included when their provider is
     # enabled (the loops guard on their own global being set, so this is safe).
-    task_factories = [_bridge_status_loop, _flush_queue_loop]
+    task_factories = [_bridge_status_loop, _flush_queue_loop, _canonical_delivery_loop]
     if HUAMI_ENABLED:
         task_factories.append(_huami_poll_loop)
     if ZEPP_ENABLED and not HUAMI_ENABLED:
@@ -457,12 +487,20 @@ async def health():
         providers.append("huami")
     pending = await send_queue.pending_count()
     mqtt_connected = mqtt_pub.connected if mqtt_pub else False
+    try:
+        delivery_counts = await canonical_store.delivery_counts()
+    except ObservationStoreError:
+        delivery_counts = {}
     return {
         "status": "ok",
         "provider": BIOMETRIC_PROVIDER,
         "active_providers": providers,
         "mqtt_connected": mqtt_connected,
         "queue_pending": pending,
+        "canonical_delivery": {
+            **(canonical_worker.status() if canonical_worker else {"running": False}),
+            "counts": delivery_counts,
+        },
     }
 
 

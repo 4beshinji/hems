@@ -14,6 +14,7 @@ _BRIDGE_SRC = _ROOT / "services" / "biometric-bridge" / "src"
 sys.path.insert(0, str(_BRIDGE_SRC))
 
 from canonical_ingest import (
+    _INIT_STATEMENTS,
     CanonicalObservationStore,
     ObservationConflictError,
     ObservationStoreError,
@@ -43,6 +44,23 @@ def _observation(**overrides) -> CommonObservation:
 
 def test_backend_reexports_the_common_observation_contract():
     assert BackendObservation is CommonObservation
+
+
+def test_store_upgrades_existing_v1_schema(tmp_path):
+    db_path = tmp_path / "v1.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE biometric_schema_versions (name TEXT PRIMARY KEY, version INTEGER NOT NULL)")
+        for statement in _INIT_STATEMENTS:
+            connection.execute(statement)
+        connection.execute("INSERT INTO biometric_schema_versions VALUES ('canonical_observation_store', 1)")
+
+    store = CanonicalObservationStore(str(db_path))
+    asyncio.run(store.init())
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT version FROM biometric_schema_versions WHERE name = 'canonical_observation_store'"
+        ).fetchone() == (2,)
+        assert "lease_until" in {row[1] for row in connection.execute("PRAGMA table_info(delivery_outbox)")}
 
 
 def test_mqtt_mapper_preserves_metadata_and_legacy_metric_keys():
@@ -87,7 +105,8 @@ def test_ingest_transaction_is_idempotent_and_preserves_legacy_queue(tmp_path):
         assert connection.execute("SELECT COUNT(*) FROM outbox").fetchone() == (1,)
         assert connection.execute(
             "SELECT version FROM biometric_schema_versions WHERE name = 'canonical_observation_store'"
-        ).fetchone() == (1,)
+        ).fetchone() == (2,)
+        assert "lease_until" in {row[1] for row in connection.execute("PRAGMA table_info(delivery_outbox)")}
         inbox = connection.execute("SELECT canonical_hash, canonical_json, status FROM observation_inbox").fetchone()
         assert len(inbox[0]) == 64
         assert json.loads(inbox[1])["source_ts"] == "2026-07-19T02:03:04Z"

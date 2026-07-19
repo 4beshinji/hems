@@ -123,7 +123,7 @@ Tracks heart rate, sleep, activity, stress, and fatigue via smartband/smartwatch
 - **Brain rules**: 7 rules (high HR/stress/fatigue alerts, sleep quality notification, step goal, sleep detection lights off, fatigue-linked dimming)
 - **Thresholds**: HR > 120, HR < 45, SpO2 < 92, Stress > 80 (configurable via env vars)
 - **World model**: Tri-domain architecture — biometrics in User State domain, threshold crossing events
-- **Canonical intake (P1.2a)**: shared contract lives in `hems_common.biometric`. Internal-token protected `POST /api/biometric/ingest` atomically records `observation_inbox` plus per-metric MQTT and Backend delivery intents in `delivery_outbox`; same ID/body is idempotent and different content is 409. Both tables share `BIOMETRIC_DB_PATH` with, but do not replace, legacy MQTT failure queue `outbox`. Delivery workers and mobile/Android callers remain unwired.
+- **Canonical delivery (P1.2)**: shared contract lives in `hems_common.biometric`. Internal-token protected `POST /api/biometric/ingest` atomically records `observation_inbox` plus per-metric MQTT and Backend delivery intents in `delivery_outbox`; same ID/body is idempotent and different content is 409. A single lifespan worker leases due rows, publishes MQTT intents directly, and token-POSTs Backend intents with bounded retry/dead-letter handling. Crash recovery is at-least-once and depends on stable observation-ID dedup downstream. These tables share `BIOMETRIC_DB_PATH` with, but do not replace or double-enqueue into, legacy MQTT failure queue `outbox`. Mobile/Android callers remain unwired.
 
 Configure in `.env`:
 ```bash

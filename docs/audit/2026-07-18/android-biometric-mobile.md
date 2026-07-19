@@ -4,8 +4,8 @@
 
 Status as of 2026-07-19: P0 snapshot contractとP1.1 Backend storeは実装済み。Brain cycle snapshotは
 `biometric_latest`だけを更新し、immutable historyは`biometric_observations`とinternal-token endpointに分離した。
-P1.2aでbridge private ingestとdurable inbox/outbox受理境界まで実装した。delivery workerとmobile/Android callerは
-未配線で、この監査のP0-1とclient durability/replay指摘は継続する。
+P1.2a/bでbridge private ingest、durable inbox/outbox、lease/retry/dead-letter delivery workerまで実装した。
+mobile/Android callerは未配線で、この監査のP0-1とclient durability/replay指摘は継続する。
 
 対象コンポーネント:
 

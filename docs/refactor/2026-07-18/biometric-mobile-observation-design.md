@@ -1,6 +1,6 @@
 # Biometric / Mobile Observation P0 Design — 2026-07-18
 
-Status: Phase 0、Phase 1 P1.1/P1.2a implemented (2026-07-19)、P1.2b–P1.5 proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
+Status: Phase 0、Phase 1 P1.1/P1.2a/P1.2b implemented (2026-07-19)、P1.3–P1.5 proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
 
 ## 1. 決定
 
@@ -65,7 +65,10 @@ Phase 0 acceptance:
 P1.1では手順7のBackend canonical storeとinternal observation endpointまでを実装した。P1.2aでは
 `hems_common.biometric`をschema正本とし、bridge private ingestが同一SQLite transactionで`observation_inbox`、
 metric別MQTT intent、Backend intentをcommitしてから2xxを返す受理境界を実装した。既存`outbox` send queueとは別tableで併存する。
-delivery worker、mobile/Android producer、実MQTT publish、Brain side-effect dedupはP1.2b–P1.5であり、まだ配線していない。
+P1.2bでsingle workerをlifespan管理し、due intentをlease claimしてMQTTへ直接publish、Backendへinternal-token付きPOSTする。
+2xxはsent、409と4xx/authはdead-letter、5xx/network/MQTT failureは指数backoff+jitterでretryし、上限後dead-letterにする。
+process crash後はstale leaseを回収する。downstreamはstable `observation_id`で冪等化される前提でat-least-once配送する。
+mobile/Android producer、Brain MQTT side-effect dedupはP1.3–P1.5であり、まだ配線していない。
 
 standalone Health Connectの複合batchは、HR sample、daily steps、sleep sessionなど時間意味が違うためadapterで複数observationへ分割する。
 
@@ -142,7 +145,8 @@ P1.1のversioned migration `0003_canonical_biometric_store`で次を実装した
 
 P1.2aでbridgeの`observation_inbox` / `delivery_outbox`をversion 1として`BIOMETRIC_DB_PATH`
 （既定`/data/send_queue.db`）へ加算した。legacy MQTT failure queue `outbox`は変更・移行せず併存する。
-Backend `biometric_delivery_outbox`とbridge delivery workerは未実装。未送信outboxは将来のrollbackでも削除しない。
+Backend `biometric_delivery_outbox`は未実装。bridge `delivery_outbox` workerはP1.2bで実装し、
+legacy MQTT failure queueへcanonical intentを二重enqueueしない。未送信outboxは将来のrollbackでも削除しない。
 `BIOMETRIC_CANONICAL_INGEST_ENABLED`と`BIOMETRIC_MQTT_ENVELOPE_ENABLED`を独立toggleにする。
 
 ## 8. 段階別acceptance tests

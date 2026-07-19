@@ -4,8 +4,8 @@
 
 Status as of 2026-07-19: P1.1 Backend側にtyped observation envelope、`biometric_observations`、
 `HEMS_INTERNAL_TOKEN`保護の`POST /internal/biometric/observations`を実装した。同一ID/同一payloadは2xx、
-同一ID/異なるpayloadは409。P1.2aでbridge private ingest、versioned `observation_inbox` / `delivery_outbox`、
-metric envelope mapperまで実装した。workerによるMQTT/Backend deliveryとmobile callerは未実装である。
+同一ID/異なるpayloadは409。P1.2a/bでbridge private ingest、versioned `observation_inbox` / `delivery_outbox`、
+metric envelope mapper、lease/retry/dead-letter workerを実装した。mobile callerは未実装である。
 
 ## 1. 対象と方法
 

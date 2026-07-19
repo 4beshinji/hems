@@ -212,8 +212,11 @@ payload hashを保持するimmutable canonical history。`biometric_latest`は�
 P1.2aでcanonical schema正本を`services/_common/hems_common/biometric.py`へ移し、biometric-bridge private
 `POST /api/biometric/ingest`を追加した。受理時に`BIOMETRIC_DB_PATH`の`observation_inbox`と
 `delivery_outbox`（metric別MQTT envelope + Backend canonical payload）を一transactionで作る。
-同DBのlegacy MQTT failure queue `outbox`は別owner/tableとして変更せず併存する。P1.2aはintentを保存するだけで、
-delivery worker、mobile/Android caller、実MQTT publish、Brain side-effect dedupは未配線である。
+同DBのlegacy MQTT failure queue `outbox`は別owner/tableとして変更せず併存する。P1.2bのsingle lifespan workerは
+lease付きでdue intentをclaimし、MQTT intentを既存publisherへ直接publish（legacy queueへ二重投入しない）、Backend
+intentを`${BACKEND_URL}/internal/biometric/observations`へinternal bearer token付きでPOSTする。2xxはsent、
+409/auth/非retry 4xxはdead-letter、MQTT失敗/5xx/networkはbackoff retryし、stale leaseは再起動後回収する。
+これはdownstream observation-ID冪等性を前提とするat-least-once配送である。mobile/Android callerとBrain side-effect dedupは未配線。
 
 ### 2.5 Approval / HITL Persistence
 
