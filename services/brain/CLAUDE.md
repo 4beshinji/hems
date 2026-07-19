@@ -42,6 +42,7 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
 - HA tools (profile `ha`): `control_light`, `control_climate`, `control_cover`, `get_home_devices`, `control_switch`, `get_sensor_data`, `execute_scene`, `get_entity_status`, `set_guest_mode`
 - Weather tools (registered only when `ha_enabled=True` and `HA_BRIDGE_URL` is set; weather data is always ingested): `get_weather`
 - Biometric tools (profile `biometric`): `get_biometrics`, `get_sleep_summary`, `get_biometric_trend`, `get_sleep_history`
+- Biometric persistence boundary: cognitive-cycle `POST /biometric/snapshot` is a Frontend-facing `biometric_latest` projection only. Brain does not create immutable `biometric_observations`; source ingress/delivery must supply stable observation identity separately.
 - Perception tools (profile `perception`): `get_perception_status`, `describe_scene`, `list_scene_objects`, `get_scene_timeline`, `list_cameras`, `get_vlm_status`, `get_activity_history`
 - News tools (profile `news`): `get_news_summary`
 - Knowledge tools (profile `knowledge`): `search_knowledge`, `get_knowledge_sources`, `read_knowledge_document`, `get_recent_knowledge_changes`

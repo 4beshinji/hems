@@ -182,7 +182,7 @@ Device Registry persistent 層。以下を参照: `services/backend/models.py` �
 #### Backend schema revision owner / startup order
 
 - Backend `public` schemaのrevision SoTは`services/backend/migrations/versions/`。現在のheadは
-  `0002_legacy_additive_columns`で、`migrations.bootstrap`がempty/unversioned/versioned DBを検証して`upgrade head`する。
+  `0003_canonical_biometric_store`で、`migrations.bootstrap`がempty/unversioned/versioned DBを検証して`upgrade head`する。
 - Containerとローカル`make backend-run`は`entrypoint.py`を通り、migration成功後にだけUvicornを`exec`する。
   revision不整合・未知revision・DB接続失敗時はAPI/health endpointを公開しない。
 - `main.py::lifespan`はdevice identifier auditとretention taskのみを所有し、DDLを実行しない。
@@ -198,7 +198,21 @@ pytest tests/test_backend_migrations.py tests/test_backend_entrypoint.py -q
 TEST_POSTGRES_URL=postgresql+asyncpg://... pytest tests/integration/test_backend_migrations_postgres.py -q -m integration
 ```
 
-### 2.4 Approval / HITL Persistence
+### 2.4 Biometric persistence boundary
+
+| Contract | Storage | Semantics / auth |
+|---|---|---|
+| `POST /biometric/snapshot` | `biometric_latest` singleton | Brain cognitive-cycle projection専用。dashboard API key範囲 |
+| `GET /biometric/` | `biometric_latest` singleton | Frontend向けlatest read model |
+| `GET /biometric/history` | `biometric_readings` | legacy history互換。canonical observationに推定変換しない |
+| `POST /internal/biometric/observations` | `biometric_observations` | `HEMS_INTERNAL_TOKEN`保護。stable ID + canonical payload hashで同一payloadは2xx冪等、異なるpayloadは409 |
+
+`biometric_observations`はprovider/device/source timestamp/interval/aggregation/typed metrics/received timestampと
+payload hashを保持するimmutable canonical history。`biometric_latest`は別責務のcycle projectionである。
+P1.1時点でbridge/mobile/Android producerはinternal observation endpointへまだ配線されておらず、
+MQTT topic/envelopeも未変更。deliveryはP1.2–P1.5の範囲である。
+
+### 2.5 Approval / HITL Persistence
 
 `services/backend/models.py` に定義された承認・ロールバックテーブル。
 

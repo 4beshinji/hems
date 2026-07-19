@@ -10,6 +10,7 @@ from sqlalchemy import delete
 
 from auth import verify_api_key
 from database import AsyncSessionLocal
+from hems_common.auth import verify_internal_token
 from models import BiometricReading, PurchaseHistory, Task, TimeSeriesPoint, VoiceEvent
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,7 @@ from routers import (
     approvals,
     automations,
     biometric,
+    biometric_internal,
     brain,
     bridge_status,
     character,
@@ -191,6 +193,10 @@ from routers import (
 # All dashboard routers gate on the shared key (enforced only when
 # BACKEND_API_KEY is set; open for zero-config LAN use otherwise).
 _require_api_key = [Depends(verify_api_key)]
+_require_internal_token = [Depends(verify_internal_token)]
+
+# Internal service ingest is deliberately separate from dashboard API-key routes.
+app.include_router(biometric_internal.router, dependencies=_require_internal_token)
 
 app.include_router(tasks.router, dependencies=_require_api_key)
 app.include_router(voice_events.router, dependencies=_require_api_key)

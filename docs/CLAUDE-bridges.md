@@ -123,6 +123,7 @@ Tracks heart rate, sleep, activity, stress, and fatigue via smartband/smartwatch
 - **Brain rules**: 7 rules (high HR/stress/fatigue alerts, sleep quality notification, step goal, sleep detection lights off, fatigue-linked dimming)
 - **Thresholds**: HR > 120, HR < 45, SpO2 < 92, Stress > 80 (configurable via env vars)
 - **World model**: Tri-domain architecture — biometrics in User State domain, threshold crossing events
+- **Backend persistence (P1.1)**: `POST /internal/biometric/observations` now provides an `HEMS_INTERNAL_TOKEN`-protected immutable store with observation-ID idempotency. The bridge/mobile producers are **not wired to it yet**; existing webhook and MQTT behavior remains unchanged until P1.2–P1.5.
 
 Configure in `.env`:
 ```bash

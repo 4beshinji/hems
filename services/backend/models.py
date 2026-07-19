@@ -260,6 +260,8 @@ class AutomationRule(Base):
 
 
 class BiometricReading(Base):
+    """Legacy biometric history retained without inferred canonical metadata."""
+
     __tablename__ = "biometric_readings"
     id = Column(Integer, primary_key=True, index=True)
     provider = Column(String, nullable=False, index=True)
@@ -277,6 +279,46 @@ class BiometricReading(Base):
     body_temperature = Column(Float, nullable=True)
     respiratory_rate = Column(Integer, nullable=True)
     recorded_at = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class BiometricLatest(Base):
+    """Singleton projection written by the Brain's cognitive cycle."""
+
+    __tablename__ = "biometric_latest"
+    id = Column(Integer, primary_key=True, default=1)
+    provider = Column(String, nullable=False, index=True)
+    heart_rate = Column(Integer, nullable=True)
+    resting_heart_rate = Column(Integer, nullable=True)
+    spo2 = Column(Integer, nullable=True)
+    steps = Column(Integer, nullable=True)
+    calories = Column(Integer, nullable=True)
+    active_minutes = Column(Integer, nullable=True)
+    stress_level = Column(Integer, nullable=True)
+    fatigue_score = Column(Integer, nullable=True)
+    sleep_duration_minutes = Column(Integer, nullable=True)
+    sleep_quality_score = Column(Integer, nullable=True)
+    hrv_ms = Column(Integer, nullable=True)
+    body_temperature = Column(Float, nullable=True)
+    respiratory_rate = Column(Integer, nullable=True)
+    updated_at = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class BiometricObservation(Base):
+    """Immutable canonical biometric observation history."""
+
+    __tablename__ = "biometric_observations"
+    id = Column(Integer, primary_key=True)
+    schema_version = Column(Integer, nullable=False)
+    observation_id = Column(String(128), nullable=False, unique=True, index=True)
+    payload_hash = Column(String(64), nullable=False)
+    provider = Column(String(64), nullable=False, index=True)
+    device_id = Column(String(128), nullable=True, index=True)
+    source_ts = Column(TZDateTime(timezone=True), nullable=False, index=True)
+    interval_start = Column(TZDateTime(timezone=True), nullable=True)
+    interval_end = Column(TZDateTime(timezone=True), nullable=True)
+    aggregation = Column(String(32), nullable=False, index=True)
+    metrics = Column(JSON, nullable=False)
+    received_at = Column(TZDateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class FrequentPlace(Base):

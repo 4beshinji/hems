@@ -43,6 +43,7 @@ BACKEND_TABLES = {
     "voice_capsules",
     "voice_events",
 }
+HEAD_BACKEND_TABLES = BACKEND_TABLES | {"biometric_latest", "biometric_observations"}
 
 LEGACY_ADDITIVE_COLUMNS = {
     "voice_events": {"motion_id"},
@@ -105,7 +106,8 @@ def _create_full_legacy(database: Path, *, incompatible_tasks_title: bool = Fals
 
     metadata = sa.MetaData()
     for table in Base.metadata.sorted_tables:
-        table.to_metadata(metadata)
+        if table.name in BACKEND_TABLES:
+            table.to_metadata(metadata)
     if incompatible_tasks_title:
         metadata.tables["tasks"].c.title.type = sa.Integer()
 
@@ -146,6 +148,7 @@ def test_fixed_baseline_excludes_then_adds_legacy_columns(tmp_path):
 
     _run_alembic(database, "upgrade", "head")
 
+    assert _tables(database) - {"alembic_version"} == HEAD_BACKEND_TABLES
     for table, additive_columns in LEGACY_ADDITIVE_COLUMNS.items():
         columns = _columns(database, table)
         assert additive_columns <= columns.keys()
@@ -162,7 +165,7 @@ def test_fresh_upgrade_is_at_head_idempotent_and_matches_metadata(tmp_path):
     before = _schema_fingerprint(database)
 
     current = _run_alembic(database, "current")
-    assert "0002_legacy_additive_columns (head)" in current.stdout
+    assert "0003_canonical_biometric_store (head)" in current.stdout
 
     _run_alembic(database, "upgrade", "head")
     assert _schema_fingerprint(database) == before
@@ -183,14 +186,14 @@ def test_bootstrap_reconciles_full_legacy_and_preserves_unknown_schema(tmp_path)
 
     _run_bootstrap(database)
 
-    assert Path(f"{database}.pre-0002_legacy_additive_columns.bak").is_file()
-    assert _tables(database) >= BACKEND_TABLES | {"alembic_version", "external_plugin_data"}
+    assert Path(f"{database}.pre-0003_canonical_biometric_store.bak").is_file()
+    assert _tables(database) >= HEAD_BACKEND_TABLES | {"alembic_version", "external_plugin_data"}
     assert "legacy_extra" in _columns(database, "tasks")
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT title FROM tasks").fetchall() == [("sentinel-full",)]
         assert connection.execute("SELECT value FROM external_plugin_data").fetchall() == [("keep-me",)]
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0002_legacy_additive_columns",
+            "0003_canonical_biometric_store",
         )
 
     before = _schema_fingerprint(database)
@@ -211,7 +214,7 @@ def test_bootstrap_reconciles_partial_legacy_schema(tmp_path):
 
     _run_bootstrap(database)
 
-    assert _tables(database) - {"alembic_version"} == BACKEND_TABLES
+    assert _tables(database) - {"alembic_version"} == HEAD_BACKEND_TABLES
     for table, additive_columns in LEGACY_ADDITIVE_COLUMNS.items():
         assert additive_columns <= _columns(database, table).keys()
     with sqlite3.connect(database) as connection:
@@ -252,3 +255,27 @@ def test_bootstrap_rejects_unknown_alembic_revision(tmp_path):
     result = _run_bootstrap(database, succeeds=False)
 
     assert "Can't locate revision identified by 'unknown_revision'" in result.stderr
+
+
+def test_canonical_migration_copies_only_latest_legacy_projection(tmp_path):
+    database = tmp_path / "canonical-upgrade.db"
+    _run_alembic(database, "upgrade", "0002_legacy_additive_columns")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO biometric_readings (provider, heart_rate, recorded_at) VALUES (?, ?, ?)",
+            ("legacy-old", 61, "2026-07-18 01:00:00"),
+        )
+        connection.execute(
+            "INSERT INTO biometric_readings (provider, heart_rate, recorded_at) VALUES (?, ?, ?)",
+            ("legacy-latest", 82, "2026-07-18 02:00:00"),
+        )
+        connection.commit()
+
+    _run_alembic(database, "upgrade", "head")
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM biometric_readings").fetchone() == (2,)
+        assert connection.execute("SELECT id, provider, heart_rate FROM biometric_latest").fetchall() == [
+            (1, "legacy-latest", 82)
+        ]
+        assert connection.execute("SELECT COUNT(*) FROM biometric_observations").fetchone() == (0,)

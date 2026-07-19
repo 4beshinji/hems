@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from dashboard_mappers import map_biometric_payload
-from models import BiometricReading
+from models import BiometricLatest
 from routers.biometric import update_biometric
 from schemas import BiometricSnapshotIn
 
@@ -99,6 +99,6 @@ async def test_route_updates_one_latest_row_across_100_cycles():
 
     assert session.add_calls == 1
     assert session.commit_calls == 100
-    assert isinstance(session.row, BiometricReading)
+    assert isinstance(session.row, BiometricLatest)
     assert session.row.heart_rate == 139
     assert session.row.provider == "healthconnect"

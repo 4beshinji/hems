@@ -2,6 +2,10 @@
 
 対象リビジョン: `6310df0` (`main`)
 
+Status as of 2026-07-19: P0 snapshot contractとP1.1 Backend storeは実装済み。Brain cycle snapshotは
+`biometric_latest`だけを更新し、immutable historyは`biometric_observations`とinternal-token endpointに分離した。
+mobile/Android/bridge deliveryは未配線で、この監査のP0-1とdurability/replay指摘は継続する。
+
 対象コンポーネント:
 
 - `services/mobile-android/` — HEMS Mobile Companion
@@ -214,7 +218,7 @@ root `CLAUDE.md` は両 Android project を「位置づけ未文書化」とす�
 - **単機能 app**: `apps/healthconnect-companion` は移行期間だけ維持し、Mobile Companion が Room queue・permission UI・rich metrics を取り込んだ後に archive または削除する。
 - **外部 mobile ingress**: Backend `/mobile/state/webhook` を正本とする。per-device revoke と QR onboarding を再利用できる。
 - **biometric normalization**: biometric-bridge `DataProcessor` を正本とし、canonical MQTT は `hems/personal/biometrics/{provider}/{metric}` のまま維持する。
-- **persistent source of truth**: Backend `biometric_readings`。ただし observation identity と source timestamp を持たせ、cycle snapshot の無条件 insert をやめる。
+- **persistent source of truth**: Backend `biometric_observations`がimmutable canonical history、`biometric_latest`がcycle projection。`biometric_readings`はlegacy history互換として保持する。
 
 ### 4.2 推奨経路
 

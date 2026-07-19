@@ -2,6 +2,10 @@
 
 対象リビジョン: `3a91dac` (`main`)
 
+Status as of 2026-07-19: P1.1 Backend側にtyped observation envelope、`biometric_observations`、
+`HEMS_INTERNAL_TOKEN`保護の`POST /internal/biometric/observations`を実装した。同一ID/同一payloadは2xx、
+同一ID/異なるpayloadは409。bridge inbox/outboxとこのendpointへの配線は未実装である。
+
 ## 1. 対象と方法
 
 対象:
@@ -238,7 +242,7 @@ BiometricObservationIn
 3. Backendはbiometric部分をinternal-token付きbridge `POST /api/biometric/ingest`へforwardする。
 4. Bridgeは一か所でvalidate / normalizeし、SQLite inboxへ`observation_id UNIQUE`でcommitしてから200を返す。
 5. 同transactionでoutbox rows（MQTT latest/event、Backend observation API）を作り、workerがretryする。
-6. Backend `/biometric/observations`は同じIDをuniqueにflat historyへ一度保存する。
+6. Backend `/internal/biometric/observations`は同じIDをuniqueにcanonical historyへ一度保存する。このstore/APIはP1.1で実装済み。
 7. Brain cycle snapshotはlatest projectionだけをupsertし、historyを作らない。
 
 既存`SendQueue`をinbox/outboxへ小さく拡張できる。新brokerや新DB serviceは不要である。

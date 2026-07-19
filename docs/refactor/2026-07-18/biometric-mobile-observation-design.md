@@ -1,6 +1,6 @@
 # Biometric / Mobile Observation P0 Design — 2026-07-18
 
-Status: Phase 0 implemented (2026-07-18)、Phase 1 proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
+Status: Phase 0 implemented (2026-07-18)、Phase 1 P1.1 implemented (2026-07-19)、P1.2–P1.5 proposed。入力は同日4監査。過剰設計を避け、既存FastAPI / SQLite / MQTT / PostgreSQLを維持する。
 
 ## 1. 決定
 
@@ -61,6 +61,9 @@ Phase 0 acceptance:
 6. bridge outbox workerがMQTTとBackend observation APIへretryする。
 7. Backendは`observation_id UNIQUE`でhistoryを冪等insertする。
 8. Brainはmetadataを保持し、同一IDのrule / wake / learner side effectを一度だけ実行する。
+
+P1.1では手順7のBackend canonical storeとinternal observation endpointまでを実装した。
+bridge inbox/outbox、mobile/Android producer、MQTT metadata、Brain side-effect dedupはP1.2–P1.5であり、まだ配線していない。
 
 standalone Health Connectの複合batchは、HR sample、daily steps、sleep sessionなど時間意味が違うためadapterで複数observationへ分割する。
 
@@ -128,15 +131,14 @@ Compatibility rollout:
 
 ## 7. DB migration / rollback
 
-Versioned migrationで以下を加算する。
+P1.1のversioned migration `0003_canonical_biometric_store`で次を実装した。
 
-- `biometric_readings`: `observation_id` nullable unique、`source_ts`、interval、aggregation、device_id、schema_version、received_at。
-- 既存rowは`observation_id=NULL`, `aggregation=legacy_snapshot`。自動で観測へ推定変換しない。
-- `biometric_latest`: singleton/profile key、typed payload JSON、generated_at、updated_at。
-- Backend `biometric_delivery_outbox`: observation ID、payload、status、attempt metadata。
-- bridge SQLite `inbox`とmulti-destination `outbox`。既存send queue rowはMQTT destinationとして移行する。
+- `biometric_observations`: immutable canonical history。observation ID unique、payload hash、provider/device/source timestamp、interval、aggregation、typed metrics、received timestampを保持。
+- `biometric_latest`: Brain cognitive cycle snapshot用singleton projection。`POST /biometric/snapshot`と`GET /biometric/`の専用保存先。
+- `biometric_readings`: legacy historyとして保持。既存rowにobservation identityを推定付与せず、最新rowのみ`biometric_latest`の初期値へcopyする。
+- downgradeはcanonical historyのデータ喪失になるため拒否する。
 
-Rollbackは加算column/tableを残し、feature flagでlegacy snapshot/MQTTへ戻す。未送信outboxは削除しない。
+Backend `biometric_delivery_outbox`、bridge SQLite `inbox` / multi-destination `outbox`はP1.2以降の未実装範囲である。未送信outboxは将来のrollbackでも削除しない。
 `BIOMETRIC_CANONICAL_INGEST_ENABLED`と`BIOMETRIC_MQTT_ENVELOPE_ENABLED`を独立toggleにする。
 
 ## 8. 段階別acceptance tests

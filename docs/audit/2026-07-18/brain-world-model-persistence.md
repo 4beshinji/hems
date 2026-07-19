@@ -2,6 +2,10 @@
 
 対象リビジョン: `3a91dac` (`main`)
 
+Status as of 2026-07-19: biometric P0/P1.1でBrain cycle writeは`biometric_latest`専用となり、Backendに
+stable ID/source metadata付き`biometric_observations`を追加した。Brainはcanonical historyを作らない。
+bridge/mobileからのobservation deliveryとBrain side-effect dedupは未配線である。
+
 ## 1. 対象と検証方法
 
 対象:
@@ -29,7 +33,7 @@ Brain内には同じ観測の異なる表現が複数存在する。
 | WorldModel short history | event ring / biometric deque / fusion counter | domainごとに個別実装 | process-local |
 | Brain event_store | sensor、decision、learning用data mart | `events` schema / SQLite | DB。ただしwriter bufferはprocess-local |
 | Backend latest projection | Frontend read model | cycleごとのHTTP snapshot | 多くはprocess-local dict |
-| Backend observation history | timeseries / biometric | Backend DB | DBだがcycle snapshotを観測としてinsert |
+| Backend observation history | timeseries / biometric | Backend DB | biometricはP1.1でimmutable storeへ分離済み。timeseriesのcycle snapshot insertは継続 |
 
 この多層化自体は妥当になり得る。しかし「runtime cache」「latest projection」「canonical observation」
 「learning mart」の境界がcontractやdocに明記されず、同じ値の多重登録と欠落が同時に起きている。
@@ -232,7 +236,7 @@ domain repositoryやaggregate rootを増やすより、typed event envelopeとow
 | Brainの物理sensor分析mart | 可 | 現在の主目的。loss許容度と容量を明記する必要あり |
 | LLM decision / learning trajectory | 条件付き可 | Backendとのownerとglobal IDを整理する |
 | Mobile durable outbox | 不可 | DB transaction連携なし、bufferがmemory、delivery stateなし |
-| Canonical biometric observation store | 不可 | topic未収集、source ID/timestamp/provider/unique制約なし |
+| Canonical biometric observation store | Backendで可 | P1.1でsource ID/timestamp/provider/unique/hashを実装。producer配線は未実装 |
 | 全MQTT audit log / replay log | 不可 | topic coverageが選択的で順序・offsetを保持しない |
 
 拡張する場合も、Backendのtransactional outboxとBrain analytic event storeを同一概念にしない。

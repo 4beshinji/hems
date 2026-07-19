@@ -4,11 +4,11 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import BiometricReading
+from models import BiometricLatest, BiometricReading
 from schemas import BiometricSnapshotIn
 
 router = APIRouter(prefix="/biometric", tags=["biometric"])
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @router.get("/")
 async def get_biometric(db: AsyncSession = Depends(get_db)):
     """Get latest biometric data."""
-    result = await db.execute(select(BiometricReading).order_by(desc(BiometricReading.recorded_at)).limit(1))
+    result = await db.execute(select(BiometricLatest).where(BiometricLatest.id == 1))
     reading = result.scalar_one_or_none()
     if not reading:
         return {"status": "no_data"}
@@ -46,24 +46,25 @@ async def update_biometric(data: BiometricSnapshotIn, db: AsyncSession = Depends
         logger.warning("Legacy flat biometric snapshot received; migrate caller to the nested contract")
 
     values = data.to_flat_columns()
-    result = await db.execute(select(BiometricReading).order_by(desc(BiometricReading.id)).limit(1))
+    result = await db.execute(select(BiometricLatest).where(BiometricLatest.id == 1))
     reading = result.scalar_one_or_none()
     if reading is None:
-        reading = BiometricReading(**values)
+        reading = BiometricLatest(id=1, **values)
         db.add(reading)
     else:
         for field, value in values.items():
             setattr(reading, field, value)
-        reading.recorded_at = datetime.now(UTC)
+        reading.updated_at = datetime.now(UTC)
     await db.commit()
 
     return {"updated": True}
 
 
-def _reading_to_dict(reading: BiometricReading) -> dict:
+def _reading_to_dict(reading: BiometricReading | BiometricLatest) -> dict:
     result = {"provider": reading.provider}
-    if reading.recorded_at:
-        result["recorded_at"] = reading.recorded_at.isoformat()
+    timestamp = getattr(reading, "updated_at", None) or getattr(reading, "recorded_at", None)
+    if timestamp:
+        result["recorded_at"] = timestamp.isoformat()
     for col in (
         "heart_rate",
         "resting_heart_rate",

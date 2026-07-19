@@ -24,7 +24,7 @@
 
 | Row | 内容 | 受け入れ条件 | 状態 |
 |---|---|---|---|
-| P1.1 | observation envelopeとBackend history schema | ID/source timestamp/aggregation保持、同一ID冪等 | Pending |
+| P1.1 | observation envelopeとBackend history schema | ID/source timestamp/aggregation保持、同一ID冪等 | Done (2026-07-19) |
 | P1.2 | bridge transactional inbox/outbox + private ingest | commit後のみ2xx、再起動後delivery継続 | Pending |
 | P1.3 | mobile Backend outbox→bridge合流 | mobile biometricがcanonical MQTT/historyへ一度だけ到達 | Pending |
 | P1.4 | Android strict HMAC + durable outbox + permission wiring | nonce/timestamp対応、offline lossなし | Pending |

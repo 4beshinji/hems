@@ -80,9 +80,10 @@ Extends the parent `hems/CLAUDE.md` (entry, build/run, MQTT topics, ports). Read
   - 注記: `chat.py` は Brain HTTP エンドポイントへリクエストをプロキシする。詳細は「認証」節の internal-token 解説を参照
 
 - **Biometrics**
-  - Model: `BiometricReading` (`models.py`)
-  - Router: `routers/biometric.py`
-  - 責務: 生体センサーデータの受信・履歴・集計
+  - Models: `BiometricLatest` (Brain cycle latest projection), `BiometricObservation` (immutable canonical history), `BiometricReading` (legacy history) (`models.py`)
+  - Dashboard router: `routers/biometric.py` — `POST /biometric/snapshot` / `GET /biometric/` は`biometric_latest`をupsert/readし、`GET /biometric/history`は互換期間中`biometric_readings`を読む
+  - Internal router: `routers/biometric_internal.py` — `POST /internal/biometric/observations`は`HEMS_INTERNAL_TOKEN`で保護し、stable observation IDとcanonical payload hashで同一payloadを冪等化、異なるpayloadを409にする
+  - 責務: latest projectionとcanonical observation historyの分離。bridge/mobile producerのこのinternal endpointへの配線は未実装
 
 - **Shopping & Intelligence**
   - Models: `ShoppingItem`, `PurchaseHistory`, `ClassifierCache`, `SystemStats` (`models.py`)

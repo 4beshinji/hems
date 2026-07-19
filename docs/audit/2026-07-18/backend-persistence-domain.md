@@ -2,6 +2,10 @@
 
 対象リビジョン: `6310df0` (`main`)
 
+Status as of 2026-07-19: biometric P0/P1.1でcycle latestを`biometric_latest`、canonical source historyを
+`biometric_observations`、既存rowをlegacy `biometric_readings`に分離した。stable ID/source metadata/payload hashの
+internal-token endpointは実装済みだが、mobile/bridge outboxとproducer配線は未実装である。
+
 ## 1. 対象と検証方法
 
 対象:
@@ -30,7 +34,7 @@ Backendは一枚岩の永続SoTではなく、実際には四種類の保存方�
 |---|---|---|---|
 | CRUD SoT | Task, Device, ShoppingItem, Conversation | Backend DB | 概ね妥当だがidempotencyと自然キー不足 |
 | latest projection | zones/weather/news/home/pc等 | router module-global dict | process-local、restart消失、stale判定なし |
-| observation history | TimeSeriesPoint, BiometricReading | Backend DB | current snapshotを周期insertし観測とsnapshotを混同 |
+| observation history | TimeSeriesPoint, BiometricObservation (`BiometricReading`はlegacy) | Backend DB | biometricはP1.1でcanonical history/latest分離済み。timeseriesのcycle snapshot混同は継続 |
 | learning/audit event | feedback, trajectory, approval audit | Backend DB + MQTT + Brain event_store | 二重所有、dedupなし、未配線・JSON mutation問題 |
 
 この違いをAPI名が表していない。`POST /.../snapshot` が単なるcache replacementの場合とhistory insertの場合があり、呼出側は同じ `DashboardTransport.post_snapshot()` を使う。

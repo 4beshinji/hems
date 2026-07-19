@@ -11,7 +11,8 @@
 | P0.3b legacy bootstrap / reconciliation | Done | `a56afe6` | SQLite focused pytest 7 passed。empty/full/partial→head、sentinel/未知schema保持、二度目no-op、missing baseline/type/unknown revision fatal |
 | P0.3c migration-first runtime cutover | Done | this commit | SQLite/entrypoint focused 10 passed、PostgreSQL 16 integration 1 passed (10.19s)、compose通常/lite・env check pass |
 | P0.4 mobile non-biometric reducer | Pending | — | — |
-| P1.1–P1.5 canonical observation | Pending | — | — |
+| P1.1 observation envelope / Backend canonical store | Done | this commit | typed UTC envelope、immutable observation ID冪等/409、internal-token auth、latest/history分離、SQLite migration/model/route focused 12 passed |
+| P1.2–P1.5 delivery / producers / MQTT side-effect dedup | Pending | — | bridge/mobile/MQTT/Android wiringは未変更 |
 
 監査文書だけのcommit:
 
