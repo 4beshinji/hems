@@ -673,8 +673,7 @@ services:
       - MQTT_USER=hems-perception
       - MQTT_PASS=${MQTT_PASS:?Set MQTT_PASS in .env}
       - HEMS_PERCEPTION_CAMERAS=${HEMS_PERCEPTION_CAMERAS:-[]}
-      - HEMS_PERCEPTION_MODEL=${HEMS_PERCEPTION_MODEL:-yolo11s.pt}
-      - HEMS_PERCEPTION_POSE_MODEL=${HEMS_PERCEPTION_POSE_MODEL:-yolo11s-pose.pt}
+      - HEMS_PERCEPTION_POSE_MODEL=${HEMS_PERCEPTION_POSE_MODEL:-https://download.openmmlab.com/mmpose/v1/projects/rtmo/onnx_sdk/rtmo-s_8xb32-600e_body7-640x640-dac2bf74_20231211.zip}
       - HEMS_PERCEPTION_CONFIDENCE=${HEMS_PERCEPTION_CONFIDENCE:-0.5}
       - HEMS_PERCEPTION_INTERVAL=${HEMS_PERCEPTION_INTERVAL:-5}
       - VLM_ENABLED=${VLM_ENABLED:-false}
@@ -692,7 +691,7 @@ services:
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
       - ../services/perception/src:/app
-      - hems_perception_models:/root/.cache
+      - hems_perception_models:/app/.cache
     networks:
       - hems-net
     healthcheck:

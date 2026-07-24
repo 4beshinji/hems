@@ -1,5 +1,6 @@
 """Test biometric-bridge does not double-publish steps on /steps and /activity."""
 
+import importlib.util
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -10,15 +11,35 @@ import pytest
 @pytest.fixture
 def bridge_main():
     bridge_src = str(Path(__file__).resolve().parent.parent / "services" / "biometric-bridge" / "src")
-    if bridge_src not in sys.path:
-        sys.path.insert(0, bridge_src)
-    import importlib
+    module_names = {
+        name
+        for name in sys.modules
+        if name in {"main", "config", "data_processor", "send_queue", "providers"} or name.startswith("providers.")
+    }
+    previous_modules = {name: sys.modules[name] for name in module_names}
+    for name in module_names:
+        sys.modules.pop(name, None)
 
-    import main as bridge_main_module
-
-    importlib.reload(bridge_main_module)
-    bridge_main_module.processor._recent.clear()
-    return bridge_main_module
+    sys.path.insert(0, bridge_src)
+    alias = "biometric_bridge_steps_main"
+    try:
+        spec = importlib.util.spec_from_file_location(alias, Path(bridge_src) / "main.py")
+        bridge_main_module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        sys.modules[alias] = bridge_main_module
+        spec.loader.exec_module(bridge_main_module)
+        bridge_main_module.processor._recent.clear()
+        yield bridge_main_module
+    finally:
+        sys.path.remove(bridge_src)
+        for name in list(sys.modules):
+            if (
+                name == alias
+                or name in {"main", "config", "data_processor", "send_queue", "providers"}
+                or name.startswith("providers.")
+            ):
+                sys.modules.pop(name, None)
+        sys.modules.update(previous_modules)
 
 
 def _make_reading(bridge_main):

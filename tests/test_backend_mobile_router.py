@@ -78,12 +78,15 @@ def client(monkeypatch, tmp_path):
     async def _create():
         async with database.engine.begin() as conn:
             await conn.run_sync(database.Base.metadata.create_all)
+        await database.engine.dispose()
 
-    asyncio.new_event_loop().run_until_complete(_create())
+    asyncio.run(_create())
 
     from fastapi.testclient import TestClient
 
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
+    asyncio.run(database.engine.dispose())
 
 
 def _admin_headers() -> dict:

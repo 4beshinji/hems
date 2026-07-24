@@ -105,7 +105,7 @@ def test_postgres_fresh_partial_and_events_schema_isolation():
 
     _bootstrap()
     current = _alembic("current")
-    assert "0004_mobile_observation_foundation (head)" in current.stdout
+    assert "0004_mobile_observation (head)" in current.stdout
     fresh_fingerprint = _public_fingerprint()
     _bootstrap()
     assert _public_fingerprint() == fresh_fingerprint

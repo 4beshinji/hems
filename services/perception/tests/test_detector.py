@@ -6,14 +6,18 @@ main depend on, and the RTMO zero-sentinel handling (RTMO returns a single
 zero-filled "person" when a frame has no detection).
 """
 
-import sys
+import importlib.util
 from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from detector import Detector, FrameResult
+_DETECTOR_PATH = Path(__file__).resolve().parents[1] / "src" / "detector.py"
+_SPEC = importlib.util.spec_from_file_location("perception_detector_contract", _DETECTOR_PATH)
+_DETECTOR = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+_SPEC.loader.exec_module(_DETECTOR)
+Detector = _DETECTOR.Detector
+FrameResult = _DETECTOR.FrameResult
 
 
 class _StubRTMO:

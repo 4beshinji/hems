@@ -24,6 +24,14 @@ IS_POSTGRES = "postgresql" in os.getenv("DATABASE_URL", "")
 # Schema-qualified table prefix: Postgres groups the data-mart tables under the
 # `events` schema; SQLite keeps them in the default schema.
 TABLE_PREFIX = "events." if IS_POSTGRES else ""
+_DATETIME_COLUMNS = frozenset({"timestamp", "created_at", "completed_at", "recorded_at", "evaluated_at"})
+
+
+def _db_datetime(value: Any) -> Any:
+    """Return a native datetime for asyncpg while preserving SQLite strings."""
+    if not IS_POSTGRES or not isinstance(value, str):
+        return value
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 class EventWriter:
@@ -372,7 +380,12 @@ class EventWriter:
                           AND timestamp >= :start AND timestamp < :end
                           AND data->>'value' ~ '^-?[0-9]+\.?[0-9]*([eE][+-]?[0-9]+)?$'
                     """),
-                    {"zone": zone, "channel": channel, "start": start_str, "end": end_str},
+                    {
+                        "zone": zone,
+                        "channel": channel,
+                        "start": start_dt,
+                        "end": start_dt + timedelta(seconds=window_sec),
+                    },
                 )
             else:
                 row = await conn.execute(
@@ -397,7 +410,7 @@ class EventWriter:
     ):
         """Persist the post value + verdict (+ optional score) for one efficacy row (UPDATE)."""
         tp = TABLE_PREFIX
-        now_str = datetime.now(UTC).isoformat()
+        now = datetime.now(UTC)
         async with self._engine.begin() as conn:
             await conn.execute(
                 text(f"""
@@ -412,7 +425,7 @@ class EventWriter:
                     "row_id": row_id,
                     "post_value": post_value,
                     "verdict": verdict,
-                    "evaluated_at": now_str,
+                    "evaluated_at": now if IS_POSTGRES else now.isoformat(),
                     "efficacy_score": efficacy_score,
                 },
             )
@@ -447,10 +460,17 @@ class EventWriter:
         """
         col_list = ", ".join(cols)
         if IS_POSTGRES:
+            postgres_rows = [
+                {
+                    **row,
+                    **{column: _db_datetime(row[column]) for column in cols if column in _DATETIME_COLUMNS},
+                }
+                for row in rows
+            ]
             values = ", ".join(f"CAST(:{c} AS jsonb)" if c in jsonb_cols else f":{c}" for c in cols)
             await conn.execute(
                 text(f"INSERT INTO {TABLE_PREFIX}{table} ({col_list}) VALUES ({values})"),
-                rows,
+                postgres_rows,
             )
         else:
             values = ", ".join(f":{c}" for c in cols)
@@ -574,7 +594,7 @@ class EventWriter:
                                 SET completed_at = :completed_at
                                 WHERE task_id = :task_id AND completed_at IS NULL
                             """),
-                            iv,
+                            {**iv, "completed_at": _db_datetime(iv["completed_at"])},
                         )
                     logger.debug("Flushed {} intervention completions", len(iv_completed))
 
@@ -586,7 +606,8 @@ class EventWriter:
                         for col in ("human_decision", "rolled_back", "rollback_success"):
                             if col in iv:
                                 fields.append(f"{col} = :{col}")
-                                params[col] = iv[col]
+                                value = iv[col]
+                                params[col] = bool(value) if IS_POSTGRES and value is not None else value
                         if not fields:
                             continue
                         # Backend-agnostic "latest row for approval_id" update.

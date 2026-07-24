@@ -68,6 +68,7 @@ class MqttPublisher:
         self._raise_on_connect_error = raise_on_connect_error
         self._track_connection = track_connection
         self._connected = False
+        self._subscriptions: set[str] = set()
 
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
         if user:
@@ -96,6 +97,9 @@ class MqttPublisher:
         if rc == 0:
             self._connected = True
             logger.info(f"MQTT connected to {self._broker}:{self._port}")
+            for topic in self._subscriptions:
+                self.client.subscribe(topic)
+                logger.debug(f"MQTT subscribed to {topic}")
         else:
             self._connected = False
             logger.warning(f"MQTT connect failed with rc={rc}")
@@ -172,7 +176,8 @@ class MqttPublisher:
         self._message_callback = callback
 
     def subscribe(self, topic: str) -> None:
-        """Subscribe to an MQTT topic and route messages to the callback."""
+        """Subscribe now and again after every successful reconnect."""
+        self._subscriptions.add(topic)
         self.client.subscribe(topic)
         logger.debug(f"MQTT subscribed to {topic}")
 

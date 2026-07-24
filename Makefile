@@ -1,4 +1,4 @@
-.PHONY: lint format test test-quick build-frontend docker-build security ci clean help quickstart quickstart-sqlite backend-run
+.PHONY: lint format test test-quick test-e2e test-lite-e2e build-frontend docker-build security ci clean help quickstart quickstart-sqlite backend-run
 
 export PYTHONPATH := services/brain/src:services/backend
 
@@ -46,6 +46,12 @@ test-quick: ## Run pytest without coverage (faster)
 	pytest tests/ services/brain/tests/ \
 		-v --tb=short \
 		-m "not integration and not e2e and not benchmark"
+
+test-e2e: ## Test a running core stack end-to-end
+	python3 infra/scripts/integration_test.py
+
+test-lite-e2e: ## Test a running Lite stack end-to-end
+	python3 infra/scripts/lite_integration_test.py
 
 # -- Frontend -----------------------------------------------------------------
 

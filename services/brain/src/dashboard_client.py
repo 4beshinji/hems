@@ -136,7 +136,9 @@ class DashboardClient:
     async def get_active_tasks(self) -> list:
         """Get active (non-completed) tasks from backend."""
         result = await self._transport.get_json("/tasks/")
-        return result if isinstance(result, list) else []
+        if not isinstance(result, list):
+            return []
+        return [task for task in result if not task.get("is_completed", False)]
 
     async def get_task_stats(self) -> dict:
         """Fetch task statistics from backend."""

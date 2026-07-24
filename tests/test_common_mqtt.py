@@ -187,6 +187,27 @@ def test_subscribe_calls_client_subscribe():
     pub.client.subscribe.assert_called_once_with("hems/perception/vlm/+")
 
 
+def test_on_connect_resubscribes_registered_topics():
+    pub = _make_pub(_connected=False)
+    pub.subscribe("hems/sensors/#")
+    pub.client.subscribe.reset_mock()
+
+    pub._on_connect(None, None, None, 0)
+
+    pub.client.subscribe.assert_called_once_with("hems/sensors/#")
+
+
+def test_on_reconnect_deduplicates_registered_topics():
+    pub = _make_pub(_connected=False)
+    pub.subscribe("hems/sensors/#")
+    pub.subscribe("hems/sensors/#")
+    pub.client.subscribe.reset_mock()
+
+    pub._on_connect(None, None, None, 0)
+
+    pub.client.subscribe.assert_called_once_with("hems/sensors/#")
+
+
 def test_set_message_callback_stores_callback():
     pub = _make_pub()
 

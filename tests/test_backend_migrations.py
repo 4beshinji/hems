@@ -170,7 +170,7 @@ def test_fresh_upgrade_is_at_head_idempotent_and_matches_metadata(tmp_path):
     before = _schema_fingerprint(database)
 
     current = _run_alembic(database, "current")
-    assert "0004_mobile_observation_foundation (head)" in current.stdout
+    assert "0004_mobile_observation (head)" in current.stdout
 
     _run_alembic(database, "upgrade", "head")
     assert _schema_fingerprint(database) == before
@@ -191,19 +191,32 @@ def test_bootstrap_reconciles_full_legacy_and_preserves_unknown_schema(tmp_path)
 
     _run_bootstrap(database)
 
-    assert Path(f"{database}.pre-0004_mobile_observation_foundation.bak").is_file()
+    assert Path(f"{database}.pre-0004_mobile_observation.bak").is_file()
     assert _tables(database) >= HEAD_BACKEND_TABLES | {"alembic_version", "external_plugin_data"}
     assert "legacy_extra" in _columns(database, "tasks")
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT title FROM tasks").fetchall() == [("sentinel-full",)]
         assert connection.execute("SELECT value FROM external_plugin_data").fetchall() == [("keep-me",)]
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0004_mobile_observation_foundation",
-        )
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0004_mobile_observation",)
 
     before = _schema_fingerprint(database)
     _run_bootstrap(database)
     assert _schema_fingerprint(database) == before
+
+
+def test_bootstrap_normalizes_legacy_long_head_revision(tmp_path):
+    database = tmp_path / "legacy-long-revision.db"
+    _run_bootstrap(database)
+    before = _schema_fingerprint(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE alembic_version SET version_num = '0004_mobile_observation_foundation'")
+        connection.commit()
+
+    _run_bootstrap(database)
+
+    assert _schema_fingerprint(database) == before
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0004_mobile_observation",)
 
 
 def test_bootstrap_reconciles_partial_legacy_schema(tmp_path):

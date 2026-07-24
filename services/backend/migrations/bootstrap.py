@@ -10,6 +10,8 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.engine import make_url
 
 ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
+LEGACY_MOBILE_OBSERVATION_REVISION = "0004_mobile_observation_foundation"
+MOBILE_OBSERVATION_REVISION = "0004_mobile_observation"
 
 
 def _sqlite_path(database_url: str) -> Path | None:
@@ -35,6 +37,13 @@ def _prepare_sqlite(config: Config, database_url: str) -> None:
             connection.execute("SELECT version_num FROM alembic_version").fetchone() if has_version_table else None
         )
         current_revision = current[0] if current else None
+        if current_revision == LEGACY_MOBILE_OBSERVATION_REVISION:
+            connection.execute(
+                "UPDATE alembic_version SET version_num = ? WHERE version_num = ?",
+                (MOBILE_OBSERVATION_REVISION, LEGACY_MOBILE_OBSERVATION_REVISION),
+            )
+            connection.commit()
+            current_revision = MOBILE_OBSERVATION_REVISION
 
     head = ScriptDirectory.from_config(config).get_current_head()
     if current_revision == head:

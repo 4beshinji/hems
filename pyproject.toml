@@ -15,6 +15,7 @@ exclude = [
     "apps",
     ".venv",
     "__pycache__",
+    "*.md",
 ]
 
 [tool.ruff.lint]

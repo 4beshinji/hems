@@ -168,6 +168,10 @@ class BrainStartupMixin:
         self.world_model.adaptive_manager = self.adaptive_threshold_manager
         self.rule_engine.thresholds = self.adaptive_thresholds
 
+        self.feedback_collector = FeedbackCollector(event_writer=self.event_writer)
+        self.implicit_detector = ImplicitFeedbackDetector(collector=self.feedback_collector)
+        self.outcome_reward = OutcomeRewardCalculator()
+        self.trajectory_recorder = TrajectoryRecorder(event_writer=self.event_writer)
         self.automation_engine = AutomationEngine(
             dispatcher=self.device_dispatcher,
             scene_executor=self.scene_executor,
@@ -191,10 +195,6 @@ class BrainStartupMixin:
             power_mode_manager=self.power_mode_manager,
             event_writer=self.event_writer,
         )
-        self.feedback_collector = FeedbackCollector(event_writer=self.event_writer)
-        self.implicit_detector = ImplicitFeedbackDetector(collector=self.feedback_collector)
-        self.outcome_reward = OutcomeRewardCalculator()
-        self.trajectory_recorder = TrajectoryRecorder(event_writer=self.event_writer)
         self.ambient_speaker = AmbientSpeaker(
             llm_client=self.llm,
             world_model=self.world_model,

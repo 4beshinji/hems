@@ -15,6 +15,7 @@ non-strict: WEBHOOK_REPLAY_STRICT=false (default) → legacy accepted with WARNI
 
 import hashlib
 import hmac as _hmac
+import importlib.util
 import json
 import sys
 import time
@@ -335,8 +336,10 @@ def _make_bio_client(monkeypatch, strict: bool):
     so that successfully-authenticated webhook calls don't crash trying to
     reach real infrastructure.
     """
-    if str(_BIOMETRIC_PATH) not in sys.path:
-        sys.path.insert(0, str(_BIOMETRIC_PATH))
+    biometric_path = str(_BIOMETRIC_PATH)
+    while biometric_path in sys.path:
+        sys.path.remove(biometric_path)
+    sys.path.insert(0, biometric_path)
 
     monkeypatch.setenv("BIOMETRIC_WEBHOOK_SECRET", _BIOMETRIC_SECRET)
     if strict:
@@ -365,7 +368,12 @@ def _make_bio_client(monkeypatch, strict: bool):
         patch("providers.gadgetbridge.GadgetbridgeProvider"),
         patch("data_processor.DataProcessor"),
     ):
-        import main as bio_main
+        alias = "biometric_bridge_webhook_main"
+        spec = importlib.util.spec_from_file_location(alias, _BIOMETRIC_PATH / "main.py")
+        bio_main = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        sys.modules[alias] = bio_main
+        spec.loader.exec_module(bio_main)
 
     # Patch the module-level objects that the webhook handler uses after auth.
     from data_processor import BiometricReading

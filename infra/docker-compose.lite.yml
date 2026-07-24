@@ -161,7 +161,7 @@ services:
       - TZ=${TZ:-Asia/Tokyo}
     volumes:
       - ../services/perception/src:/app
-      - hems_lite_perception_models:/root/.cache
+      - hems_lite_perception_models:/app/.cache
     networks:
       - hems-lite-net
     healthcheck:
