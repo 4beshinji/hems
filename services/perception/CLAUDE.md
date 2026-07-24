@@ -13,7 +13,7 @@ VLM (Vision Language Model) integration via Ollama for scene understanding.
   - Single-pass person detection + skeleton keypoint extraction
   - Posture classification (standing/sitting/lying/walking) from COCO 17 keypoints
   - Activity level (0.0-1.0) with EMA smoothing + tiered pose buffer
-  - Publishes to `office/{zone}/camera/{cam_id}/status` and `office/{zone}/activity/{cam_id}`
+  - Publishes to `hems/sensors/{zone}/camera/{cam_id}/status` and `hems/sensors/{zone}/activity/{cam_id}`
 - **VLM integration** (optional, requires `--profile ollama` + `VLM_ENABLED=true`):
   - Default strategy A — single-model unification: both light & heavy tiers reuse the chat brain (`gemma4:e4b-it-q8_0`, vision+thinking-capable). Saves a model swap and ~3 GB of VRAM. `vlm_analyzer` sends `think: false` so Gemma's thinking trace doesn't eat the response budget.
   - Strategy B (separate small VLMs) still supported by overriding `VLM_LIGHT_MODEL` / `VLM_HEAVY_MODEL` (e.g. `moondream` / `minicpm-v`).
@@ -24,6 +24,7 @@ VLM (Vision Language Model) integration via Ollama for scene understanding.
   - Publishes to `hems/perception/vlm/{zone}`, `hems/perception/vlm/status`, `hems/perception/vlm/model_swap`
 - **Deploy**: Configure cameras in `HEMS_PERCEPTION_CAMERAS` env var (JSON array)
 - **Profile**: `docker compose --profile perception up -d --build`
+- **Model cache**: The RTMO weights are baked into `/app/.cache/rtmlib`; Compose mounts the persistent cache at `/app/.cache`
 - **Brain integration**: WorldModel receives occupancy + activity + VLM scene data via MQTT, Rule Engine triggers sedentary alerts, sleep detection, and VLM anomaly alerts
 - **Brain tools** (profile `perception`): `get_perception_status`, `describe_scene` (VLM on-demand), `list_scene_objects`, `get_scene_timeline`, `list_cameras`, `get_vlm_status`, `get_activity_history`
 - **Privacy**: RAM-only processing, no image storage, person class only (no face recognition), all local

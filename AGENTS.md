@@ -150,6 +150,8 @@ make lint          # ruff check . && ruff format --check .
 make format        # ruff check --fix . && ruff format .
 make test          # pytest tests/ services/brain/tests/ with coverage
 make test-quick    # same tests without coverage (faster)
+make test-e2e      # running Core stack: HTTP/MQTT/Brain/PostgreSQL E2E
+make test-lite-e2e # running Lite stack: MQTT/Sentinel/Notifier E2E
 make build-frontend
 make docker-base   # build hems-base:py3.11
 make docker-build  # build all core images (after docker-base)
@@ -311,6 +313,8 @@ Run commands:
 ```bash
 make test-quick   # no coverage, fastest feedback loop
 make test         # with coverage report
+make test-e2e     # requires a running Core stack
+make test-lite-e2e # requires a running Lite stack
 ```
 
 Both exclude tests marked `integration`, `e2e`, or `benchmark`. To run those explicitly:

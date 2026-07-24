@@ -33,6 +33,13 @@
 | P1.4 | Android strict HMAC + durable outbox + permission wiring | nonce/timestamp対応、offline lossなし | Pending |
 | P1.5 | MQTT metadataとBrain side-effect dedup | retained/retryでwake/learning一度だけ | Pending |
 
+## 2026-07-25 post-merge verification
+
+P0.3 の PostgreSQL 受け入れ条件を fresh Docker volume で再検証した際、P1.3a で追加された revision ID
+`0004_mobile_observation_foundation` が Alembic 標準の `version_num VARCHAR(32)` を超えることを検出した。
+revision ID を `0004_mobile_observation` に短縮し、旧 ID を持つ SQLite DB は bootstrap 時に正規化する。
+専用 PostgreSQL 16 DB で fresh / partial / idempotent migration と `events` schema 非干渉を再検証済み。
+
 ## 共通ゲート
 
 ```bash

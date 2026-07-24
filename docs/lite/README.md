@@ -832,6 +832,9 @@ python -m pytest tests/lite/ -v
 python -m pytest tests/lite/test_rules.py -v        # ルールエンジン
 python -m pytest tests/lite/test_gray_zone.py -v     # グレーゾーン検出
 python -m pytest tests/lite/test_escalation.py -v    # LLMエスカレーション
+
+# 起動済みLite stackのMQTT → Sentinel → Notifier E2E
+make test-lite-e2e
 ```
 
 テスト内容 (38件):

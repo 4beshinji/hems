@@ -184,7 +184,8 @@ Device Registry persistent 層。以下を参照: `services/backend/models.py` �
 #### Backend schema revision owner / startup order
 
 - Backend `public` schemaのrevision SoTは`services/backend/migrations/versions/`。現在のheadは
-  `0004_mobile_observation_foundation`で、`migrations.bootstrap`がempty/unversioned/versioned DBを検証して`upgrade head`する。
+  `0004_mobile_observation`（file: `0004_mobile_observation_foundation.py`）で、`migrations.bootstrap`が
+  empty/unversioned/versioned DBを検証して`upgrade head`する。旧 SQLite DB の長い revision ID は bootstrap が正規化する。
 - Containerとローカル`make backend-run`は`entrypoint.py`を通り、migration成功後にだけUvicornを`exec`する。
   revision不整合・未知revision・DB接続失敗時はAPI/health endpointを公開しない。
 - `main.py::lifespan`はdevice identifier auditとretention taskのみを所有し、DDLを実行しない。
@@ -198,6 +199,7 @@ Verification:
 make backend-run
 pytest tests/test_backend_migrations.py tests/test_backend_entrypoint.py -q
 TEST_POSTGRES_URL=postgresql+asyncpg://... pytest tests/integration/test_backend_migrations_postgres.py -q -m integration
+TEST_POSTGRES_URL=postgresql+asyncpg://... pytest tests/integration/test_event_store_postgres.py -q -m integration
 ```
 
 ### 2.4 Biometric persistence boundary

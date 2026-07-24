@@ -203,11 +203,24 @@ done
 
 ## ドキュメント同期チェックリスト
 
-- [ ] `docs/audit/2026-05-30-review/` を追加後、`docs/audit/README.md` または `CLAUDE.md` の audit index からリンクする
-- [ ] RTMO 変更に伴い `services/perception/CLAUDE.md` / `docs/IMPLEMENTATION_MAP.md` §perception を更新する
-- [ ] lite サービス追加後、`docs/IMPLEMENTATION_MAP.md` §services / env カバレッジに `notifier` / `sentinel` を追加する
-- [ ] `env.lite.example` の変数を `docs/IMPLEMENTATION_MAP.md` または `env.example` コメントに反映する（必要に応じて）
-- [ ] 本計画の `LEDGER.md` に各 Phase の進捗を記録する
+- [x] `docs/audit/2026-05-30-review/` を追加後、`docs/audit/README.md` または `CLAUDE.md` の audit index からリンクする
+- [x] RTMO 変更に伴い `services/perception/CLAUDE.md` / `docs/IMPLEMENTATION_MAP.md` §perception を更新する
+- [x] lite サービス追加後、`docs/IMPLEMENTATION_MAP.md` §services / env カバレッジに `notifier` / `sentinel` を追加する
+- [x] `env.lite.example` の変数を `docs/IMPLEMENTATION_MAP.md` または `env.example` コメントに反映する（必要に応じて）
+- [x] 本計画の `LEDGER.md` に各 Phase の進捗を記録する
+
+## Phase 6 — マージ後 E2E 検証（2026-07-25）
+
+統合時の focused test / image build だけでは検出できなかった cross-service 不整合を、隔離した Docker Compose
+環境で再検証した。Core は PostgreSQL 16 + Mock LLM、Lite は Mosquitto + Sentinel + Notifier、Perception は
+同梱 RTMO model のオフライン読込を対象とした。検出・修正内容と実行結果は `LEDGER.md` Phase 6 に記録する。
+
+再実行コマンド:
+
+```bash
+make test-e2e       # 起動済み Core stack
+make test-lite-e2e  # 起動済み Lite stack
+```
 
 ## ロールバック方針
 

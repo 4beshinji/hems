@@ -7,9 +7,9 @@
 | P0.1 task stats DB portability | Done | `3a91dac` | focused pytest 2 passed、target ruff pass |
 | P0.2a biometric snapshot schema / mapping | Done | `162de5d` | 非DB focused pytest 2 passed、target ruff pass。既存`tests/test_backend_biometric_router.py` fixture testは60秒間無出力のままtimeout (exit 124) |
 | P0.2b latest update / history insert停止 | Done | `162de5d` | fake sessionで100 cycle / add 1回 / commit 100回を検証。既存`tests/test_backend_biometric_router.py` fixture testは60秒間無出力のままtimeout (exit 124) |
-| P0.3a Alembic scaffolding / baseline | Done | `db5757e` | fresh SQLite focused pytest 2 passed、30 tables、0001/0002分離、二度目no-op、current=head、metadata driftなし。P0.3cでPostgreSQL gate通過 |
+| P0.3a Alembic scaffolding / baseline | Done | `db5757e` + this commit | fresh SQLite focused pytest、30 tables、0001/0002分離、二度目no-op、current=head、metadata driftなし。2026-07-25 に長すぎる P1.3a revision ID を修正し PostgreSQL gate を再実行 |
 | P0.3b legacy bootstrap / reconciliation | Done | `a56afe6` | SQLite focused pytest 7 passed。empty/full/partial→head、sentinel/未知schema保持、二度目no-op、missing baseline/type/unknown revision fatal |
-| P0.3c migration-first runtime cutover | Done | this commit | SQLite/entrypoint focused 10 passed、PostgreSQL 16 integration 1 passed (10.19s)、compose通常/lite・env check pass |
+| P0.3c migration-first runtime cutover | Done | this commit | SQLite migration 10 passed、PostgreSQL 16 fresh/partial/idempotent migration + events schema isolation 1 passed、Brain event store runtime 1 passed、Core E2E 31/31 passed |
 | P0.4 mobile non-biometric reducer | Pending | — | — |
 | P1.1 observation envelope / Backend canonical store | Done | this commit | typed UTC envelope、immutable observation ID冪等/409、internal-token auth、latest/history分離、SQLite migration/model/route focused 12 passed |
 | P1.2a bridge canonical intake transaction | Done | this commit | shared schema、private auth、inbox+metric/backend outbox atomic commit、duplicate/conflict/rollback/legacy併存 focused 5 passed |

@@ -202,7 +202,7 @@ MQTT heartbeat → Brainキャッシュ更新 → Backend `/devices/heartbeat` �
 | TTS | espeak-ng, VOICEVOX, Edge TTS, VoiSona Talk, A.I.VOICE |
 | STT | faster-whisper, sherpa-onnx, Qwen3-ASR |
 | Search | BM25 + vector (Ollama embeddings) + title boost, RRF |
-| Perception | YOLOv11s-pose, moondream / minicpm-v VLM |
+| Perception | RTMO (rtmlib / ONNX Runtime), moondream / minicpm-v VLM |
 | Infra | Docker Compose, BuildKit, Mosquitto |
 | Edge | MicroPython (ESP32), ESP-NOW/UART/I2C/BLE |
 
@@ -213,6 +213,8 @@ make lint          # ruff check + format check
 make format        # ruff check --fix + format
 make test-quick    # pytest（カバレッジなし）
 make test          # pytest（カバレッジ付き）
+make test-e2e      # 起動済みCore構成のE2E
+make test-lite-e2e # 起動済みLite構成のE2E
 make build-frontend
 make docker-base   # hems-base:py3.11ビルド
 make security      # pip-audit + hadolint
